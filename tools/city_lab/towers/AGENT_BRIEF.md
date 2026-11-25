@@ -21,7 +21,7 @@ City Lab: `tools/city_lab/`. Buildings live in `city_arch.js`. Towers are plug-i
 
 - **Building-local voxels:** 1 voxel = 0.25 m (`L.BV`). x runs along the street (0..W), z goes into the lot (0..D, so z=0 is the street front), y is up.
 - **Lot size:** W and D are typically 72–180 voxels (18–45 m). Fill the lot: no gaps to neighbours at the front.
-- **Inputs:** `spec.floors` is the suggested height (18–44; you may scale it ±50% to suit the concept). `spec.party = {l, r}` marks attached neighbours. `R()` is a seeded random in [0,1). Use it for per-instance variation (proportions, tints, tops) so two copies of your tower differ clearly.
+- **Inputs:** `spec.floors` is the suggested height (18–44; you may scale it ±50% to suit the concept). `spec.party = {l, r, b}` marks attached neighbours (b: a building flush against the back). `R()` is a seeded random in [0,1). Use it for per-instance variation (proportions, tints, tops) so two copies of your tower differ clearly.
 - **Storey height:** `FH = 14` voxels (3.5 m). A lobby storey is typically 18–20.
 
 ## Toolkit (`L = CityArch.lib`)
@@ -62,7 +62,7 @@ Each tier's roof skips the area covered by the next tier, so there are no hidden
 
 ## Rules
 
-- **No coplanar faces.** Two different surfaces in the same plane flicker. Don't stack separate boxes face to face; build parts as one VoxModel, or offset them by at least 1 voxel.
+- **No coplanar faces.** Two different surfaces in the same plane flicker. Don't stack separate boxes face to face; build parts as one VoxModel, or offset them by at least 1 voxel. Check with `node --max-old-space-size=8000 tools/city_lab/dev/zfight.js 1 --raw` (what your geometry produces) and without `--raw` (after the build's z-fight pass, must be 0). The pass resolves leftovers in painter's order (later geometry wins), so emit walls before the parts mounted on them.
 - **No holes.** Nothing may be see-through. Every visible side of every volume must be closed.
 - **Budget:** about 30–90 k triangles per tower (the preview title shows the count). Facade detail comes from reliefs, which are cheap.
 - **Files:** only edit your own `towers/<name>.js` file(s). Do not edit city_arch.js, city_core.js, city_lab.html or other agents' files.

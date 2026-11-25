@@ -297,9 +297,30 @@ function geometryFrom(m) {
   g.computeBoundingSphere();
   return g;
 }
+// split a quad mesh (4 vertices per quad, finish() layout) into square tiles of `cell` units by quad centre
+function splitQuads(m, cell) {
+  const nq = m.pos.length / 12, key = new Int32Array(nq), tiles = new Map();
+  for (let q = 0; q < nq; ++q) {
+    const o = q * 12, x = (m.pos[o] + m.pos[o + 6]) * 0.5, z = (m.pos[o + 2] + m.pos[o + 8]) * 0.5;
+    const k = (Math.floor(x / cell) + 512) * 1024 + Math.floor(z / cell) + 512;
+    key[q] = k; tiles.set(k, (tiles.get(k) || 0) + 1);
+  }
+  const out = new Map();
+  for (const [k, n] of tiles) out.set(k, { pos: new Float32Array(n * 12), mat: new Uint8Array(n * 4), nrm: new Uint8Array(n * 4),
+    nvec: m.nvec ? new Float32Array(n * 12) : null, idx: n * 4 > 65535 ? new Uint32Array(n * 6) : new Uint16Array(n * 6), q: 0 });
+  for (let q = 0; q < nq; ++q) {
+    const t = out.get(key[q]), w = t.q++;
+    t.pos.set(m.pos.subarray(q * 12, q * 12 + 12), w * 12);
+    if (t.nvec) t.nvec.set(m.nvec.subarray(q * 12, q * 12 + 12), w * 12);
+    t.mat.set(m.mat.subarray(q * 4, q * 4 + 4), w * 4); t.nrm.set(m.nrm.subarray(q * 4, q * 4 + 4), w * 4);
+    const b = w * 4, i = w * 6;
+    t.idx[i] = b; t.idx[i + 1] = b + 1; t.idx[i + 2] = b + 2; t.idx[i + 3] = b; t.idx[i + 4] = b + 2; t.idx[i + 5] = b + 3;
+  }
+  return [...out.values()];
+}
 let roadMeshes = [], buildingMesh = null, plotMesh = null;
 function clearWorld() {
-  for (const o of [...world.children]) { o.geometry.dispose(); world.remove(o); }
+  for (const o of [...world.children]) { o.traverse((c) => c.geometry && c.geometry.dispose()); world.remove(o); }
   for (const o of [...overlays.children]) { if (o.geometry) o.geometry.dispose(); overlays.remove(o); }
   roadMeshes = []; buildingMesh = null; plotMesh = null; figureMesh = null; propMeshes = []; lampHeads = [];
 }
@@ -412,9 +433,14 @@ function runFallback(job) {                 // no workers (e.g. opened from disk
 function addBlocks(d) {
   S.stats.plotCount = d.plotCount; S.stats.buildingQuads = d.buildings.quads;
   if (d.buildings.idx.length) {
-    buildingMesh = new THREE.Mesh(geometryFrom(d.buildings), d.buildings.nvec ? MAT_BLOCKS : MAT_CITY);
-    buildingMesh.castShadow = buildingMesh.receiveShadow = true;
-    buildingMesh.scale.setScalar(S.voxel);
+    // one mesh per ~96 m tile, so the camera and the sun's shadow camera skip the tiles they don't see
+    buildingMesh = new THREE.Group();
+    for (const part of splitQuads(d.buildings, 96 / S.voxel)) {
+      const m = new THREE.Mesh(geometryFrom(part), d.buildings.nvec ? MAT_BLOCKS : MAT_CITY);
+      m.castShadow = m.receiveShadow = true;
+      m.scale.setScalar(S.voxel); m.matrixAutoUpdate = false; m.updateMatrix();
+      buildingMesh.add(m);
+    }
     world.add(buildingMesh);
   }
   if (d.plots.idx.length) {
@@ -758,7 +784,7 @@ function updateStats() {
   let gpuBytes = 0, roadTris = 0;
   for (const m of roadMeshes) { const g = m.geometry; gpuBytes += g.attributes.position.array.byteLength + g.attributes.mid.array.byteLength * 2 + g.index.array.byteLength; roadTris += g.index.count / 3; }
   let bTris = 0;
-  if (buildingMesh) { const g = buildingMesh.geometry; bTris = g.index.count / 3; gpuBytes += g.attributes.position.array.byteLength + g.attributes.mid.array.byteLength * 2 + g.index.array.byteLength; }
+  if (buildingMesh) buildingMesh.traverse((o) => { const g = o.geometry; if (!g) return; bTris += g.index.count / 3; gpuBytes += g.attributes.position.array.byteLength + g.attributes.mid.array.byteLength * 2 + g.index.array.byteLength; });
   const net = S.net || { roads: [] };
   const lenKm = net.roads.reduce((a, r) => a + r.pts.reduce((b, p, i) => i ? b + Math.hypot(p[0] - r.pts[i - 1][0], p[1] - r.pts[i - 1][1]) : 0, 0), 0) / 1000;
   const rows = [

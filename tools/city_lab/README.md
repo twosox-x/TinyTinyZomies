@@ -101,3 +101,21 @@ Each high-rise in the core is its own project with a purpose-built base or an ol
 - **Parts.** Crowns, lanterns, masts, cranes, plazas and planters are voxel models meshed as one solid each (no overlapping boxes). The water tank was rebuilt the same way.
 - **Glass.** It reflects sky and street by Fresnel, varies in tone from pane to pane, catches sun glints, and is lit at night. Beacons blink.
 - **Plazas.** Trees and benches line the edge, and only larger plazas get a central kiosk with café tables.
+
+### Geometry checks and z-fighting (dev tools)
+
+The approved downtown is locked by headless checks in `dev/` (run from the repository root; the page checks need Playwright, no http server: files are served from disk by route interception):
+
+| Command | What it does |
+|---|---|
+| `node --max-old-space-size=8000 tools/city_lab/dev/regress.js` | Builds seeds 1–3 and compares every building with `dev/baseline_downtown.json`: kind, type, floors, footprint, a geometry signature, plus the suburban houses, the service-yard dressing and the street-furniture list as single entries, and the z-fighting count (must not grow). `--update` rewrites the baseline; `--seeds=1`, `--no-props`, `--baseline=file`. |
+| `node --max-old-space-size=8000 tools/city_lab/dev/zfight.js [seed]` | Lists coplanar faces that face the same way and overlap (they flicker), by building type, with world positions. `--raw` shows the mesh before the z-fight pass, `--props` adds the street furniture, `--all` includes same-material pairs. |
+| `node tools/city_lab/dev/shots.js` | Three fixed cameras (seed 1, labels and props off, animation clock frozen) compared with `dev/baseline_shots/*.png`; fails above 0.4 % changed pixels and writes red diff images to `/tmp/city_shots`. `--update`, `--root=DIR`, `--props`. |
+| `node tools/city_lab/dev/perf.js` | Page build-time split, draw calls and triangles drawn for a few views. |
+
+- **Geometry signature.** Per building and per (normal, material): surface area and first / second moments of the surface, exact per triangle, so they add up the same however a surface is split into quads. The mesh is first normalised with `CityArch.lib.cullHidden` (zero-area quads, downward faces on the ground, the overlap of opposite-facing coincident faces = two solids pressed flush): removing faces that can never be seen, or merging / re-splitting quads, keeps the hash; moving, recolouring, adding or removing a visible face changes it.
+- **No z-fighting.** Same-facing coplanar overlaps are 0 on seeds 1–3 (approved commit: about 14 800 / 13 100 / 14 600 between different materials). Two fixes:
+  - facade reliefs pull every outer boundary face to the wall plane, including the ends of corner returns that a party wall or a side facade cleared (before, those end faces lay in the plane of the adjacent facade: brick streaks along cast-iron / stone corners, beacon notches);
+  - at the end of `buildAll`, `cullHidden(..., resolve)` settles what is left in painter's order: where two same-facing coplanar faces overlap (within 1 mm, thicker than 5 mm), the one emitted later keeps the overlap and it is cut out of the earlier one (roof-kit parts over decks and parapets, party walls and roof edges of flush neighbours, service-yard dressing on walls). Same-material overlaps shade identically and are only dropped when fully covered.
+- **Hidden faces are kept on purpose.** Flush party walls and undersides are never seen, but the shadow pass renders back faces (three.js `shadowSide`) with ~25 cm texels, so removing them visibly shifts self-shadowing at corners and party walls, and cutting partly covered faces adds more quads than it removes.
+- **Rendering.** Building geometry is split into 96 m tiles, so the camera and the sun's shadow camera skip what they don't see.

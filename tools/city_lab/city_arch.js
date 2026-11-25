@@ -55,11 +55,18 @@ class Emitter {
   }
   N(nx, ny, nz) { return [nx * this.e1[0] + nz * this.e2[0], ny, nx * this.e1[1] + nz * this.e2[1]]; }
   quad(p, q, r, s, m, n) {
-    const A = this.P(...p), B = this.P(...q), C = this.P(...r), D = this.P(...s), N = this.N(...n);
-    const ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2], vx = C[0] - A[0], vy = C[1] - A[1], vz = C[2] - A[2];
+    // same arithmetic as P() / N(), without the temporary arrays (this is the hot path of the building build)
+    const O0 = this.O[0], O1 = this.O[1], a0 = this.e1[0], a1 = this.e1[1], b0 = this.e2[0], b1 = this.e2[1], y0 = this.y0, v = this.v;
+    let a, b;
+    a = p[0] * BV; b = p[2] * BV; const Ax = (O0 + a * a0 + b * b0) / v, Ay = (y0 + p[1] * BV) / v, Az = (O1 + a * a1 + b * b1) / v;
+    a = q[0] * BV; b = q[2] * BV; const Bx = (O0 + a * a0 + b * b0) / v, By = (y0 + q[1] * BV) / v, Bz = (O1 + a * a1 + b * b1) / v;
+    a = r[0] * BV; b = r[2] * BV; const Cx = (O0 + a * a0 + b * b0) / v, Cy = (y0 + r[1] * BV) / v, Cz = (O1 + a * a1 + b * b1) / v;
+    a = s[0] * BV; b = s[2] * BV; const Dx = (O0 + a * a0 + b * b0) / v, Dy = (y0 + s[1] * BV) / v, Dz = (O1 + a * a1 + b * b1) / v;
+    const Nx = n[0] * a0 + n[2] * b0, Ny = n[1], Nz = n[0] * a1 + n[2] * b1;
+    const ux = Bx - Ax, uy = By - Ay, uz = Bz - Az, vx = Cx - Ax, vy = Cy - Ay, vz = Cz - Az;
     const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
-    if (cx * N[0] + cy * N[1] + cz * N[2] < 0) this.mb.quadN(...A, ...D, ...C, ...B, m, ...N);
-    else this.mb.quadN(...A, ...B, ...C, ...D, m, ...N);
+    if (cx * Nx + cy * Ny + cz * Nz < 0) this.mb.quadN(Ax, Ay, Az, Dx, Dy, Dz, Cx, Cy, Cz, Bx, By, Bz, m, Nx, Ny, Nz);
+    else this.mb.quadN(Ax, Ay, Az, Bx, By, Bz, Cx, Cy, Cz, Dx, Dy, Dz, m, Nx, Ny, Nz);
   }
   box(x0, y0, z0, x1, y1, z1, m, noBottom) {
     this.quad([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], m, [0, 1, 0]);
@@ -71,7 +78,7 @@ class Emitter {
   }
   // a VoxModel (voxel = BV) placed with its model origin at building-local (x, y, z); greedy-meshed once
   vox(C, M, x, y, z) {
-    const m = M._mesh || (M._mesh = C.meshVoxels3D(M));
+    const m = M._mesh || (M._mesh = C.meshVoxels3D(cropModel(M)));
     const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]], P = m.pos, s = 1 / C.PV;
     for (let q = 0; q < m.quads; ++q) {
       const k = q * 12, c = (i) => [P[k + i] * s + x, P[k + i + 1] * s + y, P[k + i + 2] * s + z];
@@ -124,105 +131,101 @@ class Emitter {
   }
 }
 
+// A VoxModel cut down to its occupied columns and rows (x, z both sides, y above; the origin column and y = 0 stay
+// put), so the mesher scans less empty space. The mesh is identical: coordinates relative to the origin are the
+// same integers, and the slices visited keep their order.
+function cropModel(M) {
+  const w = M.w, h = M.h, d = M.d, V = M.v;
+  let x0 = w, x1 = -1, z0 = d, z1 = -1, y1 = -1;
+  for (let yy = 0; yy < h; ++yy) for (let zz = 0; zz < d; ++zz) {
+    const r = (yy * d + zz) * w;
+    let a = 0; while (a < w && !V[r + a]) ++a;
+    if (a === w) continue;
+    let b = w - 1; while (!V[r + b]) --b;
+    if (a < x0) x0 = a; if (b > x1) x1 = b; if (zz < z0) z0 = zz; if (zz > z1) z1 = zz; y1 = yy;
+  }
+  if (y1 < 0) return M;
+  const w2 = x1 - x0 + 1, d2 = z1 - z0 + 1, h2 = y1 + 1;
+  if (w2 * d2 * h2 > 0.8 * w * h * d) return M;
+  const K = new M.constructor(w2, h2, d2, M.ox - x0, M.oz - z0), V2 = K.v;
+  for (let yy = 0; yy < h2; ++yy) for (let zz = 0; zz < d2; ++zz) {
+    const r = (yy * d + zz + z0) * w + x0;
+    V2.set(V.subarray(r, r + w2), (yy * d2 + zz) * w2);
+  }
+  return K;
+}
+
 // ------------------------------------------------------------------------------------------------ mesh analysis
-// Quads of a MeshBuffer (explicit normals in nvec) grouped by plane: quantised normal, then plane offset in
-// 0.05-voxel slots. Used by cullHidden() (build) and by the dev checks (dev/regress.js, dev/zfight.js).
+// Plane of quad q of a MeshBuffer with explicit normals (nvec): normal, offset d = n.p, and a key nk for the normal
+// quantised to 1e-3. Used by cullHidden() (build) and by the dev checks (dev/regress.js, dev/zfight.js).
 const sround = (x) => (x < 0 ? -Math.round(-x) : Math.round(x));
 function planeOf(P, N, q) {
   const o = q * 12, nx = N[o], ny = N[o + 1], nz = N[o + 2];
   return { nx, ny, nz, d: nx * P[o] + ny * P[o + 1] + nz * P[o + 2],
     nk: (sround(nx * 1000) + 1000) * 4004001 + (sround(ny * 1000) + 1000) * 2001 + (sround(nz * 1000) + 1000) };
 }
-function planeBuckets(mb, q0, q1) {
-  const P = mb.pos, N = mb.nvec, B = new Map();
-  for (let q = q0; q < q1; ++q) {
-    const p = planeOf(P, N, q);
-    let m = B.get(p.nk); if (!m) B.set(p.nk, m = new Map());
-    const dq = sround(p.d * 20);
-    let a = m.get(dq); if (!a) m.set(dq, a = []);
-    a.push(q);
-  }
-  return B;
-}
-// in-plane rectangle of quad q in the frame of quad f (origin = f's first vertex, axes along f's edges)
-function quadFrame(P, f) {
-  const o = f * 12;
-  const ux = P[o + 3] - P[o], uy = P[o + 4] - P[o + 1], uz = P[o + 5] - P[o + 2];
-  const vx = P[o + 9] - P[o], vy = P[o + 10] - P[o + 1], vz = P[o + 11] - P[o + 2];
-  const lu = Math.hypot(ux, uy, uz), lv = Math.hypot(vx, vy, vz);
-  if (lu < 1e-9 || lv < 1e-9) return null;
-  const U = [ux / lu, uy / lu, uz / lu], V = [vx / lv, vy / lv, vz / lv];
-  if (Math.abs(U[0] * V[0] + U[1] * V[1] + U[2] * V[2]) > 1e-6) return null;   // not a rectangle
-  return { o: [P[o], P[o + 1], P[o + 2]], U, V, lu, lv };
-}
-function rectIn(P, F, q) {
-  const o = q * 12;
-  let s0 = 1e18, s1 = -1e18, t0 = 1e18, t1 = -1e18;
-  for (let k = 0; k < 4; ++k) {
-    const x = P[o + k * 3] - F.o[0], y = P[o + k * 3 + 1] - F.o[1], z = P[o + k * 3 + 2] - F.o[2];
-    const s = x * F.U[0] + y * F.U[1] + z * F.U[2], t = x * F.V[0] + y * F.V[1] + z * F.V[2];
-    if (s < s0) s0 = s; if (s > s1) s1 = s; if (t < t0) t0 = t; if (t > t1) t1 = t;
-  }
-  // aligned with the frame? (each edge along U or V)
-  for (const [a, b] of [[0, 1], [0, 3]]) {
-    const ex = P[o + b * 3] - P[o + a * 3], ey = P[o + b * 3 + 1] - P[o + a * 3 + 1], ez = P[o + b * 3 + 2] - P[o + a * 3 + 2];
-    const es = ex * F.U[0] + ey * F.U[1] + ez * F.U[2], et = ex * F.V[0] + ey * F.V[1] + ez * F.V[2];
-    if (Math.abs(es) > 1e-6 && Math.abs(et) > 1e-6) return null;
-  }
-  return [s0, s1, t0, t1];
-}
-// Pairs of coplanar quads (|d| within tol) whose in-plane bounding rectangles overlap by more than minExt in both
-// directions. same: same-facing pairs (z-fighting candidates), else opposite-facing pairs (solids pressed flush).
-// Calls fn(a, b) for each candidate pair. Sweep per plane cluster: O(n log n + pairs).
+// Pairs of coplanar quads (plane offsets within tol) whose in-plane bounding rectangles overlap by more than
+// minExt in both directions. same: same-facing pairs (z-fighting candidates), else opposite-facing pairs (solids
+// pressed flush). Calls fn(a, b) for each candidate pair. Per normal: sort by plane offset, cluster, then sweep
+// each cluster along the plane: O(n log n + pairs).
 function coplanarPairs(mb, q0, q1, same, tol, minExt, fn) {
   const P = mb.pos, N = mb.nvec, byN = new Map();
   for (let q = q0; q < q1; ++q) {
-    const pl = planeOf(P, N, q);
-    let a = byN.get(pl.nk); if (!a) byN.set(pl.nk, a = []);
+    const o = q * 12;
+    const nk = (sround(N[o] * 1000) + 1000) * 4004001 + (sround(N[o + 1] * 1000) + 1000) * 2001 + (sround(N[o + 2] * 1000) + 1000);
+    let a = byN.get(nk); if (!a) byN.set(nk, a = []);
     a.push(q);
   }
   const done = new Set();
+  let S0 = new Float64Array(64), S1 = new Float64Array(64), T0 = new Float64Array(64), T1 = new Float64Array(64), DD = new Float64Array(64), SD = new Uint8Array(64), QQ = new Int32Array(64);
   for (const [nk, A] of byN) {
     if (done.has(nk)) continue;
     done.add(nk);
-    const o = A[0] * 12, n = [N[o], N[o + 1], N[o + 2]];
-    let Bq = null;
+    const o0 = A[0] * 12, nx = N[o0], ny = N[o0 + 1], nz = N[o0 + 2];
+    let B = null;
     if (!same) {
-      const ok = (sround(-n[0] * 1000) + 1000) * 4004001 + (sround(-n[1] * 1000) + 1000) * 2001 + (sround(-n[2] * 1000) + 1000);
-      Bq = byN.get(ok); if (!Bq) continue;
+      const ok = (sround(-nx * 1000) + 1000) * 4004001 + (sround(-ny * 1000) + 1000) * 2001 + (sround(-nz * 1000) + 1000);
+      B = byN.get(ok); if (!B) continue;
       done.add(ok);
-    }
-    const ref = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
-    let U = [n[1] * ref[2] - n[2] * ref[1], n[2] * ref[0] - n[0] * ref[2], n[0] * ref[1] - n[1] * ref[0]];
-    const lu = Math.hypot(U[0], U[1], U[2]); U = [U[0] / lu, U[1] / lu, U[2] / lu];
-    const V = [n[1] * U[2] - n[2] * U[1], n[2] * U[0] - n[0] * U[2], n[0] * U[1] - n[1] * U[0]];
-    const items = [];
-    const add = (q, side) => {
-      const oo = q * 12;
-      let s0 = 1e18, s1 = -1e18, t0 = 1e18, t1 = -1e18;
-      for (let v = 0; v < 4; ++v) {
-        const x = P[oo + v * 3], y = P[oo + v * 3 + 1], z = P[oo + v * 3 + 2];
-        const s = x * U[0] + y * U[1] + z * U[2], t = x * V[0] + y * V[1] + z * V[2];
-        if (s < s0) s0 = s; if (s > s1) s1 = s; if (t < t0) t0 = t; if (t > t1) t1 = t;
-      }
-      const d = n[0] * P[oo] + n[1] * P[oo + 1] + n[2] * P[oo + 2];
-      items.push({ q, side, d, s0, s1, t0, t1 });
-    };
-    for (const q of A) add(q, 0);
-    if (Bq) for (const q of Bq) add(q, 1);
-    items.sort((a, b) => a.d - b.d);
-    for (let i = 0; i < items.length;) {
-      let j = i + 1; while (j < items.length && items[j].d - items[j - 1].d < tol) ++j;
-      if (j - i > 1) {
-        const cl = items.slice(i, j).sort((a, b) => a.s0 - b.s0);
-        for (let x = 0; x < cl.length; ++x) {
-          const a = cl[x];
-          for (let y = x + 1; y < cl.length && cl[y].s0 < a.s1 - minExt; ++y) {
-            const b = cl[y];
-            if (!same && a.side === b.side) continue;
-            if (Math.min(a.s1, b.s1) - Math.max(a.s0, b.s0) <= minExt || Math.min(a.t1, b.t1) - Math.max(a.t0, b.t0) <= minExt) continue;
-            if (Math.abs(a.d - b.d) > tol) continue;
-            fn(a.q, b.q);
+    } else if (A.length < 2) continue;
+    // in-plane frame
+    const rx = Math.abs(ny) < 0.9 ? 0 : 1, ry = Math.abs(ny) < 0.9 ? 1 : 0;
+    let Ux = ny * 0 - nz * ry, Uy = nz * rx - nx * 0, Uz = nx * ry - ny * rx;
+    const lu = Math.hypot(Ux, Uy, Uz); Ux /= lu; Uy /= lu; Uz /= lu;
+    const Vx = ny * Uz - nz * Uy, Vy = nz * Ux - nx * Uz, Vz = nx * Uy - ny * Ux;
+    const all = B ? A.concat(B) : A, nA = A.length, n = all.length;
+    const d = new Float64Array(n);
+    for (let i = 0; i < n; ++i) { const o = all[i] * 12; d[i] = nx * P[o] + ny * P[o + 1] + nz * P[o + 2]; }
+    const ord = new Int32Array(n); for (let i = 0; i < n; ++i) ord[i] = i;
+    ord.sort((a, b) => d[a] - d[b]);
+    for (let i = 0; i < n;) {
+      let j = i + 1; while (j < n && d[ord[j]] - d[ord[j - 1]] < tol) ++j;
+      const m = j - i;
+      if (m > 1) {
+        if (m > S0.length) { const L = 2 * m; S0 = new Float64Array(L); S1 = new Float64Array(L); T0 = new Float64Array(L); T1 = new Float64Array(L); DD = new Float64Array(L); SD = new Uint8Array(L); QQ = new Int32Array(L); }
+        let sides = 0;
+        for (let k = 0; k < m; ++k) {
+          const e = ord[i + k], q = all[e], o = q * 12;
+          let s0 = 1e18, s1 = -1e18, t0 = 1e18, t1 = -1e18;
+          for (let v = 0; v < 12; v += 3) {
+            const x = P[o + v], y = P[o + v + 1], z = P[o + v + 2];
+            const s = x * Ux + y * Uy + z * Uz, t = x * Vx + y * Vy + z * Vz;
+            if (s < s0) s0 = s; if (s > s1) s1 = s; if (t < t0) t0 = t; if (t > t1) t1 = t;
+          }
+          S0[k] = s0; S1[k] = s1; T0[k] = t0; T1[k] = t1; DD[k] = d[e]; SD[k] = e < nA ? 0 : 1; QQ[k] = q; sides |= 1 << SD[k];
+        }
+        if (same || sides === 3) {
+          const so = new Int32Array(m); for (let k = 0; k < m; ++k) so[k] = k;
+          so.sort((a, b) => S0[a] - S0[b]);
+          for (let x = 0; x < m; ++x) {
+            const a = so[x];
+            for (let y = x + 1; y < m && S0[so[y]] < S1[a] - minExt; ++y) {
+              const b = so[y];
+              if (!same && SD[a] === SD[b]) continue;
+              if (Math.min(S1[a], S1[b]) - Math.max(S0[a], S0[b]) <= minExt || Math.min(T1[a], T1[b]) - Math.max(T0[a], T0[b]) <= minExt) continue;
+              if (Math.abs(DD[a] - DD[b]) > tol) continue;
+              fn(QQ[a], QQ[b]);
+            }
           }
         }
       }
@@ -230,32 +233,28 @@ function coplanarPairs(mb, q0, q1, same, tol, minExt, fn) {
     }
   }
 }
-// Removes faces that can never be seen, in place (mb.pos / mat / nrm / nvec / idx / quads rewritten):
-//  - zero-area quads;
-//  - downward faces lying on the ground plane (y = groundY);
-//  - the overlap of two coplanar, opposite-facing quads (two solids pressed flush against each other: party
-//    walls of attached buildings, a part's underside on a roof, ...): the overlapping part of both is cut away,
-//    the rest is re-emitted as rectangles with the same winding, material and normal.
-// resolve: also settle z-fighting: where two coplanar quads facing the same way overlap (within 1 mm, thicker
-// than 5 mm), the one emitted later wins and the overlap is cut out of the earlier one ("painter's order": a part
-// added onto a wall replaces the wall there; a side facade beats the corner end of the front facade's bands).
-// marks: old quad indices to remap (range starts / ends); returns them mapped into the new numbering.
-function cullHidden(mb, groundY, marks, q0, resolve) {
-  q0 = q0 || 0;
-  const P = mb.pos, N = mb.nvec, n = mb.quads;
+// Rewrites the quads of a MeshBuffer in place (mb.pos / mat / nrm / nvec / idx / quads; still plain arrays):
+//  - drops zero-area quads;
+//  - resolve: settles z-fighting: where two coplanar quads facing the same way overlap (within 1 mm, thicker than
+//    5 mm), the one emitted later wins and the overlap is cut out of the earlier one ("painter's order": a part
+//    added onto a wall replaces the wall there; a side facade beats the corner end of the front facade's bands).
+//    Same-material overlaps look the same whichever wins: the earlier quad is only dropped when it is covered whole;
+//  - faces that can never be seen, unless kept with keep = { flush: true, ground: true }: the overlap of two
+//    coplanar opposite-facing quads (two solids pressed flush together: party walls of attached buildings, a part's
+//    underside on a roof) and downward faces on the ground plane (y = groundY). The build keeps them: the shadow
+//    pass renders back faces (three.js shadowSide), so with a ~25 cm shadow texel removing them shifts
+//    self-shadowing near corners and party walls; and cutting flush faces splits more quads than it removes.
+//    dev/regress.js uses the full cull to normalise meshes before comparing them.
+// Cut quads are re-emitted as convex pieces (quads; a triangle repeats its last vertex) with the same winding,
+// material and normal. marks: old quad indices to remap (range starts / ends); returned in the new numbering.
+function cullHidden(mb, groundY, marks, q0, resolve, keep) {
+  q0 = q0 || 0; keep = keep || {};
+  const P = mb.pos, N = mb.nvec, n = mb.quads, MAT = mb.mat;
   const TOL = 1e-3, MIN = 1e-4;
   const cut = new Map();
   const add = (a, b) => { let x = cut.get(a); if (!x) cut.set(a, x = []); x.push(b); };
-  coplanarPairs(mb, q0, n, false, TOL, MIN, (a, b) => { add(a, b); add(b, a); });
+  if (!keep.flush) coplanarPairs(mb, q0, n, false, TOL, MIN, (a, b) => { add(a, b); add(b, a); });
   if (resolve) coplanarPairs(mb, q0, n, true, 0.01, 0.05, (a, b) => add(Math.min(a, b), Math.max(a, b)));
-  const out = { pos: [], mat: [], nrm: [], nvec: [], q: 0, src: [] };
-  const start = new Int32Array(n + 1);
-  const keepRaw = (q) => {
-    out.src.push(q);
-    for (let k = 0; k < 12; ++k) { out.pos.push(P[q * 12 + k]); out.nvec.push(N[q * 12 + k]); }
-    for (let k = 0; k < 4; ++k) { out.mat.push(mb.mat[q * 4 + k]); out.nrm.push(mb.nrm[q * 4 + k]); }
-    out.q++;
-  };
   // quad q as a CCW convex polygon in a frame (o, U, V) of its plane, V = n x U (so CCW <=> facing n)
   const frameOf = (q) => {
     const o = q * 12, nx = N[o], ny = N[o + 1], nz = N[o + 2];
@@ -280,58 +279,88 @@ function cullHidden(mb, groundY, marks, q0, resolve) {
     if (area2(pts) < 0) pts.reverse();
     return pts;
   };
-  let dropped = 0, split = 0;
-  for (let q = 0; q < q0; ++q) { start[q] = q; keepRaw(q); }
+  const zeroArea = (o) => {
+    const ax = P[o + 6] - P[o], ay = P[o + 7] - P[o + 1], az = P[o + 8] - P[o + 2];
+    const bx = P[o + 3] - P[o], by = P[o + 4] - P[o + 1], bz = P[o + 5] - P[o + 2];
+    const cx = P[o + 9] - P[o], cy = P[o + 10] - P[o + 1], cz = P[o + 11] - P[o + 2];
+    const a1 = Math.hypot(by * az - bz * ay, bz * ax - bx * az, bx * ay - by * ax), a2 = Math.hypot(ay * cz - az * cy, az * cx - ax * cz, ax * cy - ay * cx);
+    return a1 + a2 < 2e-8;
+  };
+  // pass 1: what becomes of each quad: 1 keep, 0 drop, 2 pieces (polygons in its frame)
+  const fate = new Uint8Array(n).fill(1), pieceOf = new Map();
+  let dropped = 0, split = 0, outQ = 0;
   for (let q = q0; q < n; ++q) {
-    start[q] = out.q;
     const o = q * 12;
-    const F = frameOf(q), A = F && polyIn(F, q);
-    if (!A || area2(A) < 1e-8) { dropped++; continue; }                     // zero-area
-    if (N[o + 1] < -0.9999 && Math.abs(P[o + 1] - groundY) < 1e-6 && Math.abs(P[o + 4] - groundY) < 1e-6 &&
-        Math.abs(P[o + 7] - groundY) < 1e-6 && Math.abs(P[o + 10] - groundY) < 1e-6) { dropped++; continue; }
+    if (zeroArea(o)) { fate[q] = 0; dropped++; continue; }
+    if (!keep.ground && N[o + 1] < -0.9999 && Math.abs(P[o + 1] - groundY) < 1e-6 && Math.abs(P[o + 4] - groundY) < 1e-6 &&
+        Math.abs(P[o + 7] - groundY) < 1e-6 && Math.abs(P[o + 10] - groundY) < 1e-6) { fate[q] = 0; dropped++; continue; }
     const cand = cut.get(q);
+    if (!cand) continue;
+    const F = frameOf(q), A = F && polyIn(F, q);
+    if (!A) continue;
     let pieces = null;
-    if (cand) {
-      for (const r of cand) {
-        const B = polyIn(F, r);
-        if (!B) continue;
-        const next = [];
-        for (const p of (pieces || [A])) {
-          // p minus convex B: the parts of p outside each edge of B in turn
-          let rem = p, hit = true;
-          const parts = [];
-          for (let i = 0; i < B.length && rem.length >= 3; ++i) {
-            const a = B[i], b = B[(i + 1) % B.length];
-            const outside = clipPoly(rem, b[0], b[1], a[0], a[1]);
-            if (outside.length >= 3 && area2(outside) > 2 * MIN * MIN) parts.push(outside);
-            rem = clipPoly(rem, a[0], a[1], b[0], b[1]);
-          }
-          if (rem.length < 3 || area2(rem) <= 2e-6) hit = false;           // no real overlap: keep p whole
-          if (!hit) next.push(p); else for (const x of parts) next.push(x);
+    for (const r of cand) {
+      const B = polyIn(F, r);
+      if (!B) continue;
+      const sameMat = MAT[r * 4] === MAT[q * 4] && N[r * 12] * N[q * 12] + N[r * 12 + 1] * N[q * 12 + 1] + N[r * 12 + 2] * N[q * 12 + 2] > 0;
+      const next = [];
+      for (const p of (pieces || [A])) {
+        // p minus convex B: the parts of p outside each edge of B in turn
+        let rem = p;
+        const parts = [];
+        for (let i = 0; i < B.length && rem.length >= 3; ++i) {
+          const a = B[i], b = B[(i + 1) % B.length];
+          const outside = clipPoly(rem, b[0], b[1], a[0], a[1]);
+          if (outside.length >= 3 && area2(outside) > 2 * MIN * MIN) parts.push(outside);
+          rem = clipPoly(rem, a[0], a[1], b[0], b[1]);
         }
-        if (pieces || next.length !== 1 || next[0] !== A) pieces = next;
-        if (pieces && !pieces.length) break;
+        const hit = rem.length >= 3 && area2(rem) > 2e-6;
+        if (!hit || (sameMat && parts.length)) next.push(p); else for (const x of parts) next.push(x);
+      }
+      if (pieces || next.length !== 1 || next[0] !== A) pieces = next;
+      if (pieces && !pieces.length) break;
+    }
+    if (!pieces) continue;
+    split++;
+    if (!pieces.length) { fate[q] = 0; dropped++; continue; }
+    fate[q] = 2; pieceOf.set(q, { F, pieces });
+  }
+  for (let q = 0; q < n; ++q) {
+    if (fate[q] === 1) ++outQ;
+    else if (fate[q] === 2) for (const p of pieceOf.get(q).pieces) outQ += (p.length - 1) >> 1;
+  }
+  // pass 2: write the new arrays
+  const pos = new Float64Array(outQ * 12), nv = new Float64Array(outQ * 12), mat = new Uint8Array(outQ * 4), nrm = new Uint8Array(outQ * 4), idx = new Uint32Array(outQ * 6);
+  const start = new Int32Array(n + 1), src = new Int32Array(outQ);
+  let w = 0;
+  for (let q = 0; q < n; ++q) {
+    start[q] = w;
+    if (!fate[q]) continue;
+    const o = q * 12, m = MAT[q * 4], nr = mb.nrm[q * 4];
+    const put = () => { for (let k = 0; k < 12; ++k) nv[w * 12 + k] = N[o + k]; for (let k = 0; k < 4; ++k) { mat[w * 4 + k] = m; nrm[w * 4 + k] = nr; } src[w] = q; w++; };
+    if (fate[q] === 1) { for (let k = 0; k < 12; ++k) pos[w * 12 + k] = P[o + k]; put(); continue; }
+    const { F, pieces } = pieceOf.get(q);
+    for (const p of pieces) {                                                 // convex polygon -> fan of quads
+      for (let i = 1; i + 1 < p.length; i += 2) {
+        const vs = [p[0], p[i], p[i + 1], p[Math.min(i + 2, p.length - 1)]];
+        for (let v = 0; v < 4; ++v) for (let k = 0; k < 3; ++k) pos[w * 12 + v * 3 + k] = F.o[k] + F.U[k] * vs[v][0] + F.V[k] * vs[v][1];
+        put();
       }
     }
-    if (!pieces) { keepRaw(q); continue; }
-    split++;
-    const mat = mb.mat[q * 4], nr = mb.nrm[q * 4];
-    const emit = (a, b, c, d) => {
-      for (const p of [a, b, c, d]) for (let k = 0; k < 3; ++k) out.pos.push(F.o[k] + F.U[k] * p[0] + F.V[k] * p[1]);
-      for (let k = 0; k < 12; ++k) out.nvec.push(N[o + k]);
-      for (let k = 0; k < 4; ++k) { out.mat.push(mat); out.nrm.push(nr); }
-      out.q++; out.src.push(q);
-    };
-    for (const p of pieces) {                                                 // convex polygon -> fan of quads
-      for (let i = 1; i + 1 < p.length; i += 2) emit(p[0], p[i], p[i + 1], p[Math.min(i + 2, p.length - 1)]);
-    }
-    if (!pieces.length) dropped++;
   }
-  start[n] = out.q;
-  mb.pos = out.pos; mb.mat = out.mat; mb.nrm = out.nrm; mb.nvec = out.nvec; mb.quads = out.q;
-  mb.idx = [];
-  for (let k = 0; k < out.q; ++k) { const b = k * 4; mb.idx.push(b, b + 1, b + 2, b, b + 2, b + 3); }
-  return { marks: (marks || []).map(m => start[m]), dropped, split, removedQuads: n - out.q, src: out.src };
+  start[n] = w;
+  for (let k = 0; k < w; ++k) { const b = k * 4, i = k * 6; idx[i] = b; idx[i + 1] = b + 1; idx[i + 2] = b + 2; idx[i + 3] = b; idx[i + 4] = b + 2; idx[i + 5] = b + 3; }
+  mb.pos = pos; mb.mat = mat; mb.nrm = nrm; mb.nvec = nv; mb.idx = idx; mb.quads = w;
+  // typed arrays now (finish() reads them as they are); anything appended later turns them back into plain arrays
+  if (!Object.prototype.hasOwnProperty.call(mb, 'quad')) {
+    const proto = Object.getPrototypeOf(mb);
+    mb.quad = function () {
+      for (const k of ['pos', 'mat', 'nrm', 'nvec', 'idx']) if (this[k] && !Array.isArray(this[k])) this[k] = Array.from(this[k]);
+      delete this.quad;
+      return proto.quad.apply(this, arguments);
+    };
+  }
+  return { marks: (marks || []).map(m => start[m]), dropped, split, removedQuads: n - w, src };
 }
 // twice the signed area of a 2D polygon; keep the part of poly left of the directed line a->b
 function area2(p) { let s = 0; for (let i = 0; i < p.length; ++i) { const a = p[i], b = p[(i + 1) % p.length]; s += a[0] * b[1] - b[0] * a[1]; } return s; }
@@ -2571,11 +2600,12 @@ function buildAll(PL, R, voxel, C) {
       J.q0 = q0; J.q1 = mb.quads;
     }
   };
-  // after everything is emitted: faces that can never be seen (flush party walls, undersides on roofs / the
-  // ground) are cut away, and z-fighting overlaps are settled (later geometry wins), see cullHidden()
+  // after everything is emitted: z-fighting overlaps are settled (later geometry wins) and zero-area quads
+  // dropped, see cullHidden()
   const cullPass = () => {
     const marks = [houseQuads]; for (const J of jobs) marks.push(J.q0, J.q1);
-    const tc = Date.now(), cr = cullHidden(mb, hs / voxel, marks, 0, true);
+    if (LIB.debugBeforeCull) LIB.debugBeforeCull(mb);                          // dev/zfight.js --raw
+    const tc = Date.now(), cr = cullHidden(mb, hs / voxel, marks, 0, true, { flush: true, ground: true });
     counts.cullMs = Date.now() - tc; counts.culled = cr.removedQuads;
     houseQuads = cr.marks[0]; jobs.forEach((J, i) => { J.q0 = cr.marks[1 + 2 * i]; J.q1 = cr.marks[2 + 2 * i]; });
     counts.houseQuads = houseQuads;
@@ -2643,7 +2673,7 @@ const LIB = {
   BV, BM, FH, BASE, Relief, bays, H2, pick, glassMat, facades, prism, roofMask, buildTiers, soffit, inset, rectMask, rotated, flatRoof,
   facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
   skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,
-  planterRowModel, VoxModel: () => C_VoxModel, cullHidden, planeBuckets, planeOf, quadFrame, rectIn
+  planterRowModel, VoxModel: () => C_VoxModel, cullHidden, coplanarPairs, planeOf
 };
 // Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
 function previewTower(name, Wm, Dm, floors, seed, C) {

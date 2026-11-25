@@ -58,6 +58,12 @@ function fingerprint(seed) {
     const by = {};
     for (const h of zf) { const s = MC.segOf(list, h.a), t = MC.segOf(list, h.b); const k = [s, t].map(x => x ? (x.info.type || x.id) : '?').join('|'); by[k] = (by[k] || 0) + 1; }
     out.zfight = zf.length; out.zfightBy = by;
+    if (!NOPROPS) {   // buildings + street furniture together must have no z-fighting at all
+      const r = require('child_process').spawnSync(process.execPath, ['--max-old-space-size=8000', __dirname + '/zfight.js', String(seed), '--props', '--list=5'], { encoding: 'utf8' });
+      const m = /(\d+) z-fighting overlaps/.exec(r.stdout || '');
+      out.zfightProps = m ? +m[1] : -1;
+      if (out.zfightProps !== 0) out.zfightPropsLog = (r.stdout || '') + (r.stderr || '');
+    }
   }
   out.checkMs = Date.now() - t0;
   return out;
@@ -97,6 +103,7 @@ for (const seed of SEEDS) {
   }
   if (bad) { console.log(`  ${bad} of ${n} entries differ`); fails += bad; }
   if (cur.props && old.props && cur.props.hash !== old.props.hash) { console.log(`  FAIL props ${JSON.stringify(old.props.counts)} -> ${JSON.stringify(cur.props.counts)}`); fails++; }
+  if (cur.zfightProps !== undefined && cur.zfightProps !== 0) { console.log(`  FAIL z-fighting with street furniture: ${cur.zfightProps}\n${cur.zfightPropsLog}`); fails++; }
   if (cur.zfight !== undefined && old.zfight !== undefined && cur.zfight > old.zfight) {
     console.log(`  FAIL z-fighting overlaps ${old.zfight} -> ${cur.zfight}: ${JSON.stringify(cur.zfightBy)}`); fails++;
   }

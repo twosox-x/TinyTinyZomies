@@ -15,9 +15,9 @@ self.onmessage = (e) => {
     self.postMessage({ job, type: 'begin', chunks: ctx.chunks.length, fieldsMs, hs: ctx.R.hs });
     if (d.blocks) {
       const t1 = performance.now();
+      const blocks = C.buildBlocks(ctx);
       const props = C.placeProps(ctx);
       self.postMessage({ job, type: 'props', props });
-      const blocks = C.buildBlocks(ctx);
       const B = blocks.buildings, P = blocks.plots;
       self.postMessage({ job, type: 'blocks', buildings: B, plots: P, plotCount: blocks.plotCount, builtArea: blocks.builtArea,
         blocksMs: performance.now() - t1, junctions: ctx.F.junctionData() },

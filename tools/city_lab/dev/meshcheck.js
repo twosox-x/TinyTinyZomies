@@ -23,13 +23,16 @@ function build(seed, opts) {
   const net = C.generateCity(seed), ctx = C.prepareBuild(net, 0.1);
   const PL = new C.Plots(net, ctx.F, ctx.R, 0.5, net.seed || 1); PL.build();
   const t = Date.now();
+  L.debugBeforeCull = opts.beforeCull || null;
   const res = A.buildAll(PL, ctx.R, 0.1, CC);
+  L.debugBeforeCull = null;
   const ms = Date.now() - t;
+  ctx.footprints = res.footprints || null;
   const props = opts.props ? C.placeProps(ctx) : null;
   return { raw, res, ctx, ms, props, groundY: ctx.R.hs, stacks };
 }
 // copy of a MeshBuffer's arrays (cullHidden works in place)
-function clone(mb) { return { pos: mb.pos.slice(), mat: mb.mat.slice(), nrm: mb.nrm.slice(), nvec: mb.nvec.slice(), idx: [], quads: mb.quads }; }
+function clone(mb) { return { pos: Array.from(mb.pos), mat: Array.from(mb.mat), nrm: Array.from(mb.nrm), nvec: Array.from(mb.nvec), idx: [], quads: mb.quads }; }
 
 // Per-building segments: houses (all suburban houses as one entry), every job (block building / tower), extra
 // (anything emitted after the jobs). Returns [{ id, q0, q1, info }].
@@ -81,6 +84,8 @@ function signature(mb, q0, q1) {
 }
 
 // ---- coplanar overlap detection
+// Same-material pairs are skipped unless opts.all: same plane, normal and material shade identically, so whichever
+// wins the depth test the pixel is the same (no visible flicker).
 // Quads facing the same way in the same plane (within tol voxels) whose interiors overlap by more than minArea
 // (voxels^2) and are thicker than minExt voxels (default 0.05 = 5 mm: the 2 mm strips where VoxModel quads, grown
 // by meshVoxels3D to close T-junctions, overlap their neighbours are below a pixel and ignored) z-fight. Returns [{ a, b, area, at:[x,y,z] (m) }].
@@ -149,6 +154,7 @@ function zfight(mb, opts) {
           for (let b = a + 1; b < items.length && items[b].s0 < A2.s1; ++b) {
             const B2 = items[b];
             if (B2.t0 >= A2.t1 || B2.t1 <= A2.t0) continue;
+            if (!opts.all && mb.mat[A2.q * 4] === mb.mat[B2.q * 4]) continue;
             const ov = overlapArea(A2.poly, B2.poly), ar = ov.area;
             if (ar > minArea && ov.ext > minExt) {
               const oo = A2.q * 12;

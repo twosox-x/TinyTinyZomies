@@ -1283,6 +1283,7 @@ function buildBlocks(ctx) {
   const buildings = A ? A.buildAll(PL, R, voxel, CityCore) : fineBuildings(PL, R, voxel, bk);
   const plots = emit(Hp, Mp, R.hs - bk + 1);
   let built = 0; for (let i = 0; i < PL.height.length; ++i) if (PL.height[i] > 0) built++;
+  ctx.footprints = buildings.footprints || null;     // placeProps keeps street furniture clear of stoops / entrances
   return { buildings, plots, plotCount, builtArea: built * bcell * bcell };
 }
 // Building blockouts at the road voxel resolution: the coarse plot map decides which plot owns which area;
@@ -1955,6 +1956,43 @@ function placeProps(ctx) {
     }
   }
   placeStreetFurniture(ctx, out);
+  if (ctx.footprints) {
+    // drop furniture that would stand on a building, its stoop or entrance steps: within 2.4 m in front of
+    // (or anywhere inside) a building footprint (footprints: origin O, axes e1 along / e2 into the lot, w x d metres)
+    const keep = [];
+    for (const p of out) {
+      // stoops reach ~2.6 m, loading canopies / marquees ~2.5 m at 3-5 m height; lamp and signal arms swing
+      // towards the road, so their posts only need to clear the canopy depth
+      const infra = p.type === 'lamp' || p.type === 'lamp2' || p.type.startsWith('signal') || p.type === 'stop' || p.type === 'hydrant';
+      const reach = infra ? 3.7 : 3.0;            // canopies / marquees reach up to ~3.6 m over the sidewalk
+      let hit = false;
+      for (const f of ctx.footprints) {
+        const dx = p.x - f.O[0], dz = p.z - f.O[1];
+        const a = dx * f.e1[0] + dz * f.e1[1], b = dx * f.e2[0] + dz * f.e2[1];
+        const fr = (!infra && f.type === 'prewar_apartment') ? 8 : reach;      // entrance canopy on posts out to the curb
+        if (a > -(infra ? reach : 0.6) && a < f.w + (infra ? reach : 0.6) && b > -fr && b < f.d + (infra ? reach : 0.3)) { hit = true; break; }
+      }
+      if (!hit) keep.push(p);
+    }
+    out.length = 0; out.push(...keep);
+  }
+  // nothing stands inside anything else: drop the later of two props whose posts are closer than 0.9 m
+  {
+    const keep2 = [], prio = (t) => (t === 'lamp' || t === 'lamp2' || t.startsWith('signal')) ? 0 : 1;
+    const sorted = out.map((p, i) => [p, i]).sort((a, b) => prio(a[0].type) - prio(b[0].type) || a[1] - b[1]);
+    const grid = new Map(), key = (x, z) => Math.floor(x / 2) + ',' + Math.floor(z / 2);
+    for (const [p] of sorted) {
+      let clash = false;
+      for (let gx = -1; gx <= 1 && !clash; ++gx) for (let gz = -1; gz <= 1 && !clash; ++gz) {
+        const L = grid.get(key(p.x + gx * 2, p.z + gz * 2));
+        if (L) for (const q of L) if (Math.hypot(p.x - q.x, p.z - q.z) < 0.9) { clash = true; break; }
+      }
+      if (clash) continue;
+      keep2.push(p);
+      const k = key(p.x, p.z); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(p);
+    }
+    out.length = 0; out.push(...keep2);
+  }
   return out;
 }
 // Sidewalk furniture on downtown and old-town streets. Spots are on the curb side of the sidewalk (furniture zone,
