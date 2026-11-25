@@ -54,7 +54,6 @@
   function skinForest(S, layout) {
     let face = 0;
     return (len, h) => {
-      if (self.__mark && face === 0) __mark('podium');
       const k = face++ % 4, F = new L.Relief(len, h, 1, S.panel), n = Math.floor(h / FH);
       for (let f = 0; f < n; ++f) {
         const v = f * FH;
@@ -179,8 +178,6 @@
       { x0: cx0, z0: cz0, x1: cx0 + crownW, z1: cz0 + crownD, h: 2 * FH + 2, skin: L.skinLouver({ frame: S.slab }), roof: { mat: S.slab, units: 2 } }
     ];
     const yTop = L.buildTiers(E, C, W, D, tiers, spec.seed);
-    self.__mark && __mark('tiers');
-    if (self.__mark) console.log('balconies', layout.flat(2).length);
     const yT = pH, yR = pH + n * FH + 3;
 
     // balconies: one model per facade, rotated onto its face; half a voxel off the relief grid (no coplanar faces)
@@ -190,7 +187,6 @@
       L.rotated(E, cx, cz, th, 0, 0).vox(C, M, 0, yT + 0.5 - YO, -0.5);
     });
 
-    self.__mark && __mark('balc');
     // roof garden: big trees in raised planters, timber deck paths, around the crown
     const Rg = mul(spec.seed * 7 + 3), gw = tw - 8, gd = td - 8;
     const G = new (L.VoxModel())(gw, 34, gd, 0, 0);
@@ -219,7 +215,6 @@
     K.box((cw >> 1) - 1, 0, (cd >> 1) - 1, (cw >> 1) + 1, 26, (cd >> 1) + 1, BM.METAL); K.box((cw >> 1) - 1, 26, (cd >> 1) - 1, (cw >> 1) + 1, 27, (cd >> 1) + 1, BM.BEACON);
     E.vox(C, K, cx0 + 0.5, yTop, cz0 + 0.5);
 
-    self.__mark && __mark('roof');
     // podium roof terrace: planters with small trees along the front and sides; entrance canopy
     const P = new (L.VoxModel())(W, 30, D, 0, 0), Rp = mul(spec.seed * 13 + 1);
     for (let x = 4; x < W - 10; x += 14 + Math.floor(Rp() * 6)) {

@@ -145,7 +145,7 @@
       const open = x + bw <= ux0 || x >= ux1 || z + bd <= uz0 || z >= uz1;
       G.box(x, 0, z, x + bw, 2, z + bd, S.stoneDark); G.box(x + 1, 1, z + 1, x + bw - 1, 2, z + bd - 1, BM.GRASS);
       const s = 4 + Math.floor(Rg() * 2.6);
-      tree(G, x + (bw >> 1), 2, z + (bd >> 1), s, open ? gh - 2 + Math.floor(Rg() * 6) : gh - 3, Rg);
+      tree(G, x + (bw >> 1), 2, z + (bd >> 1), s, gh - 3 - (open ? 0 : Math.floor(Rg() * 3)), Rg);
       if (bw >= 14 && Rg() < 0.6) G.box(x + 1, 2, z + 1, x + 4, 4, z + 3, BM.LEAF_DARK);
       // benches along the bed
       if (Rg() < 0.8 && !used(x, z + bd + 1, x + 6, z + bd + 3)) { G.box(x + 1, 0, z + bd + 1, x + 6, 2, z + bd + 3, BM.WOOD); G.box(x + 1, 0, z + bd + 1, x + 2, 1, z + bd + 3, BM.METAL); G.box(x + 5, 0, z + bd + 1, x + 6, 1, z + bd + 3, BM.METAL); }
@@ -168,13 +168,13 @@
     const kx0 = up.x0 + 2, kx1 = up.x1 - 2, kz0 = up.z0 + 2, kz1 = up.z1 - 2, kw = kx1 - kx0, kd = kz1 - kz0;
     // rows alternate louver blades (full extent) and recessed metal backing; every second row steps back
     const run = R() < 0.6 ? 1 : 2, rows = 2 * Math.max(14, Math.min(26, Math.floor((kd * 0.5) / run), 18 + Math.floor(R() * 8)));
-    const toFront = R() < 0.65;
+    const toFront = R() < 0.65, back = L.pick(R, [BM.STEEL_DARK, BM.STEEL_DARK, BM.METAL]), blade = back === BM.METAL ? BM.MULLION : L.pick(R, [BM.LOUVER, band]);
     const K = new (L.VoxModel())(kw, rows + 24, kd, 0, 0);
     for (let y = 0; y < rows; ++y) {
-      const a = Math.floor(y / 2) * run, blade = y % 2 === 1;
-      const z0 = toFront ? a : 0, z1 = toFront ? kd : kd - a, e = blade ? 0 : 1;
-      K.box(e, y, z0 + (toFront ? e : 0), kw - e, y + 1, z1 - (toFront ? 0 : e), blade ? BM.LOUVER : BM.STEEL_DARK);
-      K.box(1, y, toFront ? z0 + 1 : 1, kw - 1, y + 1, toFront ? kd - 1 : z1 - 1, BM.STEEL_DARK);
+      const a = Math.floor(y / 2) * run, isBlade = y % 2 === 1;
+      const z0 = toFront ? a : 0, z1 = toFront ? kd : kd - a, e = isBlade ? 0 : 1;
+      K.box(e, y, z0 + (toFront ? e : 0), kw - e, y + 1, z1 - (toFront ? 0 : e), isBlade ? blade : back);
+      K.box(1, y, toFront ? z0 + 1 : 1, kw - 1, y + 1, toFront ? kd - 1 : z1 - 1, back);
     }
     // vertical mullions on the sloped face every 8 voxels, LED line at the foot
     for (let x = 0; x < kw; x += 8) for (let y = 0; y < rows; y += 2) {
