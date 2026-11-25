@@ -1891,6 +1891,23 @@ function registerMid(name, fn, opts) { MIDS.push(Object.assign({ name, fn, minW:
 let midDecks = {}, MID_LOG = [];
 registerMid('classic_mid', (E, C, W, D, spec) => buildMid(E, W, D, spec, C), { zones: ['mid', 'core'], minW: 10 });
 registerMid('classic_rows', (E, C, W, D, spec) => buildRows(E, W, D, spec, C), { zones: ['row'], maxFloors: 5 });
+// House registry (suburbs): fn(E, C, W, D, spec, R, L) builds a detached / semi-detached house on a W x D voxel
+// footprint (front at z = 0, facing the street). spec { seed, floors, garage, setback (voxels to the sidewalk), style hint,
+// lot: { w, d, front, back } in metres }. opts { minW, maxW (m), minD, maxD, floors: [min,max], weight }.
+var HOUSES = [];
+function registerHouse(name, fn, opts) { HOUSES.push(Object.assign({ name, fn, minW: 6, maxW: 30, minD: 6, maxD: 30, weight: 1 }, opts || {})); }
+var HOUSE_LOG = [];
+function buildHouseAny(E, W, D, spec, C) {
+  const wm = W * BV, dm = D * BV;
+  const fits = HOUSES.filter(h => wm >= h.minW && wm <= h.maxW && dm >= h.minD && dm <= h.maxD);
+  if (!fits.length) { HOUSE_LOG.push({ type: 'classic_house' }); return buildHouse(E, W, D, spec, C); }
+  const R = C.mulberry32(spec.seed ^ 0x2545f491);
+  let t = R() * fits.reduce((a, h) => a + h.weight, 0), h = fits[0];
+  for (const x of fits) { t -= x.weight; if (t <= 0) { h = x; break; } }
+  HOUSE_LOG.push({ type: h.name });
+  h.fn(E, C, W, D, spec, C.mulberry32(spec.seed), LIB);
+  return h.name;
+}
 function buildMidAny(E, W, D, spec, C, zone) {
   const wm = W * BV;
   let fits = MIDS.filter(m => m.zones.includes(zone) && wm >= m.minW && wm <= m.maxW);
@@ -2547,7 +2564,7 @@ function placeBlocks(PL, C, occ, addJob) {
 }
 function buildAll(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
-  towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = [];
+  towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = []; HOUSE_LOG = [];
   const mb = new C.MeshBuffer();
   const hs = R.hs * voxel;
   const counts = {};
@@ -2557,7 +2574,7 @@ function buildAll(PL, R, voxel, C) {
     const W = Math.floor(w / BV), D = Math.floor(d / BV);
     const O = [Oc[0] - (W * BV / 2) * e1[0] - (D * BV / 2) * e2[0], Oc[1] - (W * BV / 2) * e1[1] - (D * BV / 2) * e2[1]];
     const E = new Emitter(mb, O, e1, e2, hs, voxel);
-    buildHouse(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
+    buildHouseAny(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
   });
   let houseQuads = mb.quads;                                                      // houses: quads [0, houseQuads)
   for (let i = 0; i < occ.g.length; ++i) if (occ.g[i]) occ.g[i] = 2;          // houses: kept 4 m clear of city blocks
@@ -2592,7 +2609,7 @@ function buildAll(PL, R, voxel, C) {
       const spec = { seed, floors, party, shops: !!J.shops };
       if (J.corner) spec.corner = true;
       const q0 = mb.quads;
-      if (kind === 'house') { buildHouse(E, W, D, spec, C); J.type = 'house'; }
+      if (kind === 'house') { J.type = buildHouseAny(E, W, D, spec, C) || 'house'; }
       else if (kind === 'row') J.type = buildMidAny(E, W, D, spec, C, 'row');
       else if (kind === 'mid') J.type = buildMidAny(E, W, D, spec, C, J.zone === 'core' ? 'core' : 'mid');
       else J.type = buildTower(E, W, D, spec, C);
@@ -2664,6 +2681,7 @@ function buildAll(PL, R, voxel, C) {
   res.counts = counts;
   res.towers = TOWER_LOG;
   res.mids = MID_LOG;
+  res.houses = HOUSE_LOG;
   res.blocks = blocks ? blocks.stats : null;
   res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1 }));
   return res;
@@ -2678,14 +2696,14 @@ const LIB = {
 // Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
 function previewTower(name, Wm, Dm, floors, seed, C) {
   C_VoxModel = C.VoxModel;
-  const t = TOWERS.find(x => x.name === name) || MIDS.find(x => x.name === name);
-  if (!t) throw new Error('unknown tower ' + name + '; known: ' + TOWERS.concat(MIDS).map(x => x.name).join(', '));
+  const t = TOWERS.find(x => x.name === name) || MIDS.find(x => x.name === name) || HOUSES.find(x => x.name === name);
+  if (!t) throw new Error('unknown tower ' + name + '; known: ' + TOWERS.concat(MIDS, HOUSES).map(x => x.name).join(', '));
   const mb = new C.MeshBuffer();
   const E = new Emitter(mb, [0, 0], [1, 0], [0, 1], 0.15, 0.1);
   const W = Math.floor(Wm / BV), D = Math.floor(Dm / BV);
   t.fn(E, C, W, D, { seed, floors, party: {} }, C.mulberry32(seed), LIB);
   return mb.finish(0.002);
 }
-const CityArch = { registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
+const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityArch; else root.CityArch = CityArch;
 })(typeof self !== 'undefined' ? self : this);

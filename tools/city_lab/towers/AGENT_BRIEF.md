@@ -132,3 +132,42 @@ Useful spots on seed 1:
 - Union Square: `[-175,35]`
 
 `node /tmp/claude-0/city/tow.js '[["name",tx,ty,tz,px,py,pz]]'` takes a free camera (target, then eye position).
+
+---
+# Phase 3: suburbs
+
+Downtown and the high-rises are **approved and locked**. `node --max-old-space-size=8000 tools/city_lab/dev/regress.js` (from the repo root) must keep passing for downtown and core entries. If transition work deliberately changes edge blocks, list exactly which entries changed and why. Clipping must stay at zero:
+
+```bash
+node --max-old-space-size=8000 tools/city_lab/dev/zfight.js <seed> --props
+```
+
+## Owner's request
+- The suburbs need a facelift: better houses.
+- **Defined plots:** visible lot boundaries, some fenced, with bushes, trees and nice lawns.
+- **Transitions:** better zones between the suburbs and downtown / high-rises.
+- **Commercial zones:** gas stations, shops and similar.
+- **No mixing:** never a commercial or larger building alone in a block of two-storey houses. Land use must be zoned by block or street segment.
+
+## Plug-in interfaces (shared by four agents working in parallel)
+
+**Houses (`towers/houses.js`)**
+- Register with `CityArch.registerHouse(name, fn, { minW, maxW, minD, maxD (m), weight })`.
+- `fn(E, C, W, D, spec, R, L)`: footprint W×D voxels (0.25 m), front at z = 0 facing the street, y up from yard level.
+- `spec = { seed, floors, garage, setback, lot: { w, d } (m), side: 'l' | 'r' (driveway side) }`.
+- Include the house, its porch, steps, chimney and attached garage. Leave the yard to the yard kit.
+
+**Yard kit (`towers/yardkit.js`)**
+- Sets `CityArch.lib.yardKit = function (E, C, lot, R, opts)`.
+- `E` is an emitter in the **lot frame**: origin at the lot's front-left corner on the property line (back of sidewalk), x along the street, z into the lot, y = 0 at yard level.
+- `lot = { w, d, house: { x0, z0, x1, z1 }, drive: { x0, x1 } | null, garage: bool }`, all in voxels.
+- `opts = { style: 'suburban' | 'townhouse' | 'corner' | 'commercial', neighbours: { l, r, b }, seed }`.
+- **Lot ownership rule (avoids coplanar fences):** each lot draws fences or hedges on its back line and its left line only. It draws the right line only when `neighbours.r` is false. Fences sit fully inside the lot, at least 1 voxel from the line.
+
+**Commercial and transition (`towers/commercial.js`)**
+- Register with `CityArch.registerMid(name, fn, { zones: ['commercial'] | ['transition'], minW, maxW, minFloors, maxFloors })`.
+- `fn` has the same signature as other mids. The building fills W×D, including its own paved forecourt or parking (gas station canopy, strip-mall parking lot with striped stalls and light poles).
+
+**Zoning and placement (city_arch.js `subdivide`, `zoneOf`, placement, and city_core.js `Plots`)**
+- Decides land use per block or street segment: residential, commercial strip, transition.
+- Places houses with `buildHouseAny`, calls `L.yardKit` per house lot, and places commercial / transition lots via `buildMidAny(E, W, D, spec, C, 'commercial' | 'transition')`.
