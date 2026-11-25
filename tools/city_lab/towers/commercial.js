@@ -1222,6 +1222,8 @@
       M.box(cx0, 17, cz0, cx1 + (hugL ? 0 : 0), 21, cz1, accent);
       M.box(cx0 + 1, 17, cz0 + 1, cx1 - 1, 18, cz1 - 1, BM.TRIM);
       ring(M, cx0, 17, cz0, cx1, 18, cz1, BM.LED);
+      M.box(cx0, 21, cz0, cx1, 23, cz1, accent);
+      for (const s2 of ['f', 'b']) say(face(M, cx0, cz0, cx1, cz1, s2), 'ATM', dtw / 2, 18, 0, BM.LED, true);
       for (let k = 0; k < lanes; ++k) {
         const lx = hugL ? cx0 + 2 + k * lw : cx1 - 2 - (k + 1) * lw;
         const ix0 = hugL ? lx + lw - 4 : lx;

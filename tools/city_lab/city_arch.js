@@ -2244,7 +2244,7 @@ function planSuburbs(PL, C, blocks) {
   cand.slice(0, K).forEach(b => { b.use = 'commercial'; });
   for (const b of B) if (b.use === 'residential' && b.urban >= 30) b.use = 'transition';
   for (const b of B) {
-    const whole = b.use === 'commercial' && (b.g.area < 3800 || b.art >= 0.45 * b.per);
+    const whole = b.use === 'commercial' && (b.g.area < 2500 || b.art >= 0.45 * b.per);
     const maxHouse = Math.max(0, ...b.faces.filter(f => f.kind === 'side').map(f => f.len));
     for (const f of b.faces) {
       if (b.use === 'transition') f.use = f.rank >= 3 || (f.across === 'urban' && f.rank >= 2) ? (b.dc < 255 ? 'mixed' : 'apartments') : f.rank >= 2 ? 'apartments' : 'townhouse';
@@ -2346,7 +2346,7 @@ function planSuburbs(PL, C, blocks) {
     let gasAt = (rA >= 2 || rB >= 2) && len >= 28 ? (rA > rB || (rA === rB && R() < 0.5) ? 'a' : 'b') : null;
     if (gasAt) {                                 // at most two gas stations, never two within 160 m
       const [gx, gz] = faceAt(f, gasAt === 'a' ? run.a : run.b);
-      if (gasSites.length >= 2 || gasSites.some(([x, z]) => Math.hypot(x - gx, z - gz) < 160)) gasAt = null; else gasSites.push([gx, gz]);
+      if (gasSites.length >= 2 || gasSites.some(([x, z]) => Math.hypot(x - gx, z - gz) < 160)) gasAt = null;
     }
     let gas = gasAt ? Math.min(len, 30 + R() * 4) : 0, rem = len - gas;
     const mid = [], minS = SUB_USE.store.minW;
@@ -2425,7 +2425,10 @@ function planSuburbs(PL, C, blocks) {
           const a = t, b = i === seq.length - 1 ? run.a + len : Math.round((t + w - run.a) / BV) * BV + run.a;
           t = b;
           const U = SUB_USE[use === 'house' && f.kind === 'bulb' ? 'bulb' : use];
-          const L = placeFlex(f, a, b, use, { ca: i === 0 && run0.ca, cb: i === seq.length - 1 && run0.cb, k: k++ }, fill && use !== 'house' ? Math.max(12, Math.round(U.minD * 0.7)) : 0);
+          const ex = { ca: i === 0 && run0.ca, cb: i === seq.length - 1 && run0.cb, k: k++ };
+          let L = placeFlex(f, a, b, use, ex, fill && use !== 'house' ? Math.max(12, Math.round(U.minD * 0.7)) : 0);
+          if (!L && use === 'gas') L = placeFlex(f, a, b, 'diner', ex, 0) || placeFlex(f, a, b, 'store', ex, 0);   // no room for the canopy
+          if (L && L.use === 'gas') gasSites.push(faceAt(f, (a + b) / 2));
           if (L) placed.push(L);
         });
       }
