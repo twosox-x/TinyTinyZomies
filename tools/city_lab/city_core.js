@@ -1408,14 +1408,18 @@ const PV = 0.05;
 const PM = {                                     // prop materials (palette indices 54..)
   POLE: 54, POLE_DARK: 55, LAMP_HEAD: 56, LAMP_LENS: 57, HOUSING: 58, BACKPLATE: 59, LENS_R: 60, LENS_A: 61, LENS_G: 62,
   SIGN_RED: 63, SIGN_WHITE: 64, SIGN_GREEN: 65, HYDRANT: 66, HYDRANT_CAP: 67, PED_ORANGE: 68, PED_WHITE: 69, CONCRETE: 70,
-  STEEL: 130, UMB_RED: 131, UMB_YELLOW: 132, LEAF: 133, LEAF_DARK: 134, TRUNK: 135, BENCH_WOOD: 136, KIOSK_GREEN: 137, PAPER: 138, UMB_BLUE: 139, SOIL: 140
+  STEEL: 130, UMB_RED: 131, UMB_YELLOW: 132, LEAF: 133, LEAF_DARK: 134, TRUNK: 135, BENCH_WOOD: 136, KIOSK_GREEN: 137, PAPER: 138, UMB_BLUE: 139, SOIL: 140,
+  DUMP_GREEN: 126, DUMP_BLUE: 127, USPS: 128, PALLET: 129,
+  // shared with the building palette (city_arch.js ARCH_PALETTE; the viewer registers both)
+  LITTER: 137, LITTER_DARK: 126, RECYCLE_BLUE: 127, CABINET: 80, CABINET_DARK: 107, GLASS_PALE: 79, AD_LIT: 154, RUST: 72, CARDBOARD: 100
 };
 const PROP_PALETTE = {
   54: [112, 118, 116], 55: [62, 68, 70], 56: [78, 84, 86], 57: [246, 236, 206], 58: [44, 48, 50], 59: [30, 32, 34],
   60: [150, 46, 40], 61: [176, 128, 40], 62: [52, 138, 96], 63: [176, 62, 54], 64: [236, 234, 226], 65: [58, 116, 84],
   66: [178, 70, 56], 67: [214, 178, 84], 68: [222, 132, 58], 69: [226, 226, 218], 70: [168, 164, 156],
   130: [176, 182, 186], 131: [190, 70, 60], 132: [226, 190, 80], 133: [118, 150, 92], 134: [92, 124, 74], 135: [104, 82, 64],
-  136: [150, 112, 76], 137: [62, 104, 82], 138: [222, 214, 196], 139: [80, 120, 168], 140: [96, 80, 66]
+  136: [150, 112, 76], 137: [62, 104, 82], 138: [222, 214, 196], 139: [80, 120, 168], 140: [96, 80, 66],
+  126: [54, 92, 66], 127: [50, 82, 128], 128: [38, 70, 132], 129: [194, 164, 116]
 };
 class VoxModel {
   constructor(w, h, d, ox, oz) { this.w = w; this.h = h; this.d = d; this.ox = ox; this.oz = oz; this.v = new Uint8Array(w * h * d); }
@@ -1437,20 +1441,20 @@ class VoxModel {
 // +y, +x, -x, +z, -z, -y. Positions in metres, origin at the model origin.
 function meshVoxels3D(M) {
   const mb = new MeshBuffer();
-  const dims = [M.w, M.h, M.d];
-  const get = (c) => M.at(c[0], c[1], c[2]);
+  const dims = [M.w, M.h, M.d], V = M.v, ST = [1, M.d * M.w, M.w];   // index strides of x, y, z in M.v
   const dirs = [[1, 1, 0], [0, 1, 1], [0, -1, 2], [2, 1, 3], [2, -1, 4], [1, -1, 5]];   // [axis, sign, normal id]
   for (const [ax, sg, nid] of dirs) {
     const u = (ax + 1) % 3, w = (ax + 2) % 3;
-    const nu = dims[u], nw = dims[w];
+    const nu = dims[u], nw = dims[w], sa = ST[ax], su = ST[u], sw = ST[w];
     const mask = new Int16Array(nu * nw);
     for (let k = 0; k < dims[ax]; ++k) {
-      for (let j = 0; j < nw; ++j) for (let i = 0; i < nu; ++i) {
-        const c = [0, 0, 0]; c[ax] = k; c[u] = i; c[w] = j;
-        const m = get(c);
-        if (!m) { mask[j * nu + i] = 0; continue; }
-        const n = [c[0], c[1], c[2]]; n[ax] += sg;
-        mask[j * nu + i] = get(n) ? 0 : m;
+      const edge = k + sg < 0 || k + sg >= dims[ax], off = sg * sa;
+      for (let j = 0; j < nw; ++j) {
+        let idx = k * sa + j * sw;
+        for (let i = 0; i < nu; ++i, idx += su) {
+          const m = V[idx];
+          mask[j * nu + i] = !m || (!edge && V[idx + off]) ? 0 : m;
+        }
       }
       for (let j = 0; j < nw; ++j) for (let i = 0; i < nu;) {
         const m = mask[j * nu + i];
@@ -1599,10 +1603,227 @@ function modelCafe() {
   for (let r = 0; r < 4; ++r) M.box(-26 + r * 4, 42 + r, -26 + r * 4, 26 - r * 4, 43 + r, 26 - r * 4, r % 2 ? PM.SIGN_WHITE : PM.UMB_BLUE);
   return M;
 }
+// --- sidewalk furniture, downtown / old town (local frame as above: +z towards the carriageway, -z towards the
+// buildings; models whose base would sit flush on the sidewalk are placed 1 voxel (PV) sunk into the slab)
+function disc(M, cx, cz, r, y0, y1, m) {          // filled disc of voxel columns centred on (cx, cz) (voxel corners)
+  const R = Math.ceil(r);
+  for (let z = -R - 1; z <= R; ++z) for (let x = -R - 1; x <= R; ++x)
+    if ((x + 0.5 - cx) * (x + 0.5 - cx) + (z + 0.5 - cz) * (z + 0.5 - cz) <= r * r) M.box(x, y0, z, x + 1, y1, z + 1, m);
+  return M;
+}
+function modelTrashWire() {
+  // wire-mesh litter basket (0.65 m, 0.9 m): black bag inside, open slats, rim bands
+  const M = new VoxModel(16, 20, 16, 8, 8);
+  disc(M, 0, 0, 5.2, 1, 15, PM.HOUSING);
+  for (let z = -7; z <= 6; ++z) for (let x = -7; x <= 6; ++x) {
+    const d = Math.hypot(x + 0.5, z + 0.5);
+    if (d > 6.6 || d < 5.2) continue;
+    M.box(x, 0, z, x + 1, 2, z + 1, PM.POLE_DARK).box(x, 8, z, x + 1, 9, z + 1, PM.POLE_DARK).box(x, 16, z, x + 1, 18, z + 1, PM.POLE_DARK);
+    if ((x + z) & 1) M.box(x, 2, z, x + 1, 16, z + 1, PM.POLE_DARK);
+  }
+  M.box(-2, 15, -1, 1, 16, 2, PM.PAPER).box(1, 15, -3, 3, 16, -1, PM.HOUSING);
+  return M;
+}
+function modelTrashNYC() {
+  // green NYC litter basket: chamfered perforated steel body, dark bands, trash showing below the rim
+  const M = new VoxModel(14, 20, 14, 7, 7);
+  for (let y = 1; y < 18; ++y) {
+    const m = y === 6 || y === 12 ? PM.LITTER_DARK : PM.LITTER;
+    M.box(-6, y, -5, 6, y + 1, 5, m).box(-5, y, -6, 5, y + 1, 6, m);
+  }
+  M.box(-5, 0, -4, 5, 1, 4, PM.POLE_DARK).box(-4, 0, -5, 4, 1, 5, PM.POLE_DARK);
+  M.box(-4, 15, -4, 4, 18, 4, -1);                                   // open top
+  M.box(-4, 14, -4, 4, 15, 4, PM.HOUSING).box(-3, 15, -2, 0, 16, 1, PM.PAPER).box(1, 15, 0, 3, 16, 3, PM.HOUSING);
+  M.box(-2, 9, -7, 2, 11, -6, PM.SIGN_WHITE);                        // decal on the sidewalk face
+  return M;
+}
+function modelTrashSteel() {
+  // stainless round bin with a domed lid and a front slot
+  const M = new VoxModel(16, 22, 16, 8, 8);
+  disc(M, 0, 0, 6, 1, 16, PM.STEEL);
+  disc(M, 0, 0, 6.4, 0, 1, PM.POLE_DARK);
+  disc(M, 0, 0, 6.4, 16, 17, PM.POLE_DARK); disc(M, 0, 0, 5, 17, 18, PM.POLE_DARK); disc(M, 0, 0, 3, 18, 19, PM.POLE_DARK);
+  M.box(-3, 12, -7, 3, 15, -4, -1).box(-3, 12, -4, 3, 15, -3, PM.HOUSING);    // slot facing the sidewalk
+  M.box(-1, 19, -1, 1, 20, 1, PM.POLE_DARK);
+  return M;
+}
+function modelRecycle() {
+  // recycling pair on a shared plinth: blue (bottles / cans) and green (paper), round openings in the lids
+  const M = new VoxModel(26, 21, 14, 13, 7);
+  M.box(-12, 0, -6, 12, 1, 6, PM.CONCRETE);
+  for (const [x0, m] of [[-11, PM.RECYCLE_BLUE], [1, PM.LITTER]]) {
+    M.box(x0, 1, -5, x0 + 10, 17, 5, m).box(x0 - 1, 17, -6, x0 + 11, 19, 6, m);
+    M.box(x0 + 3, 18, -3, x0 + 7, 19, 1, PM.HOUSING);
+    M.box(x0 + 2, 9, -6, x0 + 8, 13, -5, PM.SIGN_WHITE);
+  }
+  return M;
+}
+function modelNewsboxes(cols) {
+  // a cluster of coin-op newspaper boxes on pedestals, windows towards the sidewalk (-z), varied heights
+  const n = cols.length, M = new VoxModel(n * 10 + 2, 26, 12, (n * 10) >> 1, 6);
+  cols.forEach(([m, h], k) => {
+    const x = -((n * 10) >> 1) + k * 10 + 1;
+    M.box(x + 2, 0, -2, x + 7, 6, 2, PM.POLE_DARK).box(x + 1, 0, -3, x + 8, 1, 3, PM.POLE_DARK);
+    M.box(x, 6, -4, x + 9, h, 4, m).box(x, h, -4, x + 9, h + 1, 3, PM.HOUSING);
+    M.box(x + 1, h - 9, -5, x + 8, h - 3, -4, PM.PAPER).box(x + 1, h - 2, -5, x + 3, h - 1, -4, PM.STEEL);
+    M.box(x + 2, 8, -5, x + 7, 9, -4, PM.HOUSING);
+  });
+  return M;
+}
+function modelMailbox() {
+  // USPS collection box: blue, domed top, pull-down chute, four short legs
+  const M = new VoxModel(14, 25, 14, 7, 7);
+  for (const [x, z] of [[-5, -5], [4, -5], [-5, 4], [4, 4]]) M.box(x, 0, z, x + 1, 3, z + 1, PM.USPS);
+  M.box(-5, 3, -5, 5, 20, 5, PM.USPS).box(-5, 20, -4, 5, 21, 4, PM.USPS).box(-5, 21, -3, 5, 22, 3, PM.USPS);
+  M.box(-4, 15, -6, 4, 18, -5, PM.POLE_DARK).box(-3, 10, -6, 3, 13, -5, PM.SIGN_WHITE);
+  return M;
+}
+function modelBikeRack(bike) {
+  // three inverted-U hoops square to the curb (0.8 m apart), optionally a bike locked to one of them
+  const M = new VoxModel(48, 20, 22, 24, 11);
+  for (const x of [-17, -1, 15]) {
+    M.box(x, 0, -8, x + 1, 17, -7, PM.STEEL).box(x, 0, 7, x + 1, 17, 8, PM.STEEL).box(x, 16, -8, x + 1, 17, 8, PM.STEEL);
+  }
+  if (bike) {
+    const x = 1, c = bike;
+    for (const zc of [-5.5, 6.5]) for (let z = -12; z <= 13; ++z) for (let y = 0; y <= 14; ++y) {
+      const d = Math.hypot(z + 0.5 - zc, y + 0.5 - 7);
+      if (d >= 5.2 && d <= 6.6) M.box(x, y, z, x + 1, y + 1, z + 1, PM.HOUSING);
+    }
+    const line = (z0, y0, z1, y1, m) => { const n = Math.max(Math.abs(z1 - z0), Math.abs(y1 - y0)); for (let k = 0; k <= n; ++k) { const z = Math.round(z0 + (z1 - z0) * k / n), y = Math.round(y0 + (y1 - y0) * k / n); M.box(x, y, z, x + 1, y + 1, z + 1, m); } };
+    line(-5, 7, 0, 7, c); line(0, 7, 3, 12, c); line(-3, 12, 4, 12, c); line(-5, 7, -3, 12, c); line(4, 12, 6, 7, c);
+    line(-3, 12, -4, 14, c); M.box(x - 1, 14, -6, x + 2, 15, -2, PM.HOUSING);          // seat
+    line(4, 12, 5, 15, c); M.box(x - 3, 15, 4, x + 4, 16, 6, PM.HOUSING);             // bars
+  }
+  return M;
+}
+function modelBollard() {
+  const M = new VoxModel(8, 20, 8, 4, 4);
+  disc(M, 0, 0, 2.6, 0, 17, PM.POLE_DARK); disc(M, 0, 0, 2.6, 14, 15, PM.UMB_YELLOW); disc(M, 0, 0, 1.6, 17, 18, PM.POLE_DARK);
+  return M;
+}
+function modelCabinet(big) {
+  // traffic-signal controller / electrical cabinet on a concrete pad: overhanging roof, door seam, vents, sticker
+  const w = big ? 9 : 6, h = big ? 30 : 22, M = new VoxModel(2 * w + 4, h + 3, 18, w + 2, 9);
+  M.box(-w - 1, 0, -7, w + 1, 2, 7, PM.CONCRETE);
+  M.box(-w, 2, -6, w, h, 6, big ? PM.CABINET : PM.STEEL);
+  M.box(-w - 1, h, -7, w + 1, h + 1, 7, big ? PM.CABINET_DARK : PM.POLE);
+  M.box(0, 4, -7, 1, h - 2, -6, big ? PM.CABINET_DARK : PM.POLE).box(2, h - 12, -7, 3, h - 9, -6, PM.HOUSING);
+  for (let y = 6; y < h - 6; y += 3) M.box(w, y, -4, w + 1, y + 1, 4, big ? PM.CABINET_DARK : PM.POLE);
+  M.box(-w + 2, h - 8, -7, -w + 6, h - 5, -6, PM.SIGN_WHITE);
+  return M;
+}
+function modelMeter() {
+  // single-space parking meter: post, grey head with a dome window and a coin slot, display towards the sidewalk
+  const M = new VoxModel(8, 30, 8, 4, 4);
+  M.box(-1, 0, -1, 1, 21, 1, PM.POLE_DARK).box(-2, 0, -2, 2, 1, 2, PM.POLE_DARK);
+  M.box(-2, 21, -2, 2, 27, 2, PM.STEEL).box(-1, 27, -2, 1, 28, 2, PM.STEEL);
+  M.box(-1, 23, -3, 1, 26, -2, PM.PAPER).box(-1, 23, 2, 1, 26, 3, PM.HOUSING);
+  return M;
+}
+function modelMeterKiosk() {
+  // multi-space pay station: grey pedestal and cabinet, blue 'P' sign on top, screen towards the sidewalk
+  const M = new VoxModel(12, 42, 10, 6, 5);
+  M.box(-4, 0, -3, 4, 4, 3, PM.POLE_DARK).box(-5, 4, -4, 5, 30, 3, PM.STEEL).box(-5, 30, -4, 5, 31, 4, PM.POLE_DARK);
+  M.box(-3, 20, -5, 3, 25, -4, PM.HOUSING).box(-2, 14, -5, 2, 16, -4, PM.POLE_DARK);
+  M.box(-1, 31, -1, 1, 33, 1, PM.POLE).box(-4, 33, -1, 4, 41, 1, PM.UMB_BLUE).box(-2, 34, -2, 0, 40, 2, PM.SIGN_WHITE).box(0, 37, -2, 2, 40, 2, PM.SIGN_WHITE);
+  return M;
+}
+function modelBusShelter() {
+  // bus shelter 3.8 x 1.4 m: posts, roof with a white fascia, glass back wall (building side), back-lit advertising
+  // panel at one end, half glass end panel, bench inside; open towards the curb
+  const M = new VoxModel(84, 56, 36, 42, 18);
+  for (const x of [-38, 36]) for (const z of [-14, 12]) M.box(x, 0, z, x + 2, 50, z + 2, PM.POLE_DARK);
+  M.box(-40, 50, -16, 40, 52, 16, PM.POLE_DARK).box(-40, 52, -16, 40, 53, 16, PM.STEEL).box(-40, 50, 15, 40, 52, 16, PM.SIGN_WHITE);
+  M.box(-36, 3, -14, 36, 4, -12, PM.POLE_DARK).box(-36, 46, -14, 36, 48, -12, PM.POLE_DARK);
+  M.box(-36, 4, -13, 36, 46, -12, PM.GLASS_PALE);
+  for (const x of [-12, 12]) M.box(x, 4, -14, x + 1, 46, -12, PM.POLE_DARK);
+  M.box(-38, 4, -12, -36, 46, 10, PM.POLE_DARK).box(-38, 6, -11, -36, 44, 9, PM.AD_LIT);    // ad panel (glows)
+  M.box(36, 4, -12, 37, 46, 0, PM.GLASS_PALE).box(36, 3, -12, 38, 4, 0, PM.POLE_DARK);
+  M.box(-20, 9, -11, 20, 10, -5, PM.STEEL);
+  for (const x of [-18, 16]) M.box(x, 0, -10, x + 2, 9, -8, PM.POLE_DARK);
+  return M;
+}
+function modelBusSign() {
+  // bus stop flag on its own pole at the curb: white plate, red band, blue route strip, timetable box
+  const M = new VoxModel(6, 60, 16, 3, 3);
+  M.box(-1, 0, -1, 1, 58, 1, PM.POLE);
+  M.box(-1, 42, 1, 1, 56, 11, PM.SIGN_WHITE).box(-1, 53, 1, 1, 56, 11, PM.SIGN_RED).box(-1, 44, 1, 1, 46, 11, PM.UMB_BLUE);
+  M.box(-2, 26, -2, 2, 36, 2, PM.HOUSING);
+  return M;
+}
+// --- vehicles parked at the curb / in loading bays (also used by the service kit): +x is the front, z centred
+function modelVan(col, band) {
+  // panel van 5.6 x 2.0 x 2.3 m: sloped windscreen, cab side windows, bumpers, lights, rear door seam
+  const M = new VoxModel(116, 48, 44, 58, 22);
+  M.box(-56, 5, -20, 40, 44, 20, col).box(40, 5, -20, 56, 22, 20, col);
+  for (let y = 22; y < 42; ++y) { const x1 = 40 + Math.round((42 - y) * 0.6); M.box(36, y, -19, x1, y + 1, 19, PM.HOUSING); }
+  M.box(28, 26, -21, 38, 38, 21, PM.HOUSING);
+  M.box(-54, 44, -18, 34, 46, 18, col);
+  M.box(56, 5, -20, 57, 11, 20, PM.POLE_DARK).box(-57, 5, -20, -56, 11, 20, PM.POLE_DARK);
+  M.box(56, 14, -18, 57, 18, -12, PM.PAPER).box(56, 14, 12, 57, 18, 18, PM.PAPER);
+  M.box(-57, 22, -19, -56, 28, -16, PM.SIGN_RED).box(-57, 22, 16, -56, 28, 19, PM.SIGN_RED);
+  M.box(-57, 12, -1, -56, 40, 1, PM.POLE_DARK);
+  for (const x of [-44, 30]) for (const z of [-21, 16]) M.box(x, 0, z, x + 14, 13, z + 5, PM.HOUSING);
+  for (const x of [-40, 34]) for (const z of [-22, 21]) M.box(x, 4, z, x + 6, 9, z + 1, PM.STEEL);
+  if (band) M.box(-40, 26, -21, 20, 33, 21, band);                                    // livery band
+  return M;
+}
+function modelBoxTruck(col, band) {
+  // box truck 7.5 x 2.4 x 3.4 m: cab, white box with a livery stripe, ribbed roll door at the back, dual rear wheels
+  const M = new VoxModel(152, 70, 54, 76, 27);
+  M.box(-74, 10, -24, 36, 68, 24, PM.SIGN_WHITE);
+  M.box(-75, 12, -22, -74, 66, 22, PM.STEEL);
+  for (let y = 14; y < 66; y += 4) M.box(-75, y, -22, -74, y + 1, 22, PM.POLE);
+  M.box(-72, 6, -22, 70, 10, 22, PM.POLE_DARK);
+  M.box(38, 10, -22, 74, 30, 22, col).box(38, 30, -22, 62, 52, 22, col);
+  for (let y = 30; y < 50; ++y) M.box(62, y, -21, 62 + Math.round((50 - y) * 0.5), y + 1, 21, PM.HOUSING);
+  M.box(44, 34, -23, 58, 46, 23, PM.HOUSING);
+  M.box(74, 10, -22, 75, 16, 22, PM.POLE_DARK).box(74, 18, -21, 75, 22, -15, PM.PAPER).box(74, 18, 15, 75, 22, 21, PM.PAPER);
+  M.box(-60, 54, -25, 30, 60, 25, band);
+  for (const [x, w] of [[50, 16], [-58, 26]]) for (const z of [-25, 19]) M.box(x, 0, z, x + w, 16, z + 6, PM.HOUSING);
+  return M;
+}
+function modelRolloff(col) {
+  // roll-off container in a parking lane (6 x 2.3 x 1.4 m): ribbed steel sides, rails, construction debris
+  const M = new VoxModel(124, 34, 50, 62, 25);
+  M.box(-58, 0, -20, 58, 2, -16, PM.POLE_DARK).box(-58, 0, 16, 58, 2, 20, PM.POLE_DARK);
+  M.box(-60, 2, -23, 60, 28, 23, col);
+  for (let x = -52; x < 56; x += 9) M.box(x, 4, -24, x + 2, 28, 24, col === PM.RUST ? PM.POLE_DARK : PM.RUST);
+  M.box(-57, 24, -20, 57, 28, 20, -1);                                                // open top
+  M.box(-57, 23, -20, 57, 24, 20, PM.CONCRETE);
+  for (const [x, z, w, h, m] of [[-50, -14, 20, 4, PM.CARDBOARD], [-20, 2, 16, 3, PM.BENCH_WOOD], [5, -12, 14, 5, PM.CONCRETE], [30, 4, 18, 4, PM.CARDBOARD], [-34, 6, 10, 2, PM.HOUSING]])
+    M.box(x, 24, z, x + w, 24 + h, z + 10, m);
+  M.box(60, 6, -6, 61, 22, 6, PM.UMB_YELLOW).box(-61, 6, -6, -60, 22, 6, PM.UMB_YELLOW);
+  return M;
+}
+function modelBagPile(seed) {
+  // trash bags out at the curb for collection (pickup day): black, white and the odd green or blue recycling bag
+  const R = mulberry32(seed), M = new VoxModel(64, 22, 28, 32, 14);
+  const n = 5 + (seed % 5);
+  for (let k = 0; k < n; ++k) {
+    const x = -28 + Math.round(R() * 46), z = -11 + Math.round(R() * 12), s = 7 + Math.round(R() * 4), y0 = k >= n - 2 ? 6 : 0;
+    const t = R(), m = t < 0.55 ? PM.HOUSING : t < 0.78 ? PM.PAPER : t < 0.9 ? PM.DUMP_BLUE : PM.DUMP_GREEN;
+    M.box(x, y0, z, x + s, y0 + s - 1, z + s, m).box(x + 1, y0 + s - 1, z + 1, x + s - 1, y0 + s, z + s - 1, m);
+    M.box(x + (s >> 1) - 1, y0 + s, z + (s >> 1) - 1, x + (s >> 1) + 1, y0 + s + 2, z + (s >> 1) + 1, m);
+  }
+  if (seed % 3 === 0) M.box(10, 0, -12, 24, 10, -2, PM.CARDBOARD).box(10, 10, -12, 24, 11, -2, PM.BENCH_WOOD);
+  return M;
+}
 const PROP_TYPES = {
   hotdog: modelHotdog, newsstand: modelNewsstand, bench: modelBench, tree: modelTree, cafe: modelCafe,
   lamp: () => modelLamp(false), lamp2: () => modelLamp(true), signal: () => modelSignal(5.2, 1), signalLong: () => modelSignal(9.2, 1),
-  stop: modelStop, hydrant: modelHydrant
+  stop: modelStop, hydrant: modelHydrant,
+  trashWire: modelTrashWire, trashNYC: modelTrashNYC, trashSteel: modelTrashSteel, recycle: modelRecycle,
+  news3: () => modelNewsboxes([[PM.SIGN_RED, 20], [PM.UMB_BLUE, 23], [PM.UMB_YELLOW, 19]]),
+  news4: () => modelNewsboxes([[PM.SIGN_WHITE, 22], [PM.SIGN_GREEN, 19], [PM.SIGN_RED, 24], [PM.DUMP_BLUE, 20]]),
+  mailbox: modelMailbox, bikerack: () => modelBikeRack(0), bikerackBike: () => modelBikeRack(PM.UMB_RED), bollard: modelBollard,
+  cabinet: () => modelCabinet(true), utilbox: () => modelCabinet(false), meter: modelMeter, meterKiosk: modelMeterKiosk,
+  busstop: modelBusShelter, busSign: modelBusSign,
+  van: () => modelVan(PM.SIGN_WHITE, 0), vanBlue: () => modelVan(PM.UMB_BLUE, PM.SIGN_WHITE), vanGrey: () => modelVan(PM.STEEL, PM.DUMP_BLUE),
+  truck: () => modelBoxTruck(PM.SIGN_WHITE, PM.UMB_RED), truckBlue: () => modelBoxTruck(PM.UMB_BLUE, PM.UMB_BLUE), truckGreen: () => modelBoxTruck(PM.DUMP_GREEN, PM.DUMP_GREEN),
+  rolloff: () => modelRolloff(PM.HYDRANT), rolloffBlue: () => modelRolloff(PM.DUMP_BLUE),
+  bags1: () => modelBagPile(5), bags2: () => modelBagPile(9), bags3: () => modelBagPile(12)
 };
 function buildPropMeshes() {
   const out = {};
@@ -1733,7 +1954,184 @@ function placeProps(ctx) {
       }
     }
   }
+  placeStreetFurniture(ctx, out);
   return out;
+}
+// Sidewalk furniture on downtown and old-town streets. Spots are on the curb side of the sidewalk (furniture zone,
+// clear of the walking path and of building entrances), every footprint corner is checked on the voxel
+// classification (sidewalk of that street, so never on crosswalks, curb returns or plazas), and everything keeps
+// clear of the props already placed (lamps, hydrants, signal masts, stop signs, plaza furniture) and of each other.
+// Density follows the street: corners get most of it (litter baskets, newspaper boxes, mailboxes, signal
+// cabinets), avenues and collectors get mid-block baskets, bike racks and bus stops, parking lanes get meters.
+const FURN_R = { lamp: 0.45, hydrant: 0.5, signal: 0.6, signalLong: 0.6, signalL: 0.6, signalLongL: 0.6, stop: 0.35, tree: 0.75, bench: 1.0,
+  hotdog: 1.1, newsstand: 1.5, cafe: 1.4 };
+function placeStreetFurniture(ctx, out) {
+  const { net, F, R } = ctx;
+  const hsM = R.hs * ctx.voxel, y = hsM - PV;                       // sunk one voxel into the sidewalk slab
+  const o = {}, cls = [0, 0];
+  const taken = new Map(), cell = 4;
+  const key = (i, j) => i * 100003 + j;
+  const addTaken = (x, z, r) => { const k = key(Math.floor(x / cell), Math.floor(z / cell)); let a = taken.get(k); if (!a) taken.set(k, a = []); a.push([x, z, r]); };
+  const clear = (x, z, r) => {
+    const i0 = Math.floor((x - r - 2) / cell), i1 = Math.floor((x + r + 2) / cell), j0 = Math.floor((z - r - 2) / cell), j1 = Math.floor((z + r + 2) / cell);
+    for (let j = j0; j <= j1; ++j) for (let i = i0; i <= i1; ++i) for (const [a, b, rr] of taken.get(key(i, j)) || []) if (Math.hypot(a - x, b - z) < r + rr) return false;
+    return true;
+  };
+  for (const p of out) addTaken(p.x, p.z, FURN_R[p.type] || 0.5);
+  const urbanRoads = net.roads.filter(r => (r.district === 'downtown' || r.district === 'oldtown') && r.P.id !== 'alley' && r.len);
+  const urban = (x, z) => { for (const u of urbanRoads) if (distToPolyline([x, z], u.pts) < 60) return true; return false; };
+  const alleys = net.roads.filter(r => r.P.id === 'alley' && r.len);
+  const offAlley = (x, z, r) => { for (const a of alleys) if (distToPolyline([x, z], a.pts) < a.P.half + 1.2 + r) return false; return true; };   // keep alley mouths clear
+  const isWalk = (x, z, road) => { R.classify(x, z, o, cls); return o.road === road && (cls[1] === MAT.SIDEWALK || cls[1] === MAT.SIDEWALK_JOINT); };
+  let n = 0;
+  for (const r of net.roads) {
+    const P = r.P;
+    if (P.id === 'alley' || !r.len || !P.sidewalk) continue;
+    if (r.district === 'residential') continue;
+    const through = P.cls === 'arterial' || P.cls === 'collector';
+    const J = (r.junctions || []).filter(j => j.major);
+    const nearJ = (s, pad) => J.some(j => s > j.a - pad && s < j.b + pad);
+    const frame = (s, u) => { const [px, pz, tx, tz] = pointAt(r, s); return [px + tz * u, pz - tx * u, tx, tz]; };
+    const parkSide = { 1: P.edges[0].type === 'park', [-1]: P.edges[P.edges.length - 1].type === 'park' };
+    const sw = P.sidewalk;
+    // one item at arc length s, curb offset c (m from the curb line into the sidewalk), half extents hx (along the
+    // street) and hz (across); rad: clearance radius. Faces the street (+z) unless face = -1.
+    const put = (type, s, side, c, hx, hz, rad, face) => {
+      if (s < 2 || s > r.len - 2) return false;
+      const u = side * (P.half + c);
+      const [x, z] = frame(s, u);
+      if (!urban(x, z) || !clear(x, z, rad) || !offAlley(x, z, rad)) return false;
+      for (const [ds, du] of [[-hx, -hz], [hx, -hz], [-hx, hz], [hx, hz], [0, 0]]) {
+        const [qx, qz] = frame(s + ds, side * (P.half + c + du));
+        if (!isWalk(qx, qz, r.id)) return false;
+      }
+      const [cx, cz] = frame(s, 0);
+      let yaw = yawTowards(x, z, [cx, cz]);
+      if (face === -1) yaw += Math.PI;
+      out.push({ type, x, y, z, yaw, road: r.id });
+      addTaken(x, z, rad);
+      ++n;
+      return true;
+    };
+    const H = (k, s) => hash2(r.id * 131 + k, Math.round(s * 7), 77);
+    const trash = (s) => { const h = H(5, s); return h < 0.4 ? 'trashNYC' : h < 0.65 ? 'trashWire' : h < 0.85 ? 'trashSteel' : 'recycle'; };
+    // corners: the sidewalk just behind each crosswalk / curb return, on both sides of the street
+    for (const j of J) for (const [sEdge, d] of [[j.a, -1], [j.b, 1]]) for (const side of [1, -1]) {
+      const s0 = sEdge + d * (P.crosswalk ? 6.2 : 3.6);
+      if (s0 < 3 || s0 > r.len - 3) continue;
+      const hh = H(side + 2 + (d > 0 ? 4 : 0), sEdge);
+      // litter basket at most corners
+      if (hh < (through ? 0.72 : 0.4)) {
+        const t = trash(s0 + side);
+        for (const ds of [0, 1.2, 2.4, 3.6]) if (put(t, s0 + d * ds, side, 0.65, t === 'recycle' ? 0.65 : 0.4, 0.4, t === 'recycle' ? 0.75 : 0.45)) break;
+      }
+      // signal controller cabinet at signalised corners (one corner of the junction), back of the sidewalk
+      if (through && side === 1 && d === -1 && hh > 0.35 && hh < 0.85)
+        for (const ds of [3, 5, 7]) if (put('cabinet', s0 + d * ds, side, sw - 0.75, 0.6, 0.45, 0.8, -1)) break;
+      // newspaper boxes, in colourful clusters, facing the sidewalk
+      if (through && H(side + 9, sEdge + d) < 0.45) {
+        const t = H(side, sEdge * 3) < 0.5 ? 'news3' : 'news4';
+        for (const ds of [3.2, 4.6, 6]) if (put(t, s0 + d * ds, side, 0.6, t === 'news3' ? 0.85 : 1.05, 0.35, 1.1)) break;
+      }
+      // mailbox now and then
+      if (H(side + 13, sEdge - d) < (through ? 0.22 : 0.12))
+        for (const ds of [6.5, 8, 9.5]) if (put('mailbox', s0 + d * ds, side, 0.6, 0.35, 0.35, 0.5)) break;
+    }
+    // mid-block: bus stops on avenues, litter baskets and bike racks on commercial streets, meters on parking lanes
+    for (const side of [1, -1]) {
+      if (P.cls === 'arterial' && sw >= 4) {
+        for (const j of J) {
+          if (H(side * 3 + 40, j.a) > 0.5) continue;
+          // near side of the junction for traffic on this side (driving on the right: u < 0 travels +t)
+          const s0 = side < 0 ? j.a - 22 : j.b + 22;
+          if (nearJ(s0, 12)) continue;
+          for (const ds of [0, -3, 3, -6, 6]) {
+            if (put('busstop', s0 + ds, side, 1.4, 2.0, 0.75, 2.2)) {
+              for (const k of [3.2, 4.2, 5.4, -3.2, 6.6]) if (put('busSign', s0 + ds + (side < 0 ? k : -k), side, 0.45, 0.15, 0.15, 0.3, -1)) break;
+              break;
+            }
+          }
+        }
+      }
+      const step = P.cls === 'arterial' ? 38 : P.cls === 'collector' ? 46 : 70;
+      for (let s = 14 + H(side, 0) * 12; s < r.len - 10; s += step * (0.8 + 0.4 * H(side, s))) {
+        if (nearJ(s, 10)) continue;
+        const h = H(side + 20, s);
+        if (h < 0.5) put(trash(s), s, side, 0.65, 0.45, 0.4, 0.5);
+        else if (h < 0.72 && through) put(H(3, s) < 0.5 ? 'bikerack' : 'bikerackBike', s, side, 1.0, 1.2, 0.55, 1.3);
+        else if (h < 0.8) put('utilbox', s, side, sw - 0.7, 0.4, 0.4, 0.6, -1);
+      }
+      // pickup day on some blocks: trash bags out at the curb in front of the buildings
+      if (H(side + 60, 1) < 0.45)
+        for (let s = 8 + H(side, 3) * 10; s < r.len - 8; s += 9 + 14 * H(side + 61, s)) {
+          if (nearJ(s, 9)) continue;
+          put('bags' + (1 + Math.floor(H(side + 62, s) * 3)), s, side, 0.9, 1.5, 0.6, 1.5);
+        }
+      // loading: a delivery van or box truck in the parking lane, now and then a roll-off container
+      if (parkSide[side] && through) {
+        const e = side > 0 ? P.edges[0] : P.edges[P.edges.length - 1], uc = (e.left + e.right) / 2;
+        const isPark = (qx, qz) => { R.classify(qx, qz, o, cls); return o.road === r.id && (cls[1] === MAT.PARKING || cls[1] === MAT.PAINT_WHITE); };
+        for (let s = 25 + H(side, 9) * 40; s < r.len - 12; s += 70 + 90 * H(side + 70, s)) {
+          if (nearJ(s, 14)) continue;
+          const h = H(side + 71, s);
+          const type = h < 0.3 ? 'van' : h < 0.42 ? 'vanBlue' : h < 0.5 ? 'vanGrey' : h < 0.68 ? 'truck' : h < 0.78 ? 'truckBlue' : h < 0.86 ? 'truckGreen' : h < 0.94 ? 'rolloff' : 'rolloffBlue';
+          const half = type.startsWith('truck') ? 3.9 : type.startsWith('van') ? 2.95 : 3.1;
+          const pts = [-half, 0, half].map(ds => { const [px, pz, tx, tz] = pointAt(r, s + ds); return [px + tz * uc, pz - tx * uc]; });
+          if (!pts.every(([qx, qz]) => isPark(qx, qz))) continue;
+          const [x, z] = pts[1];
+          if (!urban(x, z) || !clear(x, z, half) || !offAlley(x, z, half)) continue;
+          // traffic on this side drives along -side * t; vehicles face the traffic direction
+          const [, , tx, tz] = pointAt(r, s), d = side < 0 ? 1 : -1, wx = d * tx, wz = d * tz;
+          out.push({ type, x, y: -PV, z, yaw: Math.atan2(-wz, wx), road: r.id });
+          addTaken(x, z, half); ++n;
+        }
+      }
+      if (parkSide[side]) {
+        const kiosk = P.cls === 'arterial';
+        const pitch = kiosk ? 38.4 : 12.8;
+        for (let s = Math.ceil(12 / pitch) * pitch; s < r.len - 8; s += pitch) {
+          if (nearJ(s, 8)) continue;
+          if (kiosk) put('meterKiosk', s + 3.2, side, 0.5, 0.3, 0.25, 0.4);
+          else put('meter', s, side, 0.38, 0.12, 0.12, 0.25);
+        }
+      }
+    }
+  }
+  // bollards: short rows where plazas and pocket plazas meet the sidewalk
+  if (R.blockArea) {
+    for (const r of net.roads) {
+      const P = r.P;
+      if (P.id === 'alley' || !r.len || !P.sidewalk || r.district === 'residential') continue;
+      const J = (r.junctions || []).filter(j => j.major);
+      for (const side of [1, -1]) {
+        const cand = [];
+        for (let s = 3; s < r.len - 3; s += 1.5) {
+          if (J.some(j => s > j.a - 4 && s < j.b + 4)) continue;
+          const u = side * (P.half + P.sidewalk + 0.45);
+          const [px, pz, tx, tz] = pointAt(r, s), x = px + tz * u, z = pz - tx * u;
+          const c = F.blockAt(x, z), kind = c >= 0 ? R.blockArea.get(c) : undefined;
+          if (kind !== 'pocket' && kind !== 'plaza' && kind !== 'square') continue;
+          R.classify(x, z, o, cls);
+          if (o.road !== r.id || !(cls[1] === MAT.PLAZA || cls[1] === MAT.PLAZA_JOINT)) continue;
+          cand.push({ s, x, z });
+        }
+        // runs of plaza frontage: bollards only at the run ends (the corners), 4-5 each
+        let k0 = 0;
+        for (let k = 1; k <= cand.length; ++k) {
+          if (k < cand.length && cand[k].s - cand[k - 1].s < 2) continue;
+          const a = cand[k0].s, b = cand[k - 1].s;
+          for (let q = k0; q < k; ++q) {
+            const c = cand[q];
+            if (c.s - a > 6.1 && b - c.s > 6.1) continue;
+            if (!clear(c.x, c.z, 0.35)) continue;
+            out.push({ type: 'bollard', x: c.x, y, z: c.z, yaw: 0, road: r.id }); addTaken(c.x, c.z, 0.35); ++n;
+          }
+          k0 = k;
+        }
+      }
+    }
+  }
+  return n;
 }
 // yaw (rotation about +y) that turns local +z towards point c from (x, z)
 function yawTowards(x, z, c) { return Math.atan2(c[0] - x, c[1] - z); }

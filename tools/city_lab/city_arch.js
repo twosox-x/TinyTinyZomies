@@ -91,11 +91,19 @@ class Emitter {
         const nn = t.nrm[q * 4];
         if (nn === 0) continue;
         const k = q * 12;
-        // only faces on the relief's outer boundary (wall ends, top and bottom edges); the side walls of
-        // recesses inside the facade (portals, lobbies, glazed slots) must stay, or the building is see-through
-        const ax = nn <= 2 ? 0 : 2, lim = nn <= 2 ? w : d;
+        // only faces on the relief's outer boundary (wall ends, top and bottom edges, and the ends of corner
+        // returns that were cleared to -1): the cell on the face's outward side is empty (-1). The side walls of
+        // recesses inside the facade (portals, lobbies, glazed slots) border cells of depth >= 0 and must stay,
+        // or the building is see-through.
+        const W2 = w + 2, X = P[k], Z = P[k + 2];
         let edge = true;
-        for (let c = ax; c < 12; c += 3) if (P[k + c] !== 0 && P[k + c] !== lim) { edge = false; break; }
+        if (nn <= 2) {
+          const xo = nn === 1 ? X : X - 1, z0 = Math.min(P[k + 2], P[k + 5], P[k + 8], P[k + 11]), z1 = Math.max(P[k + 2], P[k + 5], P[k + 8], P[k + 11]);
+          for (let z = z0; z < z1 && edge; ++z) if (H[(z + 1) * W2 + xo + 1] !== -1) edge = false;
+        } else {
+          const zo = nn === 3 ? Z : Z - 1, x0 = Math.min(P[k], P[k + 3], P[k + 6], P[k + 9]), x1 = Math.max(P[k], P[k + 3], P[k + 6], P[k + 9]);
+          for (let x = x0; x < x1 && edge; ++x) if (H[(zo + 1) * W2 + x + 1] !== -1) edge = false;
+        }
         if (!edge) continue;
         let mn = 1e9; for (let c = 1; c < 12; c += 3) mn = Math.min(mn, P[k + c]);
         if (mn > 0) continue;
@@ -114,6 +122,228 @@ class Emitter {
         map(P[k + 9], P[k + 10], P[k + 11]), t.mat[q * 4], NR[t.nrm[q * 4]]);
     }
   }
+}
+
+// ------------------------------------------------------------------------------------------------ mesh analysis
+// Quads of a MeshBuffer (explicit normals in nvec) grouped by plane: quantised normal, then plane offset in
+// 0.05-voxel slots. Used by cullHidden() (build) and by the dev checks (dev/regress.js, dev/zfight.js).
+const sround = (x) => (x < 0 ? -Math.round(-x) : Math.round(x));
+function planeOf(P, N, q) {
+  const o = q * 12, nx = N[o], ny = N[o + 1], nz = N[o + 2];
+  return { nx, ny, nz, d: nx * P[o] + ny * P[o + 1] + nz * P[o + 2],
+    nk: (sround(nx * 1000) + 1000) * 4004001 + (sround(ny * 1000) + 1000) * 2001 + (sround(nz * 1000) + 1000) };
+}
+function planeBuckets(mb, q0, q1) {
+  const P = mb.pos, N = mb.nvec, B = new Map();
+  for (let q = q0; q < q1; ++q) {
+    const p = planeOf(P, N, q);
+    let m = B.get(p.nk); if (!m) B.set(p.nk, m = new Map());
+    const dq = sround(p.d * 20);
+    let a = m.get(dq); if (!a) m.set(dq, a = []);
+    a.push(q);
+  }
+  return B;
+}
+// in-plane rectangle of quad q in the frame of quad f (origin = f's first vertex, axes along f's edges)
+function quadFrame(P, f) {
+  const o = f * 12;
+  const ux = P[o + 3] - P[o], uy = P[o + 4] - P[o + 1], uz = P[o + 5] - P[o + 2];
+  const vx = P[o + 9] - P[o], vy = P[o + 10] - P[o + 1], vz = P[o + 11] - P[o + 2];
+  const lu = Math.hypot(ux, uy, uz), lv = Math.hypot(vx, vy, vz);
+  if (lu < 1e-9 || lv < 1e-9) return null;
+  const U = [ux / lu, uy / lu, uz / lu], V = [vx / lv, vy / lv, vz / lv];
+  if (Math.abs(U[0] * V[0] + U[1] * V[1] + U[2] * V[2]) > 1e-6) return null;   // not a rectangle
+  return { o: [P[o], P[o + 1], P[o + 2]], U, V, lu, lv };
+}
+function rectIn(P, F, q) {
+  const o = q * 12;
+  let s0 = 1e18, s1 = -1e18, t0 = 1e18, t1 = -1e18;
+  for (let k = 0; k < 4; ++k) {
+    const x = P[o + k * 3] - F.o[0], y = P[o + k * 3 + 1] - F.o[1], z = P[o + k * 3 + 2] - F.o[2];
+    const s = x * F.U[0] + y * F.U[1] + z * F.U[2], t = x * F.V[0] + y * F.V[1] + z * F.V[2];
+    if (s < s0) s0 = s; if (s > s1) s1 = s; if (t < t0) t0 = t; if (t > t1) t1 = t;
+  }
+  // aligned with the frame? (each edge along U or V)
+  for (const [a, b] of [[0, 1], [0, 3]]) {
+    const ex = P[o + b * 3] - P[o + a * 3], ey = P[o + b * 3 + 1] - P[o + a * 3 + 1], ez = P[o + b * 3 + 2] - P[o + a * 3 + 2];
+    const es = ex * F.U[0] + ey * F.U[1] + ez * F.U[2], et = ex * F.V[0] + ey * F.V[1] + ez * F.V[2];
+    if (Math.abs(es) > 1e-6 && Math.abs(et) > 1e-6) return null;
+  }
+  return [s0, s1, t0, t1];
+}
+// Pairs of coplanar quads (|d| within tol) whose in-plane bounding rectangles overlap by more than minExt in both
+// directions. same: same-facing pairs (z-fighting candidates), else opposite-facing pairs (solids pressed flush).
+// Calls fn(a, b) for each candidate pair. Sweep per plane cluster: O(n log n + pairs).
+function coplanarPairs(mb, q0, q1, same, tol, minExt, fn) {
+  const P = mb.pos, N = mb.nvec, byN = new Map();
+  for (let q = q0; q < q1; ++q) {
+    const pl = planeOf(P, N, q);
+    let a = byN.get(pl.nk); if (!a) byN.set(pl.nk, a = []);
+    a.push(q);
+  }
+  const done = new Set();
+  for (const [nk, A] of byN) {
+    if (done.has(nk)) continue;
+    done.add(nk);
+    const o = A[0] * 12, n = [N[o], N[o + 1], N[o + 2]];
+    let Bq = null;
+    if (!same) {
+      const ok = (sround(-n[0] * 1000) + 1000) * 4004001 + (sround(-n[1] * 1000) + 1000) * 2001 + (sround(-n[2] * 1000) + 1000);
+      Bq = byN.get(ok); if (!Bq) continue;
+      done.add(ok);
+    }
+    const ref = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+    let U = [n[1] * ref[2] - n[2] * ref[1], n[2] * ref[0] - n[0] * ref[2], n[0] * ref[1] - n[1] * ref[0]];
+    const lu = Math.hypot(U[0], U[1], U[2]); U = [U[0] / lu, U[1] / lu, U[2] / lu];
+    const V = [n[1] * U[2] - n[2] * U[1], n[2] * U[0] - n[0] * U[2], n[0] * U[1] - n[1] * U[0]];
+    const items = [];
+    const add = (q, side) => {
+      const oo = q * 12;
+      let s0 = 1e18, s1 = -1e18, t0 = 1e18, t1 = -1e18;
+      for (let v = 0; v < 4; ++v) {
+        const x = P[oo + v * 3], y = P[oo + v * 3 + 1], z = P[oo + v * 3 + 2];
+        const s = x * U[0] + y * U[1] + z * U[2], t = x * V[0] + y * V[1] + z * V[2];
+        if (s < s0) s0 = s; if (s > s1) s1 = s; if (t < t0) t0 = t; if (t > t1) t1 = t;
+      }
+      const d = n[0] * P[oo] + n[1] * P[oo + 1] + n[2] * P[oo + 2];
+      items.push({ q, side, d, s0, s1, t0, t1 });
+    };
+    for (const q of A) add(q, 0);
+    if (Bq) for (const q of Bq) add(q, 1);
+    items.sort((a, b) => a.d - b.d);
+    for (let i = 0; i < items.length;) {
+      let j = i + 1; while (j < items.length && items[j].d - items[j - 1].d < tol) ++j;
+      if (j - i > 1) {
+        const cl = items.slice(i, j).sort((a, b) => a.s0 - b.s0);
+        for (let x = 0; x < cl.length; ++x) {
+          const a = cl[x];
+          for (let y = x + 1; y < cl.length && cl[y].s0 < a.s1 - minExt; ++y) {
+            const b = cl[y];
+            if (!same && a.side === b.side) continue;
+            if (Math.min(a.s1, b.s1) - Math.max(a.s0, b.s0) <= minExt || Math.min(a.t1, b.t1) - Math.max(a.t0, b.t0) <= minExt) continue;
+            if (Math.abs(a.d - b.d) > tol) continue;
+            fn(a.q, b.q);
+          }
+        }
+      }
+      i = j;
+    }
+  }
+}
+// Removes faces that can never be seen, in place (mb.pos / mat / nrm / nvec / idx / quads rewritten):
+//  - zero-area quads;
+//  - downward faces lying on the ground plane (y = groundY);
+//  - the overlap of two coplanar, opposite-facing quads (two solids pressed flush against each other: party
+//    walls of attached buildings, a part's underside on a roof, ...): the overlapping part of both is cut away,
+//    the rest is re-emitted as rectangles with the same winding, material and normal.
+// resolve: also settle z-fighting: where two coplanar quads facing the same way overlap (within 1 mm, thicker
+// than 5 mm), the one emitted later wins and the overlap is cut out of the earlier one ("painter's order": a part
+// added onto a wall replaces the wall there; a side facade beats the corner end of the front facade's bands).
+// marks: old quad indices to remap (range starts / ends); returns them mapped into the new numbering.
+function cullHidden(mb, groundY, marks, q0, resolve) {
+  q0 = q0 || 0;
+  const P = mb.pos, N = mb.nvec, n = mb.quads;
+  const TOL = 1e-3, MIN = 1e-4;
+  const cut = new Map();
+  const add = (a, b) => { let x = cut.get(a); if (!x) cut.set(a, x = []); x.push(b); };
+  coplanarPairs(mb, q0, n, false, TOL, MIN, (a, b) => { add(a, b); add(b, a); });
+  if (resolve) coplanarPairs(mb, q0, n, true, 0.01, 0.05, (a, b) => add(Math.min(a, b), Math.max(a, b)));
+  const out = { pos: [], mat: [], nrm: [], nvec: [], q: 0, src: [] };
+  const start = new Int32Array(n + 1);
+  const keepRaw = (q) => {
+    out.src.push(q);
+    for (let k = 0; k < 12; ++k) { out.pos.push(P[q * 12 + k]); out.nvec.push(N[q * 12 + k]); }
+    for (let k = 0; k < 4; ++k) { out.mat.push(mb.mat[q * 4 + k]); out.nrm.push(mb.nrm[q * 4 + k]); }
+    out.q++;
+  };
+  // quad q as a CCW convex polygon in a frame (o, U, V) of its plane, V = n x U (so CCW <=> facing n)
+  const frameOf = (q) => {
+    const o = q * 12, nx = N[o], ny = N[o + 1], nz = N[o + 2];
+    for (let k = 1; k < 4; ++k) {
+      let ux = P[o + k * 3] - P[o], uy = P[o + k * 3 + 1] - P[o + 1], uz = P[o + k * 3 + 2] - P[o + 2];
+      const l = Math.hypot(ux, uy, uz);
+      if (l < 1e-9) continue;
+      ux /= l; uy /= l; uz /= l;
+      return { o: [P[o], P[o + 1], P[o + 2]], U: [ux, uy, uz], V: [ny * uz - nz * uy, nz * ux - nx * uz, nx * uy - ny * ux] };
+    }
+    return null;
+  };
+  const polyIn = (F, q) => {
+    const o = q * 12, pts = [];
+    for (let k = 0; k < 4; ++k) {
+      const x = P[o + k * 3] - F.o[0], y = P[o + k * 3 + 1] - F.o[1], z = P[o + k * 3 + 2] - F.o[2];
+      const p = [x * F.U[0] + y * F.U[1] + z * F.U[2], x * F.V[0] + y * F.V[1] + z * F.V[2]];
+      if (!pts.length || Math.hypot(p[0] - pts[pts.length - 1][0], p[1] - pts[pts.length - 1][1]) > 1e-7) pts.push(p);
+    }
+    if (pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) <= 1e-7) pts.pop();
+    if (pts.length < 3) return null;
+    if (area2(pts) < 0) pts.reverse();
+    return pts;
+  };
+  let dropped = 0, split = 0;
+  for (let q = 0; q < q0; ++q) { start[q] = q; keepRaw(q); }
+  for (let q = q0; q < n; ++q) {
+    start[q] = out.q;
+    const o = q * 12;
+    const F = frameOf(q), A = F && polyIn(F, q);
+    if (!A || area2(A) < 1e-8) { dropped++; continue; }                     // zero-area
+    if (N[o + 1] < -0.9999 && Math.abs(P[o + 1] - groundY) < 1e-6 && Math.abs(P[o + 4] - groundY) < 1e-6 &&
+        Math.abs(P[o + 7] - groundY) < 1e-6 && Math.abs(P[o + 10] - groundY) < 1e-6) { dropped++; continue; }
+    const cand = cut.get(q);
+    let pieces = null;
+    if (cand) {
+      for (const r of cand) {
+        const B = polyIn(F, r);
+        if (!B) continue;
+        const next = [];
+        for (const p of (pieces || [A])) {
+          // p minus convex B: the parts of p outside each edge of B in turn
+          let rem = p, hit = true;
+          const parts = [];
+          for (let i = 0; i < B.length && rem.length >= 3; ++i) {
+            const a = B[i], b = B[(i + 1) % B.length];
+            const outside = clipPoly(rem, b[0], b[1], a[0], a[1]);
+            if (outside.length >= 3 && area2(outside) > 2 * MIN * MIN) parts.push(outside);
+            rem = clipPoly(rem, a[0], a[1], b[0], b[1]);
+          }
+          if (rem.length < 3 || area2(rem) <= 2e-6) hit = false;           // no real overlap: keep p whole
+          if (!hit) next.push(p); else for (const x of parts) next.push(x);
+        }
+        if (pieces || next.length !== 1 || next[0] !== A) pieces = next;
+        if (pieces && !pieces.length) break;
+      }
+    }
+    if (!pieces) { keepRaw(q); continue; }
+    split++;
+    const mat = mb.mat[q * 4], nr = mb.nrm[q * 4];
+    const emit = (a, b, c, d) => {
+      for (const p of [a, b, c, d]) for (let k = 0; k < 3; ++k) out.pos.push(F.o[k] + F.U[k] * p[0] + F.V[k] * p[1]);
+      for (let k = 0; k < 12; ++k) out.nvec.push(N[o + k]);
+      for (let k = 0; k < 4; ++k) { out.mat.push(mat); out.nrm.push(nr); }
+      out.q++; out.src.push(q);
+    };
+    for (const p of pieces) {                                                 // convex polygon -> fan of quads
+      for (let i = 1; i + 1 < p.length; i += 2) emit(p[0], p[i], p[i + 1], p[Math.min(i + 2, p.length - 1)]);
+    }
+    if (!pieces.length) dropped++;
+  }
+  start[n] = out.q;
+  mb.pos = out.pos; mb.mat = out.mat; mb.nrm = out.nrm; mb.nvec = out.nvec; mb.quads = out.q;
+  mb.idx = [];
+  for (let k = 0; k < out.q; ++k) { const b = k * 4; mb.idx.push(b, b + 1, b + 2, b, b + 2, b + 3); }
+  return { marks: (marks || []).map(m => start[m]), dropped, split, removedQuads: n - out.q, src: out.src };
+}
+// twice the signed area of a 2D polygon; keep the part of poly left of the directed line a->b
+function area2(p) { let s = 0; for (let i = 0; i < p.length; ++i) { const a = p[i], b = p[(i + 1) % p.length]; s += a[0] * b[1] - b[0] * a[1]; } return s; }
+function clipPoly(poly, ax, ay, bx, by) {
+  const out = [], dx = bx - ax, dy = by - ay;
+  for (let i = 0; i < poly.length; ++i) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const sp = dx * (p[1] - ay) - dy * (p[0] - ax), sq = dx * (q[1] - ay) - dy * (q[0] - ax);
+    if (sp >= -1e-9) out.push(p);
+    if ((sp > 1e-9 && sq < -1e-9) || (sp < -1e-9 && sq > 1e-9)) { const t = sp / (sp - sq); out.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]); }
+  }
+  return out;
 }
 
 // ------------------------------------------------------------------------------------------------ facades
@@ -1638,7 +1868,7 @@ function buildMidAny(E, W, D, spec, C, zone) {
   // prefer types whose storey range contains the requested height (keeps old town low, avenues tall)
   const hfit = fits.filter(m => spec.floors >= m.minFloors && spec.floors <= m.maxFloors);
   if (hfit.length) fits = hfit;
-  if (!fits.length) return zone === 'row' ? buildRows(E, W, D, spec, C) : buildMid(E, W, D, spec, C);
+  if (!fits.length) { if (zone === 'row') buildRows(E, W, D, spec, C); else buildMid(E, W, D, spec, C); return zone === 'row' ? 'classic_rows' : 'classic_mid'; }
   const key = zone + ':' + fits.map(m => m.name).join(',');
   let deck = midDecks[key];
   if (!deck || !deck.length) {
@@ -1650,6 +1880,7 @@ function buildMidAny(E, W, D, spec, C, zone) {
   const floors = Math.max(m.minFloors, Math.min(m.maxFloors, spec.floors));
   MID_LOG.push({ type: m.name, zone, floors });
   m.fn(E, C, W, D, Object.assign({}, spec, { floors, zone }), C.mulberry32(spec.seed), LIB);
+  return m.name;
 }
 function buildTower(E, W, D, spec, C) {
   const R = C.mulberry32(spec.seed);
@@ -1663,6 +1894,7 @@ function buildTower(E, W, D, spec, C) {
   if (t.unique) usedUnique.add(t.name);
   TOWER_LOG.push({ type: t.name, x: E.O[0] + (W / 2) * BV * E.e1[0] + (D / 2) * BV * E.e2[0], z: E.O[1] + (W / 2) * BV * E.e1[1] + (D / 2) * BV * E.e2[1], floors: spec.floors });
   t.fn(E, C, W, D, spec, R, LIB);
+  return t.name;
 }
 function facadeGlassFloor(W, fh, S, k, fin) {
   const F = new Relief(W, fh, 0, BM.CURTAIN);
@@ -2298,6 +2530,7 @@ function buildAll(PL, R, voxel, C) {
     const E = new Emitter(mb, O, e1, e2, hs, voxel);
     buildHouse(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
   });
+  let houseQuads = mb.quads;                                                      // houses: quads [0, houseQuads)
   for (let i = 0; i < occ.g.length; ++i) if (occ.g[i]) occ.g[i] = 2;          // houses: kept 4 m clear of city blocks
   // jobs: O = front-left corner, e1 along the frontage, e2 into the lot, W x D voxels
   const jobs = [];
@@ -2330,14 +2563,23 @@ function buildAll(PL, R, voxel, C) {
       const spec = { seed, floors, party, shops: !!J.shops };
       if (J.corner) spec.corner = true;
       const q0 = mb.quads;
-      if (kind === 'house') buildHouse(E, W, D, spec, C);
-      else if (kind === 'row') buildMidAny(E, W, D, spec, C, 'row');
-      else if (kind === 'mid') buildMidAny(E, W, D, spec, C, J.zone === 'core' ? 'core' : 'mid');
-      else buildTower(E, W, D, spec, C);
+      if (kind === 'house') { buildHouse(E, W, D, spec, C); J.type = 'house'; }
+      else if (kind === 'row') J.type = buildMidAny(E, W, D, spec, C, 'row');
+      else if (kind === 'mid') J.type = buildMidAny(E, W, D, spec, C, J.zone === 'core' ? 'core' : 'mid');
+      else J.type = buildTower(E, W, D, spec, C);
       counts[kind] = (counts[kind] || 0) + 1;
-      J.tris = 2 * (mb.quads - q0);
-      counts[kind + 'Tris'] = (counts[kind + 'Tris'] || 0) + J.tris;
+      J.q0 = q0; J.q1 = mb.quads;
     }
+  };
+  // after everything is emitted: faces that can never be seen (flush party walls, undersides on roofs / the
+  // ground) are cut away, and z-fighting overlaps are settled (later geometry wins), see cullHidden()
+  const cullPass = () => {
+    const marks = [houseQuads]; for (const J of jobs) marks.push(J.q0, J.q1);
+    const tc = Date.now(), cr = cullHidden(mb, hs / voxel, marks, 0, true);
+    counts.cullMs = Date.now() - tc; counts.culled = cr.removedQuads;
+    houseQuads = cr.marks[0]; jobs.forEach((J, i) => { J.q0 = cr.marks[1 + 2 * i]; J.q1 = cr.marks[2 + 2 * i]; });
+    counts.houseQuads = houseQuads;
+    for (const J of jobs) { J.tris = 2 * (J.q1 - J.q0); counts[J.kind + 'Tris'] = (counts[J.kind + 'Tris'] || 0) + J.tris; }
   };
   for (const L of lots) {
     const zone = zoneOf(PL.net, L.road, L.mx, L.mz);
@@ -2385,12 +2627,15 @@ function buildAll(PL, R, voxel, C) {
     }
   }
   emitJobs();
+  // back-of-house dressing (towers/servicekit.js): service courts, gaps between buildings, alleys
+  if (LIB.serviceKit) counts.service = LIB.serviceKit({ PL, R, C, occ, blocks, jobs, hs, voxel, mb });
+  cullPass();
   const res = mb.finish(0.002);
   res.counts = counts;
   res.towers = TOWER_LOG;
   res.mids = MID_LOG;
   res.blocks = blocks ? blocks.stats : null;
-  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris }));
+  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1 }));
   return res;
 }
 
@@ -2398,7 +2643,7 @@ const LIB = {
   BV, BM, FH, BASE, Relief, bays, H2, pick, glassMat, facades, prism, roofMask, buildTiers, soffit, inset, rectMask, rotated, flatRoof,
   facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
   skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,
-  planterRowModel, VoxModel: () => C_VoxModel
+  planterRowModel, VoxModel: () => C_VoxModel, cullHidden, planeBuckets, planeOf, quadFrame, rectIn
 };
 // Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
 function previewTower(name, Wm, Dm, floors, seed, C) {
