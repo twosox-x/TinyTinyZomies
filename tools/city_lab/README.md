@@ -5,6 +5,7 @@ Interactive Three.js prototype of the city layout and voxel road system. **Not p
 | File | Role |
 |---|---|
 | `city_core.js` | Everything that will be ported to C++. Pure JavaScript, no rendering library: street profiles, network generators, distance fields, voxel rasteriser, plots / buildings, greedy mesher, JSON export. Runs in Node too. |
+| `city_arch.js` | Voxel-art buildings (phase 5B), renderer-free: each building is a standalone model on its own upright 25 cm grid, placed as a rigidly rotated mesh facing its street. |
 | `city_worker.js` | Web Worker: runs the core for a share of the chunks. |
 | `city_lab.html` | Three.js viewer and UI only. |
 
@@ -53,3 +54,13 @@ Run it locally (workers need http, not file://):
 ```bash
 cd tools/city_lab && python3 -m http.server 8765
 ```
+
+## Buildings (phase 5B, `city_arch.js`)
+
+- **Lots → rectangles.** Plots are split into connected pieces (one per side of the street). Each piece is cut into clean rectangles, using the largest rectangle that fronts the street, repeated. A building is never carved: it's built upright and rotated whole.
+- **Zones by density,** from the edge inward:
+  - suburban houses: lap siding, shutters, gable shingle roof, chimney, porch;
+  - DC / Brooklyn rowhouse terraces: brick or painted, projecting bays, sills and lintels, bracketed cornice, stoops, water tanks;
+  - mid-rise: limestone or brick, rusticated base or storefronts with awnings, pilasters, cornice, penthouse, rooftop units;
+  - towers within about 160 m of the core: Art Deco with three setback tiers, piers, a crown and a spire, or glass curtain wall on a limestone podium.
+- **Construction.** Facades are relief maps (depth per 25 cm cell) meshed by the street mesher. Roofs are height maps. Small parts (porches, stoops, tanks, spires) are voxel boxes. Windows have lit variants that glow at night.

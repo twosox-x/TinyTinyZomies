@@ -272,7 +272,7 @@ function generateCity(seed) {
   // an open lot in the old town: a whole block left empty (horde gathering space)
   areas.push({ kind: 'lot', shape: 'circle', c: [origin[0] + ou[0] * 150 + ov[0] * -95, origin[1] + ou[1] * 150 + ov[1] * -95], r: 30, name: 'Freight Yard' });
 
-  return { kind: 'city', seed, bounds: { x0: X0, z0: Z0, x1: X1, z1: Z1 }, roads, areas, origins: { star: plazaC } };
+  return { kind: 'city', seed, bounds: { x0: X0, z0: Z0, x1: X1, z1: Z1 }, roads, areas, origins: { star: plazaC, core: [central + 40, zG - 25] } };
 }
 // first crossing of the horizontal line z = const with a polyline, east of xMin
 function crossZ(pts, z, xMin) {
@@ -889,7 +889,15 @@ class Plots {
     const cuts = [0];
     let s = 0;
     const len = r.len || 0;
-    while (s < len + 40) { s += range[0] + R() * (range[1] - range[0]); cuts.push(s); }
+    const core = this.net.origins && this.net.origins.core;
+    while (s < len + 40) {
+      let rg = range;
+      if (core && (d === 'downtown' || d === 'arterial') && len) {           // wide lots near the core: room for towers
+        const [px, pz] = pointAt(r, Math.min(s + 15, len));
+        if (Math.hypot(px - core[0], pz - core[1]) < 170) rg = [24, 40];
+      }
+      s += rg[0] + R() * (rg[1] - rg[0]); cuts.push(s);
+    }
     return { cuts, gaps: cuts.map(() => (R() < (d === 'residential' ? 0.55 : 0.16) ? 4 + R() * 2 : 0)) };   // attached, or a real gap
   }
   // per-lot parameters
@@ -954,7 +962,7 @@ class Plots {
     for (let iz = 0; iz < nz; ++iz)
       for (let ix = 0; ix < nx; ++ix)
         P[iz * nx + ix] = this.assignAt(this.x0 + (ix + 0.5) * this.cell, this.z0 + (iz + 0.5) * this.cell, o);
-    const r = Math.max(1, Math.round(3.0 / this.cell));
+    const r = Math.max(1, Math.round(1.5 / this.cell));
     // erosion: horizontal then vertical runs of the same id covering +-r
     const E1 = new Int32Array(n).fill(-1), E = new Int32Array(n).fill(-1);
     for (let iz = 0; iz < nz; ++iz) {
@@ -991,6 +999,30 @@ class Plots {
       const z = (i / nx) | 0;
       for (let dz = -r; dz <= r; ++dz) { const zz = z + dz; if (zz >= 0 && zz < nz && P[i + dz * nx] === id) O[i + dz * nx] = id; }
     }
+    // a lot index covers both sides of its street: split every plot into its connected pieces
+    // (new id = old id * 8 + piece), so each piece is its own building lot
+    {
+      const seen = new Int32Array(n).fill(-1), stack = [];
+      const pieces = new Map();
+      for (let i = 0; i < n; ++i) {
+        if (O[i] < 0 || seen[i] >= 0) continue;
+        const id = O[i], k = pieces.get(id) || 0; pieces.set(id, k + 1);
+        const nid = k < 8 ? id * 8 + k : -1;
+        stack.push(i); seen[i] = 1;
+        const members = [];
+        while (stack.length) {
+          const q = stack.pop(); members.push(q);
+          const x = q % nx;
+          for (const dq of [-1, 1, -nx, nx]) {
+            const r2 = q + dq;
+            if (r2 < 0 || r2 >= n || seen[r2] >= 0 || O[r2] !== id) continue;
+            if ((dq === -1 && x === 0) || (dq === 1 && x === nx - 1)) continue;
+            seen[r2] = 1; stack.push(r2);
+          }
+        }
+        for (const q of members) O[q] = nid;
+      }
+    }
     // drop small plots, measure each plot's inscribed radius (chamfer distance to its edge)
     const area = new Map();
     for (let i = 0; i < n; ++i) if (O[i] >= 0) area.set(O[i], (area.get(O[i]) || 0) + 1);
@@ -1004,7 +1036,7 @@ class Plots {
     // per plot: stories (capped by how wide the plot is), tower flag, tone
     this.info = new Map();
     for (const [id, rad] of inR) {
-      const rid = Math.floor(id / 4096), lot = id % 4096;
+      const rid = Math.floor(id / 32768), lot = Math.floor(id / 8) % 4096;
       const li = this.lotInfo(rid, lot);
       let stories = li.stories;
       if (rad < 5) stories = Math.min(stories, 4);
@@ -1210,7 +1242,9 @@ function buildBlocks(ctx) {
     }
     return out.finish();
   };
-  const buildings = fineBuildings(PL, R, voxel, bk);
+  // voxel-art buildings (city_arch.js): standalone models placed as rigidly rotated meshes
+  const A = (typeof self !== 'undefined' && self.CityArch) || (typeof require !== 'undefined' ? require('./city_arch.js') : null);
+  const buildings = A ? A.buildAll(PL, R, voxel, CityCore) : fineBuildings(PL, R, voxel, bk);
   const plots = emit(Hp, Mp, R.hs - bk + 1);
   let built = 0; for (let i = 0; i < PL.height.length; ++i) if (PL.height[i] > 0) built++;
   return { buildings, plots, plotCount, builtArea: built * bcell * bcell };
@@ -1246,7 +1280,7 @@ function fineBuildings(PL, R, voxel, k) {
   };
   for (const [id, list] of cells) {
     const info = PL.info.get(id);
-    const road = PL.net.roads[Math.floor(id / 4096)];
+    const road = PL.net.roads[Math.floor(id / 32768)];
     let mx = 0, mz = 0;
     for (const i of list) { mx += i % nx; mz += (i / nx) | 0; }
     mx = PL.x0 + (mx / list.length + 0.5) * cell; mz = PL.z0 + (mz / list.length + 0.5) * cell;
@@ -1610,6 +1644,6 @@ function exportNetwork(net) {
   };
 }
 
-const CityCore = { PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);
