@@ -2259,7 +2259,8 @@ function placeBlocks(PL, C, occ, addJob) {
           if (d < Z.minD) { if (DBG(g) && w === Z.minW) console.log('  a', a, 'w', w, 'd', d); continue; }
           const O = [cx + a * e1[0] + bF * e2[0], cz + a * e1[1] + bF * e2[1]];
           // 4 m clear of buildings in (nearly) the same grid; skewed ones (diagonal streets) may touch
-          if (occ.rect(O, e1, e2, -4, w + 4, -4, d + 4, false, (v, an) => v !== pv && (v === 2 || angDiff(an, myAng) < 25))) { if (DBG(g)) console.log('  a', a, 'w', w, 'd', d, 'clear'); continue; }
+          if (occ.rect(O, e1, e2, -4.5, w + 4.5, -4.5, d + 4.5, false, (v, an) => v !== pv && (v === 2 || angDiff(an, myAng) < 25)) ||
+              occ.rect(O, e1, e2, -0.6, w + 0.6, -0.6, d + 0.6, false, (v) => v !== pv)) { if (DBG(g)) console.log('  a', a, 'w', w, 'd', d, 'clear'); continue; }
           if (emitLot(O, e1, e2, Math.round(w / BV), Math.round(d / BV), road, { strip: 'P' + rid, idx: k++ }, pv)) {
             stats.packed++; placed = true; a += w; lastEnd = a; break;
           }
