@@ -26,7 +26,9 @@ const BM = {
   METAL: 99, WOOD: 100, COPPER: 101, STOREFRONT: 102, SHUTTER_GREEN: 103, SHUTTER_BLACK: 104, DOOR_NAVY: 105,
   PAINT_SALMON: 106, PAINT_SAGE: 107, SIDING_GRAY: 108, CONCRETE: 109, SHINGLE_SLATE: 110, SIDING_SHADE: 111, BRICK_SHADE: 112,
   GRANITE_PINK: 141, GRANITE_DARK: 142, BRONZE: 143, TERRACOTTA: 144, PRECAST: 145, GLASS_GREEN: 146, GLASS_DARK: 147,
-  GLASS_GREEN_LIT: 148, GLASS_DARK_LIT: 149, BEACON: 150, LOUVER: 151, WATER: 152
+  GLASS_GREEN_LIT: 148, GLASS_DARK_LIT: 149, BEACON: 150, LOUVER: 151, WATER: 152,
+  NEON: 153, LED: 154, GRASS: 155, STEEL_DARK: 156, WHITE_CONCRETE: 157, GLASS_BLUE: 158, GLASS_BLUE_LIT: 159,
+  LEAF: 133, LEAF_DARK: 134, TRUNK: 135
 };
 // muted, slightly washed-out sRGB colours; lit glass glows at night (renderer)
 const ARCH_PALETTE = {
@@ -37,9 +39,10 @@ const ARCH_PALETTE = {
   99: [150, 154, 156], 100: [140, 108, 78], 101: [110, 150, 134], 102: [70, 86, 98], 103: [58, 84, 66], 104: [44, 46, 50], 105: [48, 62, 92],
   106: [214, 156, 136], 107: [160, 176, 146], 108: [196, 198, 198], 109: [176, 172, 166], 110: [84, 92, 104], 111: [0, 0, 0], 112: [0, 0, 0],
   141: [178, 146, 136], 142: [92, 88, 90], 143: [104, 88, 70], 144: [182, 148, 124], 145: [184, 180, 170], 146: [92, 122, 122], 147: [62, 70, 80],
-  148: [246, 226, 176], 149: [240, 214, 160], 150: [230, 60, 50], 151: [124, 128, 130], 152: [104, 146, 168]
+  148: [246, 226, 176], 149: [240, 214, 160], 150: [230, 60, 50], 151: [124, 128, 130], 152: [104, 146, 168],
+  153: [236, 96, 128], 154: [214, 232, 250], 155: [122, 150, 92], 156: [58, 62, 68], 157: [224, 222, 214], 158: [104, 136, 168], 159: [244, 222, 172]
 };
-const LIT = new Set([87, 89, 148, 149]);
+const LIT = new Set([87, 89, 148, 149, 159]);
 
 // ------------------------------------------------------------------------------------------------ emitter
 // Writes quads in building-local voxel coordinates (x along the street, y up, z into the lot) into a mesh
@@ -85,8 +88,15 @@ class Emitter {
       // pull them out to the wall plane. Window reveals (depth 1..2) are untouched.
       const P = t.pos;
       for (let q = 0; q < t.quads; ++q) {
-        if (t.nrm[q * 4] === 0) continue;
+        const nn = t.nrm[q * 4];
+        if (nn === 0) continue;
         const k = q * 12;
+        // only faces on the relief's outer boundary (wall ends, top and bottom edges); the side walls of
+        // recesses inside the facade (portals, lobbies, glazed slots) must stay, or the building is see-through
+        const ax = nn <= 2 ? 0 : 2, lim = nn <= 2 ? w : d;
+        let edge = true;
+        for (let c = ax; c < 12; c += 3) if (P[k + c] !== 0 && P[k + c] !== lim) { edge = false; break; }
+        if (!edge) continue;
         let mn = 1e9; for (let c = 1; c < 12; c += 3) mn = Math.min(mn, P[k + c]);
         if (mn > 0) continue;
         let mx = -1e9;
@@ -514,15 +524,32 @@ function roofMask(E, C, mask, cover, W, D, yTop, o, seed) {
   }
   E.relief(H, M, W, D, (rx, ry, rz) => [rx, yTop + ry, rz], (m) => m, C);
 }
+// tiers: { x0,z0,x1,z1 [,notch] | mask, h, skin, roof, party, noRoof, floating } or { gap: h } (open storeys).
+// A tier after a gap, or marked floating, gets a soffit (its underside). Returns the top y (voxels).
+function soffit(E, mask, W, D, y, mat) {
+  for (let z = 0; z < D; ++z) {
+    let x = 0;
+    while (x < W) {
+      if (!mask[z * W + x]) { ++x; continue; }
+      let x1 = x; while (x1 < W && mask[z * W + x1]) ++x1;
+      E.quad([x, y, z], [x1, y, z], [x1, y, z + 1], [x, y, z + 1], mat, [0, -1, 0]);
+      x = x1;
+    }
+  }
+}
 function buildTiers(E, C, W, D, tiers, seed) {
   let y = 0;
+  const maskOf = (t) => t.mask || rectMask(W, D, t.x0, t.z0, t.x1, t.z1, t.notch || 0);
   tiers.forEach((t, i) => {
-    const mask = rectMask(W, D, t.x0, t.z0, t.x1, t.z1, t.notch || 0);
     t.y = y;
-    if (!t.notch) facades(E, t.x0, t.z0, t.x1, t.z1, y, (len, side, front) => t.skin(len, t.h, { side, front }), C, true, t.party);
+    if (t.gap) { y += t.gap; return; }
+    const mask = maskOf(t);
+    if (!t.mask && !t.notch) facades(E, t.x0, t.z0, t.x1, t.z1, y, (len, side, front) => t.skin(len, t.h, { side, front }), C, true, t.party);
     else prism(E, C, mask, W, D, y, t.h, t.skin);
+    const pv = tiers[i - 1];
+    if (i > 0 && (pv.gap || t.floating)) soffit(E, mask, W, D, y, t.soffit || BM.CONCRETE);
     const nx = tiers[i + 1];
-    const cover = nx && !nx.floating ? rectMask(W, D, nx.x0, nx.z0, nx.x1, nx.z1, nx.notch || 0) : null;
+    const cover = nx && !nx.floating && !nx.gap ? maskOf(nx) : null;
     if (!t.noRoof) roofMask(E, C, mask, cover, W, D, y + t.h, t.roof || {}, seed + i * 31);
     y += t.h;
   });
@@ -535,6 +562,7 @@ function glassMat(seed, a, b, lit, dark) {
   const on = H2(seed, a, b) < (lit === undefined ? 0.3 : lit);
   if (dark === 'green') return on ? BM.GLASS_GREEN_LIT : BM.GLASS_GREEN;
   if (dark === 'dark') return on ? BM.GLASS_DARK_LIT : BM.GLASS_DARK;
+  if (dark === 'blue') return on ? BM.GLASS_BLUE_LIT : BM.GLASS_BLUE;
   if (dark === 'curtain') return on ? BM.CURTAIN_LIT : BM.CURTAIN;
   return on ? BM.GLASS_LIT : BM.GLASS;
 }
@@ -934,12 +962,11 @@ function towerBrutal(E, C, W, D, spec, R) {
   const t = inset(W, D, 6, 8, 6, 6);
   const tiers = [
     Object.assign({}, t, { h: 20, skin: skinPilotis(S), roof: { parapet: 0, deck: BM.PRECAST } }),
-    Object.assign({}, inset(W, D, 2, 4, 2, 2), { h: n * FH + 6, skin: skinPrecast(S), floating: true, roof: { mat: BM.PRECAST, units: 3 } })
+    Object.assign({}, inset(W, D, 2, 4, 2, 2), { h: n * FH + 6, skin: skinPrecast(S), floating: true, soffit: BM.PRECAST, roof: { mat: BM.PRECAST, units: 3 } })
   ];
   // the body overhangs the recessed base: its underside is a soffit
   const y = buildTiers(E, C, W, D, tiers, spec.seed);
   const b = tiers[1];
-  E.quad([b.x0, 20, b.z0], [b.x1, 20, b.z0], [b.x1, 20, b.z1], [b.x0, 20, b.z1], BM.PRECAST, [0, -1, 0]);
   E.vox(C, mastsModel(R), (b.x0 + b.x1) >> 1, y, (b.z0 + b.z1) >> 1);
 }
 function towerTerraced(E, C, W, D, spec, R) {
@@ -978,19 +1005,27 @@ function towerTwist(E, C, W, D, spec, R) {
     }
   }
 }
-const TOWER_TYPES = [towerDeco, towerReuse, towerInternational, towerPencil, towerPomo, towerBrutal, towerTerraced, towerTwist];
-let towerDeck = [], TOWER_LOG = [];
+// Tower registry: built-in archetypes + plug-in files (towers/*.js call CityArch.registerTower).
+// fn(E, C, W, D, spec, R, L): E emitter (building-local voxels, x along street, z into lot, y up), W/D lot size in
+// voxels, spec { seed, floors, party }, R seeded random, L the shared toolkit (CityArch.lib).
+const TOWERS = [];
+function registerTower(name, fn, opts) { TOWERS.push({ name, fn, unique: !!(opts && opts.unique) }); }
+[['deco', towerDeco], ['reuse', towerReuse], ['international', towerInternational], ['pencil', towerPencil], ['pomo', towerPomo],
+ ['brutalist', towerBrutal], ['terraced', towerTerraced]].forEach(([n, f]) => registerTower(n, f));
+registerTower('twist', towerTwist, { unique: true });
+let towerDeck = [], TOWER_LOG = [], dealt = 0, usedUnique = new Set();
 function buildTower(E, W, D, spec, C) {
   const R = C.mulberry32(spec.seed);
   if (!towerDeck.length) {                                         // deal the next round of designs
-    const order = TOWER_TYPES.slice();
-    const Rd = C.mulberry32(spec.seed ^ 0x9e3779b9);
+    const order = TOWERS.filter(t => !(t.unique && usedUnique.has(t.name)));
+    const Rd = C.mulberry32((spec.seed ^ 0x9e3779b9) + dealt++);
     for (let i = order.length - 1; i > 0; --i) { const j = Math.floor(Rd() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
     towerDeck = order;
   }
-  const fn = towerDeck.pop();
-  TOWER_LOG.push({ type: fn.name, x: E.O[0] + (W / 2) * BV * E.e1[0] + (D / 2) * BV * E.e2[0], z: E.O[1] + (W / 2) * BV * E.e1[1] + (D / 2) * BV * E.e2[1], floors: spec.floors });
-  fn(E, C, W, D, spec, R);
+  const t = towerDeck.pop();
+  if (t.unique) usedUnique.add(t.name);
+  TOWER_LOG.push({ type: t.name, x: E.O[0] + (W / 2) * BV * E.e1[0] + (D / 2) * BV * E.e2[0], z: E.O[1] + (W / 2) * BV * E.e1[1] + (D / 2) * BV * E.e2[1], floors: spec.floors });
+  t.fn(E, C, W, D, spec, R, LIB);
 }
 function facadeGlassFloor(W, fh, S, k, fin) {
   const F = new Relief(W, fh, 0, BM.CURTAIN);
@@ -1181,7 +1216,7 @@ function zoneOf(net, r, x, z) {
 }
 function buildAll(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
-  towerDeck = []; TOWER_LOG = [];
+  towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set();
   const mb = new C.MeshBuffer();
   const lots = lotRectangles(PL, C);
   const hs = R.hs * voxel;
@@ -1276,6 +1311,23 @@ function buildAll(PL, R, voxel, C) {
   return res;
 }
 
-const CityArch = { BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles };
+const LIB = {
+  BV, BM, FH, BASE, Relief, bays, H2, pick, glassMat, facades, prism, roofMask, buildTiers, soffit, inset, rectMask, rotated, flatRoof,
+  facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
+  skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,
+  planterRowModel, VoxModel: () => C_VoxModel
+};
+// Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
+function previewTower(name, Wm, Dm, floors, seed, C) {
+  C_VoxModel = C.VoxModel;
+  const t = TOWERS.find(x => x.name === name);
+  if (!t) throw new Error('unknown tower ' + name + '; known: ' + TOWERS.map(x => x.name).join(', '));
+  const mb = new C.MeshBuffer();
+  const E = new Emitter(mb, [0, 0], [1, 0], [0, 1], 0.15, 0.1);
+  const W = Math.floor(Wm / BV), D = Math.floor(Dm / BV);
+  t.fn(E, C, W, D, { seed, floors, party: {} }, C.mulberry32(seed), LIB);
+  return mb.finish(0.002);
+}
+const CityArch = { previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityArch; else root.CityArch = CityArch;
 })(typeof self !== 'undefined' ? self : this);

@@ -1,7 +1,8 @@
 /* City Lab build worker. Rebuilds the network from (kind, seed) and its distance fields, then meshes the
    chunks the page hands out one at a time (dynamic load balancing). The 'blocks' worker first builds the
    building blockouts, plot overlay and street furniture. */
-importScripts('city_core.js', 'city_arch.js');
+importScripts('city_core.js', 'city_arch.js', 'towers/manifest.js');
+for (const f of self.TOWER_FILES) importScripts('towers/' + f);
 let ctx = null, job = 0;
 self.onmessage = (e) => {
   const d = e.data, C = self.CityCore;
