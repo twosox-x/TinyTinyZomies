@@ -722,13 +722,16 @@ class Rasterizer {
         const i = iz * F.nx + ix, c = F.comp[i];
         if (c < 0) continue;
         let b = st.get(c);
-        if (!b) st.set(c, b = { n: 0, x0: ix, x1: ix, z0: iz, z1: iz, art: 0, dt: 0, res: 0, maxd: 0 });
+        if (!b) st.set(c, b = { n: 0, x0: ix, x1: ix, z0: iz, z1: iz, art: 0, dt: 0, res: 0, ot: 0, maxd: 0 });
         b.n++; b.x0 = Math.min(b.x0, ix); b.x1 = Math.max(b.x1, ix); b.z0 = Math.min(b.z0, iz); b.z1 = Math.max(b.z1, iz);
         const r = this.roads[F.road[i]];
-        if (r) { if (r.P.cls === 'arterial') b.art++; if (r.district === 'downtown') b.dt++; if (r.district === 'residential') b.res++; }
+        if (r) { if (r.P.cls === 'arterial') b.art++; if (r.district === 'downtown') b.dt++; if (r.district === 'residential') b.res++; if (r.district === 'oldtown') b.ot++; }
         b.maxd = Math.max(b.maxd, F.car[i] - F.sw[i]);
       }
       this.pocket = 0;
+      // suburban blocks (the residential quarter, incl. its edges on the arterials): lawn ground throughout
+      this.suburb = new Set();
+      for (const [c, b] of st) if (!b.dt && !b.ot && b.res >= b.n * 0.25) this.suburb.add(c);
       for (const [c, b] of st) {
         if (this.blockArea.has(c)) continue;
         const area = b.n * F.cell * F.cell, fill = b.n / ((b.x1 - b.x0 + 1) * (b.z1 - b.z0 + 1));
@@ -845,7 +848,7 @@ class Rasterizer {
     if (area === 'plaza' || area === 'square' || area === 'pocket') { out[1] = plazaTile(x, z, v); return; }
     if (area === 'park') { out[1] = parkSurface(x, z, v); return; }
     if (area === 'lot') { out[1] = MAT.LOT; return; }
-    out[1] = road.district === 'residential' ? MAT.YARD : MAT.PLOT;
+    out[1] = road.district === 'residential' || (this.suburb && this.suburb.has(this.F.blockAt(x, z))) ? MAT.YARD : MAT.PLOT;
   }
 }
 function plazaTile(x, z, v) {
@@ -1967,6 +1970,7 @@ function placeProps(ctx) {
       const reach = infra ? 3.7 : 3.0;            // canopies / marquees reach up to ~3.6 m over the sidewalk
       let hit = false;
       for (const f of ctx.footprints) {
+        if (f.open) continue;                 // suburban lots with a forecourt / parking / lawn in front: nothing reaches the sidewalk
         const dx = p.x - f.O[0], dz = p.z - f.O[1];
         const a = dx * f.e1[0] + dz * f.e1[1], b = dx * f.e2[0] + dz * f.e2[1];
         const fr = (!infra && f.type === 'prewar_apartment') ? 8 : reach;      // entrance canopy on posts out to the curb

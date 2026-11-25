@@ -1914,6 +1914,10 @@ function buildMidAny(E, W, D, spec, C, zone) {
   // prefer types whose storey range contains the requested height (keeps old town low, avenues tall)
   const hfit = fits.filter(m => spec.floors >= m.minFloors && spec.floors <= m.maxFloors);
   if (hfit.length) fits = hfit;
+  if (spec.use) {                     // suburban lots: prefer types registered for this use (opts.uses), or named after it
+    const uf = fits.filter(m => m.uses ? m.uses.includes(spec.use) : m.name.includes(spec.use));
+    if (uf.length) fits = uf;
+  }
   if (!fits.length) { if (zone === 'row') buildRows(E, W, D, spec, C); else buildMid(E, W, D, spec, C); return zone === 'row' ? 'classic_rows' : 'classic_mid'; }
   const key = zone + ':' + fits.map(m => m.name).join(',');
   let deck = midDecks[key];
@@ -2056,6 +2060,564 @@ function subdivide(net, Ra, C, occ, emitHouse) {
     }
   }
   return n;
+}
+
+// ================================================================================================ suburbs (phase 3)
+// Land use and lots for the residential quarter: every block the block placer leaves to the suburbs (most frontage
+// on residential streets). Deterministic per seed.
+//  1. Faces. A block (connected buildable land between streets) has one face per street side it fronts (a run of
+//     frontage along one road) and one per cul-de-sac bulb.
+//  2. Land use, decided per block; one block face never mixes houses with anything else:
+//     - transition: blocks that face downtown / old town across a through street (Division, Grand). Mixed-use 2-3
+//       storey main-street buildings (attached, at the sidewalk) on the faces towards the city (garden apartments
+//       where the city across is farther from the core), garden apartments on the other through streets,
+//       townhouse terraces on the local streets: a step down in height and grain from the mid-rises to the houses;
+//     - commercial: blocks at a junction of an arterial with another through street, away from the city: a gas
+//       station on the corner, a strip mall / diner / corner store along the arterial. Small blocks and blocks
+//       mostly on arterials are commercial throughout (their local-street sides stay landscaped); larger blocks keep
+//       houses on their other faces, backing onto the commercial lots across fenced rear lines;
+//     - residential: detached houses on every face, pie lots around cul-de-sac bulbs.
+//  3. Lots. Faces are cut into lot rectangles (house lots 15-18 m, equal widths along one face, corner lots wider),
+//     square to the street (on curves each lot takes the chord of its frontage, set back by the sagitta). Lots take
+//     their frontage in priority order (commercial and main street first: they own their corners; then terraces and
+//     apartments; then cul-de-sac bulbs, houses on the long faces, the rest), then grow back towards the middle of
+//     the block in 0.5 m steps, round robin, until they meet the lot behind (rear lot lines meet back to back) or
+//     reach the depth cap of their use. Lots never overlap (exact rectangle tests) and stay on block land.
+//  4. Buildings: houses (buildHouseAny) at a common setback per face with side yards and a driveway side (paired
+//     along the face, away from the side street on corner lots); commercial / transition buildings become jobs
+//     built by buildMidAny (zones 'commercial' / 'transition', spec.use = gas | strip | diner | store | mixed |
+//     apartments | townhouse; a plain fallback builds them while no plug-in fits). Every lot is dressed by
+//     L.yardKit in its lot frame, with the neighbour flags of the lot ownership rule (towers/AGENT_BRIEF.md).
+const SUB_FRONT = 0.4;                        // lot front line: back of sidewalk + 0.4 m (block land starts 0.3 m in)
+const SUB_USE = {        // metres: frontage range, min frontage, min / initial depth, depth cap
+  house:      { w: [15, 18], minW: 11, minD: 14, cap: 40 },
+  bulb:       { w: [12, 14], minW: 9, minD: 14, cap: 24 },
+  townhouse:  { w: [24, 34], minW: 15, minD: 22, cap: 34 },
+  apartments: { w: [30, 40], minW: 22, minD: 24, cap: 38 },
+  mixed:      { w: [10, 19], minW: 8, minD: 16, cap: 28 },
+  gas:        { w: [30, 36], minW: 26, minD: 26, cap: 36 },
+  strip:      { w: [44, 76], minW: 36, minD: 30, cap: 46 },
+  diner:      { w: [22, 30], minW: 22, minD: 24, cap: 38 },
+  store:      { w: [18, 26], minW: 18, minD: 22, cap: 34 }
+};
+const SUB_COMMERCIAL = new Set(['gas', 'strip', 'diner', 'store']);
+// polyline helpers with smooth tangents (vertex tangents interpolated along each segment)
+function roadGeo(r) {
+  if (r._geo && r._geo.pts === r.pts) return r._geo;
+  const pts = r.pts, n = pts.length, cum = [0], seg = [];
+  for (let i = 0; i + 1 < n; ++i) {
+    const dx = pts[i + 1][0] - pts[i][0], dz = pts[i + 1][1] - pts[i][1], l = Math.hypot(dx, dz);
+    cum.push(cum[i] + l); seg.push(l > 1e-9 ? [dx / l, dz / l] : (seg[i - 1] || [1, 0]));
+  }
+  const vt = pts.map((_, i) => {
+    const a = seg[Math.max(0, i - 1)], b = seg[Math.min(seg.length - 1, i)], x = a[0] + b[0], z = a[1] + b[1], l = Math.hypot(x, z) || 1;
+    return [x / l, z / l];
+  });
+  return (r._geo = { pts, cum, seg, vt, len: cum[n - 1] });
+}
+function roadAt(r, s) {                       // [x, z, tx, tz]; extrapolates straight beyond the ends
+  const G = roadGeo(r), n = G.pts.length;
+  let i = 0;
+  while (i < n - 2 && G.cum[i + 1] < s) ++i;
+  const l = G.cum[i + 1] - G.cum[i] || 1, f = (s - G.cum[i]) / l, t = G.seg[i];
+  const p = G.pts[i];
+  if (f < 0 || f > 1) return [p[0] + t[0] * (s - G.cum[i]), p[1] + t[1] * (s - G.cum[i]), t[0], t[1]];
+  const a = G.vt[i], b = G.vt[i + 1], tx = a[0] + (b[0] - a[0]) * f, tz = a[1] + (b[1] - a[1]) * f, tl = Math.hypot(tx, tz) || 1;
+  return [p[0] + t[0] * (s - G.cum[i]), p[1] + t[1] * (s - G.cum[i]), tx / tl, tz / tl];
+}
+function roadProject(r, x, z) {               // { s, u }: arc length and signed offset (+ left of the road direction)
+  const G = roadGeo(r);
+  let best = 1e18, s = 0, u = 0;
+  for (let i = 0; i + 1 < G.pts.length; ++i) {
+    const [ax, az] = G.pts[i], l = G.cum[i + 1] - G.cum[i];
+    if (l < 1e-9) continue;
+    const [tx, tz] = G.seg[i];
+    const t = Math.max(0, Math.min(l, (x - ax) * tx + (z - az) * tz)), qx = ax + tx * t, qz = az + tz * t, d = (x - qx) * (x - qx) + (z - qz) * (z - qz);
+    if (d < best) { best = d; s = G.cum[i] + t; u = -tz * (x - ax) + tx * (z - az); }
+  }
+  return { s, u };
+}
+// oriented rectangles { O, e1, e2, w, d } (metres): interiors overlap by more than tol on every separating axis
+function rectsOverlap(A, B, tol) {
+  for (const ax of [A.e1, A.e2, B.e1, B.e2]) {
+    const pa = A.O[0] * ax[0] + A.O[1] * ax[1], pb = B.O[0] * ax[0] + B.O[1] * ax[1];
+    const a1 = A.w * (A.e1[0] * ax[0] + A.e1[1] * ax[1]), a2 = A.d * (A.e2[0] * ax[0] + A.e2[1] * ax[1]);
+    const b1 = B.w * (B.e1[0] * ax[0] + B.e1[1] * ax[1]), b2 = B.d * (B.e2[0] * ax[0] + B.e2[1] * ax[1]);
+    const amin = pa + Math.min(0, a1) + Math.min(0, a2), amax = pa + Math.max(0, a1) + Math.max(0, a2);
+    const bmin = pb + Math.min(0, b1) + Math.min(0, b2), bmax = pb + Math.max(0, b1) + Math.max(0, b2);
+    if (amax - bmin <= tol || bmax - amin <= tol) return false;
+  }
+  return true;
+}
+function planSuburbs(PL, C, blocks) {
+  const net = PL.net, roads = net.roads, lab = blocks.lab, nx = PL.nx, nz = PL.nz, cell = PL.cell;
+  const core = (net.origins && net.origins.core) || [0, 0];
+  const seed0 = (PL.seed || 1) >>> 0;
+  const idxAt = (x, z) => { const i = Math.floor((x - PL.x0) / cell), j = Math.floor((z - PL.z0) / cell); return i < 0 || j < 0 || i >= nx || j >= nz ? -1 : j * nx + i; };
+  const regions = [];
+  for (const g of blocks.regs) {
+    if (blocks.handled.has(g.id) || g.area < 300) continue;
+    let res = 0, tot = 0;
+    for (const [rid, cells] of g.front) { const r = roads[rid]; if (r.P.id === 'alley') continue; tot += cells.length; if (r.district === 'residential') res += cells.length; }
+    if (tot && res >= tot * 0.5) regions.push(g);
+  }
+  // ---- faces
+  const faceAt = (f, t) => {                     // [x, z, nx, nz]: lot front line point, inward normal
+    if (f.kind === 'bulb') { const a = t / f.rb, c = Math.cos(a), s = Math.sin(a); return [f.c[0] + c * f.rb, f.c[1] + s * f.rb, c, s]; }
+    const p = roadAt(f.road, t), qx = -p[3] * f.side, qz = p[2] * f.side;
+    return [p[0] + qx * f.uF, p[1] + qz * f.uF, qx, qz];
+  };
+  const facesOf = (g) => {
+    const out = [];
+    for (const [rid, cells] of g.front) {
+      const r = roads[rid];
+      if (r.P.id === 'alley' || !r.len) continue;
+      const P = r.P, G = roadGeo(r), uF = P.half + P.sidewalk + SUB_FRONT;
+      const bc = r.bulbEnd ? r.pts[r.pts.length - 1] : null, rb = r.bulbEnd ? r.bulbEnd + P.sidewalk + SUB_FRONT : 0;
+      const side = { 1: [], '-1': [] }, bulb = [];
+      for (const q of cells) {
+        const x = PL.x0 + (q % nx + 0.5) * cell, z = PL.z0 + (((q / nx) | 0) + 0.5) * cell, pr = roadProject(r, x, z);
+        if (bc && pr.s > G.len - r.bulbEnd - 3 && Math.hypot(x - bc[0], z - bc[1]) < rb + 3) bulb.push(Math.atan2(z - bc[1], x - bc[0]));
+        else side[pr.u >= 0 ? 1 : -1].push(pr.s);
+      }
+      for (const sd of [1, -1]) {
+        const ss = side[sd].sort((a, b) => a - b);
+        if (ss.length < 8) continue;
+        let a = ss[0], prev = ss[0];
+        const flush = (b) => { if (b - a >= 4) out.push({ g, road: r, rid, kind: 'side', side: sd, uF, t0: a, t1: b, rank: RANK[P.cls] }); };
+        for (const s of ss) { if (s - prev > 5) { flush(prev); a = s; } prev = s; }
+        flush(prev);
+      }
+      if (bulb.length >= 8) {
+        bulb.sort((a, b) => a - b);
+        let gi = 0, gmax = bulb[0] + 2 * Math.PI - bulb[bulb.length - 1];
+        for (let i = 1; i < bulb.length; ++i) if (bulb[i] - bulb[i - 1] > gmax) { gmax = bulb[i] - bulb[i - 1]; gi = i; }
+        const un = bulb.slice(gi).concat(bulb.slice(0, gi).map(a => a + 2 * Math.PI));
+        let a = un[0], prev = un[0];
+        const flush = (b) => { if ((b - a) * rb >= 4) out.push({ g, road: r, rid, kind: 'bulb', c: bc, rb, t0: a * rb, t1: b * rb, rank: 1 }); };
+        for (const t of un) { if ((t - prev) * rb > 5) { flush(prev); a = t; } prev = t; }
+        flush(prev);
+      }
+    }
+    for (const f of out) f.len = f.t1 - f.t0;
+    return out;
+  };
+  // what lies across the street from a face: 'urban' (a block of the block placer), 'sub', 'open', 'none'
+  const across = (f) => {
+    if (f.kind === 'bulb') return 'sub';
+    const votes = {};
+    for (const k of [0.15, 0.3, 0.5, 0.7, 0.85]) {
+      const [x, z, qx, qz] = faceAt(f, f.t0 + k * f.len);
+      let v = 'none';
+      for (let off = f.uF; off < 2 * f.uF + 16; off += 0.5) {     // across the carriageway to the first land
+        const i = idxAt(x - qx * off, z - qz * off);
+        if (i < 0) break;
+        if (PL.base[i] === 1 && lab[i] !== f.g.id) { v = blocks.handled.has(lab[i]) ? 'urban' : 'sub'; break; }
+        if (PL.base[i] === 2) { v = 'open'; break; }
+      }
+      if (v !== 'none') votes[v] = (votes[v] || 0) + 1;              // junctions / alley mouths across: no vote
+    }
+    const pr = { urban: 3, open: 2, sub: 1 };
+    return Object.keys(votes).sort((a, b) => votes[b] - votes[a] || pr[b] - pr[a])[0] || 'none';
+  };
+  const ends = (f) => [faceAt(f, f.t0), faceAt(f, f.t1)];
+  const near = (p, q, d) => Math.hypot(p[0] - q[0], p[1] - q[1]) < d;
+  // ---- land use per block
+  const B = regions.map(g => {
+    const faces = facesOf(g);
+    for (const f of faces) f.across = across(f);
+    const per = faces.reduce((a, f) => a + f.len, 0);
+    const urban = faces.filter(f => f.across === 'urban' && f.rank >= 2).reduce((a, f) => a + f.len, 0);
+    const art = faces.filter(f => f.rank >= 3).reduce((a, f) => a + f.len, 0);
+    const dc = Math.hypot(g.mx - core[0], g.mz - core[1]);
+    // corners between an arterial face and another through-street face (score: arterial x arterial > collector)
+    let corner = 0;
+    for (const f of faces) for (const h of faces) {
+      if (f === h || f.rank < 3 || h.rank < 2 || f.rid === h.rid || f.len < 25) continue;
+      if (ends(f).some(p => ends(h).some(q => near(p, q, 24)))) corner = Math.max(corner, h.rank >= 3 ? 2 : 1);
+    }
+    return { g, faces, per, urban, art, dc, corner, use: 'residential' };
+  });
+  const isCommercialSite = (b) => b.corner && b.art >= 30 && !(b.urban >= 30 && b.dc < 280);
+  const cand = B.filter(isCommercialSite).sort((a, b) => (b.corner * 100 + b.art) - (a.corner * 100 + a.art) || a.g.id - b.g.id);
+  const K = Math.max(1, Math.min(3, Math.round(B.length / 4)));
+  cand.slice(0, K).forEach(b => { b.use = 'commercial'; });
+  for (const b of B) if (b.use === 'residential' && b.urban >= 30) b.use = 'transition';
+  for (const b of B) {
+    const whole = b.use === 'commercial' && (b.g.area < 3800 || b.art >= 0.45 * b.per);
+    const maxHouse = Math.max(0, ...b.faces.filter(f => f.kind === 'side').map(f => f.len));
+    for (const f of b.faces) {
+      if (b.use === 'transition') f.use = f.rank >= 3 || (f.across === 'urban' && f.rank >= 2) ? (b.dc < 255 ? 'mixed' : 'apartments') : f.rank >= 2 ? 'apartments' : 'townhouse';
+      else if (b.use === 'commercial') f.use = f.rank >= 3 || (whole && f.rank >= 2) ? 'commercial' : whole ? 'none' : 'house';
+      else f.use = 'house';
+      f.group = f.use === 'commercial' || f.use === 'mixed' ? 0 : f.use === 'apartments' || f.use === 'townhouse' ? 1 :
+        f.use === 'none' ? -1 : f.kind === 'bulb' ? 2 : f.len >= 0.6 * maxHouse ? 3 : 4;
+      const Rf = C.mulberry32((b.g.id * 7919 + f.rid * 104729 + Math.round(f.t0) * 31 + seed0 * 977) >>> 0);
+      f.R = Rf;
+      f.setback = f.use === 'house' ? 6 + Rf() * 1.5 : f.use === 'townhouse' ? 4 + Rf() * 1 : f.use === 'apartments' ? 6 + Rf() * 1.5 : 0;
+      const U = SUB_USE[f.kind === 'bulb' ? 'bulb' : f.use] || SUB_USE.house;
+      f.target = U.w[0] + Rf() * (U.w[1] - U.w[0]);
+    }
+  }
+  // ---- lots
+  const lots = [], byRegion = new Map();
+  const regionLots = (g) => { let a = byRegion.get(g.id); if (!a) byRegion.set(g.id, a = []); return a; };
+  const P = (L, a, b) => [L.O[0] + a * L.e1[0] + b * L.e2[0], L.O[1] + a * L.e1[1] + b * L.e2[1]];
+  const inReg = (g, x, z) => { const i = idxAt(x, z); return i >= 0 && lab[i] === g.id; };
+  const outFrac = (L, a0, a1, b0, b1) => {       // fraction of block-land samples (0.5 m) the rectangle misses
+    let n = 0, out = 0;
+    const na = Math.max(1, Math.round((a1 - a0) / 0.5)), nb = Math.max(1, Math.round((b1 - b0) / 0.5));
+    for (let j = 0; j < nb; ++j) for (let i = 0; i < na; ++i) {
+      const [x, z] = P(L, a0 + (i + 0.5) * (a1 - a0) / na, b0 + (j + 0.5) * (b1 - b0) / nb);
+      ++n; if (!inReg(L.g, x, z)) ++out;
+    }
+    return out / n;
+  };
+  const clash = (L, a0, a1, b0, b1) => {
+    const T = { O: P(L, a0, b0), e1: L.e1, e2: L.e2, w: a1 - a0, d: b1 - b0 };
+    const [tx, tz] = P(L, (a0 + a1) / 2, (b0 + b1) / 2), tr = Math.hypot(a1 - a0, b1 - b0) / 2;
+    for (const M of regionLots(L.g)) {
+      if (M === L) continue;
+      const mx = M.O[0] + (M.e1[0] * M.w + M.e2[0] * M.d) / 2, mz = M.O[1] + (M.e1[1] * M.w + M.e2[1] * M.d) / 2;
+      if (Math.hypot(mx - tx, mz - tz) > tr + Math.hypot(M.w, M.d) / 2) continue;
+      if (rectsOverlap(T, M, 0.02)) return true;
+    }
+    return false;
+  };
+  // probe at one front-line point: 0 free, 1 off the block (a street / corner), 2 taken by a lot
+  const probe = (f, t) => {
+    const [x, z, qx, qz] = faceAt(f, t);
+    for (const dd of [0.35, 3, 8]) {
+      const px = x + qx * dd, pz = z + qz * dd;
+      if (!inReg(f.g, px, pz)) return 1;
+      for (const M of regionLots(f.g)) {
+        const dx = px - M.O[0], dz = pz - M.O[1];
+        if (dx * dx + dz * dz > (M.w + M.d + 1) * (M.w + M.d + 1)) continue;
+        const a = dx * M.e1[0] + dz * M.e1[1], b = dx * M.e2[0] + dz * M.e2[1];
+        if (a > -0.05 && a < M.w + 0.05 && b > -0.05 && b < Math.max(M.d, M.minD) + 0.05) return 2;
+      }
+    }
+    return 0;
+  };
+  const freeRuns = (f) => {
+    const out = [], st = 0.25;
+    let cur = null, last = 1;
+    const tA = f.kind === 'bulb' ? f.t0 : f.t0 - 4, tB = f.kind === 'bulb' ? f.t1 : f.t1 + 4;
+    for (let t = tA; t <= tB + 1e-6; t += st) {
+      const c = probe(f, t);
+      if (!c) { if (!cur) cur = { a: t, b: t, ca: last === 1 }; cur.b = t; }
+      else if (cur) { cur.cb = c === 1; out.push(cur); cur = null; }
+      last = c;
+    }
+    if (cur) { cur.cb = true; out.push(cur); }
+    for (const r of out) {                       // keep 0.5 m off the side street at a corner
+      if (r.ca && f.kind === 'side') r.a += 0.5;
+      if (r.cb && f.kind === 'side') r.b -= 0.5;
+      r.ca = r.ca && f.kind === 'side'; r.cb = r.cb && f.kind === 'side';
+    }
+    return out.filter(r => r.b - r.a > 0);
+  };
+  // which through street a corner at the run end turns onto: the best other face of the block ending near it
+  const cornerRank = (f, t) => {
+    const p = faceAt(f, t);
+    let best = 0;
+    for (const h of f.blk.faces) if (h.rid !== f.rid && ends(h).some(q => near(p, q, 22))) best = Math.max(best, h.rank);
+    return best;
+  };
+  const widths = (len, f, use, R, run) => {      // lot frontages along one free run
+    const U = SUB_USE[use];
+    if (len < U.minW) return [];
+    if (use === 'mixed') {
+      const out = [];
+      let rem = len;
+      while (rem > 0) { let w = U.w[0] + R() * (U.w[1] - U.w[0]); if (rem - w < U.minW) w = rem; out.push(w); rem -= w; }
+      return out;
+    }
+    let n = Math.max(1, Math.round(len / f.target));
+    while (n > 1 && len / n < U.minW) --n;
+    const wt = [];
+    for (let i = 0; i < n; ++i) wt.push((i === 0 && run.ca) || (i === n - 1 && run.cb) ? 1.15 : 1);
+    const s = wt.reduce((a, b) => a + b, 0);
+    return wt.map(x => len * x / s);
+  };
+  const gasSites = [];
+  const commercialWidths = (len, f, R, run) => {   // [use, width] along an arterial run: gas station on the corner
+    const rA = run.ca ? cornerRank(f, run.a) : 0, rB = run.cb ? cornerRank(f, run.b) : 0;
+    let gasAt = (rA >= 2 || rB >= 2) && len >= 28 ? (rA > rB || (rA === rB && R() < 0.5) ? 'a' : 'b') : null;
+    if (gasAt) {                                 // at most two gas stations, never two within 160 m
+      const [gx, gz] = faceAt(f, gasAt === 'a' ? run.a : run.b);
+      if (gasSites.length >= 2 || gasSites.some(([x, z]) => Math.hypot(x - gx, z - gz) < 160)) gasAt = null; else gasSites.push([gx, gz]);
+    }
+    let gas = gasAt ? Math.min(len, 30 + R() * 4) : 0, rem = len - gas;
+    const mid = [], minS = SUB_USE.store.minW;
+    while (rem >= minS) {
+      let use, w;
+      if (rem >= 44 && R() < 0.75) { use = 'strip'; w = Math.min(rem, 44 + R() * 32); }
+      else if (rem >= 22) { use = R() < 0.6 ? 'diner' : 'store'; w = Math.min(rem, use === 'diner' ? 22 + R() * 8 : 18 + R() * 8); }
+      else { use = 'store'; w = rem; }
+      if (rem - w < minS) w = rem;
+      mid.push([use, w]); rem -= w;
+    }
+    if (rem > 0) { if (mid.length) mid[mid.length - 1][1] += rem; else gas += rem; }
+    if (!gasAt) return mid;
+    return gasAt === 'a' ? [['gas', gas], ...mid] : [...mid, ['gas', gas]];
+  };
+  let nid = 0;
+  const makeLot = (f, a, b, use, extra) => {
+    const A = faceAt(f, a), Bp = faceAt(f, b), M = faceAt(f, (a + b) / 2);
+    let e1 = [Bp[0] - A[0], Bp[1] - A[1]];
+    const w0 = Math.hypot(e1[0], e1[1]);
+    if (w0 < 1) return null;
+    e1 = [e1[0] / w0, e1[1] / w0];
+    let e2 = [-e1[1], e1[0]], O = [A[0], A[1]], flip = false;
+    if (e2[0] * M[2] + e2[1] * M[3] < 0) { e1 = [-e1[0], -e1[1]]; e2 = [-e2[0], -e2[1]]; O = [Bp[0], Bp[1]]; flip = true; }
+    const sag = (M[0] - O[0]) * e2[0] + (M[1] - O[1]) * e2[1];
+    if (sag > 0) O = [O[0] + e2[0] * sag, O[1] + e2[1] * sag];
+    const w = f.kind === 'side' && Math.abs(w0 - (b - a)) < 0.02 ? Math.round(w0 / BV) * BV : Math.floor(w0 / BV) * BV;
+    const U = SUB_USE[use === 'house' && f.kind === 'bulb' ? 'bulb' : use];
+    return Object.assign({ id: ++nid, g: f.g, f, use, O, e1, e2, w, d: 0, minD: U.minD, cap: U.cap, flip, a, b, done: false }, extra || {});
+  };
+  const place = (L, minD) => {
+    const U = minD || L.minD;
+    for (let k = 0; k <= 6; ++k) {             // shave the sides a little when the frontage just misses
+      const ins = k * 0.25;
+      if (L.w - 2 * ins < SUB_USE[L.use === 'house' && L.f.kind === 'bulb' ? 'bulb' : L.use].minW) break;
+      const T = Object.assign({}, L, { O: P(L, ins, 0), w: L.w - 2 * ins });
+      if (outFrac(T, 0, T.w, 0, U) <= 0.04 && !clash(T, 0, T.w, 0, U)) { Object.assign(L, { O: T.O, w: T.w, d: U }); regionLots(L.g).push(L); lots.push(L); return true; }
+    }
+    return false;
+  };
+  const grow = (group) => {
+    let any = true;
+    while (any) {
+      any = false;
+      for (const L of group) {
+        if (L.done) continue;
+        if (L.d + 0.5 > L.cap + 1e-6 || outFrac(L, 0, L.w, L.d, L.d + 0.5) > 0.05 || clash(L, 0, L.w, L.d, L.d + 0.5)) { L.done = true; continue; }
+        L.d += 0.5; any = true;
+      }
+    }
+  };
+  // a lot over [a, b] of a face; when it does not fit, the largest part of it that does (shortened from either end)
+  const placeFlex = (f, a, b, use, extra, minD) => {
+    const minW = SUB_USE[use === 'house' && f.kind === 'bulb' ? 'bulb' : use].minW;
+    for (let k = 0; b - a - k >= minW - 1e-6; k += 1) {
+      for (const [a1, b1] of k ? [[a, b - k], [a + k, b]] : [[a, b]]) {
+        const L = makeLot(f, a1, b1, use, Object.assign({}, extra, { ca: extra.ca && a1 === a, cb: extra.cb && b1 === b }));
+        if (L && place(L, minD)) return L;
+      }
+    }
+    return null;
+  };
+  const allFaces = B.flatMap(b => b.faces.map(f => Object.assign(f, { blk: b })));
+  // two rounds: the plan, then a fill round on frontage still free (shallower lots, no second gas station)
+  for (const fill of [false, true]) for (const grp of [0, 1, 2, 3, 4]) {
+    const fs = allFaces.filter(f => f.group === grp).sort((a, b) => b.len - a.len || a.g.id - b.g.id || a.rid - b.rid);
+    const placed = [];
+    for (const f of fs) {
+      let k = fill ? 100 : 0;
+      for (const run0 of freeRuns(f)) {
+        const run = fill ? Object.assign({}, run0, { ca: false, cb: false }) : run0;
+        const len = Math.floor((run.b - run.a) / BV) * BV;
+        const seq = f.use === 'commercial' ? commercialWidths(len, f, f.R, run) : widths(len, f, f.use, f.R, run).map(w => [f.use, w]);
+        let t = run.a;
+        seq.forEach(([use, w], i) => {
+          const a = t, b = i === seq.length - 1 ? run.a + len : Math.round((t + w - run.a) / BV) * BV + run.a;
+          t = b;
+          const U = SUB_USE[use === 'house' && f.kind === 'bulb' ? 'bulb' : use];
+          const L = placeFlex(f, a, b, use, { ca: i === 0 && run0.ca, cb: i === seq.length - 1 && run0.cb, k: k++ }, fill && use !== 'house' ? Math.max(12, Math.round(U.minD * 0.7)) : 0);
+          if (L) placed.push(L);
+        });
+      }
+    }
+    grow(placed);
+  }
+  // ---- per lot: corner sides (lot frame: left = origin side), order along the face, seed, house layout; lots too
+  // shallow for a house are given back to the lawn; then the neighbours of the lot ownership rule
+  const order = new Map();
+  for (const L of lots) {
+    L.cornerL = L.flip ? !!L.cb : !!L.ca; L.cornerR = L.flip ? !!L.ca : !!L.cb;
+    let a = order.get(L.f); if (!a) order.set(L.f, a = []); a.push(L);
+  }
+  for (const a of order.values()) a.sort((p, q) => p.a - q.a).forEach((L, i) => { L.k = i; });
+  for (const L of lots) {
+    L.seed = (L.g.id * 7919 + L.f.rid * 104729 + L.k * 31337 + Math.round(L.a * 4) * 13 + seed0 * 7 + 0x51b) >>> 0;
+    if (L.use === 'house') L.H = layoutHouse(L, C.mulberry32(L.seed), L.flip ? L.k + 1 : L.k);
+  }
+  const kept = lots.filter(L => L.use !== 'house' || L.H);
+  lots.length = 0; lots.push(...kept);
+  for (const [id, a] of byRegion) byRegion.set(id, a.filter(L => L.use !== 'house' || L.H));
+  for (const L of lots) {
+    const same = (M) => M !== L && M.f === L.f && Math.abs(M.e1[0] * L.e1[0] + M.e1[1] * L.e1[1]) > 0.99995 && (SUB_COMMERCIAL.has(M.use) === SUB_COMMERCIAL.has(L.use)) && (M.use === 'house') === (L.use === 'house');
+    const touch = (M, a) => { const [x, z] = P(L, a, Math.min(L.d, M.d) * 0.5); const dx = x - M.O[0], dz = z - M.O[1], u = dx * M.e1[0] + dz * M.e1[1], v = dx * M.e2[0] + dz * M.e2[1]; return u > -0.06 && u < M.w + 0.06 && v > 0 && v < M.d; };
+    const rl = regionLots(L.g);
+    L.nb = { l: rl.some(M => same(M) && touch(M, -0.03)), r: rl.some(M => same(M) && touch(M, L.w + 0.03)), b: false };
+    const back = { O: P(L, 0.3, L.d + 0.02), e1: L.e1, e2: L.e2, w: Math.max(0.1, L.w - 0.6), d: 0.8 };
+    L.nb.b = rl.some(M => M !== L && rectsOverlap(back, M, 0.0));
+  }
+  const stats = { regions: B.length, uses: {}, blocks: {} };
+  for (const b of B) stats.blocks[b.use] = (stats.blocks[b.use] || 0) + 1;
+  for (const L of lots) stats.uses[L.use] = (stats.uses[L.use] || 0) + 1;
+  stats.debug = B.map(b => ({ id: b.g.id, c: [Math.round(b.g.mx), Math.round(b.g.mz)], area: Math.round(b.g.area), use: b.use, dc: Math.round(b.dc), urban: Math.round(b.urban), art: Math.round(b.art), corner: b.corner,
+    faces: b.faces.map(f => [f.road.name, f.kind, Math.round(f.len), f.across, f.rank, f.use, f.group, lots.filter(L => L.f === f).length].join('/')) }));
+  return { regions: new Set(regions.map(g => g.id)), blocks: B, lots, stats, core };
+}
+// footprint of the building on a suburban lot (metres, lot frame) and its yard description
+function houseFits(Wm, Dm) { return HOUSES.some(h => Wm >= h.minW && Wm <= h.maxW && Dm >= h.minD && Dm <= h.maxD); }
+function layoutHouse(L, R, k) {
+  const f = L.f, w = L.w, d = L.d, sy = 1.6, cx = 1.4;
+  const sb = Math.min(f.setback, Math.max(4, d - 13));
+  let side = k % 2 === 0 ? 'r' : 'l';
+  if (L.cornerL && !L.cornerR) side = 'r'; else if (L.cornerR && !L.cornerL) side = 'l';
+  const xl = sy + (L.cornerL ? cx : 0), xr = w - sy - (L.cornerR ? cx : 0), avail = xr - xl;
+  const Dh = Math.max(6.5, Math.min(8.5 + R() * 3.5, d - sb - 5));
+  if (d - sb - Dh < 3.5 || avail < 7) return null;
+  let garage = HOUSES.length > 0 && avail >= 10.5 && R() < 0.65;
+  let Wh = garage ? Math.min(avail, 12.5 + R() * 2.5) : Math.min(avail - 3.8, 9.5 + R() * 2.5);
+  if (!garage && Wh < 7) { if (HOUSES.length && avail >= 10) { garage = true; Wh = Math.min(avail, 11); } else Wh = Math.min(avail, 9); }
+  Wh = Math.round(Wh / BV) * BV;
+  const reg = houseFits(Wh, Math.round(Dh / BV) * BV);
+  if (!reg) garage = false;                       // the classic fallback house: no garage, driveway alongside
+  let x0;
+  if (garage) x0 = side === 'r' ? xr - Wh : xl;
+  else x0 = side === 'r' ? xl : xr - Wh;
+  x0 = Math.round(x0 / BV) * BV;
+  let drive = null;
+  if (garage) drive = side === 'r' ? [x0 + Wh - 3.4, x0 + Wh - 0.2] : [x0 + 0.2, x0 + 3.4];
+  else if (side === 'r' && x0 + Wh + 3.7 <= w - 0.6) drive = [x0 + Wh + 0.6, x0 + Wh + 3.6];
+  else if (side === 'l' && x0 - 3.7 >= 0.6) drive = [x0 - 3.6, x0 - 0.6];
+  return { x0, z0: Math.round(sb / BV) * BV, w: Wh, d: Math.round(Dh / BV) * BV, garage, drive, side, reg };
+}
+// ---- fallbacks while the suburban plug-ins are stubs (towers/houses.js, yardkit.js, commercial.js)
+// plain one-storey commercial building / gas station / parking lot, built only when no 'commercial' / 'transition'
+// plug-in fits the lot
+function flatQuad(E, x0, z0, x1, z1, y, m) { if (x1 - x0 > 0.01 && z1 - z0 > 0.01) E.quad([x0, y, z0], [x1, y, z0], [x1, y, z1], [x0, y, z1], m, [0, 1, 0]); }
+function storeSkin(S) {
+  return (len, side, front) => {
+    const h = S.h, F = new Relief(len, h, 2, S.wall);
+    if (front) {
+      for (let u = 2; u < len - 2; u += S.bay) {
+        const u1 = Math.min(len - 2, u + S.bay - 1);
+        F.rect(u, 1, u1, h - 7, 1, H2(S.seed, u, 3) < 0.4 ? BM.GLASS_LIT : BM.STOREFRONT);
+        F.rect(u1, 0, u1 + 1, h - 6, 3, S.trim);
+      }
+      F.rect(0, h - 6, len, h - 2, 3, S.sign);
+      if (S.awning) F.rect(1, h - 8, len - 1, h - 6, 5, S.awning);
+    } else if (!side) F.rect(Math.floor(len / 2) - 2, 0, Math.floor(len / 2) + 2, 9, 1, BM.DOOR_NAVY);
+    F.rect(0, h - 2, len, h, 4, S.trim);
+    F.returns();
+    return F;
+  };
+}
+function buildCommercialFallback(E, W, D, spec, C) {
+  const R = C.mulberry32(spec.seed ^ 0x5eed);
+  const use = spec.use || 'store';
+  const S = { seed: spec.seed, h: 18, bay: 12 + Math.floor(R() * 6), wall: pick(R, [BM.PAINT_CREAM, BM.BUFF, BM.WHITE_CONCRETE, BM.BRICK_BROWN, BM.PAINT_SAGE]),
+    trim: pick(R, [BM.TRIM, BM.TRIM_DARK]), sign: pick(R, [BM.AWNING_RED, BM.AWNING_GREEN, BM.AWNING_BLUE, BM.TRIM_DARK]), awning: R() < 0.5 ? pick(R, [BM.AWNING_RED, BM.AWNING_GREEN, BM.AWNING_BLUE]) : 0 };
+  if (use === 'gas') {
+    // kiosk at the back, canopy over two pump islands, concrete forecourt
+    const kw = Math.min(W - 8, 40), kd = Math.min(28, Math.floor(D * 0.35)), kx = W - 4 - kw, kz = D - 4 - kd;
+    facades(E, kx, kz, kx + kw, kz + kd, 0, storeSkin(Object.assign({}, S, { awning: 0 })), C);
+    flatRoof(E, kx, kz, kx + kw, kz + kd, S.h, S, C, { parapet: 1, parapetMat: S.trim, units: 0 });
+    if (LIB.roofKit) LIB.roofKit(E, C, kx + 1, kz + 1, kx + kw - 1, kz + kd - 1, S.h, R, { style: 'industrial', floors: 1 });
+    flatQuad(E, 0, 0, W, kz, 0.25, BM.CONCRETE); flatQuad(E, 0, kz, kx, D, 0.25, BM.CONCRETE);
+    const cw = Math.min(W - 16, 64), cd = Math.min(kz - 14, 40), cx0 = Math.floor((W - cw) / 2), cz0 = Math.max(8, Math.floor((kz - cd) / 2));
+    if (cd >= 16) {
+      const M = new C_VoxModel(cw, 23, cd, 0, 0);
+      M.box(0, 20, 0, cw, 23, cd, S.sign); M.box(1, 19, 1, cw - 1, 20, cd - 1, BM.WHITE_CONCRETE);
+      for (const px of [6, cw - 8]) for (const pz of [Math.floor(cd / 2) - 7, Math.floor(cd / 2) + 5]) M.box(px, 0, pz, px + 2, 19, pz + 2, BM.WHITE_CONCRETE);
+      for (const px of [6, cw - 8]) { M.box(px - 2, 0, Math.floor(cd / 2) - 9, px + 4, 1, Math.floor(cd / 2) + 9, BM.CONCRETE); M.box(px - 1, 1, Math.floor(cd / 2) - 2, px + 3, 7, Math.floor(cd / 2), BM.METAL); M.box(px - 1, 5, Math.floor(cd / 2) - 2, px + 3, 6, Math.floor(cd / 2), S.sign); }
+      E.vox(C, M, cx0, 0, cz0);
+    }
+    return 'fallback_gas';
+  }
+  // strip mall / diner / store: building at the back, striped parking in front
+  const bd = Math.min(D - 4, use === 'strip' ? 64 + Math.floor(R() * 12) : 48 + Math.floor(R() * 12)), bz = D - 2 - bd, bx = 2, bw = W - 4;
+  facades(E, bx, bz, bx + bw, bz + bd, 0, storeSkin(S), C);
+  flatRoof(E, bx, bz, bx + bw, bz + bd, S.h, S, C, { parapet: 1, parapetMat: S.trim, units: 0 });
+  if (LIB.roofKit) LIB.roofKit(E, C, bx + 1, bz + 1, bx + bw - 1, bz + bd - 1, S.h, R, { style: 'office', floors: 1 });
+  flatQuad(E, 0, bz - 8, W, bz, 0.25, BM.CONCRETE);                              // walk along the storefronts
+  const pz0 = 4, pz1 = bz - 8;
+  if (pz1 - pz0 >= 18) {                                                          // stalls 2.75 m, painted lines
+    const sw = 11, row = Math.min(20, Math.floor((pz1 - pz0) / 2));
+    let x = 2;
+    flatQuad(E, 0, 0, W, pz0, 0.25, BM.CONCRETE);
+    flatQuad(E, 0, pz0, 2, pz1, 0.25, BM.ROOF_TAR);
+    while (x + sw + 2 <= W) {
+      for (const [z0, z1] of [[pz0, pz0 + row], [pz1 - row, pz1]]) { flatQuad(E, x, z0, x + 0.5, z1, 0.25, BM.TRIM); flatQuad(E, x + 0.5, z0, x + sw, z1, 0.25, BM.ROOF_TAR); }
+      flatQuad(E, x, pz0 + row, x + sw, pz1 - row, 0.25, BM.ROOF_TAR);
+      x += sw;
+    }
+    flatQuad(E, x, pz0, W, pz1, 0.25, BM.ROOF_TAR);
+  } else flatQuad(E, 0, 0, W, Math.max(0, bz - 8), 0.25, BM.CONCRETE);
+  return 'fallback_' + use;
+}
+function buildSuburbAny(E, W, D, spec, C, zone) {
+  const wm = W * BV;
+  if (MIDS.some(m => m.zones.includes(zone) && wm >= m.minW && wm <= m.maxW)) return buildMidAny(E, W, D, spec, C, zone);
+  if (zone === 'commercial') { const t = buildCommercialFallback(E, W, D, spec, C); MID_LOG.push({ type: t, zone, floors: 1 }); return t; }
+  // transition fallback: rowhouse terraces / small mid-rises of the old town at 2-3 storeys
+  const t = spec.use === 'townhouse' ? 'classic_rows' : 'classic_mid';
+  if (t === 'classic_rows') buildRows(E, W, D, spec, C); else buildMid(E, W, D, spec, C);
+  MID_LOG.push({ type: t, zone, floors: spec.floors });
+  return t;
+}
+// minimal yard dressing while towers/yardkit.js is a stub: driveway, front walk, hedges on the owned lot lines
+function yardFallback(E, C, lot, R, opts) {
+  const W = lot.w, D = lot.d, h = lot.house, nb = opts.neighbours || {};
+  if (lot.drive) flatQuad(E, lot.drive.x0, 0, lot.drive.x1, h ? Math.min(D - 2, h.z0 + (lot.garage ? 0 : (h.z1 - h.z0) * 0.6)) : 20, 0.25, BM.CONCRETE);
+  if (h && opts.style !== 'commercial') { const c = (h.x0 + h.x1) >> 1; flatQuad(E, c - 2, 0, c + 2, Math.max(0, h.z0 - 10), 0.25, BM.CONCRETE); }
+  const M = new C_VoxModel(W, 28, D, 0, 0), hm = opts.style === 'commercial' ? BM.LEAF : BM.LEAF_DARK;
+  const zf = h ? Math.min(D - 4, h.z1) : 0;
+  M.box(1, 0, D - 3, W - 1, 4, D - 1, hm);                                      // back line
+  M.box(1, 0, zf, 3, 4, D - 1, hm);                                             // left line
+  if (!nb.r) M.box(W - 3, 0, zf, W - 1, 4, D - 1, hm);                          // right line (nobody else draws it)
+  if (h && opts.style !== 'commercial' && D - h.z1 >= 16 && W >= 24) addTree(M, Math.max(6, Math.min(W - 6, (h.x0 + h.x1) >> 1)), 0, Math.min(D - 7, h.z1 + 9), R, 0.9);
+  E.vox(C, M, 0, 0, 0);
+}
+// houses and yards of the residential lots (emitted now), jobs for the transition / commercial lots
+function emitSuburbs(sub, mb, hs, voxel, C, occ, addJob) {
+  const lots = sub.lots, BVv = (m) => Math.round(m / BV);
+  const P = (L, a, b) => [L.O[0] + a * L.e1[0] + b * L.e2[0], L.O[1] + a * L.e1[1] + b * L.e2[1]];
+  let houses = 0;
+  const yard = (L, lot, style, seed) => {
+    const E = new Emitter(mb, L.O, L.e1, L.e2, hs, voxel);
+    const opts = { style, neighbours: L.nb, seed };
+    if (LIB.yardKit) LIB.yardKit(E, C, lot, C.mulberry32(seed ^ 0x9a4d), opts); else yardFallback(E, C, lot, C.mulberry32(seed ^ 0x9a4d), opts);
+  };
+  for (const L of lots) {
+    const seed = L.seed;
+    const Wl = Math.floor(L.w / BV + 1e-6), Dl = Math.floor(L.d / BV + 1e-6);
+    const R = C.mulberry32(seed);
+    if (L.use === 'house') {
+      const H = L.H;
+      let lot = { w: Wl, d: Dl, house: null, drive: null, garage: false };
+      if (H) {
+        const W = BVv(H.w), D = BVv(H.d), O = P(L, H.x0, H.z0);
+        const E = new Emitter(mb, O, L.e1, L.e2, hs, voxel);
+        const spec = { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage: H.garage, setback: H.reg ? BVv(H.z0) : 0,
+          lot: { w: L.w, d: L.d }, side: H.side, corner: !!(L.cornerL || L.cornerR) };
+        buildHouseAny(E, W, D, spec, C);
+        occ.rect(O, L.e1, L.e2, 0, H.w, 0, H.d, 2);
+        lot = { w: Wl, d: Dl, house: { x0: BVv(H.x0), z0: BVv(H.z0), x1: BVv(H.x0) + W, z1: BVv(H.z0) + D }, drive: H.drive ? { x0: BVv(H.drive[0]), x1: BVv(H.drive[1]) } : null, garage: H.garage };
+        ++houses;
+      }
+      yard(L, lot, L.cornerL || L.cornerR ? 'corner' : 'suburban', seed);
+      continue;
+    }
+    // transition / commercial: the plug-in gets the whole lot (its own setbacks, gardens, parking and ground surface,
+    // so no yard kit on top); attached neighbours (main street rows, a gas station next to a strip mall) become party
+    // sides through the occupancy map in emitJobs
+    const zone = SUB_COMMERCIAL.has(L.use) ? 'commercial' : 'transition';
+    const cx = L.O[0] + L.e1[0] * L.w / 2 + L.e2[0] * L.d / 2, cz = L.O[1] + L.e1[1] * L.w / 2 + L.e2[1] * L.d / 2;
+    const dcore = Math.hypot(cx - sub.core[0], cz - sub.core[1]);
+    const floors = L.use === 'townhouse' ? (R() < 0.45 ? 3 : 2) : L.use === 'apartments' ? (dcore > 330 ? 2 : 3) :
+      L.use === 'mixed' ? (dcore < 210 || R() < 0.5 ? 3 : 2) : 1;
+    occ.rect(L.O, L.e1, L.e2, 0, Wl * BV, 0, Dl * BV, 1);
+    addJob(L.O, L.e1, L.e2, Wl, Dl, { kind: zone, floors, seed, use: L.use, zone, corner: !!(L.cornerL || L.cornerR), shops: L.use === 'mixed' || zone === 'commercial',
+      lot: { w: L.w, d: L.d }, open: L.use !== 'mixed' });
+  }
+  return houses;
 }
 
 // ------------------------------------------------------------------------------------------------ placement
@@ -2560,7 +3122,7 @@ function placeBlocks(PL, C, occ, addJob) {
       }
     }
   }
-  return { lab, handled, stats };
+  return { lab, handled, stats, regs };
 }
 function buildAll(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
@@ -2570,20 +3132,33 @@ function buildAll(PL, R, voxel, C) {
   const counts = {};
   counts.house = 0;
   const occ = new Occupancy(PL.net.bounds);
-  counts.house = subdivide(PL.net, R, C, occ, (Oc, e1, e2, w, d, seed, garage) => {
-    const W = Math.floor(w / BV), D = Math.floor(d / BV);
-    const O = [Oc[0] - (W * BV / 2) * e1[0] - (D * BV / 2) * e2[0], Oc[1] - (W * BV / 2) * e1[1] - (D * BV / 2) * e2[1]];
-    const E = new Emitter(mb, O, e1, e2, hs, voxel);
-    buildHouseAny(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
-  });
-  let houseQuads = mb.quads;                                                      // houses: quads [0, houseQuads)
-  for (let i = 0; i < occ.g.length; ++i) if (occ.g[i]) occ.g[i] = 2;          // houses: kept 4 m clear of city blocks
+  // the road test area has no block map: its houses are the street-following subdivisions of subdivide()
+  const legacy = !PL.base || PL.net.kind === 'test';
+  if (legacy) {
+    counts.house = subdivide(PL.net, R, C, occ, (Oc, e1, e2, w, d, seed, garage) => {
+      const W = Math.floor(w / BV), D = Math.floor(d / BV);
+      const O = [Oc[0] - (W * BV / 2) * e1[0] - (D * BV / 2) * e2[0], Oc[1] - (W * BV / 2) * e1[1] - (D * BV / 2) * e2[1]];
+      const E = new Emitter(mb, O, e1, e2, hs, voxel);
+      buildHouseAny(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
+    });
+    for (let i = 0; i < occ.g.length; ++i) if (occ.g[i]) occ.g[i] = 2;        // houses: kept 4 m clear of city blocks
+  }
   // jobs: O = front-left corner, e1 along the frontage, e2 into the lot, W x D voxels
   const jobs = [];
   const addJob = (O, e1, e2, W, D, p) => jobs.push(Object.assign({ O, e1, e2, W, D }, p));
   const tb = Date.now();
   const blocks = PL.base ? placeBlocks(PL, C, occ, addJob) : null;
   counts.placeMs = Date.now() - tb;
+  // suburbs (after the city blocks, which do not depend on them): land use, lots, houses + yards now (the 'houses'
+  // part of the mesh), transition / commercial buildings as jobs after the block buildings
+  let sub = null;
+  if (!legacy && blocks) {
+    const ts = Date.now();
+    sub = planSuburbs(PL, C, blocks);
+    counts.house = emitSuburbs(sub, mb, hs, voxel, C, occ, addJob);
+    counts.suburbMs = Date.now() - ts;
+  }
+  let houseQuads = mb.quads;                                                      // houses: quads [0, houseQuads)
   // the remaining plots (residential house rows, blocks the block placer leaves alone): largest clean rectangles
   const lots = lotRectangles(PL, C);
   const place = (L, a0, a1, b0, b1, kind, floors, seed) => {
@@ -2612,6 +3187,10 @@ function buildAll(PL, R, voxel, C) {
       if (kind === 'house') { J.type = buildHouseAny(E, W, D, spec, C) || 'house'; }
       else if (kind === 'row') J.type = buildMidAny(E, W, D, spec, C, 'row');
       else if (kind === 'mid') J.type = buildMidAny(E, W, D, spec, C, J.zone === 'core' ? 'core' : 'mid');
+      else if (kind === 'commercial' || kind === 'transition') {
+        Object.assign(spec, { use: J.use, lot: J.lot });
+        J.type = buildSuburbAny(E, W, D, spec, C, kind);
+      }
       else J.type = buildTower(E, W, D, spec, C);
       counts[kind] = (counts[kind] || 0) + 1;
       J.q0 = q0; J.q1 = mb.quads;
@@ -2634,7 +3213,7 @@ function buildAll(PL, R, voxel, C) {
       const a = (L.a0 + L.a1) / 2, b = (L.b0 + L.b1) / 2;
       const ix = Math.floor((L.mx + a * L.e1[0] + b * L.e2[0] - PL.x0) / PL.cell), iz = Math.floor((L.mz + a * L.e1[1] + b * L.e2[1] - PL.z0) / PL.cell);
       const rg = ix >= 0 && iz >= 0 && ix < PL.nx && iz < PL.nz ? blocks.lab[iz * PL.nx + ix] : -1;
-      if (rg >= 0 && blocks.handled.has(rg)) continue;
+      if (rg >= 0 && (blocks.handled.has(rg) || (sub && sub.regions.has(rg)))) continue;
     }
     const seed0 = ((L.id * 2654435761) ^ (L.part * 40503)) >>> 0;
     const Rn = C.mulberry32(seed0);
@@ -2683,7 +3262,8 @@ function buildAll(PL, R, voxel, C) {
   res.mids = MID_LOG;
   res.houses = HOUSE_LOG;
   res.blocks = blocks ? blocks.stats : null;
-  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1 }));
+  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1, open: J.open || undefined, use: J.use }));
+  res.suburbs = sub ? Object.assign({}, sub.stats, { ms: counts.suburbMs, lots: sub.lots.map(L => ({ O: L.O, e1: L.e1, e2: L.e2, w: L.w, d: L.d, use: L.use, nb: L.nb })) }) : null;
   return res;
 }
 
@@ -2691,7 +3271,7 @@ const LIB = {
   BV, BM, FH, BASE, Relief, bays, H2, pick, glassMat, facades, prism, roofMask, buildTiers, soffit, inset, rectMask, rotated, flatRoof,
   facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
   skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,
-  planterRowModel, VoxModel: () => C_VoxModel, cullHidden, coplanarPairs, planeOf
+  planterRowModel, VoxModel: () => C_VoxModel, cullHidden, coplanarPairs, planeOf, planSuburbs, roadAt, roadProject
 };
 // Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
 function previewTower(name, Wm, Dm, floors, seed, C) {
