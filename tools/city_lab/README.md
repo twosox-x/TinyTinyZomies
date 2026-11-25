@@ -30,11 +30,19 @@ Interactive Three.js prototype of the city layout and voxel road system. **Not p
    - hydrants about every 85 m.
 
    Every spot is checked against the voxel classification. Signals run a 30 s cycle in the shader, with crossing roads alternating.
-8. **Plots.**
+8. **Clean-up rules (from the visual review).** These are applied everywhere, not at single spots:
+   - Enclosed areas under 45 m² that aren't road are filled with asphalt, so there are no curb islands inside junctions.
+   - Open spaces (plazas, squares, lots) take whole blocks.
+   - Junctions closer than 22 m merge into one, so no crosswalk or lane box is squeezed in between.
+   - Raised medians must run at least 16 m.
+   - Markings and curb edges are at least 1.5 voxels wide, so diagonals stay connected.
+   - Sidewalk joints are drawn only well inside one street's sidewalk.
+9. **Plots.**
    - Frontage priority: the higher-ranked of the two nearest streets claims a cell inside its lot depth, and ties go to the lower id, so corner lots are rectangles. Alleys are ignored for frontage, so buildings back onto them.
    - Lots are cut square to the street.
    - Each plot is opened by 1 m to remove spikes and slivers, and plots under 60 m² are dropped.
-   - Buildings of 9+ storeys become a podium with a tower set back 3 m.
+   - Buildings of 9+ storeys become a podium with a tower set back 3 m. Plots are opened by 3 m (no part thinner than 6 m), height is capped on narrow plots, and gaps between buildings are 0 or 4–6 m.
+   - Footprints are traced on a grid aligned with the frontage street, simplified into straight edges and extruded as polygon blockouts. Walls along diagonal and curved streets are straight and evenly lit, and corners are square to the streets.
 
 
 Run it locally (workers need http, not file://):

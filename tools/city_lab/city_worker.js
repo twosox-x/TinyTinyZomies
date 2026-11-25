@@ -20,7 +20,7 @@ self.onmessage = (e) => {
       const B = blocks.buildings, P = blocks.plots;
       self.postMessage({ job, type: 'blocks', buildings: B, plots: P, plotCount: blocks.plotCount, builtArea: blocks.builtArea,
         blocksMs: performance.now() - t1, junctions: ctx.F.junctionData() },
-        [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer, P.pos.buffer, P.mat.buffer, P.nrm.buffer, P.idx.buffer]);
+        [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer].concat(B.nvec ? [B.nvec.buffer] : [], [P.pos.buffer, P.mat.buffer, P.nrm.buffer, P.idx.buffer]));
     }
     self.postMessage({ job, type: 'ready' });
   } else if (d.cmd === 'chunk' && d.job === job && ctx) {

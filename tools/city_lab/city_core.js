@@ -505,10 +505,28 @@ class FieldSampler {
           else { cur = { a: s, b: s, major, others: new Set(others) }; r.junctions.push(cur); }
         }
       }
+      // junctions closer than 22 m act as one: no crosswalks, stop lines or lane boxes squeezed in between
+      const merged = [];
+      for (const j of r.junctions) {
+        const last = merged.length ? merged[merged.length - 1] : null;
+        if (last && last.major && j.major && j.a - last.b < 22) { last.b = j.b; j.others.forEach(o => last.others.add(o)); }
+        else merged.push(j);
+      }
+      r.junctions = merged;
     }
   }
   // (call after computeJunctions) junction intervals as plain data
   junctionData() { return this.net.roads.map(r => (r.junctions || []).map(j => ({ a: j.a, b: j.b, major: j.major, others: [...j.others] }))); }
+  // length of the raised-median stretch containing s (between the cut-backs of the junctions on either side)
+  medianRun(r, s, cut) {
+    let before = 0, after = r.len;
+    for (const j of r.junctions) {
+      if (!j.major) continue;
+      if (j.b < s) before = Math.max(before, j.b + cut);
+      if (j.a > s) after = Math.min(after, j.a - cut);
+    }
+    return after - before;
+  }
   // distance along the road to the nearest major junction interval; 0 inside one; ahead = +1 if it lies at larger s
   junctionAt(r, s) {
     let best = 1e9, ahead = 0;
@@ -534,6 +552,43 @@ class FieldSampler {
       }
       if (onProgress && (z & 31) === 0) onProgress(z / this.nz);
     }
+    this.labelBlocks();
+  }
+  // City blocks = connected regions outside every carriageway (4-connected on the coarse grid).
+  // Tiny regions enclosed by asphalt (left over where three or more roads blend) are filled with asphalt:
+  // no stray curb islands inside junctions. The block labels also let open spaces take whole blocks.
+  labelBlocks() {
+    const nx = this.nx, nz = this.nz, n = nx * nz, car = this.car;
+    const comp = new Int32Array(n).fill(-1), size = [], border = [];
+    const stack = new Int32Array(n);
+    let id = 0;
+    for (let i = 0; i < n; ++i) {
+      if (car[i] <= 0 || comp[i] >= 0) continue;
+      let sp = 0, cnt = 0, touches = false;
+      stack[sp++] = i; comp[i] = id;
+      while (sp) {
+        const k = stack[--sp]; ++cnt;
+        const x = k % nx, z = (k / nx) | 0;
+        if (x === 0 || z === 0 || x === nx - 1 || z === nz - 1) touches = true;
+        if (x > 0 && car[k - 1] > 0 && comp[k - 1] < 0) { comp[k - 1] = id; stack[sp++] = k - 1; }
+        if (x < nx - 1 && car[k + 1] > 0 && comp[k + 1] < 0) { comp[k + 1] = id; stack[sp++] = k + 1; }
+        if (z > 0 && car[k - nx] > 0 && comp[k - nx] < 0) { comp[k - nx] = id; stack[sp++] = k - nx; }
+        if (z < nz - 1 && car[k + nx] > 0 && comp[k + nx] < 0) { comp[k + nx] = id; stack[sp++] = k + nx; }
+      }
+      size.push(cnt); border.push(touches); ++id;
+    }
+    const minArea = 45 / (this.cell * this.cell);                 // m2
+    this.islandsFilled = 0;
+    for (let i = 0; i < n; ++i) {
+      const c = comp[i];
+      if (c >= 0 && !border[c] && size[c] < minArea) { car[i] = -0.6; comp[i] = -1; }
+    }
+    for (let c = 0; c < id; ++c) if (!border[c] && size[c] < minArea) this.islandsFilled++;
+    this.comp = comp; this.compSize = size;
+  }
+  blockAt(px, pz) {
+    const ix = clamp(Math.round((px - this.x0) / this.cell), 0, this.nx - 1), iz = clamp(Math.round((pz - this.z0) / this.cell), 0, this.nz - 1);
+    return this.comp[iz * this.nx + ix];
   }
   // bilinear sample (u, s exact only when all four corners agree on the nearest road)
   sample(px, pz, o) {
@@ -581,12 +636,31 @@ class Rasterizer {
     this.areas = net.areas || [];
     this.roads = net.roads;
   }
-  areaAt(x, z, road, u) {
-    for (const a of this.areas) {
-      if (a.shape === 'circle') { if (Math.hypot(x - a.c[0], z - a.c[1]) < a.r) return a.kind; }
-      else if (a.shape === 'rect') { if (x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) return a.kind; }
-      else if (a.shape === 'side') { if (road === a.road && u * a.side > 0) return a.kind; }
+  // Open spaces take whole city blocks: a block belongs to a circle / rectangle area when at least 35 % of it
+  // lies inside the shape (no plaza edges cutting across a block). 'side' areas follow one road.
+  blockAreas() {
+    const F = this.F, cnt = new Map(), inside = new Map();
+    for (let iz = 0; iz < F.nz; ++iz) for (let ix = 0; ix < F.nx; ++ix) {
+      const c = F.comp[iz * F.nx + ix];
+      if (c < 0) continue;
+      cnt.set(c, (cnt.get(c) || 0) + 1);
+      const x = F.x0 + ix * F.cell, z = F.z0 + iz * F.cell;
+      this.areas.forEach((a, k) => {
+        const hit = a.shape === 'circle' ? Math.hypot(x - a.c[0], z - a.c[1]) < a.r : a.shape === 'rect' ? (x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) : false;
+        if (hit) { const key = c * 8 + k; inside.set(key, (inside.get(key) || 0) + 1); }
+      });
     }
+    this.blockArea = new Map();
+    for (const [key, v] of inside) {
+      const c = Math.floor(key / 8), k = key % 8;
+      if (v / cnt.get(c) >= 0.35 && v * F.cell * F.cell < 25000) this.blockArea.set(c, this.areas[k].kind);
+    }
+  }
+  areaAt(x, z, road, u) {
+    if (!this.blockArea) this.blockAreas();
+    const c = this.F.blockAt(x, z);
+    if (c >= 0 && this.blockArea.has(c)) return this.blockArea.get(c);
+    for (const a of this.areas) if (a.shape === 'side' && road === a.road && u * a.side > 0) return a.kind;
     return null;
   }
   // classify one column -> [height in voxels, material]
@@ -596,7 +670,7 @@ class Rasterizer {
     const car = o.car;
     if (o.road < 0 || car > 900) { out[0] = hs; out[1] = MAT.PLOT; return; }
     const road = this.roads[o.road], P = road.P;
-    const minLine = Math.max(0.06, v * 0.55);               // markings never thinner than one voxel
+    const minLine = Math.max(0.06, v * 0.75);               // >= 1.5 voxels wide: diagonal lines stay connected
     if (car < 0) {
       if (P.id === 'alley') {
         out[0] = 0;
@@ -629,9 +703,10 @@ class Rasterizer {
       if (e.type === 'median') {
         const cut = stop0 + 14;                                        // median ends 14 m before the stop line
         const inside = Math.min(e.left - u, u - e.right);
-        if (jd > cut) {
+        const run = this.F.medianRun(road, s, cut);
+        if (jd > cut && run > 16) {
           out[0] = hs;
-          out[1] = inside < 0.18 ? MAT.MEDIAN_CURB : (P.median === 'planted' ? MAT.MEDIAN_GRASS : MAT.MEDIAN_CURB);
+          out[1] = inside < Math.max(0.18, v * 1.6) ? MAT.MEDIAN_CURB : (P.median === 'planted' ? MAT.MEDIAN_GRASS : MAT.MEDIAN_CURB);
           return;
         }
         // painted turn bay: yellow edges, a left-turn arrow on the half next to the inbound lanes
@@ -671,14 +746,14 @@ class Rasterizer {
     }
     // outside the carriageway: curb, sidewalk, block
     if (P.id === 'alley' && car < 0.6 && o.road2 >= 0 && o.oth > 0.6) { out[0] = hs; out[1] = MAT.CURB; return; }
-    if (car < 0.16) { out[0] = hs; out[1] = MAT.CURB; return; }
+    if (car < Math.max(0.16, v * 1.6)) { out[0] = hs; out[1] = MAT.CURB; return; }
     const area = this.areaAt(x, z, o.road, o.u);
     if (car < o.sw) {
       out[0] = hs;
       if (area === 'plaza') { out[1] = plazaTile(x, z, v); return; }
       // slab joints across the sidewalk every 1.6 m along the nearest street, one voxel wide
       const ss = ((o.s % 1.6) + 1.6) % 1.6;
-      out[1] = (o.same && ss < v * 0.999) ? MAT.SIDEWALK_JOINT : MAT.SIDEWALK;
+      out[1] = (o.same && o.oth - o.car > 3 && ss < v * 0.999) ? MAT.SIDEWALK_JOINT : MAT.SIDEWALK;
       return;
     }
     out[0] = hs;
@@ -749,7 +824,7 @@ class Plots {
     let s = 0;
     const len = r.len || 0;
     while (s < len + 40) { s += range[0] + R() * (range[1] - range[0]); cuts.push(s); }
-    return { cuts, gaps: cuts.map(() => (R() < (d === 'residential' ? 0.55 : 0.18) ? 1.6 + R() * 1.8 : 0)) };
+    return { cuts, gaps: cuts.map(() => (R() < (d === 'residential' ? 0.55 : 0.16) ? 4 + R() * 2 : 0)) };   // attached, or a real gap
   }
   // per-lot parameters
   lotInfo(roadId, lot) {
@@ -772,99 +847,132 @@ class Plots {
     while (lo < hi - 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
     return lo;
   }
-  // Building height map (metres, 0 = none) and plot ids per building cell.
-  //  1. frontage: every block cell belongs to a lot along a street; the higher-ranked of the two nearest streets
-  //     claims the cell when the cell lies within that street's lot depth (avenues get continuous frontage,
-  //     corner buildings sit on the main street, side streets fill in behind)
-  //  2. lots are cut square to their street (random widths per district), side gaps, setbacks, open interiors
-  //  3. each plot is opened morphologically (1 m) to remove spikes and slivers; plots under 60 m2 are dropped
-  //  4. tall buildings get a podium and a tower set back 3 m from the plot edge
-  build() {
-    const n = this.nx * this.nz, nx = this.nx;
-    this.height = new Float32Array(n);
-    this.plot = new Int32Array(n).fill(-1);
-    this.tone = new Uint8Array(n);
+  // Plot assignment for one point (exact): frontage street, lot along it, setback/depth/gap rules.
+  //  - the higher-ranked of the two nearest streets claims a point inside its lot depth (avenues get continuous
+  //    frontage, corner buildings sit on the main street); equal ranks: lower id, so corner lots are rectangles
+  //  - alleys are ignored for frontage (buildings back onto them) but nothing is built on or over them
+  assignAt(x, z, o) {
+    const F = this.F, roads = this.net.roads;
     const rank = (r) => ({ arterial: 3, collector: 2, local: 1, alley: 0 })[r.P.cls];
-    const roads = this.net.roads;
-    const o = {}, F = this.F;
-    const plotH = new Map();
-    for (let iz = 0; iz < this.nz; ++iz)
-      for (let ix = 0; ix < nx; ++ix) {
-        const x = this.x0 + (ix + 0.5) * this.cell, z = this.z0 + (iz + 0.5) * this.cell;
-        F.sample(x, z, o);
-        if (o.road < 0 || o.car > 900 || this.net.kind === 'test') continue;
-        if (this.Ra.areaAt(x, z, o.road, o.u)) continue;
-        if (o.car - o.sw < 0.3) continue;                        // sidewalk, curb, street, alley
-        F.evalPoint(x, z, o, true);                              // frontage from the streets only (alleys ignored)
-        if (o.road < 0) continue;
-        let rid = o.road, s = o.s, d = o.car - o.sw;
-        if (o.road2 >= 0) {
-          const r2 = roads[o.road2], d2 = o.oth - o.sw;
-          const i2 = this.lotInfo(o.road2, this.findLot(o.road2, o.s2));
-          const better = rank(r2) > rank(roads[rid]) || (rank(r2) === rank(roads[rid]) && r2.id < rid);
-          if (better && d2 < i2.setback + i2.depth && this.cornerish(rid, o.road2, x, z)) { rid = o.road2; s = o.s2; d = d2; }
+    F.sample(x, z, o);
+    if (o.road < 0 || o.car > 900 || this.net.kind === 'test') return -1;
+    if (this.Ra.areaAt(x, z, o.road, o.u)) return -1;
+    if (o.car < 0.3 || (roads[o.road].P.id === 'alley' && o.car < 0.6)) return -1;   // on a road or an alley
+    F.evalPoint(x, z, o, true);
+    if (o.road < 0) return -1;
+    // distances to the individual streets (not the rounded curb returns): square building corners
+    let rid = o.road, s = o.s, d = o.dj - o.sw;
+    if (d < 0.3 || o.oth - o.sw < 0.3) return -1;
+    if (o.road2 >= 0) {
+      const r2 = roads[o.road2], d2 = o.oth - o.sw;
+      const i2 = this.lotInfo(o.road2, this.findLot(o.road2, o.s2));
+      const better = rank(r2) > rank(roads[rid]) || (rank(r2) === rank(roads[rid]) && r2.id < rid);
+      if (better && d2 < i2.setback + i2.depth && this.cornerish(rid, o.road2, x, z)) { rid = o.road2; s = o.s2; d = d2; }
+    }
+    if (rank(roads[rid]) === 0) return -1;
+    const lot = this.findLot(rid, s);
+    const info = this.lotInfo(rid, lot);
+    if (d < info.setback || d > info.setback + info.depth) return -1;
+    const L = this.lots[rid];
+    if (L.gaps[lot] > 0 && s - L.cuts[lot] < L.gaps[lot]) return -1;
+    return rid * 4096 + lot;
+  }
+  // Coarse plot map (this.cell): assignment, then cleaned per plot
+  //  - morphological opening by a 6 m square (separable): no part of a building thinner than 6 m
+  //  - plots under 120 m2 are dropped
+  //  - stories: tall only where the plot is wide enough (inscribed radius); towers need 4 m of tower depth
+  build() {
+    const n = this.nx * this.nz, nx = this.nx, nz = this.nz;
+    const P = new Int32Array(n).fill(-1);
+    const o = {};
+    for (let iz = 0; iz < nz; ++iz)
+      for (let ix = 0; ix < nx; ++ix)
+        P[iz * nx + ix] = this.assignAt(this.x0 + (ix + 0.5) * this.cell, this.z0 + (iz + 0.5) * this.cell, o);
+    const r = Math.max(1, Math.round(3.0 / this.cell));
+    // erosion: horizontal then vertical runs of the same id covering +-r
+    const E1 = new Int32Array(n).fill(-1), E = new Int32Array(n).fill(-1);
+    for (let iz = 0; iz < nz; ++iz) {
+      let runStart = 0;
+      for (let ix = 0; ix <= nx; ++ix) {
+        const id = ix < nx ? P[iz * nx + ix] : -2;
+        if (ix === nx || id !== P[iz * nx + runStart]) {
+          const a = runStart, b = ix - 1, rid = P[iz * nx + a];
+          if (rid >= 0) for (let k = a + r; k <= b - r; ++k) E1[iz * nx + k] = rid;
+          runStart = ix;
         }
-        if (rank(roads[rid]) === 0) continue;                    // nothing fronts an alley
-        const lot = this.findLot(rid, s);
-        const info = this.lotInfo(rid, lot);
-        if (d < info.setback || d > info.setback + info.depth) continue;
-        const L = this.lots[rid];
-        if (L.gaps[lot] > 0 && s - L.cuts[lot] < L.gaps[lot]) continue;
-        const i = iz * nx + ix, id = rid * 4096 + lot;
-        this.plot[i] = id;
-        this.tone[i] = info.tone;
-        plotH.set(id, info.stories);
       }
-    // morphological opening per plot (erode then dilate by r cells): no spikes, no one-cell slivers
-    const r = Math.max(1, Math.round(1.0 / this.cell));
-    const P = this.plot, E = new Int32Array(n).fill(-1);
-    for (let iz = r; iz < this.nz - r; ++iz)
-      for (let ix = r; ix < nx - r; ++ix) {
-        const id = P[iz * nx + ix];
-        if (id < 0) continue;
-        let ok = true;
-        for (let dz = -r; dz <= r && ok; ++dz) for (let dx = -r; dx <= r && ok; ++dx) if (P[(iz + dz) * nx + ix + dx] !== id) ok = false;
-        if (ok) E[iz * nx + ix] = id;
+    }
+    for (let ix = 0; ix < nx; ++ix) {
+      let runStart = 0;
+      for (let iz = 0; iz <= nz; ++iz) {
+        const id = iz < nz ? E1[iz * nx + ix] : -2;
+        if (iz === nz || id !== E1[runStart * nx + ix]) {
+          const a = runStart, b = iz - 1, rid = E1[a * nx + ix];
+          if (rid >= 0) for (let k = a + r; k <= b - r; ++k) E[k * nx + ix] = rid;
+          runStart = iz;
+        }
       }
-    const O = new Int32Array(n).fill(-1);
-    for (let iz = r; iz < this.nz - r; ++iz)
-      for (let ix = r; ix < nx - r; ++ix) {
-        const id = E[iz * nx + ix];
-        if (id < 0) continue;
-        for (let dz = -r; dz <= r; ++dz) for (let dx = -r; dx <= r; ++dx) { const k = (iz + dz) * nx + ix + dx; if (P[k] === id) O[k] = id; }
-      }
-    // drop small plots
+    }
+    // dilation back, restricted to the original plot
+    const D1 = new Int32Array(n).fill(-1), O = new Int32Array(n).fill(-1);
+    for (let i = 0; i < n; ++i) {
+      const id = E[i]; if (id < 0) continue;
+      const x = i % nx;
+      for (let dx = -r; dx <= r; ++dx) { const xx = x + dx; if (xx >= 0 && xx < nx && P[i + dx] === id) D1[i + dx] = id; }
+    }
+    for (let i = 0; i < n; ++i) {
+      const id = D1[i]; if (id < 0) continue;
+      const z = (i / nx) | 0;
+      for (let dz = -r; dz <= r; ++dz) { const zz = z + dz; if (zz >= 0 && zz < nz && P[i + dz * nx] === id) O[i + dz * nx] = id; }
+    }
+    // drop small plots, measure each plot's inscribed radius (chamfer distance to its edge)
     const area = new Map();
     for (let i = 0; i < n; ++i) if (O[i] >= 0) area.set(O[i], (area.get(O[i]) || 0) + 1);
-    const minCells = 60 / (this.cell * this.cell);
+    const minCells = 120 / (this.cell * this.cell);
     for (let i = 0; i < n; ++i) if (O[i] >= 0 && area.get(O[i]) < minCells) O[i] = -1;
-    // distance (cells) to the plot edge, two-pass chamfer: towers set back from the podium edge
-    const D = new Float32Array(n);
-    for (let i = 0; i < n; ++i) D[i] = O[i] >= 0 ? 1e6 : 0;
-    const same = (a, b) => O[a] === O[b];
-    for (let iz = 1; iz < this.nz - 1; ++iz) for (let ix = 1; ix < nx - 1; ++ix) {
-      const i = iz * nx + ix; if (O[i] < 0) continue;
-      D[i] = Math.min(D[i], same(i, i - 1) ? D[i - 1] + 1 : 1, same(i, i - nx) ? D[i - nx] + 1 : 1,
-        same(i, i - nx - 1) ? D[i - nx - 1] + 1.414 : 1, same(i, i - nx + 1) ? D[i - nx + 1] + 1.414 : 1);
+    const Dm = chamfer(O, nx, nz);
+    const inR = new Map();
+    for (let i = 0; i < n; ++i) if (O[i] >= 0) inR.set(O[i], Math.max(inR.get(O[i]) || 0, Dm[i] * this.cell));
+    this.plot = O;
+    this.plotCount = inR.size;
+    // per plot: stories (capped by how wide the plot is), tower flag, tone
+    this.info = new Map();
+    for (const [id, rad] of inR) {
+      const rid = Math.floor(id / 4096), lot = id % 4096;
+      const li = this.lotInfo(rid, lot);
+      let stories = li.stories;
+      if (rad < 5) stories = Math.min(stories, 4);
+      else if (rad < 7) stories = Math.min(stories, 7);
+      const tower = stories >= 9 && rad - 3 >= 4;
+      const podium = 3 + (hash2(id, 4, 9) * 2 | 0);
+      this.info.set(id, { stories: tower ? stories : Math.min(stories, 8), tower, podium, tone: li.tone });
     }
-    for (let iz = this.nz - 2; iz > 0; --iz) for (let ix = nx - 2; ix > 0; --ix) {
-      const i = iz * nx + ix; if (O[i] < 0) continue;
-      D[i] = Math.min(D[i], same(i, i + 1) ? D[i + 1] + 1 : 1, same(i, i + nx) ? D[i + nx] + 1 : 1,
-        same(i, i + nx + 1) ? D[i + nx + 1] + 1.414 : 1, same(i, i + nx - 1) ? D[i + nx - 1] + 1.414 : 1);
-    }
-    const setback = 3 / this.cell;
-    this.plotCount = 0;
-    const seen = new Set();
-    for (let i = 0; i < n; ++i) {
-      const id = O[i];
-      this.plot[i] = id;
-      if (id < 0) continue;
-      if (!seen.has(id)) { seen.add(id); this.plotCount++; }
-      const stories = plotH.get(id);
-      const tower = stories >= 9 && D[i] > setback;
-      this.height[i] = (stories >= 9 && !tower ? 3 + (hash2(id, 4, 9) * 2 | 0) : stories) * 3.4;
-    }
+    this.height = new Float32Array(n);
+    this.tone = new Uint8Array(n);
+    for (let i = 0; i < n; ++i) if (O[i] >= 0) { const f = this.info.get(O[i]); this.height[i] = f.stories * 3.4; this.tone[i] = f.tone; }
   }
+}
+// two-pass chamfer distance (in cells) from each labelled cell to the nearest cell with a different label
+function chamfer(L, nx, nz) {
+  const n = nx * nz, D = new Float32Array(n);
+  for (let i = 0; i < n; ++i) D[i] = L[i] >= 0 ? 1e6 : 0;
+  for (let iz = 0; iz < nz; ++iz) for (let ix = 0; ix < nx; ++ix) {
+    const i = iz * nx + ix; if (L[i] < 0) continue;
+    let d = D[i];
+    const t = (j, w) => { d = Math.min(d, L[j] === L[i] ? D[j] + w : w * 0.5); };
+    if (ix > 0) t(i - 1, 1); else d = 0.5;
+    if (iz > 0) { t(i - nx, 1); if (ix > 0) t(i - nx - 1, 1.414); if (ix < nx - 1) t(i - nx + 1, 1.414); } else d = 0.5;
+    D[i] = d;
+  }
+  for (let iz = nz - 1; iz >= 0; --iz) for (let ix = nx - 1; ix >= 0; --ix) {
+    const i = iz * nx + ix; if (L[i] < 0) continue;
+    let d = D[i];
+    const t = (j, w) => { d = Math.min(d, L[j] === L[i] ? D[j] + w : w * 0.5); };
+    if (ix < nx - 1) t(i + 1, 1); else d = 0.5;
+    if (iz < nz - 1) { t(i + nx, 1); if (ix < nx - 1) t(i + nx + 1, 1.414); if (ix > 0) t(i + nx - 1, 1.414); } else d = 0.5;
+    D[i] = d;
+  }
+  return D;
 }
 
 // ------------------------------------------------------------------------------------------------ 6. mesher
@@ -873,7 +981,13 @@ class Plots {
 //  - walls: where neighbouring columns differ in height, vertical faces merged along runs of equal span/material
 // Output: vertex positions in voxel units (integer corners, see finish()), per-vertex material and normal ids, indices.
 class MeshBuffer {
-  constructor() { this.pos = []; this.mat = []; this.nrm = []; this.idx = []; this.quads = 0; }
+  constructor() { this.pos = []; this.mat = []; this.nrm = []; this.idx = []; this.quads = 0; this.nvec = null; }
+  // quad with an explicit normal vector (rotated building blocks)
+  quadN(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, nx, ny, nz) {
+    if (!this.nvec) this.nvec = [];
+    this.quad(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, 0);
+    for (let k = 0; k < 4; ++k) this.nvec.push(nx, ny, nz);
+  }
   quad(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, n) {
     const b = this.pos.length / 3;
     this.pos.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
@@ -893,7 +1007,7 @@ class MeshBuffer {
         for (let k = 0; k < 4; ++k) { const v = this.pos[o + k * 3 + a]; P[o + k * 3 + a] = v + (v > c ? eps : v < c ? -eps : 0); }
       }
     }
-    return { pos: P, mat: Uint8Array.from(this.mat), nrm: Uint8Array.from(this.nrm),
+    return { pos: P, mat: Uint8Array.from(this.mat), nrm: Uint8Array.from(this.nrm), nvec: this.nvec ? Float32Array.from(this.nvec) : null,
       idx: (this.pos.length / 3 > 65535 ? Uint32Array : Uint16Array).from(this.idx), quads: this.quads };
   }
 }
@@ -1030,10 +1144,204 @@ function buildBlocks(ctx) {
     }
     return out.finish();
   };
-  const buildings = emit(H, M, 0, plinth, true);
+  const buildings = fineBuildings(PL, R, voxel, bk);
   const plots = emit(Hp, Mp, R.hs - bk + 1);
   let built = 0; for (let i = 0; i < PL.height.length; ++i) if (PL.height[i] > 0) built++;
   return { buildings, plots, plotCount, builtArea: built * bcell * bcell };
+}
+// Building blockouts at the road voxel resolution: the coarse plot map decides which plot owns which area;
+// cells on a plot's outline are re-evaluated exactly at every road voxel, so walls along diagonal and curved
+// streets step as finely as the curbs in front of them. Towers are set back 3 m from the podium edge.
+function fineBuildings(PL, R, voxel, k) {
+  // Each building is voxelised on its own grid, aligned with its frontage street (same voxel size as the
+  // streets): walls along diagonal / rotated streets are straight and evenly lit instead of stair-stepped,
+  // corners are square. The coarse plot map decides ownership; cells near the outline are evaluated exactly.
+  const out = new MeshBuffer();
+  const nx = PL.nx, nz = PL.nz, P = PL.plot, hs = R.hs, cell = PL.cell;
+  const cells = new Map();
+  for (let i = 0; i < P.length; ++i) { const id = P[i]; if (id < 0) continue; let a = cells.get(id); if (!a) cells.set(id, a = []); a.push(i); }
+  const idAt = (x, z) => (x < 0 || z < 0 || x >= nx || z >= nz) ? -1 : P[z * nx + x];
+  const o = {};
+  const corners = new Map();
+  const cornerId = (x, z) => {
+    const key = z * (nx + 1) + x;
+    let v = corners.get(key);
+    if (v === undefined) { v = PL.assignAt(PL.x0 + x * cell, PL.z0 + z * cell, o); corners.set(key, v); }
+    return v;
+  };
+  const cls = new Map();                                  // coarse cell -> 0 out, 1 in, 2 exact
+  const coarseClass = (ccx, ccz, id) => {
+    const key = (ccz * nx + ccx) * 2;                     // ids differ per plot: cache per (cell, plot) via nested map
+    let m = cls.get(ccz * nx + ccx);
+    if (m && m.id === id) return m.c;
+    let same = 0;
+    for (let dz = -1; dz <= 1; ++dz) for (let dx = -1; dx <= 1; ++dx) if (idAt(ccx + dx, ccz + dz) === id) ++same;
+    let c;
+    if (same === 0) c = 0;
+    else if (same === 9) c = 1;
+    else {
+      const a = cornerId(ccx, ccz), b = cornerId(ccx + 1, ccz), cc = cornerId(ccx, ccz + 1), d = cornerId(ccx + 1, ccz + 1);
+      c = (a === b && a === cc && a === d) ? (a === id ? 1 : 0) : (same >= 2 ? 2 : 0);
+    }
+    cls.set(ccz * nx + ccx, { id, c });
+    return c;
+  };
+  for (const [id, list] of cells) {
+    const info = PL.info.get(id);
+    const road = PL.net.roads[Math.floor(id / 4096)];
+    // plot centre and frontage direction
+    let mx = 0, mz = 0;
+    for (const i of list) { mx += i % nx; mz += (i / nx) | 0; }
+    mx = PL.x0 + (mx / list.length + 0.5) * cell; mz = PL.z0 + (mz / list.length + 0.5) * cell;
+    const [tx, tz] = PL.tangentNear(road, mx, mz);
+    const e1 = [tx, tz], e2 = [-tz, tx];
+    // local bounds from the plot's coarse cells (+ one cell margin)
+    let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+    for (const i of list) {
+      const cx = PL.x0 + (i % nx) * cell, cz = PL.z0 + ((i / nx) | 0) * cell;
+      for (const [qx, qz] of [[cx - cell, cz - cell], [cx + 2 * cell, cz - cell], [cx - cell, cz + 2 * cell], [cx + 2 * cell, cz + 2 * cell]]) {
+        const a = (qx - mx) * e1[0] + (qz - mz) * e1[1], b = (qx - mx) * e2[0] + (qz - mz) * e2[1];
+        a0 = Math.min(a0, a); a1 = Math.max(a1, a); b0 = Math.min(b0, b); b1 = Math.max(b1, b);
+      }
+    }
+    const w = Math.ceil((a1 - a0) / voxel), d = Math.ceil((b1 - b0) / voxel);
+    const L = new Int32Array(w * d).fill(-1);
+    let any = false;
+    for (let j = 0; j < d; ++j)
+      for (let i = 0; i < w; ++i) {
+        const a = a0 + (i + 0.5) * voxel, b = b0 + (j + 0.5) * voxel;
+        const x = mx + a * e1[0] + b * e2[0], z = mz + a * e1[1] + b * e2[1];
+        const ccx = Math.floor((x - PL.x0) / cell), ccz = Math.floor((z - PL.z0) / cell);
+        const c = coarseClass(ccx, ccz, id);
+        if (c === 0) continue;
+        if (c === 2 && PL.assignAt(x, z, o) !== id) continue;
+        L[j * w + i] = id; any = true;
+      }
+    if (!any) continue;
+    const mat = BUILDING_TONES[info.tone], roof = (mat % 2) ? MAT.BUILDING_ROOF : MAT.ROOF_B;
+    const full = hs + info.stories * 3.4 / voxel, pod = hs + info.podium * 3.4 / voxel;
+    // local grid -> world voxel units
+    const toW = (a, b) => [(mx + (a0 + a * voxel) * e1[0] + (b0 + b * voxel) * e2[0]) / voxel, (mz + (a0 + a * voxel) * e1[1] + (b0 + b * voxel) * e2[1]) / voxel];
+    const extrude = (mask, y0, y1) => {
+      for (const loop of outlineLoops(mask, w, d)) {
+        const poly = simplifyLoop(loop, 0.45 / voxel);
+        if (poly.length < 3) continue;
+        const wpts = poly.map(([a, b]) => toW(a, b));
+        extrudePolygon(out, wpts, y0, y1, mat, roof);
+      }
+    };
+    if (info.tower) {
+      const D = chamfer(L, w, d);
+      const T = new Int32Array(w * d).fill(-1);
+      let any2 = false;
+      for (let q = 0; q < w * d; ++q) if (L[q] >= 0 && D[q] * voxel > 3) { T[q] = 1; any2 = true; }
+      extrude(L, hs, pod);
+      if (any2) extrude(T, pod, full);
+    } else extrude(L, hs, full);
+  }
+  return out.finish();
+}
+// Closed outlines of a binary mask (cell edges between inside and outside, inside on the left), as loops of
+// grid-corner points. Only outer loops are returned (courtyards inside one plot are filled).
+function outlineLoops(mask, w, d) {
+  const inside = (i, j) => i >= 0 && j >= 0 && i < w && j < d && mask[j * w + i] >= 0;
+  const next = new Map();                                     // start corner -> list of end corners
+  const key = (i, j) => j * (w + 1) + i;
+  const addE = (a, b) => { const k = key(a[0], a[1]); let l = next.get(k); if (!l) next.set(k, l = []); l.push(b); };
+  for (let j = 0; j <= d; ++j)
+    for (let i = 0; i <= w; ++i) {
+      // horizontal edge between (i,j-1) and (i,j) along x from (i,j) to (i+1,j)
+      if (i < w) { const up = inside(i, j - 1), dn = inside(i, j); if (dn && !up) addE([i + 1, j], [i, j]); else if (up && !dn) addE([i, j], [i + 1, j]); }
+      if (j < d) { const lf = inside(i - 1, j), rt = inside(i, j); if (rt && !lf) addE([i, j], [i, j + 1]); else if (lf && !rt) addE([i, j + 1], [i, j]); }
+    }
+  const loops = [];
+  for (const [k0, l0] of next) {
+    while (l0.length) {
+      const loop = [];
+      let cur = [k0 % (w + 1), Math.floor(k0 / (w + 1))];
+      let guard = 0;
+      while (guard++ < 1e6) {
+        const l = next.get(key(cur[0], cur[1]));
+        if (!l || !l.length) break;
+        loop.push(cur);
+        cur = l.pop();
+        if (key(cur[0], cur[1]) === k0) break;
+      }
+      if (loop.length >= 4) loops.push(loop);
+    }
+  }
+  // keep outer loops (positive signed area in this orientation)
+  return loops.filter(L => { let a = 0; for (let i = 0; i < L.length; ++i) { const p = L[i], q = L[(i + 1) % L.length]; a += p[0] * q[1] - q[0] * p[1]; } return a < 0; });
+}
+// Douglas-Peucker on a closed loop (tolerance in grid units): staircases become straight edges
+function simplifyLoop(loop, tol) {
+  const n = loop.length;
+  // split at the two mutually farthest points
+  let ia = 0, ib = 0, best = -1;
+  for (let i = 0; i < n; i += Math.max(1, (n / 64) | 0)) for (let j = i + 1; j < n; j += Math.max(1, (n / 64) | 0)) {
+    const dd = (loop[i][0] - loop[j][0]) ** 2 + (loop[i][1] - loop[j][1]) ** 2;
+    if (dd > best) { best = dd; ia = i; ib = j; }
+  }
+  const dp = (pts) => {
+    if (pts.length < 3) return pts;
+    const a = pts[0], b = pts[pts.length - 1];
+    const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1;
+    let k = -1, m = 0;
+    for (let i = 1; i < pts.length - 1; ++i) { const dd = Math.abs((pts[i][0] - a[0]) * dz - (pts[i][1] - a[1]) * dx) / l; if (dd > m) { m = dd; k = i; } }
+    if (m <= tol) return [a, b];
+    const left = dp(pts.slice(0, k + 1)), right = dp(pts.slice(k));
+    return left.slice(0, -1).concat(right);
+  };
+  const A = loop.slice(ia, ib + 1), B = loop.slice(ib).concat(loop.slice(0, ia + 1));
+  const out = dp(A).slice(0, -1).concat(dp(B).slice(0, -1));
+  return out;
+}
+// ear-clipping triangulation of a simple polygon given as [[x,z],...]; returns index triples
+function triangulate(P) {
+  const n = P.length, idx = [];
+  let area = 0; for (let i = 0; i < n; ++i) { const p = P[i], q = P[(i + 1) % n]; area += p[0] * q[1] - q[0] * p[1]; }
+  const V = []; for (let i = 0; i < n; ++i) V.push(area > 0 ? i : n - 1 - i);
+  const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+  const inTri = (p, a, b, c) => cross(a, b, p) >= 0 && cross(b, c, p) >= 0 && cross(c, a, p) >= 0;
+  let guard = 0;
+  while (V.length > 3 && guard++ < 10000) {
+    let clipped = false;
+    for (let i = 0; i < V.length; ++i) {
+      const a = P[V[(i + V.length - 1) % V.length]], b = P[V[i]], c = P[V[(i + 1) % V.length]];
+      if (cross(a, b, c) <= 1e-9) continue;
+      let ok = true;
+      for (let j = 0; j < V.length && ok; ++j) { const q = V[j]; if (q === V[i] || q === V[(i + V.length - 1) % V.length] || q === V[(i + 1) % V.length]) continue; if (inTri(P[q], a, b, c)) ok = false; }
+      if (!ok) continue;
+      idx.push([V[(i + V.length - 1) % V.length], V[i], V[(i + 1) % V.length]]);
+      V.splice(i, 1); clipped = true; break;
+    }
+    if (!clipped) break;
+  }
+  if (V.length === 3) idx.push([V[0], V[1], V[2]]);
+  return idx;
+}
+// extruded prism: flat roof + one wall per edge, explicit outward normals; positions in voxel units
+function extrudePolygon(mb, pts, y0, y1, wallMat, roofMat) {
+  const n = pts.length;
+  let area = 0; for (let i = 0; i < n; ++i) { const p = pts[i], q = pts[(i + 1) % n]; area += p[0] * q[1] - q[0] * p[1]; }
+  const sgn = area > 0 ? 1 : -1;
+  const tri = (a, b, c, m, nx, ny, nz) => {
+    // front face = counter-clockwise seen from the normal side
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx;
+    if (cx * nx + cy * ny + cz * nz < 0) { const t = b; b = c; c = t; }
+    mb.quadN(...a, ...b, ...c, ...c, m, nx, ny, nz);
+  };
+  for (const [i, j, k] of triangulate(pts)) tri([pts[i][0], y1, pts[i][1]], [pts[j][0], y1, pts[j][1]], [pts[k][0], y1, pts[k][1]], roofMat, 0, 1, 0);
+  for (let i = 0; i < n; ++i) {
+    const p = pts[i], q = pts[(i + 1) % n];
+    let ex = q[0] - p[0], ez = q[1] - p[1];
+    const l = Math.hypot(ex, ez) || 1;
+    // outward normal: interior is on the left of the edge for positive area
+    const nx = (ez / l) * sgn, nz = (-ex / l) * sgn;
+    const a = [p[0], y0, p[1]], b = [q[0], y0, q[1]], c = [q[0], y1, q[1]], dd = [p[0], y1, p[1]];
+    tri(a, b, c, wallMat, nx, 0, nz); tri(a, c, dd, wallMat, nx, 0, nz);
+  }
 }
 function* buildCity(net, voxel, opts) {
   const t0 = Date.now();
@@ -1164,26 +1472,29 @@ function modelSignal(reach, face) {
   M.box(-1, 132, 2, 2, 140, 3, PM.POLE);
   for (const t of [0.55, 0.9]) { const zz = Math.round(L * t); M.box(0, 124, zz - 1, 1, 128, zz + 1, PM.POLE); signalHead(M, face > 0 ? 1 : 0, 104, zz, face); }
   signalHead(M, face > 0 ? 3 : -2, 56, 0, face);                                                 // pole-mounted head
-  M.box(-8, 120, 6, 6, 124, 7, PM.SIGN_GREEN);                                // street name blade on the arm
-  M.box(-7, 121, 7, 5, 123, 8, PM.SIGN_WHITE);
+  M.box(-6, 120, 6, 7, 123, 7, PM.SIGN_GREEN);                                // street name blade on the arm
+  M.box(-5, 121, 7, 6, 122, 8, PM.SIGN_WHITE);
   M.box(-3, 44, 3, 4, 52, 7, PM.HOUSING);                                     // pedestrian signal box facing +z
   M.box(-2, 48, 7, 3, 51, 8, PM.PED_ORANGE); M.box(-2, 45, 7, 3, 47, 8, PM.PED_WHITE);
   M.box(-3, 30, -6, -2, 36, -3, PM.HOUSING);                                  // push button
   return M;
 }
 function modelStop() {
-  // stop sign (0.75 m octagon, red with white border and legend) on a 2.1 m post, street-name blades above
-  const M = new VoxModel(26, 62, 26, 13, 13);
-  M.box(-1, 0, -1, 1, 56, 1, PM.POLE);
-  const cy = 47, R = 7;
+  // R1-1 stop sign: 0.75 m octagon (15 voxels), red face with a white border and legend, plain metal back;
+  // two 0.6 m street-name blades crossed above a 2.1 m square post
+  const M = new VoxModel(16, 60, 16, 8, 8);
+  M.box(-1, 0, -1, 1, 54, 1, PM.POLE);
+  const cy = 43, R = 7;
   for (let y = -R; y <= R; ++y) for (let z = -R; z <= R; ++z) {
-    if (Math.abs(y) + Math.abs(z) > R * 1.45) continue;                     // octagon
-    const edge = Math.abs(y) + Math.abs(z) > R * 1.45 - 1.5 || Math.abs(y) === R || Math.abs(z) === R;
-    const legend = Math.abs(y) <= 1 && Math.abs(z) <= 5;
-    M.box(1, cy + y, z, 2, cy + y + 1, z + 1, edge || legend ? PM.SIGN_WHITE : PM.SIGN_RED);
+    const ay = Math.abs(y), az = Math.abs(z);
+    if (ay + az > 10) continue;                                              // octagon: corners cut at 45 degrees
+    const edge = ay === R || az === R || ay + az === 10;
+    const legend = ay <= 1 && az <= 5;
+    M.box(1, cy + y, z, 2, cy + y + 1, z + 1, PM.POLE);                     // metal back
+    M.box(2, cy + y, z, 3, cy + y + 1, z + 1, edge || legend ? PM.SIGN_WHITE : PM.SIGN_RED);
   }
-  M.box(-1, 56, -9, 1, 59, 10, PM.SIGN_GREEN).box(-9, 59, -1, 10, 62, 1, PM.SIGN_GREEN);   // name blades (crossed)
-  M.box(-2, 57, -8, 2, 58, 9, PM.SIGN_WHITE).box(-8, 60, -2, 9, 61, 2, PM.SIGN_WHITE);
+  M.box(-1, 54, -6, 1, 57, 7, PM.SIGN_GREEN).box(-6, 57, -1, 7, 60, 1, PM.SIGN_GREEN);   // name blades
+  M.box(-1, 55, -5, 1, 56, 6, PM.SIGN_WHITE).box(-5, 58, -1, 6, 59, 1, PM.SIGN_WHITE);
   return M;
 }
 function modelHydrant() {

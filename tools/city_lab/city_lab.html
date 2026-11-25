@@ -218,12 +218,12 @@ const plotHues = [[205, 160, 120], [176, 196, 150], [150, 178, 204], [214, 186, 
 for (let i = 0; i < 24; ++i) { const b = plotHues[i % 8], k = 0.86 + 0.14 * ((i >> 3) / 2); PAL[30 + i].setRGB(b[0] * k / 255, b[1] * k / 255, b[2] * k / 255).convertSRGBToLinear(); }
 for (const k in C.PROP_PALETTE) { const c = C.PROP_PALETTE[k]; PAL[+k].setRGB(c[0] / 255, c[1] / 255, c[2] / 255).convertSRGBToLinear(); }
 const U = { grid: { value: 0 }, voxel: { value: 0.1 }, pal: { value: PAL }, time: { value: 0 }, night: { value: 0 } };
-function cityMaterial() {
+function cityMaterial(normalAttr) {
   const m = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 0, specular: 0x000000 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uPal = U.pal; sh.uniforms.uGrid = U.grid; sh.uniforms.uVoxel = U.voxel; sh.uniforms.uTime = U.time; sh.uniforms.uNight = U.night;
     sh.vertexShader = 'attribute float mid;\nattribute float nid;\nattribute float iPhase;\nuniform vec3 uPal[80];\nuniform float uTime;\nuniform float uNight;\nvarying vec3 vWP;\nvarying vec3 vON;\nvarying vec3 vEmit;\n' + sh.vertexShader
-      .replace('#include <beginnormal_vertex>',
+      .replace('#include <beginnormal_vertex>', normalAttr ? '#include <beginnormal_vertex>\nvON = abs(objectNormal.y) > 0.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0);' :
         'vec3 objectNormal = nid < 0.5 ? vec3(0.0, 1.0, 0.0) : nid < 1.5 ? vec3(1.0, 0.0, 0.0) : nid < 2.5 ? vec3(-1.0, 0.0, 0.0) : nid < 3.5 ? vec3(0.0, 0.0, 1.0) : nid < 4.5 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, -1.0, 0.0);\nvON = objectNormal;')
       .replace('#include <color_vertex>', `int cmid = int(mid + 0.5);
         vColor = uPal[cmid];
@@ -252,6 +252,7 @@ function cityMaterial() {
   return m;
 }
 const MAT_CITY = cityMaterial();
+const MAT_BLOCKS = cityMaterial(true);            // building blocks: rotated with their street, explicit normals
 const MAT_PLOTS = cityMaterial();
 MAT_PLOTS.polygonOffset = true; MAT_PLOTS.polygonOffsetFactor = -1; MAT_PLOTS.polygonOffsetUnits = -2;
 
@@ -260,6 +261,7 @@ function geometryFrom(m) {
   g.setAttribute('position', new THREE.BufferAttribute(m.pos, 3));
   g.setAttribute('mid', new THREE.BufferAttribute(m.mat, 1));
   g.setAttribute('nid', new THREE.BufferAttribute(m.nrm, 1));
+  if (m.nvec) g.setAttribute('normal', new THREE.BufferAttribute(m.nvec, 3));
   g.setIndex(new THREE.BufferAttribute(m.idx, 1));
   g.computeBoundingSphere();
   return g;
@@ -376,7 +378,7 @@ function runFallback(job) {                 // no workers (e.g. opened from disk
 function addBlocks(d) {
   S.stats.plotCount = d.plotCount; S.stats.buildingQuads = d.buildings.quads;
   if (d.buildings.idx.length) {
-    buildingMesh = new THREE.Mesh(geometryFrom(d.buildings), MAT_CITY);
+    buildingMesh = new THREE.Mesh(geometryFrom(d.buildings), d.buildings.nvec ? MAT_BLOCKS : MAT_CITY);
     buildingMesh.castShadow = buildingMesh.receiveShadow = true;
     buildingMesh.scale.setScalar(S.voxel);
     world.add(buildingMesh);
@@ -790,6 +792,9 @@ function fallbackCopy(text, done) {
   document.body.removeChild(ta);
   done(ok ? 'Copied' : 'Copy is blocked here');
 }
+
+// automation hook (screenshots / review): jump the camera to a spot
+window.cityLab = { focus: (x, z, view) => setView(view || 'rts', [x, z]), state: S };
 
 // ------------------------------------------------------------------------------------------------ boot
 resize();
