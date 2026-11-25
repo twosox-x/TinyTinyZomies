@@ -80,3 +80,55 @@ node /tmp/claude-0/city/preview.js <name> /tmp/claude-0/city/<name>_a.png "w=40&
 - Options: `dist=` camera distance (m), `ty=` target height (m), `night=1`. The output prints the triangle count and any page errors.
 - Look at the PNG with the Read tool. Check several seeds (`seed=3`, `seed=11`), a narrow lot (`w=22&d=30`), a wide lot (`w=44&d=46`), a close-up at the base (`dist=40&ty=8&pitch=0.1`), the top, and night.
 - Iterate until it looks intentional, detailed and clean. Report the final screenshot paths.
+
+---
+# Phase 2: downtown mid-rises, roofs and block placement
+
+The owner was happy with the towers. Next: make **downtown** feel real.
+- More logical placement and design.
+- Denser blocks with fewer gaps between buildings.
+- More utility equipment on roofs.
+- Water towers are too repetitive.
+
+## Mid-rise plug-ins (3–14 storeys)
+
+Register one with:
+
+```js
+CityArch.registerMid(name, fn, { minW, maxW, minFloors, maxFloors, zones })
+```
+
+**Signature:** `fn(E, C, W, D, spec, R, L)`, the same as for towers.
+- `spec = { seed, floors, party: {l, r}, shops, zone }`.
+- `zone` is `'core'` (near the towers), `'mid'` (downtown) or `'row'` (old-town and downtown-fringe rows).
+- `minW` and `maxW` are frontage widths in metres. The placer picks your type only for lots in that range and in your zones.
+
+**Lots:**
+- 8–40 m frontage (W), 9–34 m deep (D), front at z = 0.
+- Buildings in a block are attached. `spec.party.l` / `.r` = true means a neighbour is attached on that side, so give those side walls a plain, flush party wall: no windows and no projections past x = 0 or x = W.
+- Corner and free sides get real facades.
+- Fill the lot completely: the full W, and the full D unless your concept has a rear light court.
+
+**Each building should:**
+- have a clear identity and period;
+- have a believable ground floor (shops, lobby, loading, garage entrance) when `spec.shops` is true;
+- vary clearly with `R()` (proportions, materials, details).
+
+**Roof:** call `L.roofKit && L.roofKit(E, C, x0, z0, x1, z1, yTop, R, { style, floors, avoid })` to dress it with utility equipment. `style` is `'historic'`, `'office'`, `'residential'` or `'industrial'`; `avoid` lists rectangles you used for your own rooftop features. Do not add your own generic boxes or water tanks unless they are part of your concept.
+
+**Preview** a mid-rise the same way as a tower (mid names work in `?tower=`), e.g.:
+
+```bash
+node /tmp/claude-0/city/preview.js <name> out.png "w=20&d=28&floors=8&seed=7&dist=70&ty=12"
+```
+
+## Full-city check
+
+`node /tmp/claude-0/city/spots.js '[["name",x,z,"rts"],...]'` writes `/tmp/claude-0/city/spot_<name>.png`. Views are `"rts"` (about 95 m), `"overview"` or `"street"`.
+
+Useful spots on seed 1:
+- downtown grid: `[-200,60]`, `[-230,120]`, `[-91,-21]`, `[-160,-150]`
+- old town: `[150,-90]`, `[220,-160]`
+- Union Square: `[-175,35]`
+
+`node /tmp/claude-0/city/tow.js '[["name",tx,ty,tz,px,py,pz]]'` takes a free camera (target, then eye position).

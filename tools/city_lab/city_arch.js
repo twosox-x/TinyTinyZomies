@@ -348,6 +348,7 @@ function flatRoof(E, x0, z0, x1, z1, yTop, S, C, opts) {
 }
 // New York rooftop water tank: wooden barrel on a steel frame (voxel boxes)
 function waterTank(E, cx, cz, y, C) {
+  if (LIB.waterTankImpl) return LIB.waterTankImpl(E, cx, cz, y, C);
   // wooden barrel on a steel frame, one voxel model (no overlapping boxes)
   const M = new C.VoxModel(10, 22, 10, 5, 5);
   for (const [dx, dz] of [[-4, -4], [3, -4], [-4, 3], [3, 3]]) M.box(dx, 0, dz, dx + 1, 7, dz + 1, BM.METAL);
@@ -428,12 +429,13 @@ function buildRows(E, W, D, spec, C) {
     const floors = spec.floors + (R() < 0.25 ? 1 : 0), fh = 13;
     facades(E, x, 0, x + w, D, 0, (len, side, front) => facadeRow(len, floors, fh, S, side, front), C, false,
       { l: x > 0 || !!(spec.party && spec.party.l), r: x + w < W || !!(spec.party && spec.party.r) });
-    flatRoof(E, x, 0, x + w, D, floors * fh + 4, S, C, { parapet: 1, parapetMat: S.corniceMat, units: 1 });
+    flatRoof(E, x, 0, x + w, D, floors * fh + 4, S, C, { parapet: 1, parapetMat: S.corniceMat, units: LIB.roofKit ? 0 : 1 });
+    if (LIB.roofKit) LIB.roofKit(E, C, x + 1, 1, x + w - 1, D - 1, floors * fh + 4, R, { style: 'residential', floors });
     // stoop: limestone steps up to the door
     const dc = bays(w, 8, 2); const c = x + dc[dc.length - 1];
     for (let s = 0; s < 3; ++s) E.box(c - 3, 0, -4 - (3 - s) * 2, c + 3, 1 + s, -4 - (3 - s) * 2 + 2, BM.LIMESTONE);
     E.box(c - 3, 0, -4, c + 3, 4, 0, BM.LIMESTONE);
-    if (R() < 0.3 && w > 24 && D > 30) waterTank(E, x + (w >> 1), Math.floor(D * 0.6), floors * fh + 4, C);
+    if (!LIB.roofKit && R() < 0.3 && w > 24 && D > 30) waterTank(E, x + (w >> 1), Math.floor(D * 0.6), floors * fh + 4, C);
     x += w; ++k;
   }
 }
@@ -447,8 +449,9 @@ function buildMid(E, W, D, spec, C) {
   };
   const floors = spec.floors, fh = 14;
   facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, floors, fh, S, side), C, true, spec.party);
-  flatRoof(E, 0, 0, W, D, floors * fh + 5, S, C, { parapet: 2, parapetMat: BM.LIMESTONE_DARK, penthouse: floors >= 7 });
-  if (R() < 0.45 && W > 30 && D > 30) waterTank(E, Math.floor(W * (0.2 + R() * 0.5)), Math.floor(D * 0.6), floors * fh + 5, C);
+  flatRoof(E, 0, 0, W, D, floors * fh + 5, S, C, { parapet: 2, parapetMat: BM.LIMESTONE_DARK, penthouse: floors >= 7, units: LIB.roofKit ? 0 : undefined });
+  if (LIB.roofKit) LIB.roofKit(E, C, 1, 1, W - 1, D - 1, floors * fh + 5, R, { style: brick ? 'historic' : 'office', floors });
+  else if (R() < 0.45 && W > 30 && D > 30) waterTank(E, Math.floor(W * (0.2 + R() * 0.5)), Math.floor(D * 0.6), floors * fh + 5, C);
 }
 // ================================================================================================ signature towers
 // Every high-rise is its own project: a base built for it (or an older building it rises from), a body with its
@@ -1622,6 +1625,29 @@ function registerTower(name, fn, opts) { TOWERS.push({ name, fn, unique: !!(opts
  ['brutalist', towerBrutal], ['terraced', towerTerraced]].forEach(([n, f]) => registerTower(n, f));
 registerTower('twist', towerTwist, { unique: true });
 let towerDeck = [], TOWER_LOG = [], dealt = 0, usedUnique = new Set();
+// Mid-rise registry (downtown / old town 3-14 storey buildings): fn(E, C, W, D, spec, R, L) with
+// spec { seed, floors, party:{l,r}, shops, corner, zone }. opts: { minW, maxW (metres), minFloors, maxFloors, zones:['mid','row','core'] }
+const MIDS = [];
+function registerMid(name, fn, opts) { MIDS.push(Object.assign({ name, fn, minW: 8, maxW: 60, minFloors: 2, maxFloors: 16, zones: ['mid', 'core', 'row'] }, opts || {})); }
+let midDecks = {}, MID_LOG = [];
+registerMid('classic_mid', (E, C, W, D, spec) => buildMid(E, W, D, spec, C), { zones: ['mid', 'core'], minW: 10 });
+registerMid('classic_rows', (E, C, W, D, spec) => buildRows(E, W, D, spec, C), { zones: ['row'], maxFloors: 5 });
+function buildMidAny(E, W, D, spec, C, zone) {
+  const wm = W * BV;
+  const fits = MIDS.filter(m => m.zones.includes(zone) && wm >= m.minW && wm <= m.maxW);
+  if (!fits.length) return zone === 'row' ? buildRows(E, W, D, spec, C) : buildMid(E, W, D, spec, C);
+  const key = zone + ':' + fits.map(m => m.name).join(',');
+  let deck = midDecks[key];
+  if (!deck || !deck.length) {
+    deck = midDecks[key] = fits.slice();
+    const Rd = C.mulberry32(spec.seed ^ 0x51ed27);
+    for (let i = deck.length - 1; i > 0; --i) { const j = Math.floor(Rd() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+  }
+  const m = deck.pop();
+  const floors = Math.max(m.minFloors, Math.min(m.maxFloors, spec.floors));
+  MID_LOG.push({ type: m.name, zone, floors });
+  m.fn(E, C, W, D, Object.assign({}, spec, { floors, zone }), C.mulberry32(spec.seed), LIB);
+}
 function buildTower(E, W, D, spec, C) {
   const R = C.mulberry32(spec.seed);
   if (!towerDeck.length) {                                         // deal the next round of designs
@@ -1824,7 +1850,7 @@ function zoneOf(net, r, x, z) {
 }
 function buildAll(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
-  towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set();
+  towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = [];
   const mb = new C.MeshBuffer();
   const lots = lotRectangles(PL, C);
   const hs = R.hs * voxel;
@@ -1857,8 +1883,8 @@ function buildAll(PL, R, voxel, C) {
       const E = new Emitter(mb, O, L.e1, L.e2, hs, voxel);
       const spec = { seed, floors, party, shops: L.road.P.cls !== 'local' && L.part === 0 };
       if (kind === 'house') buildHouse(E, W, D, spec, C);
-      else if (kind === 'row') buildRows(E, W, D, spec, C);
-      else if (kind === 'mid') buildMid(E, W, D, spec, C);
+      else if (kind === 'row') buildMidAny(E, W, D, spec, C, 'row');
+      else if (kind === 'mid') buildMidAny(E, W, D, spec, C, zoneOf(PL.net, L.road, L.mx, L.mz) === 'tower' ? 'core' : 'mid');
       else buildTower(E, W, D, spec, C);
       counts[kind] = (counts[kind] || 0) + 1;
     }
@@ -1916,6 +1942,7 @@ function buildAll(PL, R, voxel, C) {
   const res = mb.finish(0.002);
   res.counts = counts;
   res.towers = TOWER_LOG;
+  res.mids = MID_LOG;
   return res;
 }
 
@@ -1928,14 +1955,14 @@ const LIB = {
 // Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
 function previewTower(name, Wm, Dm, floors, seed, C) {
   C_VoxModel = C.VoxModel;
-  const t = TOWERS.find(x => x.name === name);
-  if (!t) throw new Error('unknown tower ' + name + '; known: ' + TOWERS.map(x => x.name).join(', '));
+  const t = TOWERS.find(x => x.name === name) || MIDS.find(x => x.name === name);
+  if (!t) throw new Error('unknown tower ' + name + '; known: ' + TOWERS.concat(MIDS).map(x => x.name).join(', '));
   const mb = new C.MeshBuffer();
   const E = new Emitter(mb, [0, 0], [1, 0], [0, 1], 0.15, 0.1);
   const W = Math.floor(Wm / BV), D = Math.floor(Dm / BV);
   t.fn(E, C, W, D, { seed, floors, party: {} }, C.mulberry32(seed), LIB);
   return mb.finish(0.002);
 }
-const CityArch = { previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
+const CityArch = { registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityArch; else root.CityArch = CityArch;
 })(typeof self !== 'undefined' ? self : this);
