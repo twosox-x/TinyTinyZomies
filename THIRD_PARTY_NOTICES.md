@@ -36,6 +36,18 @@ These tools process our own shader sources offline; their output is not a deriva
 
 If a future build ships runtime shader translation (shadercross as a library), or DXC for D3D12, its licenses then apply to the binary: Apache-2.0 for SPIRV-Cross, and University of Illinois/NCSA for DXC, which requires attribution.
 
+## Phase 3 additions
+
+No new libraries are linked into the engine.
+
+| Item | Use | License | Shipped |
+|---|---|---|---|
+| Node.js | runs `tools/convert_characters.mjs` and `tools/capture_lab.mjs` | MIT | no (build tool) |
+| Playwright + Chromium | renders Zombie Lab reference images for visual comparison | Apache-2.0 / BSD-3 | no (dev tool) |
+| Pillow | composes comparison sheets | MIT-CMU (HPND) | no (dev tool) |
+| three.js r128 | loaded by the Zombie Lab design page (`assets/characters/source/zombie_lab_v3.html`) from a CDN | MIT | no (design tool only, never part of the game) |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) 1.3 | evaluated, **not used** (see docs/RESEARCH.md) | MIT | no |
+
 ## Research repositories (no code used)
 
 The crowd-simulation repositories evaluated in [`docs/RESEARCH.md`](docs/RESEARCH.md) informed algorithm choices only. **No source code from them is included**, so they create no license obligations:

@@ -93,3 +93,26 @@ Answers to the brief's questions, for every promising implementation:
 ## 5. Dear ImGui evaluation
 
 Used. `imgui_impl_sdlgpu3` renders with SDL3 GPU directly (precompiled shaders for SPIR-V/MSL/metallib/DXBC), so it fits the architecture with no extra graphics API. The cost is two small source files and one MIT notice.
+
+## Phase 3 research: modular character rendering
+
+### Libraries and repositories
+| Item | Verified | Relevance | Decision |
+|---|---|---|---|
+| [zeux/meshoptimizer](https://github.com/zeux/meshoptimizer) | MIT (`LICENSE.md`), v1.3, last commit 2026-11-21 | Vertex cache / fetch optimisation, quantisation, index and vertex codecs, meshlets, simplification | **Not used.** Our segments are drawn non-indexed through vertex pulling, so there is no post-transform cache to optimise. Positions are already exact 7-bit integers (4-byte vertex). Meshlets need mesh or task shaders, which SDL3 GPU does not expose. Simplification would change the approved geometry. The idea we did take, quantisation to the voxel grid, costs nothing on voxel data. |
+| SDL 3.4.20 GPU API | `SDL_gpu.h` | Indirect draws and dispatches, vertex storage buffers, `draw_count` multi-draw; no timestamp queries, no mesh shaders, no bindless | Its constraints shaped the design. `first_instance` is documented as non-portable (D3D12), so each size class gets its own draw and its base comes from a buffer. |
+| TheSpydog/SDL_gpu_examples | zlib | `PullSpriteBatch` (vertex pulling), `DrawIndirect` | Confirmed that vertex pulling and indirect draws work across SDL backends. |
+| SDL_shadercross | zlib | SPIR-V → MSL with SDL's binding layout | Already used. All 34 phase-3 shaders cross-compile. |
+
+### Techniques considered
+| Technique | Reference | Outcome |
+|---|---|---|
+| Greedy voxel meshing | Mikola Lysenko, "Meshing in a Minecraft game" (2012); vercidium/meshing | **Adopted**, AO-aware and lossless: faces merge only where tag and all four AO corners are identical, and every mesh is verified. 2.7–3.1× fewer triangles than the Lab mesher for intact characters; 1.4–1.8× for heavily decorated ones (more colour boundaries). |
+| GPU-driven rendering with compaction | Wihlidal, "Optimizing the graphics pipeline with compute" (GDC 2016); Haar & Aaltonen, "GPU-driven rendering pipelines" (SIGGRAPH 2015) | **Adopted**: cull, then count, prefix and scatter, then indirect draws. Exact compaction, no CPU involvement. |
+| Vertex pulling | Riccio, "Programmable vertex pulling" (OpenGL Insights); SDL_gpu_examples | **Adopted**: no vertex input layout; 4-byte packed vertices pulled by vertex index. |
+| Batching by size class instead of per mesh | (variant of bucketed instancing) | **Adopted.** Per-mesh indexed draws would need up to 2,277 indirect commands or `first_instance`, which SDL marks non-portable. Per-family batches pad instances up to the family's largest mesh: measured 1.75× the useful vertex work. Geometric size classes (×1.35) cut that to 1.12× with 11 draws. |
+| Pose computed once per character vs per vertex | (compute skinning vs vertex animation) | **Adopted: once per character** in a compute pass. The per-vertex mode is kept for comparison (measured in OPTIMIZATION.md). |
+| Static pose instancing for corpses | (pose library) | **Adopted**: 64 baked corpse poses; settled corpses cost a frustum test plus 10 quaternion multiplications when visible. |
+| Hi-Z occlusion culling | Hill & Collin, "Practical, dynamic visibility for games" (GPU Pro 2) | **Measured, not implemented.** See OPTIMIZATION.md: SDL3 GPU has no depth-texture compute reads without a copy, and the expected benefit was measured first. |
+| Screen-space LOD / sub-pixel culling | (impostors, LOD) | **Not implemented.** The brief forbids simplified distant characters, and at gameplay distances a character spans 20–60 px. |
+| Metal on Apple silicon (TBDR) | Apple, "Metal feature set tables"; WWDC "Optimize Metal performance for Apple silicon Macs" | Informs the design: tile memory makes 4× MSAA cheap on Apple GPUs (unlike on lavapipe); vertex throughput and hidden-surface removal favour few, large draws with compact vertices, which this design provides. **Not measured: no Mac here.** |

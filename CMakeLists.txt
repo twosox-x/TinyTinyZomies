@@ -83,11 +83,14 @@ else()
   target_compile_options(ttz PRIVATE -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 endif()
 
-# Runtime data next to the executable (pre-compiled shaders, assets, config).
-add_custom_command(TARGET ttz POST_BUILD
+# Runtime data next to the executable (pre-compiled shaders, assets, config). A separate always-run
+# target, so shader or asset changes reach the build directory even when no C++ changed.
+add_custom_target(ttz_runtime_data ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/shaders/compiled $<TARGET_FILE_DIR:ttz>/shaders
   COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:ttz>/assets
-  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:ttz>/config)
+  COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/config $<TARGET_FILE_DIR:ttz>/config
+  COMMENT "Syncing runtime data")
+add_dependencies(ttz_runtime_data ttz)
 
 # Optional: regenerate shaders from GLSL when the tools are available.
 find_program(TTZ_GLSLANG glslangValidator)

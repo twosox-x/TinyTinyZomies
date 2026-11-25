@@ -21,9 +21,9 @@ layout(std140, set = 1, binding = 1) uniform CharDraw {
 };
 layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vNormal;
-layout(location = 2) out vec3 vRest;           // body-space rest position (voxels): per-voxel colour noise
+layout(location = 2) centroid out vec3 vRest;           // body-space rest position (voxels): per-voxel colour noise
 layout(location = 3) out float vAO;
-layout(location = 4) flat out uvec4 vInfo;     // x tag, y appearance word, z normal index, w leg-grid flag
+layout(location = 4) flat out uvec4 vInfo;     // x tag (31 = per-voxel lookup), y appearance word, z normal index | leg-grid flag << 3, w mesh id
 const vec3 NRM[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
 const float AOV[4] = float[4](0.5, 0.67, 0.84, 1.0);
 void main() {
@@ -72,6 +72,6 @@ void main() {
     vRest = lp + ZP_PIVOT[slot];
     vAO = AOV[(w >> 24) & 3u];
     int fam = ZP_SLOT_FAMILY[slot];
-    vInfo = uvec4((w >> 26) & 31u, s.a.w, ni, (fam == 4 || fam == 5) ? 1u : 0u);
+    vInfo = uvec4((w >> 26) & 31u, s.a.w, ni | ((fam == 4 || fam == 5) ? 8u : 0u), meshId);
     gl_Position = viewProj * vec4(vWorld, 1.0);
 }

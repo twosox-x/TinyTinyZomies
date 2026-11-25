@@ -15,7 +15,9 @@
  *     - culled  : faces between voxels of the same segment removed (exactly Zombie Lab's mesher)
  *     - greedy  : culled faces merged into larger rectangles where tag + ambient occlusion are
  *                 uniform; faces with non-uniform AO stay per-voxel with Zombie Lab's diagonal rule
- *   and verifies that greedy == culled face-for-face (lossless), aborting otherwise.
+ *     - voxel   : greedy merged by ambient occlusion only; the material of every fragment is looked up
+ *                 per voxel in the fragment shader (exact), so colour boundaries no longer split faces
+ *   and verifies that greedy == culled and voxel == culled face-for-face (lossless), aborting otherwise.
  *
  * Outputs (all reproducible, byte-identical for the same input):
  *   assets/characters/zombie_parts.ttzc     binary runtime asset (mesh table + packed vertices)
@@ -28,7 +30,7 @@
  *   bits 14..20 z
  *   bits 21..23 normal index (0 +x, 1 -x, 2 +y, 3 -y, 4 +z, 5 -z)
  *   bits 24..25 ambient occlusion level (0..3 -> 0.5, 0.67, 0.84, 1.0)
- *   bits 26..30 material tag (see TAGS)
+ *   bits 26..30 material tag (see TAGS); 31 = look the material up in the mesh's voxel grid (level 3)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -37,7 +39,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = process.argv[2] || path.join(ROOT, "assets/characters/source/zombie_lab_v3.html");
-const ASSET_VERSION = 1;
+const ASSET_VERSION = 2;
 
 // ------------------------------------------------------------------ extract Zombie Lab definitions
 const html = fs.readFileSync(SRC, "utf8");
@@ -137,7 +139,7 @@ function meshPerFace(faces, pivot) {
 
 // Greedy merge: within each face plane, merge rectangles of faces that share tag and a uniform AO value.
 // Faces whose four corners have different AO keep their own quad (merging would change the shading).
-function meshGreedy(faces, pivot) {
+function meshGreedy(faces, pivot, aoOnly = false) {
   const out = [];
   const groups = new Map();
   const loose = [];
@@ -154,7 +156,7 @@ function meshGreedy(faces, pivot) {
   for (const list of groups.values()) {
     const cell = new Map();
     for (const e of list) cell.set(e.u.toFixed(2) + "," + e.v.toFixed(2), e);
-    const keyOf = e => e.f.tag * 8 + e.f.ao[0];
+    const keyOf = e => (aoOnly ? 0 : e.f.tag * 8) + e.f.ao[0];
     const used = new Set();
     list.sort((p, q) => p.v - q.v || p.u - q.u);
     for (const e of list) {
@@ -175,19 +177,40 @@ function meshGreedy(faces, pivot) {
       const base = [e.f.c.x, e.f.c.y, e.f.c.z];
       const corners = CORN.map(([su, sv]) => [0, 1, 2].map(k =>
         base[k] + 0.5 * d.n[k] + (su < 0 ? -0.5 : w - 0.5) * d.u[k] + (sv < 0 ? -0.5 : h - 0.5) * d.v[k]));
-      emitQuad(out, corners, pivot, e.f.di, [e.f.ao[0], e.f.ao[0], e.f.ao[0], e.f.ao[0]], e.f.tag);
+      emitQuad(out, corners, pivot, e.f.di, [e.f.ao[0], e.f.ao[0], e.f.ao[0], e.f.ao[0]], aoOnly ? 31 : e.f.tag);
       e.rect = { w, h };
     }
   }
-  for (const f of loose) emitQuad(out, unitCorners(f), pivot, f.di, f.ao, f.tag);
+  for (const f of loose) emitQuad(out, unitCorners(f), pivot, f.di, f.ao, aoOnly ? 31 : f.tag);
   return out;
+}
+
+// Per-mesh voxel material grid (bounding box of voxel centres, x fastest, one byte per cell: tag + 1, 0 = empty)
+function voxelGrid(v) {
+  const cs = [...v.map.values()];
+  if (!cs.length) return { min: [0, 0, 0], dims: [0, 0, 0], bytes: [] };
+  const min = [0, 1, 2].map(k => Math.min(...cs.map(c => [c.x, c.y, c.z][k])));
+  const max = [0, 1, 2].map(k => Math.max(...cs.map(c => [c.x, c.y, c.z][k])));
+  const dims = [0, 1, 2].map(k => Math.round(max[k] - min[k]) + 1);
+  if (dims.some(d => d > 15)) throw new Error("segment voxel grid too large");
+  const bytes = new Array(dims[0] * dims[1] * dims[2]).fill(0);
+  for (const c of cs) {
+    const i = [c.x, c.y, c.z].map((x, k) => Math.round(x - min[k]));
+    bytes[i[0] + dims[0] * (i[1] + dims[1] * i[2])] = TAG_ID[c.tag] + 1;
+  }
+  return { min, dims, bytes };
+}
+function gridTag(grid, centre) {
+  const i = [0, 1, 2].map(k => Math.round(centre[k] - grid.min[k]));
+  if (i.some((x, k) => x < 0 || x >= grid.dims[k])) return -1;
+  return grid.bytes[i[0] + grid.dims[0] * (i[1] + grid.dims[1] * i[2])] - 1;
 }
 
 // ---------------- lossless verification: rasterise both meshes back to unit faces and compare
 function unpack(w, pivot) {
   return { p: [(w & 127) - 64, ((w >> 7) & 127) - 64, ((w >> 14) & 127) - 64].map((q, k) => q / 2 + pivot[k]), di: (w >> 21) & 7, ao: (w >> 24) & 3, tag: (w >> 26) & 31 };
 }
-function faceSignature(verts, pivot) {
+function faceSignature(verts, pivot, grid) {
   // Each triangle pair forms a quad; decompose quads into unit faces, record (centre, dir, tag, ao at the unit's corners).
   const sig = new Map();
   for (let i = 0; i < verts.length; i += 6) {
@@ -205,13 +228,18 @@ function faceSignature(verts, pivot) {
       const corner = (su, sv) => uniform ? q[0].ao : aoAt.get((u + 0.5 * su).toFixed(2) + "," + (v + 0.5 * sv).toFixed(2));
       const key = di + "|" + plane.toFixed(2) + "|" + u.toFixed(2) + "|" + v.toFixed(2);
       if (sig.has(key)) throw new Error("overlapping faces in mesh");
-      sig.set(key, tag + ":" + CORN.map(([su, sv]) => corner(su, sv)).join(""));
+      let t = tag;
+      if (tag === 31) {   // voxel-material face: the fragment shader resolves the voxel behind this point
+        const ctr = [0, 1, 2].map(k => d.n[k] * (plane - 0.5) + d.u[k] * u + d.v[k] * v);
+        t = gridTag(grid, ctr);
+      }
+      sig.set(key, t + ":" + CORN.map(([su, sv]) => corner(su, sv)).join(""));
     }
   }
   return sig;
 }
-function verifyLossless(a, b, pivot, label) {
-  const sa = faceSignature(a, pivot), sb = faceSignature(b, pivot);
+function verifyLossless(a, b, pivot, label, grid) {
+  const sa = faceSignature(a, pivot, grid), sb = faceSignature(b, pivot, grid);
   if (sa.size !== sb.size) throw new Error(`${label}: face count differs ${sa.size} vs ${sb.size}`);
   for (const [k, val] of sa) if (sb.get(k) !== val) throw new Error(`${label}: face ${k} differs (${val} vs ${sb.get(k)})`);
 }
@@ -234,16 +262,19 @@ for (let si = 0; si < lab.SLOTS.length; si++) {
         const culledFaces = exposedFaces(v, false);
         const culled = meshPerFace(culledFaces, pivot);
         const greedy = meshGreedy(culledFaces, pivot);
-        verifyLossless(culled, greedy, pivot, `${slot}/${mods[mi].id}/stump${st}/deco${di}`);
-        meshes.push({ slot, module: mods[mi].id, stump: st, deco: di, voxels: v.map.size, levels: [naive, culled, greedy] });
+        const voxel = meshGreedy(culledFaces, pivot, true);
+        const grid = voxelGrid(v);
+        verifyLossless(culled, greedy, pivot, `${slot}/${mods[mi].id}/stump${st}/deco${di}`, grid);
+        verifyLossless(culled, voxel, pivot, `${slot}/${mods[mi].id}/stump${st}/deco${di} (voxel)`, grid);
+        meshes.push({ slot, module: mods[mi].id, stump: st, deco: di, voxels: v.map.size, grid, levels: [naive, culled, greedy, voxel] });
       }
   slotInfo.push({ slot, family: fam, base, modules: mods.length, stumpStates, count: meshes.length - base });
 }
 
 // ------------------------------------------------------------------ statistics
-const LEVELS = ["naive", "culled", "greedy"];
+const LEVELS = ["naive", "culled", "greedy", "voxel"];
 const stats = { meshes: meshes.length, levels: {} };
-for (let l = 0; l < 3; l++) {
+for (let l = 0; l < 4; l++) {
   let verts = 0;
   const famMax = {}, famSum = {}, famCnt = {};
   for (const m of meshes) {
@@ -260,45 +291,59 @@ for (let l = 0; l < 3; l++) {
 // typical character (Office Drone, Street Walker, Rotter) triangle counts per level
 function designTris(name, tier, decayBucket) {
   const d = lab.DESIGNS[name];
-  const out = [0, 0, 0];
+  const out = [0, 0, 0, 0];
   for (const si of slotInfo) {
     const modId = d.modules[si.slot];
     const mi = lab.MODULES[si.family].findIndex(m => m.id === modId);
     let st = 0;
     if (si.family === "upperArm") st = d.modules[lab.SIDE[si.slot] > 0 ? "forearmL" : "forearmR"] === "missing" ? 1 : 0;
     const m = meshes[si.base + (mi * si.stumpStates + st) * DECO_COUNT + decoIndex(tier, decayBucket, 0)];
-    for (let l = 0; l < 3; l++) out[l] += m.levels[l].length / 3;
+    for (let l = 0; l < 4; l++) out[l] += m.levels[l].length / 3;
   }
   return Object.fromEntries(LEVELS.map((n, l) => [n, out[l]]));
 }
 stats.designs = { drone: designTris("drone", 0, 0), walker: designTris("walker", 1, 1), rotter: designTris("rotter", 2, 3) };
 
 // ------------------------------------------------------------------ write binary asset
-// header (16 uint32): magic 'TTZC', version, meshCount, levelCount, decoCount, totalWords[3], slotCount, reserved...
+// header (16 uint32): magic 'TTZC', version, meshCount, levelCount (4), decoCount, words of level 0..3 [5..8],
+//                     slotCount [9], tag blob words [10], reserved
 // slot table (10 x 4 uint32): baseMesh, moduleCount, stumpStates, familyIndex
-// mesh table (meshCount x 3 levels x 2 uint32): vertexOffset, vertexCount   (offsets in uint32 words, per level blob)
-// level blobs: packed vertices
+// mesh table (meshCount x 4 levels x 2 uint32): vertexOffset, vertexCount   (offsets in uint32 words, per level blob)
+// mesh voxel table (meshCount x 4 uint32): tag byte offset, grid min * 2 + 128 (3 x 8 bits), dims (3 x 4 bits), 0
+// level blobs: packed vertices; tag blob: one byte per voxel cell (tag + 1, 0 = empty)
 const words = [];
 const header = new Uint32Array(16);
-header[0] = 0x435a5454; header[1] = ASSET_VERSION; header[2] = meshes.length; header[3] = 3; header[4] = DECO_COUNT;
-header[8] = lab.SLOTS.length;
+header[0] = 0x435a5454; header[1] = ASSET_VERSION; header[2] = meshes.length; header[3] = 4; header[4] = DECO_COUNT;
+header[9] = lab.SLOTS.length;
 const slotTable = new Uint32Array(lab.SLOTS.length * 4);
 slotInfo.forEach((s, i) => { slotTable.set([s.base, s.modules, s.stumpStates, FAMILIES.indexOf(s.family)], i * 4); });
-const meshTable = new Uint32Array(meshes.length * 3 * 2);
+const meshTable = new Uint32Array(meshes.length * 4 * 2);
 const blobs = [];
-for (let l = 0; l < 3; l++) {
+for (let l = 0; l < 4; l++) {
   let off = 0;
   const parts = [];
-  meshes.forEach((m, i) => { meshTable[(i * 3 + l) * 2] = off; meshTable[(i * 3 + l) * 2 + 1] = m.levels[l].length; off += m.levels[l].length; parts.push(m.levels[l]); });
+  meshes.forEach((m, i) => { meshTable[(i * 4 + l) * 2] = off; meshTable[(i * 4 + l) * 2 + 1] = m.levels[l].length; off += m.levels[l].length; parts.push(m.levels[l]); });
   header[5 + l] = off;
   const blob = new Uint32Array(off);
   let o = 0;
   for (const p of parts) { blob.set(p, o); o += p.length; }
   blobs.push(blob);
 }
+const voxTable = new Uint32Array(meshes.length * 4);
+const tagBytes = [];
+meshes.forEach((m, i) => {
+  const g = m.grid;
+  voxTable[i * 4] = tagBytes.length;
+  voxTable[i * 4 + 1] = ((Math.round(g.min[0] * 2) + 128) | ((Math.round(g.min[1] * 2) + 128) << 8) | ((Math.round(g.min[2] * 2) + 128) << 16)) >>> 0;
+  voxTable[i * 4 + 2] = g.dims[0] | (g.dims[1] << 4) | (g.dims[2] << 8);
+  tagBytes.push(...g.bytes);
+});
+while (tagBytes.length % 4) tagBytes.push(0);
+const tagBlob = new Uint8Array(tagBytes);
+header[10] = tagBlob.length / 4;
 const outDir = path.join(ROOT, "assets/characters");
 fs.mkdirSync(outDir, { recursive: true });
-const buf = Buffer.concat([header, slotTable, meshTable, ...blobs].map(x => Buffer.from(x.buffer, x.byteOffset, x.byteLength)));
+const buf = Buffer.concat([header, slotTable, meshTable, voxTable, ...blobs, tagBlob].map(x => Buffer.from(x.buffer, x.byteOffset, x.byteLength)));
 fs.writeFileSync(path.join(outDir, "zombie_parts.ttzc"), buf);
 
 // ------------------------------------------------------------------ manifest
@@ -362,11 +407,11 @@ fs.writeFileSync(path.join(ROOT, "shaders/include/zombie_parts.glsl"), g);
 
 // ------------------------------------------------------------------ report
 console.log(`source: ${path.relative(ROOT, SRC)}`);
-console.log(`meshes: ${meshes.length} (${lab.SLOTS.length} slots, ${DECO_COUNT} decoration variants), all greedy meshes verified lossless`);
+console.log(`meshes: ${meshes.length} (${lab.SLOTS.length} slots, ${DECO_COUNT} decoration variants), all greedy and voxel-material meshes verified lossless`);
 for (const l of LEVELS) {
   const s = stats.levels[l];
   console.log(`  ${l.padEnd(7)} ${String(s.triangles).padStart(7)} triangles, ${(s.bytes / 1024).toFixed(0)} KiB, family max vertices ${JSON.stringify(s.familyMaxVertices)}`);
 }
-console.log("  triangles per character (naive / culled / greedy):");
-for (const [k, v] of Object.entries(stats.designs)) console.log(`    ${k.padEnd(7)} ${v.naive} / ${v.culled} / ${v.greedy}`);
+console.log("  triangles per character (naive / culled / greedy / voxel):");
+for (const [k, v] of Object.entries(stats.designs)) console.log(`    ${k.padEnd(7)} ${v.naive} / ${v.culled} / ${v.greedy} / ${v.voxel}`);
 console.log(`wrote assets/characters/zombie_parts.ttzc (${buf.length} bytes), zombie_parts.json, shaders/include/zombie_parts.glsl`);

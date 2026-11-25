@@ -52,3 +52,32 @@ Self-test after the fixes (6,000 agents, wall siege, 30 s): 2,000+ elevated, 99.
 - D3D12 backend: needs DXIL via shadercross + DXC.
 - Corpse instance buffer: 262k capacity. On overflow, height still accumulates but bodies are not drawn. Aggregation (merged corpse meshes) is a later optimisation.
 - No shadows yet. Riders on very dense but slowly moving crowds can be more numerous than desired; tune `climbBlockThreshold` and `supportCos` on real footage.
+
+## 2026-11-25 — Phase 3: approved character integration and GPU optimisation
+
+Branch `phase3-character-integration`, based on `phase1-engine-foundation`. Same environment as phase 1: Linux, Mesa lavapipe, no GPU and no Mac. Every timing in this phase is CPU-emulated; see BENCHMARKS.md.
+
+### Milestone A — baseline and source inspection
+- **Source:** the approved Zombie Lab (published artifact version `1795598197-2ad0`) was fetched and its script compared byte-for-byte with the local copy (identical). It is stored as `assets/characters/source/zombie_lab_v3.html`.
+- **Baseline:** the phase-1 self-test passes (111 s). The phase-1 placeholder benchmark was re-run on the same CPU type (`docs/benchmarks/phase3/baseline_phase1.*`).
+- **Engine inspection:** the parts that matter for this phase were:
+  - Agents are an 80-byte AoS record sorted every step.
+  - Corpses are 32 bytes.
+  - The placeholder renderer draws one indexed indirect call for zombies and one for corpses, with appearance from an 8-bit palette row.
+
+### Milestone B — conversion
+- `tools/convert_characters.mjs` cuts the Lab's definition section out of the approved HTML and runs it in a Node sandbox, so there is no reconstruction from screenshots.
+- It bakes 2,277 segment meshes (10 slots × modules × stump state × 33 decoration variants) at three levels and **verifies every greedy mesh against the per-voxel faces**. Output is deterministic (identical md5 across runs).
+- One fix: generated palette constants were first *truncated* to 4 decimals; they are now rounded to 6.
+
+### Milestone C — integration
+- **Appearance:** 56 bits of look are packed into the agent's spare bits, so the record stays 80 bytes with no extra sort bandwidth. Corpses carry the same bits, and reactivated corpses keep them.
+- **Generation:** at spawn, on the GPU, with six weighted categories and the Lab's symmetry and garment rules.
+- **Rendering:** GPU cull → size-class compaction → per-character pose → vertex-pulling draws. The placeholder path stays selectable.
+- **Animation:** the Lab's walk, reach and idle curves are blended by speed and crowd pressure, plus climb, flail, dying and 64 baked corpse poses.
+- **Validation tools:** the Zombie Lab capture tool and comparison sheets (`docs/media/phase3/compare`). Geometry, joints, materials and decoration match; lighting differs by design.
+- **New regression tests (self-test groups 6–8):** appearance ranges and distribution, culling and compaction exactness, joint continuity in all 8 animation states, and corpse appearance retention. The phase-1 tests (groups 1–5) still pass unchanged.
+
+### Problems found while integrating
+- **Weak test setup:** the corpse-retention test first used four blasts in a sparse crowd and produced only 3 corpses. The blasts are now aimed at actual zombies (426 corpses).
+- **Frames in flight:** carried over from phase 1. Headless runs must pace frames on lavapipe.

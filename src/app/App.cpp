@@ -224,6 +224,11 @@ void App::frame(double dt) {
         loadScenario(s.scenario, s.spawnCount);
         s.resetRequested = false;
     }
+    if (s.showcaseRequested >= 0) {
+        SDL_WaitForGPUIdle(s.gpu.device());
+        loadShowcase(s.showcaseRequested);
+        s.showcaseRequested = -1;
+    }
     // camera input
     const bool* keys = SDL_GetKeyboardState(nullptr);
     bool uiKeys = s.window && ImGui::GetIO().WantCaptureKeyboard;

@@ -19,7 +19,7 @@ void drawDebugUI(AppState& s) {
     ImGui::Text("GPU mem (ours) %.1f MB   process RSS %.0f MB", s.gpu.gpuBytesAllocated() / 1048576.0,
                 processResidentBytes() / 1048576.0);
     ImGui::Separator();
-    ImGui::Text("zombies %u   corpses %u   deaths %u", st.live, st.corpses, st.deaths);
+    ImGui::Text("zombies %u   corpses %u (settled)   active bodies %u   deaths %u", st.live, st.corpses, st.airborne, st.deaths);
     ImGui::Text("climbing %u   elevated %u   airborne %u", st.climbing, st.elevated, st.airborne);
     ImGui::Text("max stack height %.2f m   reactivated %u", st.maxStackHeight, st.reactivated);
     if (st.corpseOverflow) ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "corpse instance buffer full: %u (height kept)", st.corpseOverflow);
@@ -66,6 +66,47 @@ void drawDebugUI(AppState& s) {
     ImGui::SameLine();
     flag("corpse height", 16);
 
+    if (ImGui::CollapsingHeader("Characters", ImGuiTreeNodeFlags_DefaultOpen)) {
+        RenderSettings& rs = s.renderSettings;
+        CharacterSettings& cs = rs.chars;
+        ImGui::RadioButton("approved modular", &rs.characterModel, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("placeholder", &rs.characterModel, 0);
+        if (rs.characterModel == 1) {
+            const auto& ex = s.sim.extraReadback();
+            if (ex.size() >= 7) {
+                CharacterStats st = CharacterRenderer::parseCounters(ex.data());
+                ImGui::Text("visible %u of %u (%u zombies, %u corpses)", st.visible, s.sim.stats().live + s.sim.stats().corpses,
+                            st.visibleAgents, st.visibleCorpses);
+                ImGui::Text("segments %u  triangles %.2fM  VS invocations %.2fM", st.segments, st.triangles / 1e6, st.vsInvocations / 1e6);
+                if (st.overflow) ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "render capacity exceeded: %u not drawn", st.overflow);
+            }
+            ImGui::Text("draw calls: %u (characters %u)", s.renderer.drawCalls(rs, &s.chars), s.chars.drawCalls(cs));
+            const char* geo[] = {"naive cubes", "hidden faces removed", "greedy by material", "greedy + voxel materials"};
+            ImGui::Combo("geometry", &cs.geometryLevel, geo, 4);
+            const char* cls[] = {"per body-part family", "vertex-count size classes"};
+            ImGui::Combo("batching", &cs.classMode, cls, 2);
+            ImGui::Checkbox("frustum culling", &cs.frustumCull);
+            ImGui::SameLine();
+            ImGui::Checkbox("pose per vertex", &cs.poseInVertexShader);
+            const char* anims[] = {"from simulation", "idle", "walk", "reach", "climb", "flail", "dying", "corpse pose"};
+            int fa = (int)cs.forcedAnim;
+            if (ImGui::Combo("animation", &fa, anims, 8)) cs.forcedAnim = (uint32_t)fa;
+            ImGui::Text("appearance weights (new spawns):");
+            SimParams& sp = s.sim.params();
+            ImGui::SliderFloat("recently infected", &sp.lookRecent, 0.f, 1.f);
+            ImGui::SliderFloat("fully clothed", &sp.lookClothed, 0.f, 1.f);
+            ImGui::SliderFloat("lightly damaged", &sp.lookLight, 0.f, 1.f);
+            ImGui::SliderFloat("heavily damaged", &sp.lookHeavy, 0.f, 1.f);
+            ImGui::SliderFloat("skeletal", &sp.lookSkeletal, 0.f, 1.f);
+            ImGui::SliderFloat("missing limbs", &sp.lookMissing, 0.f, 1.f);
+            if (ImGui::Button("Lab lineup")) s.showcaseRequested = 0;
+            ImGui::SameLine();
+            if (ImGui::Button("Lineup corpses")) s.showcaseRequested = 1;
+            ImGui::SameLine();
+            if (ImGui::Button("Random grid")) s.showcaseRequested = 2;
+        }
+    }
     if (ImGui::CollapsingHeader("Simulation parameters")) {
         ImGui::SliderInt("solver iterations", &p.solverIterations, 1, 8);
         ImGui::SliderFloat("SOR", &p.sor, 0.5f, 2.0f);

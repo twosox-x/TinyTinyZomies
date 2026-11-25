@@ -2,7 +2,8 @@
 //   ttz                          interactive sandbox
 //   ttz --scenario 2 --count 8000
 //   ttz --headless --frames 600 --screenshot out.png [--cam x z yaw pitch dist] [--blast frame x z]
-//   ttz --bench [--bench-counts 1000,5000,10000] [--bench-scenarios dispersed,siege] [--bench-csv file]
+//   ttz --bench [--bench-counts 1000,5000,10000] [--bench-scenarios dispersed,siege,city,offscreen,corpses]
+//               [--bench-configs placeholder,naive,culled,greedy,classes,final,final-posevs] [--bench-csv file]
 //   ttz --selftest               (same as the ttz_selftest executable)
 //   ttz --save-config path       write all simulation parameters with their defaults
 #include "app/App.h"
@@ -56,7 +57,7 @@ int main(int argc, char** argv) {
             float f = (float)std::atof(next()), x = (float)std::atof(next()), z = (float)std::atof(next());
             o.scriptedBlasts.push_back({f, x, z});
         } else if (!std::strcmp(a, "--chars")) o.characterModel = std::strcmp(next(), "placeholder") ? 1 : 0;
-        else if (!std::strcmp(a, "--geom")) { const char* g = next(); o.charSettings.geometryLevel = !std::strcmp(g, "naive") ? 0 : !std::strcmp(g, "culled") ? 1 : 2; }
+        else if (!std::strcmp(a, "--geom")) { const char* g = next(); o.charSettings.geometryLevel = !std::strcmp(g, "naive") ? 0 : !std::strcmp(g, "culled") ? 1 : !std::strcmp(g, "greedy") ? 2 : 3; }
         else if (!std::strcmp(a, "--classes")) o.charSettings.classMode = std::strcmp(next(), "family") ? 1 : 0;
         else if (!std::strcmp(a, "--no-cull")) o.charSettings.frustumCull = false;
         else if (!std::strcmp(a, "--pose-vs")) o.charSettings.poseInVertexShader = true;
@@ -75,6 +76,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--bench-counts")) b.counts = parseInts(next());
         else if (!std::strcmp(a, "--bench-scenarios")) b.scenarios = parseStrs(next());
         else if (!std::strcmp(a, "--bench-csv")) b.csv = next();
+        else if (!std::strcmp(a, "--bench-configs")) b.configs = parseStrs(next());
         else if (!std::strcmp(a, "--bench-frames")) b.measureFrames = std::atoi(next());
         else if (!std::strcmp(a, "--bench-warmup")) b.warmupSiege = std::atoi(next());
         else if (!std::strcmp(a, "--selftest")) selftest = true;

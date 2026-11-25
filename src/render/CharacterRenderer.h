@@ -19,7 +19,8 @@
 namespace ttz {
 
 struct CharacterSettings {
-    int geometryLevel = 2;      // 0 naive cubes, 1 hidden faces removed (Zombie Lab mesher), 2 greedy (default)
+    int geometryLevel = 3;      // 0 naive cubes, 1 hidden faces removed (Zombie Lab mesher), 2 greedy by material,
+                                // 3 greedy by AO with per-voxel material lookup (default, lossless)
     int classMode = 1;          // 0 one batch per body-part family, 1 batches by vertex-count size class (default)
     bool frustumCull = true;
     bool poseInVertexShader = false;   // comparison mode: evaluate the joint hierarchy per vertex
@@ -62,16 +63,18 @@ private:
     uint32_t capacity_ = 0, corpseCapacity_ = 0, meshCount_ = 0;
     uint64_t assetBytes_ = 0;
     std::vector<uint32_t> words_;                       // all three levels, concatenated
-    std::array<uint32_t, 3> levelBase_{};
+    std::array<uint32_t, 4> levelBase_{};
+    std::vector<uint32_t> meshVox_, tagWords_;
     std::vector<uint32_t> meshTable_;                   // [mesh*3+level]*2: offset, count
     std::vector<uint32_t> meshFamily_;
-    LevelStats levelStats_[3];
-    ClassSet classes_[3][2];
+    LevelStats levelStats_[4];
+    ClassSet classes_[4][2];
 
     SDL_GPUComputePipeline *pCull_ = nullptr, *pPrefix_ = nullptr, *pPose_ = nullptr, *pLib_ = nullptr;
     SDL_GPUGraphicsPipeline* pDraw_ = nullptr;
     SDL_GPUBuffer *verts_ = nullptr, *counters_ = nullptr, *args_ = nullptr, *visList_ = nullptr, *segLocal_ = nullptr,
                   *segInsts_ = nullptr, *poseLib_ = nullptr;
+    SDL_GPUBuffer *meshVoxBuf_ = nullptr, *tagBuf_ = nullptr;
     SDL_GPUTransferBuffer* zeros_ = nullptr;
 };
 

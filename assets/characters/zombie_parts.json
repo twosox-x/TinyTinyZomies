@@ -1,6 +1,6 @@
 {
  "format": "TTZC",
- "version": 1,
+ "version": 2,
  "source": "assets/characters/source/zombie_lab_v3.html",
  "voxel": {
   "heightVoxels": 18,
@@ -477,23 +477,47 @@
      "thigh": 138.5,
      "shin": 158.2
     }
+   },
+   "voxel": {
+    "vertices": 138852,
+    "triangles": 46284,
+    "bytes": 555408,
+    "familyMaxVertices": {
+     "head": 156,
+     "torso": 264,
+     "upperArm": 72,
+     "forearm": 72,
+     "thigh": 126,
+     "shin": 126
+    },
+    "familyAvgVertices": {
+     "head": 114.8,
+     "torso": 102.2,
+     "upperArm": 36.4,
+     "forearm": 30.3,
+     "thigh": 54,
+     "shin": 78.5
+    }
    }
   },
   "designs": {
    "drone": {
     "naive": 2424,
     "culled": 856,
-    "greedy": 280
+    "greedy": 280,
+    "voxel": 172
    },
    "walker": {
     "naive": 2616,
     "culled": 904,
-    "greedy": 496
+    "greedy": 496,
+    "voxel": 222
    },
    "rotter": {
     "naive": 2076,
     "culled": 780,
-    "greedy": 572
+    "greedy": 572,
+    "voxel": 238
    }
   }
  }

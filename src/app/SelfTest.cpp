@@ -432,24 +432,28 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
         };
         uint32_t expectSegs = 0;
         for (auto& a : w.agents) { Look l = decodeLook(a.info.x & 0xFFFFFF00u, a.info.y); expectSegs += 10 - (l.m[3] == 5) - (l.m[5] == 5); }
-        CharacterStats all = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 2, 1);
+        CharacterStats all = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 3, 1);
         check(all.visible == w.agents.size() && all.overflow == 0, "camera over the crowd sees every zombie",
               fmt("visible=%.0f of %.0f", all.visible, (double)w.agents.size()));
         check(all.segments == expectSegs, "one segment instance per present body part (missing forearms skipped)",
               fmt("segments=%.0f expected=%.0f", all.segments, expectSegs));
-        CharacterStats away = prepare({-50, 5, 95}, {-50, 5, 300}, 0, 2, 1);
+        CharacterStats away = prepare({-50, 5, 95}, {-50, 5, 300}, 0, 3, 1);
         check(away.visible == 0, "camera looking away culls everything", fmt("visible=%.0f", away.visible));
-        CharacterStats fam = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 2, 0);
+        CharacterStats fam = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 3, 0);
         check(fam.segments == all.segments && fam.triangles == all.triangles, "family batches draw the same geometry as size classes",
               fmt("tris %.0f vs %.0f", fam.triangles, all.triangles));
         check(all.vsInvocations <= fam.vsInvocations, "size classes reduce vertex-shader padding",
               fmt("invocations size-class %.0f vs family %.0f (useful %.0f)", all.vsInvocations, fam.vsInvocations, all.triangles * 3.0));
-        CharacterStats naive = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 0, 1), culled = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 1, 1);
-        std::printf("  triangles for 5000 zombies: naive %u, culled %u, greedy %u\n", naive.triangles, culled.triangles, all.triangles);
+        CharacterStats naive = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 0, 1), culled = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 1, 1),
+                       greedy = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 2, 1);
+        std::printf("  triangles for 5000 zombies: naive %u, culled %u, greedy %u, voxel-material %u\n", naive.triangles, culled.triangles,
+                    greedy.triangles, all.triangles);
+        check(greedy.segments == all.segments && all.triangles < greedy.triangles && greedy.triangles < culled.triangles,
+              "each geometry level draws the same segments with fewer triangles", fmt("%.0f -> %.0f -> %.0f", culled.triangles, greedy.triangles, all.triangles));
 
         const char* animNames[8] = {"auto", "idle", "walk", "reach", "climb", "flail", "dying", "corpse"};
         for (uint32_t anim = 0; anim < 8; ++anim) {
-            CharacterStats st = prepare({-50, 260, 1}, {-50, 0, 0}, anim, 2, 1);
+            CharacterStats st = prepare({-50, 260, 1}, {-50, 0, 0}, anim, 3, 1);
             std::vector<uint32_t> raw((size_t)st.segments * 8);
             gpu.downloadNow(chars.segmentInstances(), raw.data(), (uint32_t)(raw.size() * 4));
             std::unordered_map<uint32_t, std::array<int, 10>> bySlot;

@@ -60,6 +60,7 @@ struct AppState {
     int spawnCount = 1000;
     Tool tool = Tool::Explosion;
     bool resetRequested = false, paramsDirty = false;
+    int showcaseRequested = -1;
 
     // profiling
     RunningStat cpuFrame, cpuSim, cpuRender, cpuUI, frameTotal;

@@ -1,6 +1,9 @@
-# Tiny Tiny Zombies — engine prototype (phase 1)
+# Tiny Tiny Zombies — engine prototype (phases 1 and 3)
 
-Native C++20 / SDL3 GPU engine for a zombie-apocalypse strategy game. Phase 1 covers stages 1–2: the engine foundation and a **GPU horde simulation**. Every zombie is an individual agent; together they flow through streets, compress at bottlenecks, climb over each other into piles that collapse, get blown apart by explosions, and leave persistent bodies that later zombies walk over.
+Native C++20 / SDL3 GPU engine for a zombie-apocalypse strategy game.
+
+- **Phase 1** built the engine foundation and a **GPU horde simulation**. Every zombie is an individual agent; together they flow through streets, compress at bottlenecks, climb over each other into piles that collapse, get blown apart by explosions, and leave persistent bodies that later zombies walk over.
+- **Phase 3** integrates the **approved Zombie Lab characters**: ten interchangeable voxel segments, per-zombie modular appearance, GPU-driven culling, batching and animation.
 
 ![siege](docs/media/siege.png)
 
@@ -17,7 +20,10 @@ Native C++20 / SDL3 GPU engine for a zombie-apocalypse strategy game. Phase 1 co
 | Death, persistent corpses, corpse height field, traversal, reactivation | Done, covered by tests |
 | Explosions (impulse, kill/stun, pile collapse, refill) | Done, covered by tests |
 | Debug UI (ImGui), overlays, parameter file, benchmarks | Done. UI rendered under Xvfb, input untested. |
-| **macOS / Metal** | **Not yet run.** This environment is Linux without a GPU. See *Validation status*. |
+| Approved modular characters (10 segments, 37 modules, palettes, decoration), converted from Zombie Lab | Done, covered by tests. See docs/CHARACTER_STANDARD.md and docs/ASSET_PIPELINE.md. |
+| Randomised appearances (configurable weights), corpses keep their zombie's look | Done, covered by tests |
+| GPU-driven character rendering: frustum culling, size-class batching, per-character pose, vertex pulling, greedy meshes | Done, covered by tests and benchmarked (docs/OPTIMIZATION.md) |
+| **macOS / Metal** | **Not yet run in this environment** (Linux, no GPU). See *Validation status*. |
 
 ## Validation status
 
@@ -119,6 +125,12 @@ VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ./build/ttz_selftest
 | `--config path` | parameter file (default `config/sim.cfg`) |
 | `--save-config path` | write every parameter with its default value |
 | `--no-vsync`, `--gpu-debug` | presentation / validation |
+| `--chars modular\|placeholder` | approved characters (default) or the phase-1 placeholder |
+| `--geom naive\|culled\|greedy`, `--classes family\|size`, `--no-cull`, `--pose-vs` | character optimisation toggles, for comparisons |
+| `--anim auto\|idle\|walk\|reach\|climb\|flail\|dying\|corpse` | force an animation for previews |
+| `--showcase 0\|1\|2\|3\|10\|11\|12` | validation scenes: Lab lineup, lineup corpses, random grid, crowd, single Office Drone / Street Walker / Rotter |
+| `--studio`, `--no-ground`, `--free-cam`, `--fov deg`, `--cam-y m` | neutral studio lighting and camera control for comparisons |
+| `--bench-configs ...`, `--bench-scenarios dispersed,siege,city,offscreen,corpses` | benchmark matrix (see docs/BENCHMARKS.md) |
 
 ### Controls
 
@@ -136,6 +148,24 @@ VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ./build/ttz_selftest
 
 The debug panel shows statistics (frame time, simulation CPU cost, GPU memory, RSS, zombie, corpse, climbing and elevated counts, max stack height). It also provides scenario and count selection, spawning, toggles for vertical accumulation and corpses, overlays, and every simulation parameter. *Save* writes `config/sim.cfg`.
 
+## Benchmark workflow for the development Mac
+
+These commands produce the numbers this environment cannot. Run them on the Mac and paste the printed tables into `docs/BENCHMARKS.md`, or send them over.
+
+```bash
+./build/ttz_selftest
+```
+
+```bash
+./build/ttz --bench --bench-configs placeholder,final --bench-scenarios dispersed,siege,city,offscreen,corpses --bench-csv mac_final.csv
+```
+
+```bash
+./build/ttz --bench --bench-configs placeholder,naive,culled,greedy,classes,final,final-posevs --bench-scenarios dispersed,siege --bench-counts 10000 --bench-csv mac_ladder.csv
+```
+
+Defaults: 1920×1080, 4× MSAA, no vsync, 20 measured frames after warm-up. The interactive app shows draw calls, visible/total characters, triangles and GPU memory in the *Characters* panel. For GPU-side detail, run `ttz --scenario 5 --count 10000` under Xcode's Metal frame capture.
+
 ## Repository layout
 
 ```
@@ -146,9 +176,9 @@ src/render     renderer, camera, math
 src/assets     glTF/GLB loading (cgltf), third-party implementation unit
 src/debug      ImGui panel, profiling
 shaders/       GLSL sources (+ include/), compiled/{spirv,msl,json}
-assets/        models (placeholder voxel zombie GLB)
+assets/        characters (approved Zombie Lab source + baked runtime asset), models (phase-1 placeholder GLB)
 config/        sim.cfg parameter file
-tools/         compile_shaders.py, build_shadercross.sh, make_placeholder_zombie.py
+tools/         compile_shaders.py, build_shadercross.sh, convert_characters.mjs, capture_lab.mjs, compare_views.py
 docs/          RESEARCH, ARCHITECTURE, BENCHMARKS, DEVELOPMENT_LOG, reference images, media
 ```
 
@@ -174,4 +204,7 @@ Export a glTF/GLB from Blockbench with groups named `head`, `body`, `arm_left`, 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Benchmarks](docs/BENCHMARKS.md)
 - [Development log](docs/DEVELOPMENT_LOG.md)
+- [Character standard](docs/CHARACTER_STANDARD.md)
+- [Asset pipeline](docs/ASSET_PIPELINE.md)
+- [Optimisation report](docs/OPTIMIZATION.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)

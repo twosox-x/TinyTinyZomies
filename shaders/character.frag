@@ -10,10 +10,14 @@
 #include "zombie_parts.glsl"
 layout(location = 0) in vec3 vWorld;
 layout(location = 1) in vec3 vNormal;
-layout(location = 2) in vec3 vRest;
+layout(location = 2) centroid in vec3 vRest;   // centroid: stays inside the face under MSAA
 layout(location = 3) in float vAO;
 layout(location = 4) flat in uvec4 vInfo;
 layout(location = 0) out vec4 outColor;
+// geometry level 3: merged faces span several materials; the voxel behind each fragment decides
+layout(std430, set = 2, binding = 0) readonly buffer MeshVox { uvec4 meshVox[]; };   // tag byte offset, min*2+128, dims
+layout(std430, set = 2, binding = 1) readonly buffer VoxTags { uint voxTags[]; };
+#define TAG_LOOKUP 31u
 
 vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
 // Zombie Lab hash3 (Math.imul arithmetic == 32-bit unsigned wrap-around)
@@ -51,6 +55,28 @@ vec3 tagColorSRGB(uint tag, uint look) {
 }
 void main() {
     uint tag = vInfo.x, look = vInfo.y;
+    uint ni = vInfo.z & 7u;
+    // centre of the voxel behind this fragment, in rest-pose body space (exact: faces lie on the voxel grid)
+    const vec3 NRM[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
+    vec3 g = vec3(0.0, 0.5, (vInfo.z & 8u) != 0u ? 0.5 : 0.0);      // voxel-centre grid offsets of this body part
+    vec3 ctr = round(vRest - NRM[ni] * 0.5 - g) + g;
+    if (tag == TAG_LOOKUP) {
+        uvec4 mv = meshVox[vInfo.w];
+        vec3 mn = (vec3(float(mv.y & 255u), float((mv.y >> 8) & 255u), float((mv.y >> 16) & 255u)) - 128.0) * 0.5;
+        uvec3 dims = uvec3(mv.z & 15u, (mv.z >> 4) & 15u, (mv.z >> 8) & 15u);
+        // A fragment exactly on the outer edge of a merged face can round into the empty neighbour cell:
+        // step back towards the face's own voxel along the tangent axis on which it sits on the boundary.
+        vec3 f = (vRest - NRM[ni] * 0.5 - g) - (ctr - g);           // offset from the chosen centre, |f| <= 0.5
+        vec3 step3 = sign(f) * step(vec3(0.45), abs(f)) * (1.0 - abs(NRM[ni]));
+        vec3 cands[4] = vec3[4](ctr, ctr + vec3(step3.x, 0, 0), ctr + vec3(0, step3.y, 0), ctr + vec3(0, 0, step3.z));
+        tag = 0xFFFFFFFFu;
+        for (int k = 0; k < 4 && tag == 0xFFFFFFFFu; ++k) {
+            uvec3 i = uvec3(clamp(ivec3(round(cands[k] - mn)), ivec3(0), ivec3(dims) - 1));
+            uint b = mv.x + i.x + dims.x * (i.y + dims.y * i.z);
+            tag = ((voxTags[b >> 2] >> ((b & 3u) * 8u)) & 255u) - 1u;
+            if (tag != 0xFFFFFFFFu && k > 0) ctr = cands[k];
+        }
+    }
     vec3 N = normalize(vNormal);
     if (tag == TAG_EYE) {                         // emissive, unlit (Zombie Lab: 0.55, 2.2, 0.45 linear)
         outColor = vec4(finish(vec3(0.55, 2.2, 0.45), vWorld), 1.0);
@@ -60,13 +86,7 @@ void main() {
     // per-voxel tonal noise, exactly Zombie Lab: voxel centre from the rest-pose surface position
     uint tier = (look >> 22) & 3u;
     float amp = tier == 0u ? 0.0 : (tier == 1u ? 0.07 : 0.13);
-    if (amp > 0.0) {
-        const vec3 NRM[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
-        vec3 q = vRest - NRM[vInfo.z] * 0.5;
-        vec3 g = vec3(0.0, 0.5, vInfo.w == 1u ? 0.5 : 0.0);      // voxel-centre grid offsets of this body part
-        vec3 ctr = round(q - g) + g;
-        albedo *= 1.0 + (labHash3(ctr, ZP_SEEDS[(look >> 27) & 3u]) - 0.5) * 2.0 * amp;
-    }
+    if (amp > 0.0) albedo *= 1.0 + (labHash3(ctr, ZP_SEEDS[(look >> 27) & 3u]) - 0.5) * 2.0 * amp;
     albedo *= vAO;
     vec3 col = shade(albedo * 2.0, N, vWorld, 1.0);
     vec3 V = normalize(camPos.xyz - vWorld);

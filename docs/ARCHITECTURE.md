@@ -12,7 +12,9 @@ A purpose-built engine, not a general one. Native C++20, SDL3 (window, input, GP
 | Navigation fields | `shaders/nav_relax.comp`, `shaders/nav_dir.comp` | Shared Eikonal distance field and flow directions |
 | Sandbox | `src/sim/Sandbox.*` | Test maps (city, arena) as data: boxes, lights, scenarios; rasterised into the static height grid |
 | Parameters | `src/sim/SimParams.*`, `config/sim.cfg` | Every tunable value; edit at runtime in the UI or in the text file (no recompile) |
-| Renderer | `src/render/Renderer.*`, `shaders/*.vert/frag` | Instanced zombies and corpses (indirect), boxes, ground with debug overlays, MSAA, blit, screenshots |
+| Renderer | `src/render/Renderer.*`, `shaders/*.vert/frag` | Scene pass: ground with debug overlays, boxes, characters, MSAA, blit, screenshots; phase-1 placeholder zombies kept for comparison |
+| Characters | `src/render/CharacterRenderer.*`, `shaders/char_*.comp`, `shaders/character.*`, `shaders/include/zombie_*.glsl` | Approved modular zombies: GPU culling, size-class compaction, pose evaluation, vertex-pulling draws (phase 3) |
+| Character assets | `tools/convert_characters.mjs`, `assets/characters/*` | Zombie Lab → baked segment meshes (see ASSET_PIPELINE.md, CHARACTER_STANDARD.md) |
 | Camera | `src/render/Camera.*`, `src/render/Math.h` | Perspective RTS camera |
 | Assets | `src/assets/Model.*`, `tools/make_placeholder_zombie.py` | glTF/GLB voxel characters (Blockbench-compatible) |
 | Debug / profiling | `src/debug/*` | ImGui panel, CPU timers, frame history, RSS |
@@ -34,11 +36,11 @@ Dependencies point downward only: app → render/sim → gpu. The simulation kno
 | `staticH` | `float[cells]` | Static obstacle top (0 = open ground) |
 | `corpseH` | `int[cells]` | Corpse height in millimetres (fixed point, atomics) |
 | `navDist`, `navDir` | `float[cells]`, `vec2[cells]` | Shared navigation field |
-| `corpses` | `Corpse[corpseCap]`, 32 B | Instances: position, yaw, pose seed, variant, alive flag, height contribution |
+| `corpses` | `Corpse[corpseCap]`, 32 B | Settled bodies: position, yaw, **the zombie's full 56-bit look**, alive flag, corpse-pose index, height contribution |
 | `counters` | `uint[16]` | Live count, append counter, corpse count, statistics |
 | `indirect` | `uint[24]` | Indirect dispatch args (agents, corpses) and indexed-indirect draw args (zombies, corpses) |
 
-`Agent` is AoS because predict, scatter and finalize touch nearly every field. The solver, the only pass that reads neighbours, uses the compact SoA `posP`/`posQ`.
+`Agent` is AoS because predict, scatter and finalize touch nearly every field. Since phase 3, `Agent.info.x` (bits 8–31) and `info.y` also hold the zombie's 56-bit modular appearance. That keeps the 80-byte record size and needs no extra sort bandwidth. The solver, the only pass that reads neighbours, uses the compact SoA `posP`/`posQ`.
 
 Defaults:
 - Grid: 256 × 256 cells of 0.75 m (192 m × 192 m).
@@ -111,10 +113,45 @@ Rendering runs every frame. Simulation steps accumulate real time × speed, at m
 - **If the instance buffer is full,** height still accumulates (gameplay effect preserved) and an overflow counter is shown in the UI.
 - **The graveyard bucket** of the counting sort removes dead agents from the live array for free.
 
+## Character rendering (phase 3)
+
+Every zombie and corpse is drawn from shared segment meshes; nothing is per-character on the CPU.
+
+```
+per frame, after the simulation step (compute passes, one per dependent dispatch):
+  copy      reset 48 character counters from a static zero transfer buffer (no CPU writes)
+  char_cull (zombies)  indirect over live agents   : frustum test (2 m sphere) -> visible list,
+  char_cull (corpses)  indirect over corpse slots  : per segment: mesh id from look, size class, atomic slot
+  char_prefix          1 thread                    : class offsets, 16 indirect draw commands, pose dispatch size
+  char_pose            indirect over visible chars : 10 joint transforms ONCE per character (corpses: static
+                                                     library pose + yaw), scatter 32-byte segment instances
+render pass:
+  per size class (≤ 16): DrawPrimitivesIndirect, vertexCount = class size, instanceCount = segments in class
+```
+
+| Buffer | Size | Content |
+|---|---|---|
+| `charVerts` | 9.9 MB (all 3 levels) | packed 4-byte vertices of all 2,277 segment meshes |
+| `charMeshInfo` ×6 | 36 KB each | per mesh: vertex offset, count, size class, class size (per geometry level × batching mode) |
+| `charCounters` | 192 B | visible, overflow, triangles, segments, class counts, class bases |
+| `charArgs` | 272 B | 16 non-indexed indirect draw commands + pose dispatch |
+| `charVisList` | 4 B × capacity | visible character references (bit 31 = corpse) |
+| `charSegLocal` | 40 B × capacity | per visible character and slot: class and index within the class |
+| `charSegInsts` | 320 B × capacity | `SegInst` (32 B): rotation as half4, world translation, mesh id + slot, appearance word |
+| `corpsePoseLib` | 20 KB | 64 corpse poses × 10 segment transforms (baked at start-up) |
+
+With a default capacity of 131,072 visible characters, these buffers take 47 MB.
+
+**Vertex shader.** It fetches its instance (32 B, cached across the instance's vertices) and its packed vertex. It unpacks, rotates by the quaternion and translates. Vertices past the mesh's own count (padding up to the class size) produce a clipped degenerate triangle.
+
+**Fragment shader.** It resolves the palette tag (sleeves follow the torso), applies the Lab's per-voxel noise (same hash, recomputed from the rest-pose position, so merged faces keep it) and the AO level, then the engine lighting. Eyes are emissive.
+
+**Corpses.** A corpse is 32 bytes: position, yaw, look, pose index and height. Settled corpses are never animated: their pose comes from the baked library, and per frame they cost only a frustum test plus 10 quaternion multiplications if visible. The physics (height field, angle of repose, reactivation by explosions) is unchanged from phase 1. Reactivated corpses re-enter the simulation with the same look.
+
 ## Rendering
 
 - **Targets:** offscreen RGBA8 color with 4× MSAA where supported, plus D32F depth. The color is resolved, then blitted to the swapchain. ImGui draws on the swapchain afterwards.
-- **Zombies:**
+- **Zombies (phase-1 placeholder path, still selectable):**
   - One `DrawIndexedPrimitivesIndirect` for all living zombies and one for all corpses. Instance count comes from the GPU.
   - The vertex shader reads the agent buffer by `gl_InstanceIndex` and animates voxel parts procedurally around their pivots (walk, zombie arm reach, climbing reach, flail, prone/crawl, tumbling, splayed corpses).
   - Variants come from a palette texture with N stacked rows.

@@ -11,6 +11,7 @@ constexpr uint32_t kMaxClasses = 16;
 constexpr uint32_t kCounterWords = 48;      // CC_SIZE
 constexpr uint32_t kArgWords = 68;          // 16 classes * 4 + pose dispatch (3) + pad
 constexpr uint32_t kCorpsePoses = 64;
+constexpr uint32_t kLevels = 4;
 
 struct CharUniforms {
     Vec4 planes[6];
@@ -45,38 +46,42 @@ bool CharacterRenderer::loadAsset(const std::string& path) {
     void* data = SDL_LoadFile(path.c_str(), &size);
     if (!data || size < 64) { SDL_Log("character asset %s not found", path.c_str()); return false; }
     const uint32_t* w = (const uint32_t*)data;
-    if (w[0] != 0x435a5454u || w[1] != 1u || w[3] != 3u) { SDL_Log("character asset %s: bad header", path.c_str()); SDL_free(data); return false; }
+    if (w[0] != 0x435a5454u || w[1] != 2u || w[3] != kLevels) { SDL_Log("character asset %s: bad header (re-run tools/convert_characters.mjs)", path.c_str()); SDL_free(data); return false; }
     meshCount_ = w[2];
-    uint32_t slots = w[8];
+    uint32_t slots = w[9];
     const uint32_t* meshTable = w + 16 + slots * 4;
-    meshTable_.assign(meshTable, meshTable + meshCount_ * 6);
+    meshTable_.assign(meshTable, meshTable + meshCount_ * kLevels * 2);
+    const uint32_t* voxTable = meshTable + meshCount_ * kLevels * 2;
+    meshVox_.assign(voxTable, voxTable + meshCount_ * 4);
     // slot table: baseMesh, moduleCount, stumpStates, family -> family of every mesh (meshes are stored slot by slot)
     meshFamily_.assign(meshCount_, 0);
     for (uint32_t s = 0; s < slots; ++s) {
         uint32_t base = w[16 + s * 4], next = s + 1 < slots ? w[16 + (s + 1) * 4] : meshCount_;
         for (uint32_t m = base; m < next && m < meshCount_; ++m) meshFamily_[m] = w[16 + s * 4 + 3];
     }
-    const uint32_t* blob = meshTable + meshCount_ * 6;
-    uint64_t total = (uint64_t)w[5] + w[6] + w[7];
-    if ((const uint8_t*)(blob + total) > (const uint8_t*)data + size) { SDL_Log("character asset truncated"); SDL_free(data); return false; }
+    const uint32_t* blob = voxTable + meshCount_ * 4;
+    uint64_t total = (uint64_t)w[5] + w[6] + w[7] + w[8];
+    if ((const uint8_t*)(blob + total + w[10]) > (const uint8_t*)data + size) { SDL_Log("character asset truncated"); SDL_free(data); return false; }
     words_.assign(blob, blob + total);
-    levelBase_ = {0, w[5], w[5] + w[6]};
-    for (int l = 0; l < 3; ++l) levelStats_[l] = {w[5 + l], (uint64_t)w[5 + l] * 4};
+    tagWords_.assign(blob + total, blob + total + w[10]);
+    levelBase_ = {0, w[5], w[5] + w[6], w[5] + w[6] + w[7]};
+    for (uint32_t l = 0; l < kLevels; ++l) levelStats_[l] = {w[5 + l], (uint64_t)w[5 + l] * 4};
     assetBytes_ = size;
     SDL_free(data);
-    SDL_Log("character asset: %u segment meshes, vertices naive %u / culled %u / greedy %u", meshCount_,
-            (unsigned)levelStats_[0].vertices, (unsigned)levelStats_[1].vertices, (unsigned)levelStats_[2].vertices);
+    SDL_Log("character asset: %u segment meshes, vertices naive %u / culled %u / greedy %u / voxel-material %u", meshCount_,
+            (unsigned)levelStats_[0].vertices, (unsigned)levelStats_[1].vertices, (unsigned)levelStats_[2].vertices,
+            (unsigned)levelStats_[3].vertices);
     return true;
 }
 
 // Size classes: draws are non-indexed with a fixed vertex count per batch, so every instance in a batch
 // costs the batch's largest mesh. Geometric classes (x1.35) bound that padding at ~35 % worst case.
 void CharacterRenderer::buildClasses() {
-    for (int level = 0; level < 3; ++level)
+    for (uint32_t level = 0; level < kLevels; ++level)
         for (int mode = 0; mode < 2; ++mode) {
             ClassSet& cs = classes_[level][mode];
             std::vector<uint32_t> counts(meshCount_);
-            for (uint32_t m = 0; m < meshCount_; ++m) counts[m] = meshTable_[(m * 3 + level) * 2 + 1];
+            for (uint32_t m = 0; m < meshCount_; ++m) counts[m] = meshTable_[(m * kLevels + level) * 2 + 1];
             std::vector<uint32_t> cls(meshCount_, 0);
             if (mode == 0) {
                 cs.maxVerts.assign(6, 0);
@@ -107,7 +112,7 @@ void CharacterRenderer::buildClasses() {
             }
             std::vector<uint32_t> info(meshCount_ * 4);
             for (uint32_t m = 0; m < meshCount_; ++m) {
-                info[m * 4 + 0] = levelBase_[level] + meshTable_[(m * 3 + level) * 2];
+                info[m * 4 + 0] = levelBase_[level] + meshTable_[(m * kLevels + level) * 2];
                 info[m * 4 + 1] = counts[m];
                 info[m * 4 + 2] = cls[m];
                 info[m * 4 + 3] = cs.maxVerts[cls[m]];
@@ -138,6 +143,10 @@ bool CharacterRenderer::init(GpuContext& gpu, const SimParams& p, const std::str
                                            SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ;
     verts_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(words_.size() * 4), "charVerts");
     gpu.uploadNow(verts_, words_.data(), (uint32_t)(words_.size() * 4));
+    meshVoxBuf_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(meshVox_.size() * 4), "charMeshVoxels");
+    gpu.uploadNow(meshVoxBuf_, meshVox_.data(), (uint32_t)(meshVox_.size() * 4));
+    tagBuf_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(tagWords_.size() * 4), "charVoxelTags");
+    gpu.uploadNow(tagBuf_, tagWords_.data(), (uint32_t)(tagWords_.size() * 4));
     counters_ = gpu.createBuffer(rw, kCounterWords * 4, "charCounters");
     args_ = gpu.createBuffer(rw | SDL_GPU_BUFFERUSAGE_INDIRECT, kArgWords * 4, "charArgs");
     visList_ = gpu.createBuffer(rw, capacity_ * 4, "charVisList");
@@ -199,7 +208,7 @@ void CharacterRenderer::shutdown() {
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
     for (auto& lv : classes_) for (auto& cs : lv) { gpu_->releaseBuffer(cs.meshInfo); gpu_->releaseBuffer(cs.classInfo); }
-    for (auto b : {&verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_}) gpu_->releaseBuffer(*b);
+    for (auto b : {&meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_}) gpu_->releaseBuffer(*b);
     for (auto p : {pCull_, pPrefix_, pPose_, pLib_}) if (p) SDL_ReleaseGPUComputePipeline(d, p);
     if (pDraw_) SDL_ReleaseGPUGraphicsPipeline(d, pDraw_);
     if (zeros_) SDL_ReleaseGPUTransferBuffer(d, zeros_);
@@ -240,6 +249,8 @@ void CharacterRenderer::draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
     SDL_BindGPUGraphicsPipeline(pass, pDraw_);
     SDL_GPUBuffer* vsb[7] = {segInsts_, verts_, set.meshInfo, counters_, sim.agents(), sim.corpses(), poseLib_};
     SDL_BindGPUVertexStorageBuffers(pass, 0, vsb, 7);
+    SDL_GPUBuffer* fsb[2] = {meshVoxBuf_, tagBuf_};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 2);
     for (uint32_t c = 0; c < set.maxVerts.size(); ++c) {
         CharDraw d{};
         d.draw = {c, cs.poseInVertexShader ? 1u : 0u, 0, 0};
