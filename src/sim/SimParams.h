@@ -77,6 +77,15 @@ struct SimParams {
     float lookSkeletal = 0.05f;    // mostly bone limbs
     float lookMissing = 0.07f;     // missing one or both forearms
 
+    // gore (visual + dismemberment; does not change crowd movement except that legless zombies crawl)
+    bool goreEnabled = true;
+    float bloodAmount = 1.0f;      // blood droplets per hit (multiplier)
+    float dismemberChance = 1.0f;  // limb severing probability (multiplier)
+    float gibThreshold = 0.78f;    // blast closeness (0 edge .. 1 centre) above which a killed zombie is torn apart
+    float tumbleDamping = 8.0f;    // 1/s: how fast a dying body stops rolling once it touches anything
+    int particleCapacity = 65536;
+    int gibCapacity = 16384;
+
     bool load(const std::string& path);
     bool save(const std::string& path) const;
 };

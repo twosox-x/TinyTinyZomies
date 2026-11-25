@@ -8,6 +8,7 @@
 #include "zombie_pose.glsl"
 #include "char_common.glsl"
 #include "char_uniforms.glsl"
+#include "gore.glsl"
 layout(local_size_x = 64) in;
 layout(std430, set = 0, binding = 0) readonly buffer Agents   { Agent agents[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Corpses  { Corpse corpses[]; };
@@ -15,24 +16,42 @@ layout(std430, set = 0, binding = 2) readonly buffer VisList  { uint visList[]; 
 layout(std430, set = 0, binding = 3) readonly buffer SegLocal { uint segLocal[]; };
 layout(std430, set = 0, binding = 4) readonly buffer PoseLib  { vec4 poseLib[]; };   // [k*10+slot]*2: q, t
 layout(std430, set = 0, binding = 5) readonly buffer CharCnt  { uint cc[]; };
+layout(std430, set = 0, binding = 6) readonly buffer Gibs     { Gib gibs[]; };
 layout(std430, set = 1, binding = 0) buffer SegInsts { SegInst segs[]; };
 void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= min(cc[CC_VISIBLE], ccfg.y)) return;
     uint ref = visList[i];
-    bool corpse = (ref & REF_CORPSE) != 0u;
-    uint idx = ref & ~REF_CORPSE;
-    uint lx, ly; vec3 pos; float yaw;
+    bool corpse = (ref & REF_CORPSE) != 0u, gib = (ref & REF_GIB) != 0u;
+    uint idx = ref & REF_INDEX;
+    uint lx, ly, sev = 0u, blood = 0u; vec3 pos; float yaw;
     vec4 q[10]; vec3 t[10];
     bool poseVS = (ccfg.w & CF_POSE_VS) != 0u;
+    if (gib) {                                       // one body part: its own rigid-body transform
+        Gib g = gibs[idx];
+        uint s = g.info.x & 15u;
+        lx = g.info.x & 0xFFFFFF00u; ly = g.info.y;
+        uint sl = segLocal[i * 10u + s];
+        if (sl == SEG_SKIP) return;
+        uint sevG = SEVER_ALL & ~(1u << s);
+        SegInst o;
+        vec4 qw = normalize(g.rot);
+        o.a = uvec4(packHalf2x16(qw.xy), packHalf2x16(qw.zw), meshIdForSev(lx, ly, s, sevG) | (s << 12) | (sevG << 16),
+                    appearanceWordGore(lx, ly, uint(unpackHalf2x16(g.info.w).y), true));
+        o.b = vec4(g.pos.xyz, uintBitsToFloat(ref));
+        segs[cc[CC_CLASS_BASE + (sl >> 24)] + (sl & 0xFFFFFFu)] = o;
+        return;
+    }
     if (corpse) {
         Corpse c = corpses[idx];
         lx = c.info.x; ly = c.info.y; pos = c.pos.xyz; yaw = c.pos.w;
+        sev = corpseSevered(c.info.z); blood = corpseBlood(c.info.z);
         uint k = (c.info.z >> 8) % CORPSE_POSES;
         if (!poseVS) for (uint s = 0u; s < 10u; ++s) { q[s] = poseLib[(k * 10u + s) * 2u]; t[s] = poseLib[(k * 10u + s) * 2u + 1u].xyz; }
     } else {
         Agent a = agents[idx];
         lx = a.info.x & 0xFFFFFF00u; ly = a.info.y; pos = a.pos.xyz; yaw = a.dirs.z;
+        sev = agentSevered(a.info.z); blood = agentBlood(a.info.z);
         if (!poseVS && ccfg2.x == ANIM_CORPSE) {          // preview: show the living zombie in its corpse pose
             uint k = pcgHash(a.info.y) % CORPSE_POSES;
             for (uint s = 0u; s < 10u; ++s) { q[s] = poseLib[(k * 10u + s) * 2u]; t[s] = poseLib[(k * 10u + s) * 2u + 1u].xyz; }
@@ -40,6 +59,7 @@ void main() {
             PoseInput p;
             p.anim = ccfg2.x; p.state = a.info.x & 0xFFu; p.speed = length(a.vel.xz); p.phase = a.vel.w;
             p.prone = clamp(a.pos.w, 0.0, 1.0); p.blocked = a.prev.w; p.timer = a.dirs.w; p.vary = agentVary(a); p.time = cparams.y;
+            poseTumble(p, a.dirs, a.vel.xyz);
             applyForcedPosture(p);
             vec3 E[10]; float bob, tilt, roll;
             animTargets(p, E, bob, tilt, roll);
@@ -47,7 +67,7 @@ void main() {
         }
     }
     vec4 qy = qaxis(vec3(0.0, 1.0, 0.0), yaw);
-    uint look = appearanceWord(lx, ly);
+    uint look = appearanceWordGore(lx, ly, blood, false);
     for (uint s = 0u; s < 10u; ++s) {
         uint sl = segLocal[i * 10u + s];
         if (sl == SEG_SKIP) continue;
@@ -55,7 +75,7 @@ void main() {
         SegInst o;
         vec4 qw = poseVS ? vec4(0.0, 0.0, 0.0, 1.0) : qmul(qy, q[s]);
         vec3 tw = poseVS ? pos : pos + qrot(qy, t[s]);
-        o.a = uvec4(packHalf2x16(qw.xy), packHalf2x16(qw.zw), meshIdFor(lx, ly, s) | (s << 12), look);
+        o.a = uvec4(packHalf2x16(qw.xy), packHalf2x16(qw.zw), meshIdForSev(lx, ly, s, sev) | (s << 12) | (sev << 16), look);
         o.b = vec4(tw, uintBitsToFloat(ref));
         segs[dst] = o;
     }

@@ -17,6 +17,7 @@ namespace ttz {
 struct SimStats {
     uint32_t live = 0, corpses = 0, deaths = 0, climbing = 0, airborne = 0, elevated = 0, reactivated = 0;
     uint32_t corpseOverflow = 0;
+    uint32_t particlesAlive = 0, gibsSpawned = 0, limbsSevered = 0, tornApart = 0;
     float maxStackHeight = 0.f;
     uint64_t frameOfData = 0;
 };
@@ -63,6 +64,16 @@ public:
     SDL_GPUBuffer* corpseHeight() const { return corpseH_; }
     SDL_GPUBuffer* staticHeight() const { return staticH_; }
     uint32_t numCells() const { return (uint32_t)(p_.gridW * p_.gridH); }
+    // gore (see shaders/include/gore.glsl)
+    SDL_GPUBuffer* particles() const { return particles_; }
+    SDL_GPUBuffer* particleList() const { return particleList_; }
+    SDL_GPUBuffer* gibs() const { return gibs_; }
+    SDL_GPUBuffer* goreCounters() const { return gore_; }
+    SDL_GPUBuffer* decals() const { return decals_; }
+    uint32_t gibCapacity() const { return (uint32_t)p_.gibCapacity; }
+    uint32_t decalW() const { return (uint32_t)p_.gridW * kDecalScale; }
+    uint32_t decalH() const { return (uint32_t)p_.gridH * kDecalScale; }
+    void clearGore();                       // remove all blood, parts, particles and scorch marks
 
     struct Timing { double cpuRecordMs = 0; };
 
@@ -77,13 +88,15 @@ private:
     SDL_GPUComputePipeline *pSpawn_ = nullptr, *pCorpseBlast_ = nullptr, *pCommitAppend_ = nullptr, *pClear_ = nullptr,
                            *pPredict_ = nullptr, *pScanLocal_ = nullptr, *pScanBlocks_ = nullptr, *pScanAdd_ = nullptr,
                            *pScatter_ = nullptr, *pCommitSort_ = nullptr, *pSolve_ = nullptr, *pFinalize_ = nullptr,
-                           *pDensity_ = nullptr, *pNavRelax_ = nullptr, *pNavDir_ = nullptr, *pDrawArgs_ = nullptr;
+                           *pDensity_ = nullptr, *pNavRelax_ = nullptr, *pNavDir_ = nullptr, *pDrawArgs_ = nullptr,
+                           *pGore_ = nullptr;
 
     SDL_GPUBuffer *agentsA_ = nullptr, *agentsB_ = nullptr, *posP_ = nullptr, *posQ_ = nullptr, *prevS_ = nullptr,
                   *contactAux_ = nullptr, *cellLocal_ = nullptr, *cellCount_ = nullptr, *cellStart_ = nullptr,
                   *blockSums_ = nullptr, *density_ = nullptr, *staticH_ = nullptr, *corpseH_ = nullptr,
                   *navDist_[2] = {nullptr, nullptr}, *navDir_ = nullptr, *corpses_ = nullptr, *counters_ = nullptr,
-                  *indirect_ = nullptr;
+                  *indirect_ = nullptr, *particles_ = nullptr, *particleList_ = nullptr, *gibs_ = nullptr, *gore_ = nullptr,
+                  *decals_ = nullptr;
 
     std::vector<float> goals_;
     struct SpawnRequest { Rect rect; uint32_t count; uint32_t lookX = 0, lookY = 0; bool forced = false, corpse = false; };

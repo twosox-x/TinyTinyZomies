@@ -19,7 +19,8 @@ bool CrowdSim::createPipelines() {
         {&pClear_, "sim_clear"}, {&pPredict_, "sim_predict"}, {&pScanLocal_, "scan_local"},
         {&pScanBlocks_, "scan_blocks"}, {&pScanAdd_, "scan_add"}, {&pScatter_, "sim_scatter"},
         {&pCommitSort_, "sim_commit_sort"}, {&pSolve_, "sim_solve"}, {&pFinalize_, "sim_finalize"},
-        {&pDensity_, "sim_density"}, {&pNavRelax_, "nav_relax"}, {&pNavDir_, "nav_dir"}, {&pDrawArgs_, "sim_draw_args"}};
+        {&pDensity_, "sim_density"}, {&pNavRelax_, "nav_relax"}, {&pNavDir_, "nav_dir"}, {&pDrawArgs_, "sim_draw_args"},
+        {&pGore_, "gore_update"}};
     for (auto& e : list) {
         // every per-agent pass shares the 256-wide indirect dispatch args
         *e.p = gpu_->loadCompute(e.n, std::string(e.n).rfind("nav_", 0) == 0 ? 16 : (std::string(e.n).find("commit") != std::string::npos || std::string(e.n) == "sim_draw_args") ? 1 : 256);
@@ -57,8 +58,13 @@ bool CrowdSim::init(GpuContext& gpu, const SimParams& p, const Sandbox& sb) {
     indirect_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_INDIRECT | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ |
                                        SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE,
                                    I_COUNT * 4, "indirect");
+    particles_ = mk((uint32_t)p_.particleCapacity * kParticleBytes, "particles");
+    particleList_ = mk((uint32_t)p_.particleCapacity * 4, "particleList");
+    gibs_ = mk((uint32_t)p_.gibCapacity * kGibBytes, "gibs");
+    gore_ = gpu_->createBuffer(kStorage | SDL_GPU_BUFFERUSAGE_INDIRECT, G_COUNT * 4, "goreCounters");
+    decals_ = mk(3 * decalW() * decalH() * 4, "decals");
     for (auto& r : rb_) {
-        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4 + 256, 0};
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4 + 256 + 32, 0};
         r.tb = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
     }
     if (!agentsA_ || !corpses_ || !indirect_) return false;
@@ -77,11 +83,11 @@ void CrowdSim::shutdown() {
     }
     SDL_GPUBuffer** bufs[] = {&agentsA_, &agentsB_, &posP_, &posQ_, &prevS_, &contactAux_, &cellLocal_, &cellCount_,
                               &cellStart_, &blockSums_, &density_, &staticH_, &corpseH_, &navDist_[0], &navDist_[1],
-                              &navDir_, &corpses_, &counters_, &indirect_};
+                              &navDir_, &corpses_, &counters_, &indirect_, &particles_, &particleList_, &gibs_, &gore_, &decals_};
     for (auto b : bufs) gpu_->releaseBuffer(*b);
     SDL_GPUComputePipeline** pipes[] = {&pSpawn_, &pCorpseBlast_, &pCommitAppend_, &pClear_, &pPredict_, &pScanLocal_,
                                         &pScanBlocks_, &pScanAdd_, &pScatter_, &pCommitSort_, &pSolve_, &pFinalize_,
-                                        &pDensity_, &pNavRelax_, &pNavDir_, &pDrawArgs_};
+                                        &pDensity_, &pNavRelax_, &pNavDir_, &pDrawArgs_, &pGore_};
     for (auto p : pipes) {
         if (*p) SDL_ReleaseGPUComputePipeline(d, *p);
         *p = nullptr;
@@ -106,11 +112,22 @@ void CrowdSim::reset(const Sandbox& sb) {
     ind[I_AGENT_DISPATCH] = ind[I_AGENT_DISPATCH + 1] = ind[I_AGENT_DISPATCH + 2] = 1;
     ind[I_CORPSE_DISPATCH] = ind[I_CORPSE_DISPATCH + 1] = ind[I_CORPSE_DISPATCH + 2] = 1;
     gpu_->uploadNow(indirect_, ind, sizeof(ind));
+    clearGore();
     pendingSpawns_.clear();
     pendingExplosions_.clear();
     simTime_ = 0.0;
     stepIndex_ = 0;
     stats_ = {};
+}
+
+void CrowdSim::clearGore() {
+    uint32_t bytes = std::max({(uint32_t)p_.particleCapacity * kParticleBytes, (uint32_t)p_.gibCapacity * kGibBytes,
+                               3 * decalW() * decalH() * 4});
+    std::vector<uint8_t> zeros(bytes, 0);
+    gpu_->uploadNow(particles_, zeros.data(), (uint32_t)p_.particleCapacity * kParticleBytes);
+    gpu_->uploadNow(gibs_, zeros.data(), (uint32_t)p_.gibCapacity * kGibBytes);
+    gpu_->uploadNow(decals_, zeros.data(), 3 * decalW() * decalH() * 4);
+    gpu_->uploadNow(gore_, zeros.data(), G_COUNT * 4);
 }
 
 void CrowdSim::requestSpawn(const Rect& r, uint32_t count) {
@@ -155,6 +172,9 @@ SimUniforms CrowdSim::baseUniforms() const {
     u.extraP = {p_.maxSpeed, p_.wander, p_.proneRate, p_.crawlSpeed};
     u.lookA = {p_.lookRecent, p_.lookClothed, p_.lookLight, p_.lookHeavy};
     u.lookB = {p_.lookSkeletal, p_.lookMissing, 0.f, 0.f};
+    u.goreP = {p_.bloodAmount, p_.dismemberChance, p_.gibThreshold, p_.goreEnabled ? 1.f : 0.f};
+    u.goreCap = {(uint32_t)p_.particleCapacity, (uint32_t)p_.gibCapacity, decalW(), decalH()};
+    u.goreQ = {p_.tumbleDamping, p_.standHeight / 18.0f, 0.f, 0.f};
     return u;
 }
 
@@ -197,7 +217,8 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
 
     // 2. predict + histogram
     dispatch(D(pClear_, {}, {cellCount_}), groups(cells + 1, 256));
-    dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, corpseH_}, {agentsA_, cellCount_, cellLocal_, counters_}),
+    dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, corpseH_},
+                       {agentsA_, cellCount_, cellLocal_, counters_, particles_, gibs_, gore_}),
                      indirect_, I_AGENT_DISPATCH * 4);
 
     // 3. counting sort: prefix sum + scatter (dead agents fall into the graveyard bucket and vanish)
@@ -224,8 +245,23 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUBuffer* posFinal = in;
 
     // 5. finalize (velocities, states, corpses) -> agentsA stays sorted
-    dispatchIndirect(D(pFinalize_, {agentsB_, posFinal, contactAux_, staticH_}, {agentsA_, corpses_, corpseH_, counters_}),
+    dispatchIndirect(D(pFinalize_, {agentsB_, posFinal, contactAux_, staticH_},
+                       {agentsA_, corpses_, corpseH_, counters_, particles_, gore_, decals_}),
                      indirect_, I_AGENT_DISPATCH * 4);
+
+    // 5b. gore: explosion effects, particles (blood decals), flying body parts, particle draw arguments
+    {
+        auto G = [&](uint32_t mode, uint32_t gx, uint32_t gy = 1) {
+            u.misc.y = mode;
+            dispatch(D(pGore_, {staticH_, corpseH_}, {particles_, gibs_, gore_, decals_, particleList_}), gx, gy);
+        };
+        G(0, 1);
+        if (ne > 0 && p_.goreEnabled) G(4, 2, ne);
+        G(1, groups((uint32_t)p_.particleCapacity, 256));
+        G(2, groups((uint32_t)p_.gibCapacity, 256));
+        G(3, 1);
+        u.misc.y = 0;
+    }
 
     // 6. fields: density + navigation
     dispatch(D(pDensity_, {cellStart_, cellCount_, posFinal}, {density_}), groups(cells, 256));
@@ -254,9 +290,10 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
     // harvest finished slots
     for (auto& r : rb_) {
         if (r.recorded && r.fence && SDL_QueryGPUFence(d, r.fence)) {
-            uint32_t c[C_COUNT];
+            uint32_t c[C_COUNT], g[8];
             void* p = SDL_MapGPUTransferBuffer(d, r.tb, false);
             std::memcpy(c, p, sizeof(c));
+            std::memcpy(g, (uint8_t*)p + C_COUNT * 4 + 256, sizeof(g));
             if (extraBytes_ && r.frame >= stats_.frameOfData) std::memcpy(extra_.data(), (uint8_t*)p + C_COUNT * 4, std::min<uint32_t>(extraBytes_, 256));
             SDL_UnmapGPUTransferBuffer(d, r.tb);
             if (r.frame >= stats_.frameOfData) {
@@ -269,6 +306,10 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
                 stats_.reactivated = c[C_REACTIVATED];
                 stats_.corpseOverflow = c[C_CORPSE_OVERFLOW];
                 stats_.maxStackHeight = c[C_MAX_HEIGHT_MM] * 0.001f;
+                stats_.particlesAlive = g[G_PARTICLES_ALIVE];
+                stats_.gibsSpawned = g[G_GIB_HEAD];
+                stats_.limbsSevered = g[G_SEVERED];
+                stats_.tornApart = g[G_GIBBED];
                 stats_.frameOfData = r.frame;
             }
             SDL_ReleaseGPUFence(d, r.fence);
@@ -286,6 +327,11 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUBufferRegion src{counters_, 0, C_COUNT * 4};
     SDL_GPUTransferBufferLocation dst{r.tb, 0};
     SDL_DownloadFromGPUBuffer(cp, &src, &dst);
+    {
+        SDL_GPUBufferRegion srcG{gore_, 0, 32};
+        SDL_GPUTransferBufferLocation dstG{r.tb, C_COUNT * 4 + 256};
+        SDL_DownloadFromGPUBuffer(cp, &srcG, &dstG);
+    }
     if (extraBuf_) {
         SDL_GPUBufferRegion src2{extraBuf_, 0, std::min<uint32_t>(extraBytes_, 256)};
         SDL_GPUTransferBufferLocation dst2{r.tb, C_COUNT * 4};

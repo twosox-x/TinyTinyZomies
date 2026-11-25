@@ -8,6 +8,26 @@ layout(location = 1) in vec3 vNormal;
 layout(location = 2) flat in vec2 vKindSeed;
 layout(location = 3) in vec3 vLocal;
 layout(location = 0) out vec4 outColor;
+layout(std430, set = 2, binding = 0) readonly buffer Decals  { uint decals[]; };
+layout(std430, set = 2, binding = 1) readonly buffer ShadowH { float shadowH[]; };
+#include "shadow.glsl"
+// Blood splatter on walls: the gore simulation records the highest splat per cell in front of a wall;
+// the face shows a ragged band up to that height with drips running down.
+float wallBlood(vec3 P, vec3 N, float u) {
+    ivec2 d = ivec2(gridDim.xy) * 3;
+    ivec2 c = ivec2(floor((P.xz + N.xz * 0.13 - gridP.xy) * gridP.w * 3.0));
+    if (c.x < 0 || c.y < 0 || c.x >= d.x || c.y >= d.y) return 0.0;
+    float h = float(decals[uint(d.x * d.y) + uint(c.y) * uint(d.x) + uint(c.x)]) * 0.001;
+    if (h <= 0.0) return 0.0;
+    float col = floor(u * 12.0);
+    float r = hash12(vec2(col, float(c.x * 7 + c.y * 13)));
+    float top = h + 0.2 * (r - 0.4);
+    if (P.y > top) return 0.0;
+    float band = smoothstep(0.9 + r * 0.6, 0.0, top - P.y);          // splat band, fading downwards
+    float drip = step(0.62, r) * step(top - P.y, 0.4 + 2.5 * fract(r * 17.3));
+    float speck = step(0.55, hash12(floor(vec2(u, P.y) * 14.0))) * smoothstep(0.6, 0.0, top - P.y);
+    return clamp(max(max(band * step(0.35, hash12(floor(vec2(u, P.y) * 9.0))), drip), speck), 0.0, 1.0);
+}
 
 // Procedural placeholder facades (stage 4 replaces these with voxel architecture).
 void main() {
@@ -64,7 +84,11 @@ void main() {
         albedo = vec3(0.08);
         if (v > 5.1) emissive = vec3(1.0, 0.7, 0.4) * 3.0;
     }
+    if (side && kind != 4) {
+        float b = wallBlood(vWorld, N, u);
+        if (b > 0.0) { albedo = mix(albedo, vec3(0.28, 0.01, 0.015), b * 0.95); emissive *= 1.0 - b; }
+    }
     albedo = pow(albedo, vec3(2.2)) * 2.0;
-    vec3 col = shade(albedo, N, vWorld, ao) + emissive;
+    vec3 col = shadeV(albedo, N, vWorld, ao, moonVisibility(vWorld, N)) + emissive;
     outColor = vec4(finish(col, vWorld), 1.0);
 }

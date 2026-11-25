@@ -15,10 +15,12 @@ void main() {
         uint n = c < ccfg.z ? cc[CC_CLASS_COUNT + c] : 0u;
         cc[CC_CLASS_BASE + c] = base;
         base += n;
-        args[c * 4u + 0u] = c < ccfg.z ? classMaxVerts[c] : 0u;
-        args[c * 4u + 1u] = n;
-        args[c * 4u + 2u] = 0u;
-        args[c * 4u + 3u] = 0u;
+        uint mv = c < ccfg.z ? classMaxVerts[c] : 0u;
+        args[c * CA_STRIDE + 0u] = (ccfg.w & CF_QUADS) != 0u ? mv / 4u * 6u : mv;   // indices or vertices
+        args[c * CA_STRIDE + 1u] = n;
+        args[c * CA_STRIDE + 2u] = 0u;
+        args[c * CA_STRIDE + 3u] = 0u;
+        args[c * CA_STRIDE + 4u] = 0u;
     }
     uint vis = min(cc[CC_VISIBLE], ccfg.y);
     args[CA_POSE_DISPATCH + 0u] = max((vis + 63u) / 64u, 1u);

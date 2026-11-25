@@ -23,7 +23,9 @@ Native C++20 / SDL3 GPU engine for a zombie-apocalypse strategy game.
 | Approved modular characters (10 segments, 37 modules, palettes, decoration), converted from Zombie Lab | Done, covered by tests. See docs/CHARACTER_STANDARD.md and docs/ASSET_PIPELINE.md. |
 | Randomised appearances (configurable weights), corpses keep their zombie's look | Done, covered by tests |
 | GPU-driven character rendering: frustum culling, size-class batching, per-character pose, vertex pulling, greedy meshes | Done, covered by tests and benchmarked (docs/OPTIMIZATION.md) |
-| **macOS / Metal** | **Not yet run in this environment** (Linux, no GPU). See *Validation status*. |
+| Gore: blood spray and pools, wall splatter, severed limbs as physical body parts, torn-apart zombies, legless crawlers, scorch marks, voxel fireball / smoke / debris | Done (phase 4), covered by tests |
+| Bodies settle instead of spinning against walls; screen shake; moon shadows of buildings | Done (phase 4) |
+| **macOS / Metal** | Phase 3 measured by the owner on a MacBook Air: 10,000 zombies at 105–126 FPS at 1080p (docs/BENCHMARKS.md). Phase 4 not yet measured on the Mac. |
 
 ## Validation status
 
@@ -130,7 +132,8 @@ VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ./build/ttz_selftest
 | `--anim auto\|idle\|walk\|reach\|climb\|flail\|dying\|corpse` | force an animation for previews |
 | `--showcase 0\|1\|2\|3\|10\|11\|12` | validation scenes: Lab lineup, lineup corpses, random grid, crowd, single Office Drone / Street Walker / Rotter |
 | `--studio`, `--no-ground`, `--free-cam`, `--fov deg`, `--cam-y m` | neutral studio lighting and camera control for comparisons |
-| `--bench-configs ...`, `--bench-scenarios dispersed,siege,city,offscreen,corpses` | benchmark matrix (see docs/BENCHMARKS.md) |
+| `--bench-configs ...`, `--bench-scenarios dispersed,siege,city,offscreen,corpses` | benchmark matrix (see docs/BENCHMARKS.md); phase 4 adds `phase3`, `final-tris`, `final-noshadow` |
+| `--trace N` | headless: log zombie / airborne / death / corpse counts every N frames |
 
 ### Controls
 
@@ -145,6 +148,8 @@ VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ./build/ttz_selftest
 | + / − | simulation speed |
 | V / F / G | density / flow / grid overlays |
 | F1 / F12 | toggle UI / screenshot |
+
+The **Gore & effects** panel turns gore, screen shake, shadows and particles on or off; sets blood amount, dismemberment chance, how close a blast must be to tear a zombie apart, and tumble damping; shows particle and body-part counts; and has a *Clean up blood and body parts* button.
 
 The debug panel shows statistics (frame time, simulation CPU cost, GPU memory, RSS, zombie, corpse, climbing and elevated counts, max stack height). It also provides scenario and count selection, spawning, toggles for vertical accumulation and corpses, overlays, and every simulation parameter. *Save* writes `config/sim.cfg`.
 

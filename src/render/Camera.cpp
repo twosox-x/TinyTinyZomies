@@ -54,10 +54,10 @@ void Camera::avoidObstacles(const std::function<float(float, float)>& heightAt, 
 V3 Camera::eye() const {
     float cp = std::cos(cur_.pitch), sp = std::sin(cur_.pitch);
     V3 back{std::sin(cur_.yaw) * cp, sp, std::cos(cur_.yaw) * cp};
-    return cur_.target + back * cur_.distance;
+    return cur_.target + shake_ + back * cur_.distance;
 }
 
-M4 Camera::view() const { return lookAt(eye(), cur_.target, {0, 1, 0}); }
+M4 Camera::view() const { return lookAt(eye(), cur_.target + shake_, {0, 1, 0}); }
 
 M4 Camera::proj(float aspect) const {
     float zn = std::max(0.5f, cur_.distance * 0.02f);

@@ -31,6 +31,7 @@ public:
     M4 proj(float aspect) const;
     V3 eye() const;
     V3 target() const { return cur_.target; }
+    void setShake(V3 offset) { shake_ = offset; }   // screen shake: moves eye and target together
     float yaw() const { return cur_.yaw; }
     float pitch() const { return cur_.pitch; }
     float distance() const { return cur_.distance; }
@@ -44,6 +45,7 @@ public:
 
 private:
     struct State { V3 target{}; float yaw = 0.6f, pitch = 0.9f, distance = 80.f; };
+    V3 shake_{};
     State cur_, goal_;
 };
 

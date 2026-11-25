@@ -22,14 +22,26 @@ struct Agent {
     vec4 vel;   // xyz velocity, w = animation phase
     vec4 prev;  // xyz position at start of step, w = "blocked" pressure EMA 0..1
     vec4 dirs;  // xy desired horizontal dir, z = heading (rad), w = state timer (s)
-    uvec4 info; // x = state(8) | look bits 8..31, y = look bits (see LOOK LAYOUT), z = health (float bits), w = climb target (float bits)
+    uvec4 info; // x = state(8) | look bits 8..31, y = look bits (see LOOK LAYOUT), z = see AGENT Z, w = climb target (float bits)
 };
+/* AGENT Z (info.z): bits 0..15 health (half float), 16..25 severed-segment mask (bit = slot), 26..27 bloodiness 0..3.
+   While FALLING / DYING, dirs.xy holds the tumble (x = roll angle, y = roll rate rad/s) instead of the desired velocity. */
+float agentHealth(uint z) { return unpackHalf2x16(z & 0xFFFFu).x; }
+uint  agentSevered(uint z) { return (z >> 16) & 0x3FFu; }
+uint  agentBlood(uint z) { return (z >> 26) & 3u; }
+uint  packAgentZ(float health, uint severed, uint blood) {
+    return (packHalf2x16(vec2(clamp(health, -60000.0, 60000.0), 0.0)) & 0xFFFFu) | ((severed & 0x3FFu) << 16) | (min(blood, 3u) << 26);
+}
+#define SEVER_ALL 0x3FFu
 
 struct Corpse {
     vec4 pos;   // xyz resting position (feet), w = yaw
     uvec4 info; // x = look bits (same as Agent.info.x, state bits = 0), y = look bits (Agent.info.y),
-                // z = alive (bit 0) | pose library index << 8, w = height contribution per splat point (float bits)
+                // z = alive (bit 0) | bloodiness << 1 | pose library index << 8 | severed mask << 16,
+                // w = height contribution per splat point (float bits)
 };
+uint corpseSevered(uint z) { return (z >> 16) & 0x3FFu; }
+uint corpseBlood(uint z) { return (z >> 1) & 3u; }
 #define CORPSE_POSES 64u
 
 /* LOOK LAYOUT — every zombie's modular appearance, generated once at spawn, kept by its corpse.
@@ -83,6 +95,9 @@ layout(std140, set = 2, binding = 0) uniform SimUniforms {
     vec4  lookA;     // appearance category weights: recently infected, fully clothed, lightly damaged, heavily damaged
     vec4  lookB;     // x skeletal, y missing-limb, z spawnAsCorpse (bench/test), w unused
     uvec4 forcedLook;// x info.x look bits, y info.y look bits, z = 1 to force (showcase / validation)
+    vec4  goreP;     // x blood amount, y dismember chance, z gib threshold (blast closeness), w enabled
+    uvec4 goreCap;   // x particle capacity, y gib capacity, z decal grid width, w decal grid height
+    vec4  goreQ;     // x tumble damping (1/s), y metres per voxel
 };
 
 #define FLAG_VERTICAL 1u

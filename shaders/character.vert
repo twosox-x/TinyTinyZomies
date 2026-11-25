@@ -23,7 +23,8 @@ layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) centroid out vec3 vRest;           // body-space rest position (voxels): per-voxel colour noise
 layout(location = 3) out float vAO;
-layout(location = 4) flat out uvec4 vInfo;     // x tag (31 = per-voxel lookup), y appearance word, z normal index | leg-grid flag << 3, w mesh id
+layout(location = 4) flat out uvec4 vInfo;     // x tag (31 = per-voxel lookup), y appearance word,
+                                                // z normal index | leg-grid flag << 3 | slot << 4 | severed mask << 8, w mesh id
 const vec3 NRM[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
 const float AOV[4] = float[4](0.5, 0.67, 0.84, 1.0);
 void main() {
@@ -39,7 +40,7 @@ void main() {
     vec3 lp = vec3(float(int(w & 127u) - 64), float(int((w >> 7) & 127u) - 64), float(int((w >> 14) & 127u) - 64)) * 0.5;
     uint ni = (w >> 21) & 7u;
     vec4 q; vec3 t;
-    if (draw.y == 0u) {
+    if (draw.y == 0u || (floatBitsToUint(s.b.w) & REF_GIB) != 0u) {
         q = normalize(vec4(unpackHalf2x16(s.a.x), unpackHalf2x16(s.a.y)));
         t = s.b.xyz;
     } else {
@@ -48,7 +49,7 @@ void main() {
         vec4 qs[10]; vec3 ts[10];
         float yaw;
         if ((ref & REF_CORPSE) != 0u) {
-            Corpse c = corpses[ref & ~REF_CORPSE];
+            Corpse c = corpses[ref & REF_INDEX];
             uint k = (c.info.z >> 8) % CORPSE_POSES;
             qs[slot] = poseLib[(k * 10u + slot) * 2u]; ts[slot] = poseLib[(k * 10u + slot) * 2u + 1u].xyz;
             yaw = c.pos.w;
@@ -57,6 +58,7 @@ void main() {
             PoseInput p;
             p.anim = uint(dparams.z); p.state = a.info.x & 0xFFu; p.speed = length(a.vel.xz); p.phase = a.vel.w;
             p.prone = clamp(a.pos.w, 0.0, 1.0); p.blocked = a.prev.w; p.timer = a.dirs.w; p.vary = agentVary(a); p.time = dparams.y;
+            poseTumble(p, a.dirs, a.vel.xyz);
             applyForcedPosture(p);
             vec3 E[10]; float bob, tilt, roll;
             animTargets(p, E, bob, tilt, roll);
@@ -72,6 +74,6 @@ void main() {
     vRest = lp + ZP_PIVOT[slot];
     vAO = AOV[(w >> 24) & 3u];
     int fam = ZP_SLOT_FAMILY[slot];
-    vInfo = uvec4((w >> 26) & 31u, s.a.w, ni | ((fam == 4 || fam == 5) ? 8u : 0u), meshId);
+    vInfo = uvec4((w >> 26) & 31u, s.a.w, ni | ((fam == 4 || fam == 5) ? 8u : 0u) | (slot << 4) | ((s.a.z >> 16) << 8), meshId);
     gl_Position = viewProj * vec4(vWorld, 1.0);
 }

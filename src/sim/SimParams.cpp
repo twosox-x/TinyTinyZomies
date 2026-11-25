@@ -33,6 +33,7 @@ std::map<std::string, Field>& fields() {
     F(navDensityWeight); F(navClimbWeight); F(navClimbLimit); F(goalRadius); F(navIterationsPerStep);
     F(explosionRadius); F(explosionStrength); F(explosionLethality); F(explosionUpBias);
     F(lookRecent); F(lookClothed); F(lookLight); F(lookHeavy); F(lookSkeletal); F(lookMissing);
+    B(goreEnabled); F(bloodAmount); F(dismemberChance); F(gibThreshold); F(tumbleDamping); F(particleCapacity); F(gibCapacity);
 #undef F
 #undef B
     return f;

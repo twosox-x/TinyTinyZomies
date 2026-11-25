@@ -1,0 +1,260 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+// Implementation of signed integer mod accurate to SPIR-V specification
+template<typename Tx, typename Ty>
+inline Tx spvSMod(Tx x, Ty y)
+{
+    Tx remainder = x - y * (x / y);
+    return select(Tx(remainder + y), remainder, remainder == 0 || (x >= 0) == (y >= 0));
+}
+
+struct Particle
+{
+    float4 pos;
+    float4 vel;
+};
+
+struct PList
+{
+    uint plist[1];
+};
+
+struct Particle_1
+{
+    float4 pos;
+    float4 vel;
+};
+
+struct Particles
+{
+    Particle_1 particles[1];
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+};
+
+constant spvUnsafeArray<int3, 24> _180 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _188 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
+constant spvUnsafeArray<float3, 6> _443 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    float3 vNormal [[user(locn1)]];
+    float4 vColor [[user(locn2)]];
+    float4 gl_Position [[position]];
+};
+
+static inline __attribute__((always_inline))
+float ptType(thread const Particle& p)
+{
+    return floor(p.vel.w);
+}
+
+static inline __attribute__((always_inline))
+float ptSize(thread const Particle& p)
+{
+    return fract(p.vel.w);
+}
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float4 qaxis(thread const float3& axis, thread const float& ang)
+{
+    return float4(axis * sin(ang * 0.5), cos(ang * 0.5));
+}
+
+static inline __attribute__((always_inline))
+float3 qrot(thread const float4& q, thread const float3& v)
+{
+    float3 t = cross(q.xyz, v) * 2.0;
+    return (v + (t * q.w)) + cross(q.xyz, t);
+}
+
+vertex main0_out main0(constant Frame& _248 [[buffer(0)]], const device Particles& _141 [[buffer(1)]], const device PList& _128 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    uint idx = _128.plist[int(gl_InstanceIndex)];
+    Particle pt;
+    pt.pos = _141.particles[idx].pos;
+    pt.vel = _141.particles[idx].vel;
+    Particle param = pt;
+    uint type = uint(ptType(param));
+    Particle param_1 = pt;
+    float size = ptSize(param_1);
+    float life = pt.pos.w;
+    int f = int(gl_VertexIndex) / 6;
+    float3 c = float3(_180[(f * 4) + _188[spvSMod(int(gl_VertexIndex), 6)]]) - float3(0.5);
+    uint param_2 = idx * 2654435761u;
+    float h = hash01(param_2);
+    float _215;
+    if (type == 0u)
+    {
+        _215 = 0.0;
+    }
+    else
+    {
+        _215 = (type == 3u) ? 9.0 : 2.0;
+    }
+    float spin = _215;
+    float3 param_3 = fast::normalize(float3(h - 0.5, 0.699999988079071044921875, fract(h * 13.69999980926513671875) - 0.5));
+    float param_4 = (h * 6.283100128173828125) + ((_248.camPos.w * spin) * (h - 0.5));
+    float4 q = qaxis(param_3, param_4);
+    float emissive = 0.0;
+    float3 scale3 = float3(size);
+    float3 col;
+    if (type == 0u)
+    {
+        col = mix(float3(0.054999999701976776123046875, 0.00200000009499490261077880859375, 0.0040000001899898052215576171875), float3(0.10999999940395355224609375, 0.0040000001899898052215576171875, 0.008000000379979610443115234375), float3(fract(h * 7.30000019073486328125)));
+        float sp = length(pt.vel.xyz);
+        if (sp > 2.0)
+        {
+            float3 d = pt.vel.xyz / float3(sp);
+            q = float4(fast::normalize(cross(float3(0.0, 1.0, 0.0), d) + float3(9.9999997473787516355514526367188e-05, 0.0, 0.0)) * sin(0.5 * acos(fast::clamp(d.y, -1.0, 1.0))), cos(0.5 * acos(fast::clamp(d.y, -1.0, 1.0))));
+            scale3.y *= (1.0 + fast::min(sp * 0.07999999821186065673828125, 0.800000011920928955078125));
+        }
+    }
+    else
+    {
+        if (type == 1u)
+        {
+            float k = fast::clamp(life / 0.60000002384185791015625, 0.0, 1.0);
+            col = mix(float3(1.60000002384185791015625, 0.25, 0.02999999932944774627685546875), float3(5.0, 3.2000000476837158203125, 0.89999997615814208984375), float3(k * k)) * (0.699999988079071044921875 + (0.60000002384185791015625 * h));
+            emissive = 1.0;
+            scale3 *= (0.3499999940395355224609375 + (0.89999997615814208984375 * k));
+        }
+        else
+        {
+            if (type == 2u)
+            {
+                col = float3(0.0500000007450580596923828125, 0.04500000178813934326171875, 0.0500000007450580596923828125) * (0.699999988079071044921875 + (0.60000002384185791015625 * h));
+                scale3 *= (1.0 + (0.4000000059604644775390625 * fast::clamp(1.0 - (life / 2.2000000476837158203125), 0.0, 1.0)));
+                scale3 *= fast::clamp(life * 2.0, 0.0, 1.0);
+            }
+            else
+            {
+                if (type == 3u)
+                {
+                    col = float3(0.0500000007450580596923828125, 0.048000000417232513427734375, 0.054999999701976776123046875) * (0.699999988079071044921875 + (0.60000002384185791015625 * h));
+                    scale3 *= fast::clamp(life * 2.0, 0.0, 1.0);
+                }
+                else
+                {
+                    col = float3(6.0, 4.0, 1.5);
+                    emissive = 1.0;
+                    scale3 *= fast::clamp(life * 4.0, 0.0, 1.0);
+                }
+            }
+        }
+    }
+    float4 param_5 = q;
+    float3 param_6 = c * scale3;
+    out.vWorld = pt.pos.xyz + qrot(param_5, param_6);
+    float4 param_7 = q;
+    float3 param_8 = _443[f];
+    out.vNormal = qrot(param_7, param_8);
+    out.vColor = float4(col, emissive);
+    out.gl_Position = _248.viewProj * float4(out.vWorld, 1.0);
+    return out;
+}
+

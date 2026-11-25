@@ -8,6 +8,21 @@ layout(std430, set = 2, binding = 1) readonly buffer CorpseH { int corpseH[]; };
 layout(std430, set = 2, binding = 2) readonly buffer Density { vec4 density[]; };
 layout(std430, set = 2, binding = 3) readonly buffer NavDir  { vec2 navDir[]; };
 layout(std430, set = 2, binding = 4) readonly buffer NavDist { float navDist[]; };
+layout(std430, set = 2, binding = 5) readonly buffer Decals  { uint decals[]; };   // blood, wall blood, scorch (gore.glsl)
+layout(std430, set = 2, binding = 6) readonly buffer ShadowH { float shadowH[]; };
+#include "shadow.glsl"
+// decal value with bilinear filtering (organic splat edges instead of 25 cm squares)
+float decalAt(ivec2 c, uint layer) {
+    ivec2 d = ivec2(gridDim.xy) * 3;
+    if (c.x < 0 || c.y < 0 || c.x >= d.x || c.y >= d.y) return 0.0;
+    return float(decals[layer * uint(d.x * d.y) + uint(c.y) * uint(d.x) + uint(c.x)]);
+}
+float decalBilinear(vec2 xz, uint layer) {
+    vec2 g = (xz - gridP.xy) * gridP.w * 3.0 - 0.5;
+    ivec2 c0 = ivec2(floor(g));
+    vec2 f = g - vec2(c0);
+    return mix(mix(decalAt(c0, layer), decalAt(c0 + ivec2(1, 0), layer), f.x), mix(decalAt(c0 + ivec2(0, 1), layer), decalAt(c0 + ivec2(1, 1), layer), f.x), f.y);
+}
 layout(location = 0) in vec3 vWorld;
 layout(location = 0) out vec4 outColor;
 
@@ -96,12 +111,23 @@ void main() {
         float ring = smoothstep(0.25, 0.0, abs(r - 4.0)) * (0.6 + 0.4 * sin(camPos.w * 4.0));
         overlay = mix(overlay, vec3(0.2, 1.0, 0.4), ring); overlayA = max(overlayA, ring);
     }
-    // explosion scorch + shock ring
+    // persistent scorch marks and blood (written by the gore simulation)
+    float scorch = decalBilinear(xz, 2u) / 255.0;
+    float sn = hash12(floor(xz * 6.0));
+    albedo *= 1.0 - 0.85 * smoothstep(0.15, 0.6, scorch + (sn - 0.5) * 0.3);
+    float bloodAmt = decalBilinear(xz, 0u);
+    float bn = hash12(floor(xz * 8.0)) * 0.5 + hash12(floor(xz * 3.0)) * 0.5;
+    float bloodCov = smoothstep(0.45, 0.6, bloodAmt / 160.0 + (bn - 0.5) * 0.55);
+    if (bloodCov > 0.0) {
+        vec3 bc = mix(vec3(0.30, 0.012, 0.02), vec3(0.15, 0.005, 0.01), smoothstep(200.0, 900.0, bloodAmt));
+        albedo = mix(albedo, bc, bloodCov * 0.92);
+        wet = max(wet, bloodCov);
+    }
+    // explosion shock ring
     vec3 emissive = vec3(0.0);
     for (int i = 0; i < MAX_BLASTS; ++i) {
         if (blasts[i].w < 0.0) continue;
         float r = length(xz - blasts[i].xz);
-        albedo *= mix(1.0, 0.35, smoothstep(4.0, 1.0, r));
         float age = blasts[i].w;
         if (age < 0.8) {
             float front = age * 18.0;
@@ -111,7 +137,7 @@ void main() {
     }
     albedo = pow(albedo, vec3(2.2)) * 2.0;
     vec3 N = vec3(0.0, 1.0, 0.0);
-    vec3 col = shade(albedo, N, vWorld, ao);
+    vec3 col = shadeV(albedo, N, vWorld, ao, moonVisibility(vWorld, N));
     // fake wet reflections of the street lights
     vec3 V = normalize(camPos.xyz - vWorld);
     for (uint i = 0u; i < gridDim.z; ++i) {

@@ -17,6 +17,8 @@ layout(location = 0) out vec4 outColor;
 // geometry level 3: merged faces span several materials; the voxel behind each fragment decides
 layout(std430, set = 2, binding = 0) readonly buffer MeshVox { uvec4 meshVox[]; };   // tag byte offset, min*2+128, dims
 layout(std430, set = 2, binding = 1) readonly buffer VoxTags { uint voxTags[]; };
+layout(std430, set = 2, binding = 2) readonly buffer ShadowH { float shadowH[]; };
+#include "shadow.glsl"
 #define TAG_LOOKUP 31u
 
 vec3 srgbToLinear(vec3 c) { return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c)); }
@@ -87,8 +89,31 @@ void main() {
     uint tier = (look >> 22) & 3u;
     float amp = tier == 0u ? 0.0 : (tier == 1u ? 0.07 : 0.13);
     if (amp > 0.0) albedo *= 1.0 + (labHash3(ctr, ZP_SEEDS[(look >> 27) & 3u]) - 0.5) * 2.0 * amp;
+    // gore: raw flesh where a neighbouring segment was blown off (stumps and the cut ends of flying parts),
+    // blood splashes on zombies hit by explosions (bloodiness 0..3)
+    uint slot = (vInfo.z >> 4) & 15u, sev = vInfo.z >> 8;
+    if (sev != 0u) {
+        float cut = 0.0;
+        int par = (slot == 6u || slot == 8u) ? 1 : ZP_SLOT_PARENT[slot];      // legs hang from the torso's hips
+        if (par >= 0 && (sev & (1u << uint(par))) != 0u) cut = max(cut, 1.0 - length(ctr - ZP_PIVOT[slot]) / 1.4);
+        for (uint c = 0u; c < 10u; ++c)
+            if ((ZP_SLOT_PARENT[c] == int(slot) || (slot == 1u && (c == 6u || c == 8u))) && (sev & (1u << c)) != 0u)
+                cut = max(cut, 1.0 - length(ctr - ZP_PIVOT[c]) / 1.4);
+        if (cut > 0.0) {
+            float h = labHash3(ctr, 0x9E3779B9u);
+            albedo = srgbToLinear(h < 0.35 ? ZP_FIXED[TAG_BLOOD - TAG_BLOOD] : (h < 0.7 ? ZP_FIXED[TAG_MEAT - TAG_BLOOD] : ZP_FIXED[TAG_GORE - TAG_BLOOD]));
+            if (cut > 0.5 && h > 0.85) albedo = srgbToLinear(ZP_FIXED[TAG_BONE - TAG_BLOOD]);
+        }
+    }
+    uint bloodLvl = (look >> 29) & 3u;
+    if (bloodLvl > 0u) {
+        float h = labHash3(ctr, 0x5BD1E995u ^ ZP_SEEDS[(look >> 27) & 3u]);
+        float hs = labHash3(floor(ctr * 0.5) * 2.0, 0x27D4EB2Fu);                 // splashes cover small clusters
+        if (h * 0.55 + hs * 0.45 < 0.11 * float(bloodLvl))
+            albedo = srgbToLinear(h < 0.06 * float(bloodLvl) ? ZP_FIXED[TAG_BLOOD_DARK - TAG_BLOOD] : ZP_FIXED[0]);
+    }
     albedo *= vAO;
-    vec3 col = shade(albedo * 2.0, N, vWorld, 1.0);
+    vec3 col = shadeV(albedo * 2.0, N, vWorld, 1.0, moonVisibility(vWorld, N));
     vec3 V = normalize(camPos.xyz - vWorld);
     col += vec3(0.10, 0.12, 0.22) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * vAO;   // rim, as the previous renderer
     outColor = vec4(finish(col, vWorld), 1.0);

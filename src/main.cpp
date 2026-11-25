@@ -39,6 +39,7 @@ int main(int argc, char** argv) {
         const char* a = argv[i];
         auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : ""; };
         if (!std::strcmp(a, "--headless")) o.headless = true;
+        else if (!std::strcmp(a, "--trace")) o.traceEvery = std::atoi(next());
         else if (!std::strcmp(a, "--width")) o.width = b.width = std::atoi(next());
         else if (!std::strcmp(a, "--height")) o.height = b.height = std::atoi(next());
         else if (!std::strcmp(a, "--frames")) o.frames = std::atoi(next());

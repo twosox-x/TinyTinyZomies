@@ -9,7 +9,8 @@ namespace ttz {
 namespace {
 constexpr uint32_t kMaxClasses = 16;
 constexpr uint32_t kCounterWords = 48;      // CC_SIZE
-constexpr uint32_t kArgWords = 68;          // 16 classes * 4 + pose dispatch (3) + pad
+constexpr uint32_t kArgWords = 84;          // 16 classes * 5 (indexed or not) + pose dispatch (3) + pad
+constexpr uint32_t kArgStride = 5;
 constexpr uint32_t kCorpsePoses = 64;
 constexpr uint32_t kLevels = 4;
 
@@ -75,14 +76,61 @@ bool CharacterRenderer::loadAsset(const std::string& path) {
     return true;
 }
 
+// Indexed quads. The converter writes every face as two triangles (6 vertices) sharing a diagonal. Pairs are
+// re-joined into 4-vertex quads in an order where the static index pattern (0,1,2)(0,2,3) reproduces exactly
+// the same two triangles (same winding, same diagonal - Zombie Lab's AO diagonal rule is kept). With an index
+// buffer the vertex shader runs ~4 times per face instead of 6. A level whose meshes do not all pair up
+// cleanly keeps the triangle-list path.
+void CharacterRenderer::buildQuads() {
+    quadTable_.assign(meshCount_ * kLevels * 2, 0);
+    quadWords_.clear();
+    for (uint32_t level = 0; level < kLevels; ++level) {
+        bool ok = true;
+        size_t levelStart = quadWords_.size();
+        for (uint32_t m = 0; m < meshCount_ && ok; ++m) {
+            uint32_t off = levelBase_[level] + meshTable_[(m * kLevels + level) * 2], n = meshTable_[(m * kLevels + level) * 2 + 1];
+            quadTable_[(m * kLevels + level) * 2] = (uint32_t)quadWords_.size();
+            if (n % 6 != 0) { ok = false; break; }
+            for (uint32_t f = 0; f < n; f += 6) {
+                const uint32_t* t1 = &words_[off + f];
+                const uint32_t* t2 = t1 + 3;
+                bool found = false;
+                // try every rotation of both triangles: quad (x0,x1,x2,x3) with tri A = (x0,x1,x2), tri B = (x0,x2,x3)
+                for (int ab = 0; ab < 2 && !found; ++ab) {
+                    const uint32_t* A = ab ? t2 : t1;
+                    const uint32_t* B = ab ? t1 : t2;
+                    for (int ra = 0; ra < 3 && !found; ++ra)
+                        for (int rb = 0; rb < 3 && !found; ++rb) {
+                            uint32_t a0 = A[ra], a1 = A[(ra + 1) % 3], a2 = A[(ra + 2) % 3];
+                            uint32_t b0 = B[rb], b1 = B[(rb + 1) % 3], b2 = B[(rb + 2) % 3];
+                            if (a0 == b0 && a2 == b1) {
+                                quadWords_.insert(quadWords_.end(), {a0, a1, a2, b2});
+                                found = true;
+                            }
+                        }
+                }
+                if (!found) { ok = false; break; }
+            }
+            quadTable_[(m * kLevels + level) * 2 + 1] = (uint32_t)quadWords_.size() - quadTable_[(m * kLevels + level) * 2];
+        }
+        quadOK_[level] = ok;
+        if (!ok) quadWords_.resize(levelStart);
+        SDL_Log("character geometry level %u: indexed quads %s", level, ok ? "yes" : "no (triangle lists)");
+    }
+}
+
 // Size classes: draws are non-indexed with a fixed vertex count per batch, so every instance in a batch
 // costs the batch's largest mesh. Geometric classes (x1.35) bound that padding at ~35 % worst case.
 void CharacterRenderer::buildClasses() {
     for (uint32_t level = 0; level < kLevels; ++level)
-        for (int mode = 0; mode < 2; ++mode) {
-            ClassSet& cs = classes_[level][mode];
+        for (int mode = 0; mode < 2; ++mode)
+        for (int idx = 0; idx < 2; ++idx) {
+            if (idx && !quadOK_[level]) continue;
+            ClassSet& cs = classes_[level][mode][idx];
+            const uint32_t unit = idx ? 4u : 3u;       // vertices per quad / per triangle
+            const std::vector<uint32_t>& table = idx ? quadTable_ : meshTable_;
             std::vector<uint32_t> counts(meshCount_);
-            for (uint32_t m = 0; m < meshCount_; ++m) counts[m] = meshTable_[(m * kLevels + level) * 2 + 1];
+            for (uint32_t m = 0; m < meshCount_; ++m) counts[m] = table[(m * kLevels + level) * 2 + 1];
             std::vector<uint32_t> cls(meshCount_, 0);
             if (mode == 0) {
                 cs.maxVerts.assign(6, 0);
@@ -97,7 +145,7 @@ void CharacterRenderer::buildClasses() {
                 std::vector<uint32_t> bounds;
                 double b = lo;
                 while (bounds.empty() || bounds.back() < hi) {
-                    uint32_t v = (uint32_t)std::ceil(b / 3.0) * 3;
+                    uint32_t v = (uint32_t)std::ceil(b / unit) * unit;
                     if (bounds.empty() || v > bounds.back()) bounds.push_back(v);
                     b *= 1.35;
                     if (bounds.size() == kMaxClasses - 1) { bounds.push_back(hi); break; }
@@ -113,7 +161,7 @@ void CharacterRenderer::buildClasses() {
             }
             std::vector<uint32_t> info(meshCount_ * 4);
             for (uint32_t m = 0; m < meshCount_; ++m) {
-                info[m * 4 + 0] = levelBase_[level] + meshTable_[(m * kLevels + level) * 2];
+                info[m * 4 + 0] = idx ? quadTable_[(m * kLevels + level) * 2] : levelBase_[level] + meshTable_[(m * kLevels + level) * 2];
                 info[m * 4 + 1] = counts[m];
                 info[m * 4 + 2] = cls[m];
                 info[m * 4 + 3] = cs.maxVerts[cls[m]];
@@ -123,6 +171,7 @@ void CharacterRenderer::buildClasses() {
             gpu_->uploadNow(cs.meshInfo, info.data(), (uint32_t)(info.size() * 4));
             std::vector<uint32_t> ci(kMaxClasses, 0);
             for (size_t k = 0; k < cs.maxVerts.size(); ++k) ci[k] = cs.maxVerts[k];
+            if (idx) for (uint32_t v : cs.maxVerts) maxQuadIndices_ = std::max(maxQuadIndices_, v / 4 * 6);
             cs.classInfo = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ, kMaxClasses * 4, "charClassInfo");
             gpu_->uploadNow(cs.classInfo, ci.data(), kMaxClasses * 4);
         }
@@ -162,7 +211,17 @@ bool CharacterRenderer::init(GpuContext& gpu, const SimParams& p, const std::str
     std::memset(SDL_MapGPUTransferBuffer(gpu.device(), zeros_, false), 0, kCounterWords * 4);
     SDL_UnmapGPUTransferBuffer(gpu.device(), zeros_);
 
+    buildQuads();
     buildClasses();
+    if (!quadWords_.empty()) {
+        quadVerts_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(quadWords_.size() * 4), "charQuadVerts");
+        gpu.uploadNow(quadVerts_, quadWords_.data(), (uint32_t)(quadWords_.size() * 4));
+        std::vector<uint32_t> ib(maxQuadIndices_);
+        const uint32_t pat[6] = {0, 1, 2, 0, 2, 3};
+        for (uint32_t i = 0; i < maxQuadIndices_; ++i) ib[i] = (i / 6) * 4 + pat[i % 6];
+        quadIndex_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_INDEX, (uint32_t)(ib.size() * 4), "charQuadIndices");
+        gpu.uploadNow(quadIndex_, ib.data(), (uint32_t)(ib.size() * 4));
+    }
 
     // graphics pipeline: no vertex buffers (vertex pulling)
     SDL_GPUShader* vs = gpu.loadShader("character.vert", SDL_GPU_SHADERSTAGE_VERTEX);
@@ -208,8 +267,8 @@ void CharacterRenderer::shutdown() {
     if (!gpu_) return;
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
-    for (auto& lv : classes_) for (auto& cs : lv) { gpu_->releaseBuffer(cs.meshInfo); gpu_->releaseBuffer(cs.classInfo); }
-    for (auto b : {&occluders_, &meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_}) gpu_->releaseBuffer(*b);
+    for (auto& lv : classes_) for (auto& md : lv) for (auto& cs : md) { gpu_->releaseBuffer(cs.meshInfo); gpu_->releaseBuffer(cs.classInfo); }
+    for (auto b : {&occluders_, &meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_, &quadVerts_, &quadIndex_}) gpu_->releaseBuffer(*b);
     for (auto p : {pCull_, pPrefix_, pPose_, pLib_}) if (p) SDL_ReleaseGPUComputePipeline(d, p);
     if (pDraw_) SDL_ReleaseGPUGraphicsPipeline(d, pDraw_);
     if (zeros_) SDL_ReleaseGPUTransferBuffer(d, zeros_);
@@ -227,7 +286,7 @@ void CharacterRenderer::setOccluders(const std::vector<float>& b) {
 void CharacterRenderer::prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, const float viewProj[16], const float eye[3], double time,
                                 const CharacterSettings& cs) {
     if (!occluders_) setOccluders({});
-    const ClassSet& set = classes_[cs.geometryLevel][cs.classMode];
+    const ClassSet& set = classSet(cs);
     // reset counters (copy from a static zero buffer: no CPU writes per frame)
     SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
     SDL_GPUTransferBufferLocation src{zeros_, 0};
@@ -239,43 +298,49 @@ void CharacterRenderer::prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, 
     frustumPlanes(viewProj, u.planes);
     u.cparams = {scale_, (float)time, 2.0f, 0.9f};
     u.ccfg = {0, capacity_, (uint32_t)set.maxVerts.size(),
-              (cs.frustumCull ? 1u : 0u) | (cs.poseInVertexShader ? 2u : 0u) | (cs.occlusionCull && occluderCount_ ? 4u : 0u)};
-    u.ccfg2 = {cs.forcedAnim, corpseCapacity_, occluderCount_, 0};
+              (cs.frustumCull ? 1u : 0u) | (cs.poseInVertexShader ? 2u : 0u) | (cs.occlusionCull && occluderCount_ ? 4u : 0u) |
+                  (indexed(cs) ? 8u : 0u)};
+    u.ccfg2 = {cs.forcedAnim, corpseCapacity_, occluderCount_, sim.gibCapacity()};
     u.eye = {eye[0], eye[1], eye[2], 0};
     auto D = [&](SDL_GPUComputePipeline* p, std::initializer_list<SDL_GPUBuffer*> ro, std::initializer_list<SDL_GPUBuffer*> rw) {
         return Dispatch{cmd, p, ro, rw, &u, sizeof(u)};
     };
-    dispatchIndirect(D(pCull_, {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo, occluders_}, {counters_, visList_, segLocal_}),
-                     sim.indirect(), I_AGENT_DISPATCH * 4);
+    auto cullRO = {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo, occluders_, sim.gibs()};
+    dispatchIndirect(D(pCull_, cullRO, {counters_, visList_, segLocal_}), sim.indirect(), I_AGENT_DISPATCH * 4);
     u.ccfg.x = 1;
-    dispatchIndirect(D(pCull_, {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo, occluders_}, {counters_, visList_, segLocal_}),
-                     sim.indirect(), I_CORPSE_DISPATCH * 4);
+    dispatchIndirect(D(pCull_, cullRO, {counters_, visList_, segLocal_}), sim.indirect(), I_CORPSE_DISPATCH * 4);
+    u.ccfg.x = 2;                                   // flying / resting body parts
+    dispatch(D(pCull_, cullRO, {counters_, visList_, segLocal_}), (sim.gibCapacity() + 255) / 256);
     u.ccfg.x = 0;
     dispatch(D(pPrefix_, {set.classInfo}, {counters_, args_}), 1);
-    dispatchIndirect(D(pPose_, {sim.agents(), sim.corpses(), visList_, segLocal_, poseLib_, counters_}, {segInsts_}), args_, 64 * 4);
+    dispatchIndirect(D(pPose_, {sim.agents(), sim.corpses(), visList_, segLocal_, poseLib_, counters_, sim.gibs()}, {segInsts_}),
+                     args_, 80 * 4);
 }
 
 void CharacterRenderer::draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time,
                              const CharacterSettings& cs) {
-    const ClassSet& set = classes_[cs.geometryLevel][cs.classMode];
+    const ClassSet& set = classSet(cs);
+    const bool quads = indexed(cs);
     SDL_BindGPUGraphicsPipeline(pass, pDraw_);
-    SDL_GPUBuffer* vsb[7] = {segInsts_, verts_, set.meshInfo, counters_, sim.agents(), sim.corpses(), poseLib_};
+    SDL_GPUBuffer* vsb[7] = {segInsts_, quads ? quadVerts_ : verts_, set.meshInfo, counters_, sim.agents(), sim.corpses(), poseLib_};
     SDL_BindGPUVertexStorageBuffers(pass, 0, vsb, 7);
-    SDL_GPUBuffer* fsb[2] = {meshVoxBuf_, tagBuf_};
-    SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 2);
+    if (quads) { SDL_GPUBufferBinding ib{quadIndex_, 0}; SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT); }
+    SDL_GPUBuffer* fsb[3] = {meshVoxBuf_, tagBuf_, shadowField_ ? shadowField_ : tagBuf_};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 3);
     for (uint32_t c = 0; c < set.maxVerts.size(); ++c) {
         CharDraw d{};
         d.draw = {c, cs.poseInVertexShader ? 1u : 0u, 0, 0};
         d.dparams = {scale_, (float)time, (float)cs.forcedAnim, 0};
         SDL_PushGPUVertexUniformData(cmd, 1, &d, sizeof(d));
-        SDL_DrawGPUPrimitivesIndirect(pass, args_, c * 16, 1);
+        if (quads) SDL_DrawGPUIndexedPrimitivesIndirect(pass, args_, c * kArgStride * 4, 1);
+        else SDL_DrawGPUPrimitivesIndirect(pass, args_, c * kArgStride * 4, 1);
     }
 }
 
 CharacterStats CharacterRenderer::parseCounters(const uint32_t* cc) {
     CharacterStats s;
     s.visible = cc[0]; s.overflow = cc[1]; s.triangles = cc[2]; s.segments = cc[3];
-    s.visibleAgents = cc[4]; s.visibleCorpses = cc[5]; s.vsInvocations = cc[6]; s.occluded = cc[7];
+    s.visibleAgents = cc[4]; s.visibleCorpses = cc[5]; s.vsInvocations = cc[6]; s.occluded = cc[7]; s.visibleGibs = cc[8];
     return s;
 }
 

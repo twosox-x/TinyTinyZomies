@@ -197,6 +197,7 @@ void App::handleEvent(const SDL_Event& e) {
                 if (s_.tool == Tool::Explosion) {
                     s_.sim.requestExplosion(hit.x, 0.4f, hit.z);
                     s_.renderer.addBlast(hit.x, 0.4f, hit.z);
+                    s_.trauma = std::min(1.0f, s_.trauma + 0.75f);
                 } else if (s_.tool == Tool::SetGoal) {
                     s_.sim.setGoals({hit.x, hit.z});
                 } else {
@@ -258,7 +259,17 @@ void App::frame(double dt) {
         if ((uint64_t)b[0] == s.frameIndex) {
             s.sim.requestExplosion(b[1], 0.4f, b[2]);
             s.renderer.addBlast(b[1], 0.4f, b[2]);
+            if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.75f);   // no shake in headless captures
         }
+    // screen shake: offset ~ trauma^2, smooth pseudo-noise, scaled with zoom so it reads the same at any distance
+    {
+        float t = (float)s.renderTime, k = s.screenShake ? s.trauma * s.trauma : 0.f;
+        float amp = k * (0.25f + 0.012f * s.camera.distance());
+        s.camera.setShake({amp * (std::sin(t * 37.f) + 0.5f * std::sin(t * 61.f + 1.3f)),
+                           amp * 0.7f * (std::sin(t * 43.f + 2.1f) + 0.5f * std::sin(t * 71.f)),
+                           amp * (std::sin(t * 41.f + 4.2f) + 0.5f * std::sin(t * 67.f + 0.4f))});
+        s.trauma = std::max(0.f, s.trauma - (float)dt * 1.4f);
+    }
 
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(s.gpu.device());
     // fixed-timestep simulation, decoupled from rendering
@@ -339,6 +350,11 @@ int App::run(const AppOptions& opt) {
         s_.history.push((float)(dt * 1000.0));
         frame(dt);
         if (s_.opt.frames > 0 && (int)s_.frameIndex == s_.opt.frames / 2) SDL_Log("halfway: frame %d", (int)s_.frameIndex);
+        if (s_.opt.traceEvery > 0 && s_.frameIndex % (uint64_t)s_.opt.traceEvery == 0) {
+            const SimStats& st = s_.sim.stats();
+            SDL_Log("trace frame %d: live=%u airborne=%u deaths=%u corpses=%u climbing=%u", (int)s_.frameIndex, st.live, st.airborne,
+                    st.deaths, st.corpses, st.climbing);
+        }
         if (s_.opt.frames > 0 && (int)s_.frameIndex >= s_.opt.frames) {
             SDL_WaitForGPUIdle(s_.gpu.device());
             if (!s_.opt.screenshot.empty()) s_.renderer.saveScreenshot(s_.opt.screenshot);

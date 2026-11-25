@@ -77,8 +77,8 @@ void drawDebugUI(AppState& s) {
             const auto& ex = s.sim.extraReadback();
             if (ex.size() >= 7) {
                 CharacterStats st = CharacterRenderer::parseCounters(ex.data());
-                ImGui::Text("visible %u of %u (%u zombies, %u corpses)", st.visible, s.sim.stats().live + s.sim.stats().corpses,
-                            st.visibleAgents, st.visibleCorpses);
+                ImGui::Text("visible %u (%u zombies, %u corpses, %u body parts)", st.visible, st.visibleAgents, st.visibleCorpses,
+                            st.visibleGibs);
                 ImGui::Text("segments %u  triangles %.2fM  VS invocations %.2fM", st.segments, st.triangles / 1e6, st.vsInvocations / 1e6);
                 ImGui::Text("hidden behind buildings (culled): %u", st.occluded);
                 if (st.overflow) ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "render capacity exceeded: %u not drawn", st.overflow);
@@ -141,6 +141,22 @@ void drawDebugUI(AppState& s) {
             ImGui::SameLine();
             if (ImGui::Button("Random grid")) s.showcaseRequested = 2;
         }
+    }
+    if (ImGui::CollapsingHeader("Gore & effects", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::Checkbox("gore", &p.goreEnabled);
+        ImGui::SameLine();
+        ImGui::Checkbox("screen shake", &s.screenShake);
+        ImGui::SameLine();
+        ImGui::Checkbox("shadows", &s.renderSettings.shadows);
+        ImGui::SameLine();
+        ImGui::Checkbox("particles", &s.renderSettings.drawParticles);
+        ImGui::SliderFloat("blood amount", &p.bloodAmount, 0.0f, 4.0f);
+        ImGui::SliderFloat("dismemberment", &p.dismemberChance, 0.0f, 6.0f);
+        ImGui::SliderFloat("tear-apart closeness", &p.gibThreshold, 0.3f, 1.01f);
+        ImGui::SliderFloat("tumble damping", &p.tumbleDamping, 0.5f, 20.0f);
+        ImGui::Text("particles %u   limbs blown off %u   torn apart %u", st.particlesAlive, st.limbsSevered, st.tornApart);
+        ImGui::Text("body parts: %u spawned (%d kept)", st.gibsSpawned, p.gibCapacity);
+        if (ImGui::Button("Clean up blood and body parts")) s.sim.clearGore();
     }
     if (ImGui::CollapsingHeader("Simulation parameters")) {
         ImGui::SliderInt("solver iterations", &p.solverIterations, 1, 8);

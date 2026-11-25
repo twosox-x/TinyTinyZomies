@@ -12,17 +12,22 @@
 #define CC_VIS_CORPSES  5u
 #define CC_VS_INVOC     6u   // vertex shader invocations incl. size-class padding
 #define CC_OCCLUDED     7u   // characters inside the frustum but hidden behind a building
+#define CC_VIS_GIBS     8u   // visible flying / resting body parts
 #define CC_CLASS_COUNT  16u  // + class
 #define CC_CLASS_BASE   32u  // + class
 #define CC_SIZE         48u
-// charArgs layout (uint): per class 4 uints (vertexCount, instanceCount, firstVertex, firstInstance), then pose dispatch
-#define CA_POSE_DISPATCH 64u
+// charArgs layout (uint): per class 5 uints - indexed quads: (indexCount, instanceCount, firstIndex, vertexOffset,
+// firstInstance), triangle lists: (vertexCount, instanceCount, firstVertex, firstInstance, -) - then the pose dispatch
+#define CA_STRIDE 5u
+#define CA_POSE_DISPATCH 80u
 #define SEG_SKIP 0xFFFFFFFFu
 #define REF_CORPSE 0x80000000u
+#define REF_GIB    0x40000000u
+#define REF_INDEX  0x3FFFFFFFu
 
 // One visible body segment, 32 bytes: rotation (half4), world translation, mesh/slot, appearance.
 struct SegInst {
-    uvec4 a;   // x,y = packHalf2x16 quaternion, z = meshId (12) | slot << 12, w = appearance word
+    uvec4 a;   // x,y = packHalf2x16 quaternion, z = meshId (12) | slot << 12 | severed mask << 16, w = appearance word
     vec4  b;   // xyz = world translation (m), w = character reference (uint bits)
 };
 
@@ -40,17 +45,23 @@ uint slotModule(uint lx, uint ly, uint slot) {
     return lookBits(ly, 3u, 3u);
 }
 uint lookSeedVar(uint lx, uint ly) { return pcgHash((lx >> 8) ^ (ly * 2246822519u)) & 3u; }
-uint meshIdFor(uint lx, uint ly, uint slot) {
+// severed: segments blown off (AGENT Z mask); an upper arm whose forearm is gone shows Zombie Lab's gore stump
+uint meshIdForSev(uint lx, uint ly, uint slot, uint severed) {
     uint m = slotModule(lx, ly, slot);
     uint stump = 0u;
-    if (slot == 2u) stump = slotModule(lx, ly, 3u) == ZP_FOREARM_MISSING ? 1u : 0u;
-    if (slot == 4u) stump = slotModule(lx, ly, 5u) == ZP_FOREARM_MISSING ? 1u : 0u;
+    if (slot == 2u) stump = (slotModule(lx, ly, 3u) == ZP_FOREARM_MISSING || (severed & 8u) != 0u) ? 1u : 0u;
+    if (slot == 4u) stump = (slotModule(lx, ly, 5u) == ZP_FOREARM_MISSING || (severed & 32u) != 0u) ? 1u : 0u;
     uint tier = lookBits(ly, 6u, 2u), decay = lookBits(ly, 8u, 2u);
     uint deco = tier == 0u ? 0u : 1u + (tier - 1u) * 16u + decay * 4u + lookSeedVar(lx, ly);
     return ZP_SLOT_BASE[slot] + (m * ZP_SLOT_STUMPS[slot] + stump) * uint(ZP_DECO_COUNT) + deco;
 }
+uint meshIdFor(uint lx, uint ly, uint slot) { return meshIdForSev(lx, ly, slot, 0u); }
 // appearance word for the fragment shader: palette (22 bits) | tier << 22 | torso << 24 | seedVar << 27
+//                                           | bloodiness << 29 | severed piece (gib: bloody cut end) << 31
 uint appearanceWord(uint lx, uint ly) {
     return (ly >> 10) | (lookBits(ly, 6u, 2u) << 22) | (lookBits(lx, 11u, 3u) << 24) | (lookSeedVar(lx, ly) << 27);
+}
+uint appearanceWordGore(uint lx, uint ly, uint blood, bool gib) {
+    return appearanceWord(lx, ly) | (min(blood, 3u) << 29) | (gib ? 0x80000000u : 0u);
 }
 #endif

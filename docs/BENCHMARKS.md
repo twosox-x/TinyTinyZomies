@@ -139,3 +139,42 @@ Build in Release, then run each block and add the CSVs to `docs/benchmarks/` wit
 ```
 
 The second command includes the unoptimised `naive` configuration, which is very slow on lavapipe (17 s per frame at 10k) but should finish on a real GPU.
+
+## Phase 3 on the development Mac (Metal) — first real-GPU measurement
+
+Measured by the owner on a **MacBook Air** (Apple Silicon; exact chip not recorded), macOS (Darwin 25.5), Metal backend, 1920×1080, 4× MSAA, 20 measured frames, build from branch `phase3-character-integration`. Command:
+
+```bash
+./build/ttz --bench --bench-configs placeholder,final --bench-scenarios dispersed,siege,city,offscreen,corpses --bench-counts 1000,5000,10000,25000,50000 --bench-csv docs/benchmarks/mac_phase3_sweep.csv
+```
+
+`final` here is the phase-3 shipping configuration (called `phase3` in later builds).
+
+| config | scenario | zombies | visible | triangles | sim ms | char ms | draw ms | frame ms avg / p95 | FPS avg / 1 % low |
+|---|---|---|---|---|---|---|---|---|---|
+| placeholder | dispersed | 10,000 | 10,000 | 2.40 M | 0.55 | 0.03 | 6.23 | 6.9 / 17.0 | 145 / 59 |
+| placeholder | dispersed | 50,000 | 50,000 | 12.0 M | 1.07 | 0.04 | 19.90 | 21.1 / 24.6 | 47 / 41 |
+| placeholder | siege | 10,000 | 10,000 | 2.40 M | 0.67 | 0.06 | 6.03 | 6.8 / 7.0 | 146 / 143 |
+| placeholder | siege | 50,000 | 50,000 | 12.0 M | 1.18 | 0.06 | 20.10 | 21.4 / 21.5 | 47 / 46 |
+| placeholder | city | 10,000 | 10,000 | 2.40 M | 0.71 | 0.05 | 4.07 | 4.9 / 6.6 | 203 / 151 |
+| placeholder | offscreen | 50,000 | 50,000 | 12.0 M | 1.12 | 0.05 | 12.15 | 13.4 / 14.0 | 75 / 71 |
+| placeholder | corpses | 10,000 | 12,000 | 2.88 M | 0.48 | 0.02 | 6.27 | 6.8 / 7.3 | 146 / 136 |
+| final | dispersed | 1,000 | 811 | 0.16 M | 0.51 | 0.38 | 3.16 | 4.1 / 5.9 | 241 / 170 |
+| final | dispersed | 5,000 | 4,166 | 0.80 M | 0.56 | 0.41 | 5.44 | 6.5 / 6.9 | 154 / 145 |
+| **final** | **dispersed** | **10,000** | 8,316 | 1.61 M | 0.61 | 0.52 | 8.24 | **9.5 / 10.0** | **105 / 100** |
+| final | dispersed | 25,000 | 20,822 | 4.03 M | 0.73 | 0.77 | 16.28 | 17.9 / 18.0 | 56 / 56 |
+| final | dispersed | 50,000 | 41,828 | 8.09 M | 1.06 | 1.19 | 27.29 | 29.7 / 29.9 | 34 / 33 |
+| **final** | **siege** | **10,000** | 6,765 | 1.31 M | 0.69 | 0.50 | 6.63 | **7.9 / 8.1** | **126 / 123** |
+| final | siege | 25,000 | 17,447 | 3.38 M | 0.84 | 0.70 | 13.38 | 15.1 / 15.2 | 66 / 66 |
+| final | siege | 50,000 | 30,179 | 5.83 M | 1.21 | 0.96 | 19.79 | 22.1 / 22.2 | 45 / 45 |
+| final | city | 10,000 | 2,151 | 0.42 M | 0.67 | 0.37 | 3.13 | 4.3 / 4.4 | 234 / 225 |
+| final | offscreen | 50,000 | 0 | 0 | 1.14 | 0.30 | 2.32 | 3.9 / 4.1 | 258 / 243 |
+| final | corpses | 10,000 | 9,996 | 1.94 M | 0.60 | 0.53 | 9.30 | 10.5 / 11.1 | 95 / 90 |
+| final | corpses | 50,000 | 43,636 | 8.42 M | 0.49 | 1.15 | 27.80 | 29.6 / 29.8 | 34 / 34 |
+
+(The full 46-row output was pasted into the development conversation; the rows above are a subset. The CSV stays on the Mac at `docs/benchmarks/mac_phase3_sweep.csv`; please commit it.)
+
+What it shows:
+- **The phase-1 target is met with the approved characters:** 10,000 zombies at 105 FPS (dispersed) and 126 FPS (siege) at 1080p with 4× MSAA on a MacBook Air.
+- **Simulation is cheap on a real GPU:** 0.5–1.2 ms per step at every count. The lavapipe sim numbers (15–30 ms) were CPU emulation overhead.
+- **Draw time dominates.** In the open arena the approved characters cost 16–41 % more than the placeholder; behind buildings (city) and off-screen they are cheaper, thanks to culling.

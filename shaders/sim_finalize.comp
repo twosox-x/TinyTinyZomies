@@ -4,6 +4,9 @@
 // estimate, run the WALK / CLIMB / FALL / DYING state machine and convert settled bodies to corpses.
 // Writes back into agentsA so that the persistent agent array stays spatially sorted.
 #include "common.glsl"
+#define TTZ_GORE_SPAWN
+#define TTZ_GORE_DECALS
+#include "gore.glsl"
 layout(local_size_x = 256) in;
 layout(std430, set = 0, binding = 0) readonly buffer AgentsB    { Agent agentsB[]; };
 layout(std430, set = 0, binding = 1) readonly buffer PosFinal   { vec4 posFinal[]; };
@@ -13,6 +16,11 @@ layout(std430, set = 1, binding = 0) buffer AgentsA  { Agent agentsA[]; };
 layout(std430, set = 1, binding = 1) buffer Corpses  { Corpse corpses[]; };
 layout(std430, set = 1, binding = 2) buffer CorpseH  { int corpseH[]; };
 layout(std430, set = 1, binding = 3) buffer Counters { uint counters[]; };
+layout(std430, set = 1, binding = 4) buffer Particles { Particle particles[]; };
+layout(std430, set = 1, binding = 5) buffer GoreCnt   { uint gore[]; };
+layout(std430, set = 1, binding = 6) buffer Decals    { uint decals[]; };
+Gib gibs[1];   // spawnGib is not used here
+#include "gore_write.glsl"
 #define TTZ_CORPSE_WRITABLE
 #include "fields.glsl"
 
@@ -46,7 +54,7 @@ void main() {
     if (supported && v.y < 0.0 && !grounded) v.y *= 0.5;   // contact damping on top of the pile
 
     // pressure / blocked estimate: how much of the desired motion is not happening
-    vec2 desired = a.dirs.xy;
+    vec2 desired = (st == ST_WALK || st == ST_CLIMB) ? a.dirs.xy : vec2(0.0);   // FALL / DYING: dirs.xy = tumble
     float dsp2 = dot(desired, desired);
     float progress = dsp2 > 0.0025 ? clamp(dot(v.xz, desired) / dsp2, 0.0, 1.0) : 1.0;
     float blocked = mix(a.prev.w, 1.0 - progress, 1.0 - exp(-dt / 0.6));
@@ -74,6 +82,8 @@ void main() {
         if (timer <= 0.0 && supported) { st = ST_WALK; timer = 0.0; }
     } else if (st == ST_DYING) {
         timer += dt;
+        float spd = length(v);
+        bool resting = (grounded || supported) && spd < max(corpseP.z * 3.0, 1.2);
         // angle of repose: bodies do not come to rest on steep corpse slopes, they slide down first
         float hx = corpseBilinear(x.xz + vec2(0.4, 0.0)) - corpseBilinear(x.xz - vec2(0.4, 0.0));
         float hz = corpseBilinear(x.xz + vec2(0.0, 0.4)) - corpseBilinear(x.xz - vec2(0.0, 0.4));
@@ -81,19 +91,32 @@ void main() {
         float slope = length(grad);
         bool steep = slope > 0.65;
         if (steep && grounded && timer < 8.0) v.xz -= grad / max(slope, 1e-3) * min(slope, 2.0) * 4.0 * dt * 10.0;
-        bool settled = (grounded && !steep && length(v) < corpseP.z && timer > 0.35) || timer > 8.0;
-        if (settled) {
+        // Settle when at rest on the ground, or when lying still on other bodies / jammed against a wall
+        // (those used to keep tumbling for the full timeout); the timeout is the last resort.
+        bool settled = (grounded && !steep && spd < corpseP.z && timer > 0.35) || (resting && timer > 1.5) || timer > 4.0;
+        uint sevD = agentSevered(a.info.z);
+        if (settled && sevD == SEVER_ALL) {            // torn apart: nothing left to lie there, only a blood pool
+            st = ST_DEAD;
+            atomicAdd(counters[C_DEATHS_TOTAL], 1u);
+            addBloodPool(x.xz, 0.7, 120u);
+        } else if (settled) {
             st = ST_DEAD;
             atomicAdd(counters[C_DEATHS_TOTAL], 1u);
             if ((misc.w & FLAG_CORPSES) != 0u) {
-                float yaw = a.dirs.z + (vary - 0.5) * 1.5;
+                float yaw = a.dirs.z;                      // no pop: the body keeps the heading it fell with
                 vec2 fwd = vec2(sin(yaw), cos(yaw));
                 uint idx = atomicAdd(counters[C_CORPSES], 1u);
                 float h = corpseP.y;
                 Corpse cp;
                 cp.pos = vec4(x.x, ground, x.z, yaw);
-                // the corpse keeps the zombie's complete modular appearance; pose = static library entry
-                cp.info = uvec4(agentLookX(a), a.info.y, 1u | ((pcgHash(a.info.y ^ idx * 747796405u) % CORPSE_POSES) << 8), floatBitsToUint(h));
+                // the corpse keeps the zombie's complete modular appearance, missing parts and blood;
+                // pose = a static library entry lying the same way up as the body came to rest
+                bool faceUp = (int(round(abs(a.dirs.x) / 3.14159265)) & 1) == 1;   // roll near pi: on the back
+                uint k = pcgHash(a.info.y ^ idx * 747796405u) % CORPSE_POSES;
+                for (uint j = 0u; j < 8u && ((hash01(k * 8u + 9137u) > 0.5) != faceUp); ++j) k = (k + 1u) % CORPSE_POSES;
+                cp.info = uvec4(agentLookX(a), a.info.y,
+                                1u | (agentBlood(a.info.z) << 1) | (k << 8) | (sevD << 16), floatBitsToUint(h));
+                addBloodPool(x.xz, 0.35 + 0.3 * vary, agentBlood(a.info.z) > 1u ? 90u : 40u);
                 if (idx < uint(corpseP.w)) corpses[idx] = cp;
                 else atomicAdd(counters[C_CORPSE_OVERFLOW], 1u);   // height still accumulates; instance not stored
                 splatCorpse(x.xz + fwd * 0.45, h);
@@ -102,9 +125,29 @@ void main() {
         }
     }
 
-    // pose: crawl when climbing or riding the crowd, flat when falling/dying
+    // tumble (FALL / DYING): spin set by the blast, braked as soon as the body touches anything;
+    // a dying body rolls onto its back or front, never keeps spinning against walls or on the crowd
+    vec2 tumble = (st == ST_FALL || st == ST_DYING) ? a.dirs.xy : vec2(0.0);
+    if (st == ST_FALL || st == ST_DYING) {
+        bool touching = supported || aux.w >= 1.0 || aux.z > 0.5;
+        tumble.y *= exp(-dt * (touching ? goreQ.x : 0.3));
+        tumble.x += tumble.y * dt;
+        if (touching) {
+            float rest = round(tumble.x / 3.14159265) * 3.14159265;
+            tumble.x += (rest - tumble.x) * (1.0 - exp(-dt * 4.0));
+        }
+        tumble.x -= 6.2831853 * round(tumble.x / 6.2831853);
+    }
+    uint sevNow = agentSevered(a.info.z);
+    if (sevNow != 0u && st != ST_DEAD) {           // open wounds drip
+        uint rng = pcgHash(a.info.y ^ (uint(timeP.z) * 1597334677u));
+        if (rand01(rng) < dt * 4.0) spawnParticle(x + vec3(0.0, 0.9, 0.0), v * 0.5 + randDir(rng) * 0.6, 2.0, PT_BLOOD, 0.05);
+    }
+
+    // pose: crawl when climbing or riding the crowd, flat when falling/dying; no legs: crawl for good
     float proneTarget = 0.0;
     if (st == ST_CLIMB || (elev > 0.45 && supported)) proneTarget = 1.0;
+    if ((sevNow & 0x3C0u) != 0u) proneTarget = 1.0;
     if (st == ST_FALL) proneTarget = 0.6;
     if (st == ST_DYING) proneTarget = 1.0;
     float prone = mix(a.pos.w, proneTarget, 1.0 - exp(-dt * extraP.z));
@@ -127,6 +170,7 @@ void main() {
     a.prev.w = blocked;
     a.dirs.z = heading;
     a.dirs.w = timer;
+    if (st == ST_FALL || st == ST_DYING) a.dirs.xy = tumble;
     a.info.x = st | agentLookX(a);
     a.info.w = floatBitsToUint(climbTarget);
     agentsA[i] = a;

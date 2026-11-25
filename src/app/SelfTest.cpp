@@ -326,10 +326,54 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     int airborne = m.byState[ST_FALL] + m.byState[ST_DYING];
     check(airborne > 30, "explosion throws / kills agents", fmt("fall+dying=%.0f", airborne));
     check(justAfter < before * 0.6, "explosion opens a hole in the horde", fmt("near=%.0f -> %.0f", before, justAfter));
-    w.run(60 * 4);
+    w.run(60 * 2);
+    w.read();
+    m = measure(w);
+    printSummary(w, m, "2.5 s after blast");
+    {   // regression: dying bodies used to keep tumbling (spinning) for up to 8 s when jammed against walls or bodies
+        uint32_t deaths = w.counters[C_DEATHS_TOTAL];
+        int dying = m.byState[ST_DYING];
+        check(dying <= std::max(3, (int)((deaths + dying) * 0.15)), "dead bodies come to rest quickly (no endless tumbling)",
+              fmt("still tumbling at 2.5 s: %.0f of %.0f killed", dying, deaths + dying));
+    }
+    w.run(60 * 2);
     w.read();
     m = measure(w);
     printSummary(w, m, "4.5 s after blast");
+    {   // gore: severed limbs, flying body parts, blood particles, blood decals, legless crawlers
+        uint32_t g[G_COUNT];
+        w.gpu->downloadNow(w.sim.goreCounters(), g, sizeof(g));
+        std::vector<float> gibs((size_t)params.gibCapacity * 16);
+        w.gpu->downloadNow(w.sim.gibs(), gibs.data(), (uint32_t)(gibs.size() * 4));
+        int gibActive = 0, gibBad = 0, gibResting = 0;
+        for (int i = 0; i < params.gibCapacity; ++i) {
+            const float* gb = &gibs[(size_t)i * 16];
+            if (gb[7] < 0.5f) continue;
+            ++gibActive;
+            bool finite = std::isfinite(gb[0]) && std::isfinite(gb[1]) && std::isfinite(gb[2]) && std::isfinite(gb[8]);
+            float ground = w.ground(gb[0], gb[2], gb[1]);
+            if (!finite || gb[1] < ground - 0.3f) ++gibBad;
+            if (gb[7] > 1.5f) ++gibResting;
+        }
+        std::vector<uint32_t> decals(3 * w.sim.decalW() * w.sim.decalH());
+        w.gpu->downloadNow(w.sim.decals(), decals.data(), (uint32_t)(decals.size() * 4));
+        uint64_t blood = 0, scorch = 0;
+        for (uint32_t i = 0; i < w.sim.decalW() * w.sim.decalH(); ++i) { blood += decals[i]; scorch += decals[2 * w.sim.decalW() * w.sim.decalH() + i] > 0; }
+        int severedAlive = 0, leglessUpright = 0;
+        for (auto& a : w.agents) {
+            uint32_t sev = (a.info.z >> 16) & 0x3FF, st = a.info.x & 0xFF;
+            if (sev && st == ST_WALK) { ++severedAlive; if ((sev & 0x3C0) && a.pos.w < 0.5f) ++leglessUpright; }
+        }
+        std::printf("  gore: severed=%u torn apart=%u parts spawned=%u active=%d resting=%d particles spawned=%u blood=%llu scorch cells=%llu survivors with wounds=%d\n",
+                    g[G_SEVERED], g[G_GIBBED], g[G_GIB_HEAD], gibActive, gibResting, g[G_PARTICLE_HEAD], (unsigned long long)blood,
+                    (unsigned long long)scorch, severedAlive);
+        check(g[G_SEVERED] > 0 && g[G_GIB_HEAD] > 0, "explosions blow limbs off as flying body parts", fmt("severed=%.0f parts=%.0f", g[G_SEVERED], g[G_GIB_HEAD]));
+        check(gibActive > 0 && gibBad == 0, "body parts stay finite and above the ground", fmt("active=%.0f bad=%.0f", gibActive, gibBad));
+        check(gibResting > gibActive * 0.8, "body parts come to rest", fmt("resting=%.0f of %.0f", gibResting, gibActive));
+        check(g[G_PARTICLE_HEAD] > 100 && blood > 0 && scorch > 0, "blood spray lands as decals, blasts leave scorch marks",
+              fmt("particles=%.0f blood=%.0f scorch cells=%.0f", g[G_PARTICLE_HEAD], (double)blood, (double)scorch));
+        check(leglessUpright == 0, "zombies that lost a leg crawl", fmt("legless but upright: %.0f", leglessUpright));
+    }
     uint32_t corpses = std::min<uint32_t>(w.counters[C_CORPSES], params.corpseCapacity);
     int maxCorpseMm = *std::max_element(w.corpseH.begin(), w.corpseH.end());
     check(corpses > 10, "dead bodies persist as corpses", fmt("corpses=%.0f", corpses));
@@ -417,10 +461,10 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     bool charsOk = chars.init(gpu, params, std::string(TTZ_SOURCE_DIR) + "/assets/characters/zombie_parts.ttzc", 16384);
     check(charsOk, "character asset and pipelines load", "");
     if (charsOk) {
-        auto prepare = [&](V3 eye, V3 target, uint32_t anim, int level, int classMode, bool occl = false) {
+        auto prepare = [&](V3 eye, V3 target, uint32_t anim, int level, int classMode, bool occl = false, bool quads = true) {
             M4 vp = mul(perspective(0.9f, 16.f / 9.f, 0.5f, 600.f), lookAt(eye, target, {0, 1, 0}));
             CharacterSettings cs;
-            cs.forcedAnim = anim; cs.geometryLevel = level; cs.classMode = classMode; cs.occlusionCull = occl;
+            cs.forcedAnim = anim; cs.geometryLevel = level; cs.classMode = classMode; cs.occlusionCull = occl; cs.quadIndexing = quads;
             SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(gpu.device());
             float e[3] = {eye.x, eye.y, eye.z};
             chars.prepare(cmd, w.sim, vp.m, e, 1.234, cs);
@@ -440,6 +484,12 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
               fmt("segments=%.0f expected=%.0f", all.segments, expectSegs));
         CharacterStats away = prepare({-50, 5, 95}, {-50, 5, 300}, 0, 3, 1);
         check(away.visible == 0, "camera looking away culls everything", fmt("visible=%.0f", away.visible));
+        CharacterStats tri = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 3, 1, false, false);
+        check(chars.quadIndexingAvailable(3) && tri.segments == all.segments && tri.triangles == all.triangles &&
+                  all.vsInvocations < tri.vsInvocations * 0.75,
+              "indexed quads: same triangles, fewer vertex-shader invocations",
+              fmt("tris %.0f vs %.0f, invocations %.0f (quads)", all.triangles, tri.triangles, all.vsInvocations) +
+                  fmt(" vs %.0f (triangle lists)", tri.vsInvocations));
         CharacterStats fam = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 3, 0);
         check(fam.segments == all.segments && fam.triangles == all.triangles, "family batches draw the same geometry as size classes",
               fmt("tris %.0f vs %.0f", fam.triangles, all.triangles));

@@ -68,6 +68,9 @@ struct SimUniforms
     float4 lookA;
     float4 lookB;
     uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
 };
 
 struct CorpseH
@@ -127,80 +130,113 @@ struct StaticH
     float staticH[1];
 };
 
-constant spvUnsafeArray<int2, 4> _111 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
+constant spvUnsafeArray<int2, 4> _198 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
 
 static inline __attribute__((always_inline))
-uint cellIndex(thread const int2& c, constant SimUniforms& _37)
+uint cellIndex(thread const int2& c, constant SimUniforms& _126)
 {
-    return (uint(c.y) * _37.grid.x) + uint(c.x);
+    return (uint(c.y) * _126.grid.x) + uint(c.x);
 }
 
 static inline __attribute__((always_inline))
-void splatCorpse(thread const float2& xz, thread const float& heightM, constant SimUniforms& _37, device CorpseH& _164)
+void splatCorpse(thread const float2& xz, thread const float& heightM, constant SimUniforms& _126, device CorpseH& _251)
 {
-    float2 g = ((xz - _37.world.xy) * _37.world.w) - float2(0.5);
+    float2 g = ((xz - _126.world.xy) * _126.world.w) - float2(0.5);
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
-    spvUnsafeArray<float, 4> _103 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
-    spvUnsafeArray<float, 4> w = _103;
+    spvUnsafeArray<float, 4> _190 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
+    spvUnsafeArray<float, 4> w = _190;
     for (int k = 0; k < 4; k++)
     {
-        int2 c = c0 + _111[k];
-        bool _130 = c.x < 0;
-        bool _137;
-        if (!_130)
+        int2 c = c0 + _198[k];
+        bool _217 = c.x < 0;
+        bool _224;
+        if (!_217)
         {
-            _137 = c.y < 0;
+            _224 = c.y < 0;
         }
         else
         {
-            _137 = _130;
+            _224 = _217;
         }
-        bool _147;
-        if (!_137)
+        bool _234;
+        if (!_224)
         {
-            _147 = c.x >= int(_37.grid.x);
+            _234 = c.x >= int(_126.grid.x);
         }
         else
         {
-            _147 = _137;
+            _234 = _224;
         }
-        bool _157;
-        if (!_147)
+        bool _244;
+        if (!_234)
         {
-            _157 = c.y >= int(_37.grid.y);
+            _244 = c.y >= int(_126.grid.y);
         }
         else
         {
-            _157 = _147;
+            _244 = _234;
         }
-        if (_157)
+        if (_244)
         {
             continue;
         }
         int2 param = c;
-        int _179 = atomic_fetch_add_explicit((device atomic_int*)&_164.corpseH[cellIndex(param, _37)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
+        int _266 = atomic_fetch_add_explicit((device atomic_int*)&_251.corpseH[cellIndex(param, _126)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
     }
 }
 
-kernel void main0(constant SimUniforms& _37 [[buffer(0)]], device Corpses& _214 [[buffer(1)]], device Agents& _382 [[buffer(2)]], device CorpseH& _164 [[buffer(3)]], device Counters& _194 [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+uint corpseSevered(thread const uint& z)
+{
+    return (z >> uint(16)) & 1023u;
+}
+
+static inline __attribute__((always_inline))
+uint corpseBlood(thread const uint& z)
+{
+    return (z >> uint(1)) & 3u;
+}
+
+static inline __attribute__((always_inline))
+uint packAgentZ(thread const float& health, thread const uint& severed, thread const uint& blood)
+{
+    return ((as_type<uint>(half2(float2(fast::clamp(health, -60000.0, 60000.0), 0.0))) & 65535u) | ((severed & 1023u) << uint(16))) | (min(blood, 3u) << uint(26));
+}
+
+kernel void main0(constant SimUniforms& _126 [[buffer(0)]], device Corpses& _300 [[buffer(1)]], device Agents& _495 [[buffer(2)]], device CorpseH& _251 [[buffer(3)]], device Counters& _280 [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint i = gl_GlobalInvocationID.x;
-    if (i >= min(_194.counters[2], uint(_37.corpseP.w)))
+    if (i >= min(_280.counters[2], uint(_126.corpseP.w)))
     {
         return;
     }
     Corpse cp;
-    cp.pos = _214.corpses[i].pos;
-    cp.info = _214.corpses[i].info;
+    cp.pos = _300.corpses[i].pos;
+    cp.info = _300.corpses[i].info;
     if ((cp.info.z & 1u) == 0u)
     {
         return;
     }
     bool hit = false;
-    for (uint e = 0u; e < _37.counts.y; e++)
+    for (uint e = 0u; e < _126.counts.y; e++)
     {
-        if (distance(cp.pos.xyz, _37.explo[e].xyz) < (_37.explo[e].w * 0.699999988079071044921875))
+        if (distance(cp.pos.xyz, _126.explo[e].xyz) < (_126.explo[e].w * 0.699999988079071044921875))
         {
             hit = true;
             break;
@@ -210,34 +246,42 @@ kernel void main0(constant SimUniforms& _37 [[buffer(0)]], device Corpses& _214 
     {
         return;
     }
-    uint _276 = _194.counters[0];
-    uint _278 = atomic_fetch_add_explicit((device atomic_uint*)&_194.counters[1], 1u, memory_order_relaxed);
-    uint slot = _276 + _278;
-    if (slot >= _37.grid.w)
+    uint _362 = _280.counters[0];
+    uint _364 = atomic_fetch_add_explicit((device atomic_uint*)&_280.counters[1], 1u, memory_order_relaxed);
+    uint slot = _362 + _364;
+    if (slot >= _126.grid.w)
     {
         return;
     }
     cp.info.z &= 4294967294u;
-    _214.corpses[i].pos = cp.pos;
-    _214.corpses[i].info = cp.info;
+    _300.corpses[i].pos = cp.pos;
+    _300.corpses[i].info = cp.info;
     float2 fwd = float2(sin(cp.pos.w), cos(cp.pos.w));
     float2 param = cp.pos.xz + (fwd * 0.449999988079071044921875);
     float param_1 = -as_type<float>(cp.info.w);
-    splatCorpse(param, param_1, _37, _164);
+    splatCorpse(param, param_1, _126, _251);
     float2 param_2 = cp.pos.xz - (fwd * 0.449999988079071044921875);
     float param_3 = -as_type<float>(cp.info.w);
-    splatCorpse(param_2, param_3, _37, _164);
-    uint _337 = atomic_fetch_add_explicit((device atomic_uint*)&_194.counters[7], 1u, memory_order_relaxed);
+    splatCorpse(param_2, param_3, _126, _251);
+    uint _423 = atomic_fetch_add_explicit((device atomic_uint*)&_280.counters[7], 1u, memory_order_relaxed);
     Agent a;
     a.pos = float4(cp.pos.xyz + float3(0.0, 0.1500000059604644775390625, 0.0), 1.0);
     a.vel = float4(0.0);
     a.prev = float4(a.pos.xyz, 0.0);
-    a.dirs = float4(0.0, 0.0, cp.pos.w, 0.0);
-    a.info = uint4(3u | (cp.info.x & 4294967040u), cp.info.y, as_type<uint>(0.0), 0u);
-    _382.agents[slot].pos = a.pos;
-    _382.agents[slot].vel = a.vel;
-    _382.agents[slot].prev = a.prev;
-    _382.agents[slot].dirs = a.dirs;
-    _382.agents[slot].info = a.info;
+    uint k = (cp.info.z >> uint(8)) % 64u;
+    uint param_4 = (k * 8u) + 9137u;
+    float roll = (hash01(param_4) > 0.5) ? 3.1415927410125732421875 : 0.0;
+    a.dirs = float4(roll, 0.0, cp.pos.w, 0.0);
+    uint param_5 = cp.info.z;
+    uint param_6 = cp.info.z;
+    float param_7 = 0.0;
+    uint param_8 = corpseSevered(param_5);
+    uint param_9 = corpseBlood(param_6);
+    a.info = uint4(3u | (cp.info.x & 4294967040u), cp.info.y, packAgentZ(param_7, param_8, param_9), 0u);
+    _495.agents[slot].pos = a.pos;
+    _495.agents[slot].vel = a.vel;
+    _495.agents[slot].prev = a.prev;
+    _495.agents[slot].dirs = a.dirs;
+    _495.agents[slot].info = a.info;
 }
 

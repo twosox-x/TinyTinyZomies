@@ -95,7 +95,8 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
     pCorpse_ = makePipeline("corpse", "zombie", true, false, true);
     pBox_ = makePipeline("box", "box", false, true, true);
     pGround_ = makePipeline("ground", "ground", false, false, false);
-    if (!pZombie_ || !pCorpse_ || !pBox_ || !pGround_) return false;
+    pParticle_ = makePipeline("particle", "particle", false, false, true);
+    if (!pZombie_ || !pCorpse_ || !pBox_ || !pGround_ || !pParticle_) return false;
 
     zombieIndexCount_ = (uint32_t)zombie.indices.size();
     variantRows_ = zombie.variantRows;
@@ -165,15 +166,58 @@ void Renderer::setSandbox(const Sandbox& sb) {
     gpu_->releaseBuffer(boxes_);
     boxes_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(data.size() * sizeof(Vec4)), "boxes");
     gpu_->uploadNow(boxes_, data.data(), (uint32_t)(data.size() * sizeof(Vec4)));
+    buildShadowField(sb);
+}
+
+// Moon shadow height field (see shaders/include/shadow.glsl): for each cell, the highest point that a box
+// occluder hides from the moon. A ray from (x, y, z) towards the moon L hits box B iff its horizontal
+// projection enters B's footprint at some t >= 0 (entry ta) while still below the box top:
+// y + ta * L.y <= height  ->  shadowed for y <= height - ta * L.y. Each box only touches its shadow footprint.
+void Renderer::buildShadowField(const Sandbox& sb) {
+    const V3 L = normalize(V3{-0.35f, 0.8f, 0.45f});           // must match the moon direction in render()
+    const uint32_t W = (uint32_t)params_.gridW * kDecalScale, H = (uint32_t)params_.gridH * kDecalScale;
+    const float cell = params_.cellSize / kDecalScale;
+    std::vector<float> field((size_t)W * H, -1.0f);
+    for (const Box& b : sb.boxes) {
+        float reach = b.height * std::sqrt(L.x * L.x + L.z * L.z) / L.y;
+        float rx0 = std::min(b.minX, b.minX - L.x / std::sqrt(L.x * L.x + L.z * L.z) * reach);
+        float rx1 = std::max(b.maxX, b.maxX - L.x / std::sqrt(L.x * L.x + L.z * L.z) * reach);
+        float rz0 = std::min(b.minZ, b.minZ - L.z / std::sqrt(L.x * L.x + L.z * L.z) * reach);
+        float rz1 = std::max(b.maxZ, b.maxZ - L.z / std::sqrt(L.x * L.x + L.z * L.z) * reach);
+        int cx0 = std::max(0, (int)std::floor((rx0 - sandbox_.originX) / cell) - 1);
+        int cx1 = std::min((int)W - 1, (int)std::ceil((rx1 - sandbox_.originX) / cell) + 1);
+        int cz0 = std::max(0, (int)std::floor((rz0 - sandbox_.originZ) / cell) - 1);
+        int cz1 = std::min((int)H - 1, (int)std::ceil((rz1 - sandbox_.originZ) / cell) + 1);
+        for (int cz = cz0; cz <= cz1; ++cz)
+            for (int cx = cx0; cx <= cx1; ++cx) {
+                float x = sandbox_.originX + (cx + 0.5f) * cell, z = sandbox_.originZ + (cz + 0.5f) * cell;
+                float ta = 0.0f, tb = 1e9f;
+                auto slab = [&](float o, float d, float lo, float hi) {
+                    if (std::fabs(d) < 1e-6f) { if (o < lo || o > hi) tb = -1.0f; return; }
+                    float t0 = (lo - o) / d, t1 = (hi - o) / d;
+                    ta = std::max(ta, std::min(t0, t1));
+                    tb = std::min(tb, std::max(t0, t1));
+                };
+                slab(x, L.x, b.minX, b.maxX);
+                slab(z, L.z, b.minZ, b.maxZ);
+                if (ta > tb) continue;
+                float thr = b.height - ta * L.y;
+                float& f = field[(size_t)cz * W + cx];
+                f = std::max(f, thr);
+            }
+    }
+    gpu_->releaseBuffer(shadowH_);
+    shadowH_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(field.size() * 4), "moonShadowField");
+    gpu_->uploadNow(shadowH_, field.data(), (uint32_t)(field.size() * 4));
 }
 
 void Renderer::shutdown() {
     if (!gpu_) return;
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
-    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_})
+    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_, pParticle_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
-    for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_}) gpu_->releaseBuffer(*b);
+    for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_, &shadowH_}) gpu_->releaseBuffer(*b);
     for (auto t : {palette_, colorMS_, depth_, resolved_})
         if (t) SDL_ReleaseGPUTexture(d, t);
     if (nearest_) SDL_ReleaseGPUSampler(d, nearest_);
@@ -228,7 +272,7 @@ void Renderer::prepareCharacters(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t
 }
 
 uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* chars) const {
-    uint32_t n = (rs.drawGround ? 1u : 0u) + (rs.drawBoxes && boxCount_ ? 1u : 0u);
+    uint32_t n = (rs.drawGround ? 1u : 0u) + (rs.drawBoxes && boxCount_ ? 1u : 0u) + (rs.drawParticles ? 1u : 0u);
     if (rs.characterModel == 1 && chars) n += chars->drawCalls(rs.chars);
     else n += (rs.drawZombies ? 1u : 0u) + (rs.drawCorpses ? 1u : 0u);
     return n;
@@ -260,7 +304,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     }
     fu.gridP = {sandbox_.originX, sandbox_.originZ, params_.cellSize, 1.0f / params_.cellSize};
     uint32_t nl = rs.studioLighting ? 0u : (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
-    fu.gridDim = {(uint32_t)params_.gridW, (uint32_t)params_.gridH, nl, rs.debugFlags};
+    fu.gridDim = {(uint32_t)params_.gridW, (uint32_t)params_.gridH, nl,
+                  rs.debugFlags | (rs.shadows && !rs.studioLighting ? 32u : 0u)};
     fu.modelP = {(float)variantRows_, modelHeight_, params_.standHeight, params_.proneHeight};
     const auto& g = sim.goals();
     for (size_t i = 0; i + 1 < g.size() && i / 2 < 4; i += 2) fu.goals[i / 2] = {g[i], 0, g[i + 1], 1};
@@ -297,8 +342,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     // ground + debug overlays
     if (rs.drawGround) {
         SDL_BindGPUGraphicsPipeline(pass, pGround_);
-        SDL_GPUBuffer* gb[5] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist()};
-        SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 5);
+        SDL_GPUBuffer* gb[7] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist(), sim.decals(), shadowH_};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 7);
         SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
     }
 
@@ -309,13 +354,21 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_GPUBufferBinding ib{cubeIB_, 0};
         SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
         SDL_BindGPUVertexStorageBuffers(pass, 0, &boxes_, 1);
+        SDL_GPUBuffer* fb[2] = {sim.decals(), shadowH_};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 2);
         SDL_DrawGPUIndexedPrimitives(pass, 36, boxCount_, 0, 0, 0);
+    }
+    if (rs.drawParticles) {             // blood droplets, fire, smoke, debris: one indirect draw
+        SDL_BindGPUGraphicsPipeline(pass, pParticle_);
+        SDL_GPUBuffer* pb[2] = {sim.particles(), sim.particleList()};
+        SDL_BindGPUVertexStorageBuffers(pass, 0, pb, 2);
+        SDL_DrawGPUPrimitivesIndirect(pass, sim.goreCounters(), G_DRAW_ARGS * 4, 1);
     }
 
     SDL_GPUBufferBinding zvb{zombieVB_, 0};
     SDL_GPUBufferBinding zib{zombieIB_, 0};
     SDL_GPUTextureSamplerBinding pal{palette_, nearest_};
-    if (modular) chars->draw(cmd, pass, sim, time, rs.chars);
+    if (modular) { chars->setShadowField(shadowH_); chars->draw(cmd, pass, sim, time, rs.chars); }
     if (!modular && rs.drawCorpses) {
         SDL_BindGPUGraphicsPipeline(pass, pCorpse_);
         SDL_BindGPUVertexBuffers(pass, 0, &zvb, 1);

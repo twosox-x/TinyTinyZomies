@@ -11,8 +11,10 @@ namespace ttz {
 //   classes     : + vertex-count size classes (less vertex padding)
 //   culling     : + GPU frustum culling
 //   nocclusion  : + greedy by AO with per-voxel material lookup
-//   final       : + conservative occlusion culling behind buildings ("approved, after optimisation")
-//   final-posevs: final, but pose evaluated per vertex (comparison)
+//   phase3      : + conservative occlusion culling behind buildings (phase-3 result; no gore, no shadows)
+//   final-posevs: phase3, but pose evaluated per vertex (comparison)
+//   final       : phase 4 game: + indexed quads, moon shadows, gore simulation and particles
+//   final-tris  : final without indexed quads;  final-noshadow: final without moon shadows
 struct BenchOptions {
     std::vector<int> counts = {1000, 5000, 10000, 25000, 50000};
     std::vector<std::string> scenarios = {"dispersed", "siege"};

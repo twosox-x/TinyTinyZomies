@@ -27,6 +27,9 @@ struct SimUniforms
     float4 lookA;
     float4 lookB;
     uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
 };
 
 struct Dist

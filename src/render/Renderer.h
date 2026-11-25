@@ -36,6 +36,8 @@ struct RenderSettings {
     int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
     CharacterSettings chars;
     bool studioLighting = false;     // neutral sage studio (Zombie Lab comparison), no fog
+    bool shadows = true;             // moon shadows of buildings / cars / walls (precomputed height field)
+    bool drawParticles = true;       // blood, fire, smoke, debris
 };
 
 class Renderer {
@@ -66,8 +68,10 @@ private:
     GpuContext* gpu_ = nullptr;
     SDL_GPUTextureFormat swapFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUSampleCount samples_ = SDL_GPU_SAMPLECOUNT_1;
-    SDL_GPUGraphicsPipeline *pZombie_ = nullptr, *pCorpse_ = nullptr, *pBox_ = nullptr, *pGround_ = nullptr;
-    SDL_GPUBuffer *zombieVB_ = nullptr, *zombieIB_ = nullptr, *cubeVB_ = nullptr, *cubeIB_ = nullptr, *boxes_ = nullptr;
+    SDL_GPUGraphicsPipeline *pZombie_ = nullptr, *pCorpse_ = nullptr, *pBox_ = nullptr, *pGround_ = nullptr, *pParticle_ = nullptr;
+    SDL_GPUBuffer *zombieVB_ = nullptr, *zombieIB_ = nullptr, *cubeVB_ = nullptr, *cubeIB_ = nullptr, *boxes_ = nullptr,
+                  *shadowH_ = nullptr;
+    void buildShadowField(const Sandbox& sb);
     SDL_GPUTexture *palette_ = nullptr, *colorMS_ = nullptr, *depth_ = nullptr, *resolved_ = nullptr;
     SDL_GPUSampler* nearest_ = nullptr;
     uint32_t zombieIndexCount_ = 0, boxCount_ = 0, targetW_ = 0, targetH_ = 0;

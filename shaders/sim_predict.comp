@@ -3,6 +3,10 @@
 // Per agent: explosions, desired velocity from the shared flow field + density-dependent speed,
 // gravity / climbing, prediction of the new position, and the counting-sort histogram.
 #include "common.glsl"
+#include "zombie_parts.glsl"
+#include "char_common.glsl"
+#define TTZ_GORE_SPAWN
+#include "gore.glsl"
 layout(local_size_x = 256) in;
 layout(std430, set = 0, binding = 0) readonly buffer NavDir  { vec2 navDir[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Density { vec4 density[]; };
@@ -12,6 +16,10 @@ layout(std430, set = 1, binding = 0) buffer Agents    { Agent agents[]; };
 layout(std430, set = 1, binding = 1) buffer CellCount { uint cellCount[]; };
 layout(std430, set = 1, binding = 2) buffer CellLocal { uvec2 cellLocal[]; };
 layout(std430, set = 1, binding = 3) buffer Counters  { uint counters[]; };
+layout(std430, set = 1, binding = 4) buffer Particles { Particle particles[]; };
+layout(std430, set = 1, binding = 5) buffer Gibs      { Gib gibs[]; };
+layout(std430, set = 1, binding = 6) buffer GoreCnt   { uint gore[]; };
+#include "gore_write.glsl"
 #include "fields.glsl"
 
 vec2 dirAt(ivec2 c) {
@@ -27,6 +35,26 @@ vec2 sampleDir(vec2 xz) {
     return l > 1e-3 ? d / l : vec2(0.0);
 }
 float sampleDensity(vec2 xz) { return density[cellIndex(cellCoord(xz))].x; }
+
+// segments that come off together: an arm takes its forearm, a leg its shin
+uint severWithChildren(uint s) { return (s == 2u || s == 4u || s == 6u || s == 8u) ? (3u << s) : (1u << s); }
+
+// Blow segments off: one rigid body part per segment, starting at its joint in the zombie's rest pose,
+// thrown with the body's new velocity plus a random kick; a blood burst at every joint.
+void blowOff(uint mask, vec3 p, vec3 v, float yaw, float f, uint lx, uint ly, uint blood, inout uint rng) {
+    float scale = goreQ.y;
+    vec4 qy = qaxis(vec3(0.0, 1.0, 0.0), yaw);
+    for (uint s = 0u; s < 10u; ++s) {
+        if ((mask & (1u << s)) == 0u) continue;
+        vec3 joint = p + qrot(qy, ZP_PIVOT[s] * scale);
+        if ((s == 3u || s == 5u) && slotModule(lx, ly, s) == ZP_FOREARM_MISSING) continue;   // nothing there
+        vec3 kick = randDir(rng);
+        kick.y = abs(kick.y) + 0.4;
+        vec3 gv = v * (0.6 + 0.5 * rand01(rng)) + kick * (2.0 + 4.0 * f);
+        spawnGib(joint, gv, qy, randDir(rng) * (5.0 + 12.0 * f), lx, ly, s, s == 2u || s == 4u, 3u);
+        spawnBlood(joint, gv * 0.4, 2.0, 3.0 + 3.0 * f, rng);
+    }
+}
 
 void main() {
     uint i = gl_GlobalInvocationID.x;
@@ -44,8 +72,11 @@ void main() {
     vec3 p = a.pos.xyz;
     vec3 v = a.vel.xyz;
     float timer = a.dirs.w;
-    float health = uintBitsToFloat(a.info.z);
+    float health = agentHealth(a.info.z);
+    uint sev = agentSevered(a.info.z), blood = agentBlood(a.info.z);
+    vec2 tumble = (st == ST_FALL || st == ST_DYING) ? a.dirs.xy : vec2(0.0);   // roll angle, roll rate
     float vary = agentVary(a);  // stable per-agent [0,1)
+    uint lx = agentLookX(a), ly = a.info.y;
 
     // ---- explosions (only agents inside a radius do extra work) ------------
     for (uint e = 0u; e < counts.y; ++e) {
@@ -64,6 +95,32 @@ void main() {
             health -= f * f * exploP[e].y * (0.6 + 0.8 * rand01(rng));
             if (health <= 0.0) { st = ST_DYING; timer = 0.0; }
             else { st = ST_FALL; timer = max(timer, 0.4 + 1.6 * f); }
+        }
+        // ---- gore: blood, spin, severed limbs (visual; legless survivors crawl) ----
+        tumble.y += (rand01(rng) - 0.5) * 2.0 * (3.0 + 9.0 * f);     // the blast sets the body spinning
+        if (goreP.w > 0.5) {
+            spawnBlood(p + vec3(0.0, 1.1, 0.0), v * 0.3, 1.5 + 2.5 * f, 0.3 + 5.0 * f * f, rng);
+            blood = max(blood, f > 0.55 ? 3u : (f > 0.25 ? 2u : 1u));
+            uint add = 0u;
+            if (st == ST_DYING && f > goreP.z) add = SEVER_ALL;      // close to a lethal blast: torn apart
+            else {
+                float k = goreP.y * f * f * (1.0 + 0.5 * float(lookBits(ly, 8u, 2u)));   // decomposed parts come off easier
+                const uint CAND[7] = uint[7](0u, 2u, 3u, 4u, 5u, 6u, 8u);
+                const float PROB[7] = float[7](0.10, 0.22, 0.30, 0.22, 0.30, 0.12, 0.12);
+                for (int c = 0; c < 7; ++c) {
+                    uint b = severWithChildren(CAND[c]);
+                    if (((sev | add) & (1u << CAND[c])) != 0u) continue;
+                    if (rand01(rng) < k * PROB[c]) add |= b;
+                }
+            }
+            add &= ~sev;
+            if (add != 0u) {
+                if ((add & 3u) != 0u) { health = min(health, 0.0); if (st < ST_DYING) { st = ST_DYING; timer = 0.0; } }   // no head: dead
+                blowOff(add, p, v, a.dirs.z, f, lx, ly, blood, rng);
+                atomicAdd(gore[G_SEVERED], bitCount(add));
+                if ((sev | add) == SEVER_ALL) atomicAdd(gore[G_GIBBED], 1u);
+                sev |= add;
+            }
         }
     }
 
@@ -98,10 +155,10 @@ void main() {
     p += v * dt;
     a.pos.xyz = p;
     a.vel.xyz = v;
-    a.dirs.xy = desired;
+    a.dirs.xy = (st == ST_FALL || st == ST_DYING) ? tumble : desired;
     a.dirs.w = timer;
     a.info.x = st | agentLookX(a);
-    a.info.z = floatBitsToUint(health);
+    a.info.z = packAgentZ(health, sev, blood);
     agents[i] = a;
 
     uint cell = cellIndex(cellCoord(p.xz));

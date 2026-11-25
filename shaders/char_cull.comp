@@ -1,17 +1,20 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
-// Pass 1: frustum-cull zombies (mode 0) or corpses (mode 1), append visible characters and count
-// their segments per size class. Exact compaction: the local index per segment is kept for pass 3.
+// Pass 1: frustum-cull zombies (mode 0), corpses (mode 1) or flying / resting body parts (mode 2, gibs),
+// append visible characters and count their segments per size class. Exact compaction: the local index
+// per segment is kept for pass 3. Severed segments are skipped.
 #include "common.glsl"
 #include "zombie_parts.glsl"
 #include "char_common.glsl"
 #include "char_uniforms.glsl"
+#include "gore.glsl"
 layout(local_size_x = 256) in;
 layout(std430, set = 0, binding = 0) readonly buffer Agents    { Agent agents[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Corpses   { Corpse corpses[]; };
 layout(std430, set = 0, binding = 2) readonly buffer SimCount  { uint simCounters[]; };
 layout(std430, set = 0, binding = 3) readonly buffer MeshInfo  { uvec4 meshInfo[]; };
 layout(std430, set = 0, binding = 4) readonly buffer Occluders { vec4 occluders[]; };   // building boxes: min, max
+layout(std430, set = 0, binding = 5) readonly buffer Gibs      { Gib gibs[]; };
 
 // segment p0 -> p1 against an axis-aligned box (slab test)
 bool segmentHitsBox(vec3 p0, vec3 p1, vec3 bmin, vec3 bmax) {
@@ -27,19 +30,27 @@ layout(std430, set = 1, binding = 1) buffer VisList      { uint visList[]; };
 layout(std430, set = 1, binding = 2) buffer SegLocal     { uint segLocal[]; };
 void main() {
     uint i = gl_GlobalInvocationID.x;
-    bool corpse = ccfg.x == 1u;
-    vec3 pos; uint lx, ly;
-    if (!corpse) {
+    bool corpse = ccfg.x == 1u, gib = ccfg.x == 2u;
+    vec3 pos; uint lx, ly, sev = 0u, gibSlot = 0u;
+    if (gib) {
+        if (i >= ccfg2.w) return;
+        Gib g = gibs[i];
+        if (g.vel.w < 0.5) return;
+        pos = g.pos.xyz - vec3(0.0, 0.9, 0.0);     // the part's joint can sit anywhere in the body-sized bounds
+        lx = g.info.x & 0xFFFFFF00u; ly = g.info.y; gibSlot = g.info.x & 15u;
+        sev = (SEVER_ALL & ~(1u << gibSlot)) | ((g.info.x & 16u) != 0u ? (gibSlot == 2u ? 8u : 32u) : 0u);
+    } else if (!corpse) {
         if (i >= simCounters[C_LIVE]) return;
         Agent a = agents[i];
         if ((a.info.x & 0xFFu) == ST_DEAD) return;
-        pos = a.pos.xyz; lx = a.info.x & 0xFFFFFF00u; ly = a.info.y;
+        pos = a.pos.xyz; lx = a.info.x & 0xFFFFFF00u; ly = a.info.y; sev = agentSevered(a.info.z);
     } else {
         if (i >= min(simCounters[C_CORPSES], ccfg2.y)) return;
         Corpse c = corpses[i];
         if ((c.info.z & 1u) == 0u) return;
-        pos = c.pos.xyz; lx = c.info.x; ly = c.info.y;
+        pos = c.pos.xyz; lx = c.info.x; ly = c.info.y; sev = corpseSevered(c.info.z);
     }
+    if (sev == SEVER_ALL) return;                  // torn apart: only the gibs remain
     if ((ccfg.w & CF_CULL) != 0u) {
         // conservative sphere: covers reaching, climbing, flailing, lying bodies and individual segments
         vec3 ctr = pos + vec3(0.0, cparams.w, 0.0);
@@ -50,6 +61,7 @@ void main() {
         // are hidden by the SAME box. The region a convex box hides from a point is convex, so the whole
         // bounding box (and everything the character can do inside it) is hidden: no popping.
         vec3 bmin = pos + vec3(-1.1, -0.2, -1.1), bmax = pos + vec3(1.1, 2.4, 1.1);
+        if (gib) { bmin = pos + vec3(-1.0, -0.1, -1.0); bmax = pos + vec3(1.0, 1.9, 1.0); }
         vec3 centre = 0.5 * (bmin + bmax);
         vec3 e = eye.xyz;
         for (uint k = 0u; k < ccfg2.z; ++k) {
@@ -65,15 +77,16 @@ void main() {
     }
     uint vis = atomicAdd(cc[CC_VISIBLE], 1u);
     if (vis >= ccfg.y) { atomicAdd(cc[CC_OVERFLOW], 1u); return; }
-    visList[vis] = corpse ? (i | REF_CORPSE) : i;
-    atomicAdd(cc[corpse ? CC_VIS_CORPSES : CC_VIS_AGENTS], 1u);
+    visList[vis] = gib ? (i | REF_GIB) : corpse ? (i | REF_CORPSE) : i;
+    atomicAdd(cc[gib ? CC_VIS_GIBS : corpse ? CC_VIS_CORPSES : CC_VIS_AGENTS], 1u);
     uint tris = 0u, segs = 0u, invoc = 0u;
     for (uint s = 0u; s < 10u; ++s) {
-        uvec4 mi = meshInfo[meshIdFor(lx, ly, s)];
+        if ((sev & (1u << s)) != 0u) { segLocal[vis * 10u + s] = SEG_SKIP; continue; }   // blown off
+        uvec4 mi = meshInfo[meshIdForSev(lx, ly, s, sev)];
         if (mi.y == 0u) { segLocal[vis * 10u + s] = SEG_SKIP; continue; }   // missing forearm
         uint local = atomicAdd(cc[CC_CLASS_COUNT + mi.z], 1u);
         segLocal[vis * 10u + s] = (mi.z << 24) | local;
-        tris += mi.y / 3u; segs += 1u; invoc += mi.w;
+        tris += (ccfg.w & CF_QUADS) != 0u ? mi.y / 2u : mi.y / 3u; segs += 1u; invoc += mi.w;
     }
     atomicAdd(cc[CC_TRIANGLES], tris);
     atomicAdd(cc[CC_SEGMENTS], segs);

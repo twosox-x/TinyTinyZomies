@@ -134,3 +134,25 @@ Measured on lavapipe unless stated; none of this has been measured on a Mac.
 - **Render memory.** 47 MB of character buffers at 131,072 visible-character capacity, 42 MB of it segment instances. Lowering `visibleCharacterCapacity` reduces this linearly; overflow is counted and shown in the debug UI, never written out of bounds.
 - **Joint precision.** Half-float quaternions leave joint gaps of up to 0.43 mm (0.005 voxel), invisible at any zoom level in the game. Full floats would double instance bandwidth.
 - **Not measured at all:** Metal timings, the 10k @ 60 FPS target, the D3D12 backend (not built), and GPU timestamps (SDL3 GPU has no timestamp queries, so pass timings come from fences).
+
+## Phase 4: indexed quads, and the cost of gore and shadows
+
+**Indexed quads.** Each pair of triangles is re-joined into a quad: 4 shaded vertices instead of 6, using a static index pattern that reproduces the same two triangles. The geometry is unchanged: same triangles, same winding, same AO diagonal (self-test). It is done at load time, so the asset format is unchanged, and all four geometry levels pair up completely.
+
+| 5,000 zombies, final geometry (self-test, exact) | Triangles | Vertex-shader invocations |
+|---|---|---|
+| triangle lists (phase 3) | 966,530 | 3.13 M |
+| **indexed quads (phase 4)** | 966,530 | **2.09 M (−33 %)** |
+
+**Lavapipe, 10,000 zombies, 1280×720, 4× MSAA** (`benchmarks/phase4/lavapipe_10k.csv`; CPU-emulated, direction only):
+
+| Config | Dispersed frame ms | Siege frame ms | City frame ms |
+|---|---|---|---|
+| phase3 (phase-3 shipping path, no gore, no shadows) | 516 | 545 | 271 |
+| final-tris (phase 4 without quads) | 541 | 631 | 334 |
+| final-noshadow | 530 | 578 | 268 |
+| **final (phase 4: quads + shadows + gore + particles)** | **522** | **609** | **271** |
+
+- Quads save 3–4 % of the frame in the arena scenarios on lavapipe, which is fragment-bound. On Apple GPUs, vertex work and the tiler's parameter buffer scale with vertex count, so the saving may be larger. **Not measured on the Mac yet.**
+- Moon shadows cost nothing measurable (one bilinear lookup per fragment).
+- The siege includes explosions. Its extra 12 % over phase 3 is the gore: more bodies in view, particles and body parts. Gore simulation passes did not change the sim column beyond noise.

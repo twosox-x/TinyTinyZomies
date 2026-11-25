@@ -45,7 +45,14 @@ struct SimUniforms {        // std140, all vec4 members
     Vec4 lookA;       // appearance category weights: recent, clothed, light damage, heavy damage
     Vec4 lookB;       // x skeletal, y missing limb, z spawn as corpse
     UVec4 forcedLook; // x/y look bits, z = 1 to force
+    Vec4 goreP;       // x blood amount, y dismember chance, z gib threshold, w enabled
+    UVec4 goreCap;    // x particle capacity, y gib capacity, z decal grid width, w decal grid height
+    Vec4 goreQ;       // x tumble damping, y metres per voxel
 };
+// gore buffers: counters (uint) and per-element layouts (see shaders/include/gore.glsl)
+enum : uint32_t { G_PARTICLE_HEAD = 0, G_GIB_HEAD = 1, G_PARTICLES_ALIVE = 2, G_GIBS_ALIVE = 3, G_SEVERED = 4, G_GIBBED = 5,
+                  G_DRAW_ARGS = 8, G_COUNT = 16 };
+constexpr uint32_t kParticleBytes = 32, kGibBytes = 64, kDecalScale = 3;
 
 // counters buffer indices
 enum : uint32_t {

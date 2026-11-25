@@ -1,0 +1,193 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Gore physics, one pipeline, mode in misc.y:
+//   0  reset the per-step alive counters (1 thread)
+//   1  particles: blood / fire / smoke / debris / sparks; blood leaves decals where it lands
+//   2  body parts (gibs): rigid bodies that tumble, bounce off the ground and walls, bleed, then rest
+//   3  write the particle draw arguments (1 thread)
+//   4  explosion effects: fireball, smoke, debris, sparks, scorch decal (workgroup y = explosion)
+#include "common.glsl"
+#define TTZ_GORE_SPAWN
+#define TTZ_GORE_DECALS
+#include "gore.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 0, binding = 1) readonly buffer CorpseH { int corpseH[]; };
+layout(std430, set = 1, binding = 0) buffer Particles { Particle particles[]; };
+layout(std430, set = 1, binding = 1) buffer Gibs      { Gib gibs[]; };
+layout(std430, set = 1, binding = 2) buffer GoreCnt   { uint gore[]; };
+layout(std430, set = 1, binding = 3) buffer Decals    { uint decals[]; };
+layout(std430, set = 1, binding = 4) buffer PList     { uint plist[]; };
+#include "gore_write.glsl"
+#include "fields.glsl"
+
+float staticTop(vec2 xz) { return staticH[cellIndex(cellCoord(xz))]; }
+bool outsideWorld(vec2 xz) {
+    vec2 g = (xz - world.xy) * world.w;
+    return g.x < 0.0 || g.y < 0.0 || g.x >= float(grid.x) || g.y >= float(grid.y);
+}
+
+void updateParticle(uint i) {
+    Particle pt = particles[i];
+    if (pt.pos.w <= 0.0) return;
+    float dt = timeP.x;
+    uint type = uint(ptType(pt));
+    vec3 p = pt.pos.xyz, v = pt.vel.xyz;
+    float life = pt.pos.w - dt;
+    if (type == PT_FIRE || type == PT_SMOKE) {
+        v.y += (type == PT_FIRE ? 3.0 : 1.2) * dt;                   // hot gas rises
+        v *= exp(-dt * (type == PT_FIRE ? 2.5 : 1.6));
+    } else {
+        v.y -= moveP.y * dt;
+        v *= exp(-dt * (type == PT_BLOOD ? 0.25 : 0.4));
+    }
+    vec3 np = p + v * dt;
+    if (outsideWorld(np.xz)) life = 0.0;
+    float top = staticTop(np.xz);
+    bool solid = np.y < top - 0.02;
+    if (solid && type != PT_FIRE && type != PT_SMOKE) {
+        bool fromAbove = p.y >= top - 0.02;
+        if (type == PT_BLOOD) {
+            if (fromAbove) addGroundBlood(np.xz, 40u);                // roof / car top
+            else addWallBlood(p.xz, np.y);                            // splat on the wall face it hit
+        }
+        if (type == PT_DEBRIS && !fromAbove) { v.xz *= -0.3; np.xz = p.xz; }
+        else life = 0.0;
+    }
+    float ground = (np.y >= top - moveP.w ? max(top, 0.0) : 0.0) + corpseBilinear(np.xz);
+    if (np.y <= ground && life > 0.0) {
+        if (type == PT_BLOOD) { addGroundBlood(np.xz, uint(40.0 + 600.0 * ptSize(pt))); life = 0.0; }
+        else if (type == PT_DEBRIS) {
+            np.y = ground;
+            if (v.y < -2.0) { v.y *= -0.3; v.xz *= 0.6; } else { v = vec3(0.0); life = min(life, 1.5); }
+        } else np.y = ground + 0.01;
+    }
+    particles[i].pos = vec4(np, life);
+    particles[i].vel.xyz = v;
+    if (life > 0.0) {
+        uint k = atomicAdd(gore[G_PARTICLES_ALIVE], 1u);
+        if (k < goreCap.x) plist[k] = i;
+    }
+}
+
+void updateGib(uint i) {
+    Gib g = gibs[i];
+    if (g.vel.w < 0.5) return;
+    float dt = timeP.x;
+    vec3 p = g.pos.xyz, v = g.vel.xyz;
+    vec3 w = vec3(unpackHalf2x16(g.info.z), unpackHalf2x16(g.info.w).x);
+    uint rng = pcgHash(i * 9781u ^ uint(timeP.z) * 6271u);
+    bool resting = g.vel.w > 1.5;
+    // later explosions throw resting parts again (not the parts this very blast just tore off: they already
+    // carry its impulse from the body)
+    for (uint e = 0u; e < counts.y && g.pos.w > 0.0; ++e) {
+        vec3 d = p - explo[e].xyz;
+        float dist = length(d);
+        if (dist >= explo[e].w) continue;
+        float f = 1.0 - dist / explo[e].w;
+        vec3 dir = dist > 1e-3 ? d / dist : vec3(0.0, 1.0, 0.0);
+        dir.y = abs(dir.y) + exploP[e].z;
+        v += normalize(dir) * exploP[e].x * f * (0.6 + 0.8 * rand01(rng));
+        w += randDir(rng) * 14.0 * f;
+        resting = false;
+    }
+    if (resting) return;
+    v.y -= moveP.y * dt;
+    v *= exp(-dt * 0.15);                                           // a little air drag
+    float sp = length(v);
+    if (sp > 16.0) v *= 16.0 / sp;
+    vec3 np = p + v * dt;
+    // walls: undo the blocked axis and bounce (a splat of blood where it hit)
+    float top = staticTop(np.xz);
+    if (np.y < top - 0.05 && p.y < top - 0.05) {
+        bool bx = staticTop(vec2(np.x, p.z)) > p.y, bz = staticTop(vec2(p.x, np.z)) > p.y;
+        if (bx || !bz) { np.x = p.x; v.x *= -0.35; }
+        if (bz || !bx) { np.z = p.z; v.z *= -0.35; }
+        addWallBlood(p.xz, p.y + 0.2);
+        w *= 0.6;
+    }
+    if (outsideWorld(np.xz)) { gibs[i].vel.w = 0.0; return; }
+    float ground = groundHeight(np.xz, np.y) + 0.09;
+    bool onGround = np.y <= ground;
+    if (onGround) {
+        np.y = ground;
+        if (v.y < -2.0) {                                           // bounce: a splash of blood
+            addBloodPool(np.xz, 0.25, 60u);
+            spawnBlood(np, vec3(v.x, -v.y, v.z) * 0.2, 1.5, 3.0, rng);
+            v.y *= -0.3;
+            v.xz *= 0.65;
+            w = w * 0.55 + randDir(rng) * 2.0;
+        } else {
+            v.y = 0.0;
+            v.xz *= exp(-dt * 7.0);
+            w *= exp(-dt * 7.0);
+        }
+    } else if (g.pos.w < 1.2 && rand01(rng) < dt * 25.0) {        // fresh parts trail blood in flight
+        spawnParticle(np, v * 0.3 + randDir(rng) * 0.4, 2.0, PT_BLOOD, 0.04 + 0.04 * rand01(rng));
+    }
+    // integrate rotation; on the ground, settle onto the side (long axis horizontal)
+    vec4 q = g.rot;
+    q = normalize(q + 0.5 * dt * qmul(vec4(w, 0.0), q));
+    if (onGround) {
+        vec3 axis = qrot(q, vec3(0.0, 1.0, 0.0));                    // segment's long axis (rest: up)
+        vec3 tgt = normalize(vec3(axis.x, 0.0, axis.z) + vec3(1e-3, 0.0, 0.0));
+        vec3 rx = cross(axis, tgt);
+        float s = length(rx);
+        if (s > 1e-4) q = normalize(qmul(qaxis(rx / s, asin(min(s, 1.0)) * (1.0 - exp(-dt * 6.0))), q));
+    }
+    float age = g.pos.w + dt;
+    bool rest = onGround && length(v) < 0.25 && length(w) < 0.6 && age > 0.3;
+    gibs[i].pos = vec4(np, age);
+    gibs[i].vel = vec4(rest ? vec3(0.0) : v, rest ? 2.0 : 1.0);
+    gibs[i].rot = q;
+    gibs[i].info.z = packHalf2x16(w.xy);
+    gibs[i].info.w = packHalf2x16(vec2(w.z, unpackHalf2x16(g.info.w).y));
+}
+
+void explosionFx(uint e, uint t) {
+    vec3 c = explo[e].xyz;
+    uint rng = pcgHash(t * 7919u ^ e * 104729u ^ uint(timeP.z) * 31u);
+    vec3 d = randDir(rng);
+    if (t < 140u) {                                                 // fireball
+        d.y = abs(d.y);
+        spawnParticle(c + d * (0.3 + 1.2 * rand01(rng)) + vec3(0.0, 0.5, 0.0), d * (2.0 + 9.0 * rand01(rng)) + vec3(0.0, 2.0, 0.0),
+                      0.35 + 0.5 * rand01(rng), PT_FIRE, 0.25 + 0.35 * rand01(rng));
+    } else if (t < 230u) {                                          // smoke
+        d.y = abs(d.y) * 0.6 + 0.2;
+        spawnParticle(c + d * 1.2 + vec3(0.0, 0.8, 0.0), d * (1.0 + 3.5 * rand01(rng)), 0.8 + 1.4 * rand01(rng), PT_SMOKE,
+                      0.15 + 0.25 * rand01(rng));
+    } else if (t < 400u) {                                          // asphalt chunks
+        d.y = abs(d.y) + 0.5;
+        spawnParticle(c + vec3(0.0, 0.2, 0.0), normalize(d) * (5.0 + 10.0 * rand01(rng)), 4.0, PT_DEBRIS, 0.06 + 0.1 * rand01(rng));
+    } else {                                                         // sparks
+        d.y = abs(d.y) + 0.2;
+        spawnParticle(c + vec3(0.0, 0.4, 0.0), normalize(d) * (8.0 + 14.0 * rand01(rng)), 0.3 + 0.5 * rand01(rng), PT_SPARK, 0.03);
+    }
+    // scorch decal: a ragged disc
+    float cell = 1.0 / (world.w * 3.0);
+    for (uint k = t; k < 1024u; k += 512u) {
+        ivec2 o = ivec2(int(k % 32u) - 16, int(k / 32u) - 16);
+        vec2 xz = c.xz + vec2(o) * cell;
+        float r = length(vec2(o)) * cell / 3.2;
+        float n = hash01(uint(o.x * 73 + o.y * 977) ^ e * 31u + uint(timeP.z));
+        if (r < 0.75 + 0.35 * n) addScorch(xz, uint(255.0 * clamp(1.25 - r, 0.0, 1.0)));
+    }
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint mode = misc.y;
+    if (mode == 0u) { if (i == 0u) gore[G_PARTICLES_ALIVE] = 0u; return; }
+    if (mode == 1u) { if (i < goreCap.x) updateParticle(i); return; }
+    if (mode == 2u) { if (i < goreCap.y) updateGib(i); return; }
+    if (mode == 3u) {
+        if (i == 0u) {
+            gore[G_DRAW_ARGS + 0u] = 36u;
+            gore[G_DRAW_ARGS + 1u] = min(gore[G_PARTICLES_ALIVE], goreCap.x);
+            gore[G_DRAW_ARGS + 2u] = 0u;
+            gore[G_DRAW_ARGS + 3u] = 0u;
+        }
+        return;
+    }
+    if (mode == 4u && gl_WorkGroupID.y < counts.y) explosionFx(gl_WorkGroupID.y, gl_LocalInvocationID.x + 256u * gl_WorkGroupID.x);
+}

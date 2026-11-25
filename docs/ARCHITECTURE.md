@@ -107,11 +107,33 @@ Rendering runs every frame. Simulation steps accumulate real time × speed, at m
   - a radial impulse with an upward bias;
   - damage ∝ falloff² × lethality, so close agents die and outer agents are stunned (FALL).
   - Corpses inside 0.7 × radius are **reactivated**: their height contribution is subtracted, they re-enter the agent pool as DYING bodies and get thrown.
-- **DYING bodies** are full physics agents: they collide, pile and slide. A body settles only when grounded, slow, and on a corpse slope below the angle of repose (or after an 8 s timeout).
+- **DYING bodies** are full physics agents: they collide, pile and slide. A body settles when grounded, slow, and on a corpse slope below the angle of repose; or when it has lain still on other bodies / against a wall for 1.5 s; or after a 4 s timeout (phase 4; previously only the first rule plus an 8 s timeout, which left jammed bodies tumbling).
+- **Tumble (phase 4).** While FALLING or DYING, `dirs.xy` holds a roll angle and roll rate instead of the desired velocity. Blasts set the rate; it is braked hard (`tumbleDamping`, 8/s) as soon as the body touches the ground, another body or a wall, and the angle relaxes to lying on the front or back. The corpse then gets a library pose lying the same way up, with the same heading, so there is no pop. Limbs flail in proportion to speed and go limp at rest.
 - **On settling,** the body becomes a corpse instance at ground height and adds `2 × splatHeight` of fixed-point height, bilinearly splatted at its head and feet.
 - **Living agents** use `ground = static top + bilinear corpse height`, so corpse piles become ramps. Corpses are never deleted.
 - **If the instance buffer is full,** height still accumulates (gameplay effect preserved) and an overflow counter is shown in the UI.
 - **The graveyard bucket** of the counting sort removes dead agents from the live array for free.
+
+### Gore (phase 4)
+
+All on the GPU, no per-object CPU work. Buffers live in `CrowdSim` (layouts in `shaders/include/gore.glsl`):
+
+| Buffer | Size (defaults) | Content |
+|---|---|---|
+| particles | 65,536 × 32 B = 2 MB | ring buffer: blood, fire, smoke, debris, sparks |
+| particle list | 256 KB | live particle indices for the indirect draw |
+| gibs | 16,384 × 64 B = 1 MB | ring buffer of severed body parts (rigid bodies) |
+| decals | 3 × (sim grid × 3)² × 4 B = 7 MB | ground blood, wall blood height, scorch, at 25 cm |
+
+- **AGENT Z.** `info.z` now packs health (half float), a 10-bit severed-segment mask and bloodiness (0–3); the agent stays 80 bytes. Corpses carry the mask and bloodiness in their existing `info.z`.
+- **predict** (per hit): blood spray, bloodiness, tumble spin, and severing. Each limb comes off with probability ∝ dismemberChance × closeness² (decomposed limbs more easily). An arm takes its forearm, a leg its shin. Losing the head kills. A killed zombie closer than `gibThreshold` to the blast is torn apart (all 10 segments). Every severed segment spawns a gib at its joint in the rest pose, with the body's new velocity plus a kick, and a blood burst.
+- **finalize:** wounded zombies drip blood; zombies without a leg crawl (prone) for good; settling bodies leave a blood pool; torn-apart bodies leave only a pool.
+- **gore_update** (5 modes in one pipeline): explosion fireball, smoke, debris, sparks and a ragged scorch disc; particle integration (blood that hits the ground adds ground blood, blood that hits a wall raises that wall cell's splat height); gib rigid-body integration (gravity, drag, bounces with blood splashes, wall bounces with splats, blood trails in flight, settling onto their side, re-thrown by later blasts); particle draw arguments.
+- **Rendering.** Gibs go through the character pipeline as one-segment characters (cull mode 2, `REF_GIB`), so they get the exact Zombie Lab meshes and materials. The segment instance carries the severed mask; the fragment shader paints raw flesh, blood and bone within ~1.4 voxels of every joint whose neighbour is gone (stumps and the cut ends of flying parts). Bloodiness paints blood voxels. Particles are spinning voxel cubes in one indirect draw. The ground shader reads blood and scorch (bilinear, noise-thresholded); building and wall faces read the wall splat height and draw a ragged band with drips.
+
+### Moon shadows (phase 4)
+
+The static city casts shadows from the moon through a precomputed **shadow height field**: for every 25 cm cell, the height below which a box occluder hides the moon. For a ray from (x, y, z) towards the moon L, a box is hit iff the horizontal projection enters its footprint at some t ≥ 0 (entry `ta`) while still under the roof: shadowed for `y ≤ height − ta·L.y`. This is exact for boxes. It is computed once per map on the CPU, touching only each box's shadow footprint, and costs one bilinear lookup per fragment for the ground, buildings, zombies, corpses and body parts.
 
 ## Character rendering (phase 3)
 

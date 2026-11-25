@@ -104,9 +104,14 @@ std::string dataPath(const std::string& rel) {
 #endif
 }
 
-bool applyConfig(const std::string& name, RenderSettings& rs) {
+// Phase-3 ladder configurations render as phase 3 did (no indexed quads, no shadows, no gore particles,
+// gore simulation off); "final" is the current game with everything on.
+bool applyConfig(const std::string& name, RenderSettings& rs, bool& gore) {
     rs = RenderSettings{};
     CharacterSettings& c = rs.chars;
+    gore = name == "final" || name == "final-tris" || name == "final-noshadow";
+    rs.shadows = rs.drawParticles = gore;
+    c.quadIndexing = false;
     if (name == "placeholder") { rs.characterModel = 0; return true; }
     rs.characterModel = 1;
     c.occlusionCull = false;   // ladder steps before occlusion culling
@@ -117,7 +122,11 @@ bool applyConfig(const std::string& name, RenderSettings& rs) {
     if (name == "culling")      { c.geometryLevel = 2; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true;  return true; }
     c.occlusionCull = true;
     if (name == "nocclusion")   { c.geometryLevel = 3; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true; c.occlusionCull = false; return true; }
+    if (name == "phase3")       { c.geometryLevel = 3; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true;  return true; }
+    c.quadIndexing = true;
     if (name == "final")        { c.geometryLevel = 3; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true;  return true; }
+    if (name == "final-noshadow") { rs.shadows = false; return true; }
+    if (name == "final-tris")   { c.quadIndexing = false; return true; }
     if (name == "final-posevs") { c.geometryLevel = 3; c.poseInVertexShader = true;  c.classMode = 1; c.frustumCull = true;  return true; }
     return false;
 }
@@ -162,7 +171,9 @@ int runBenchmarks(const BenchOptions& o) {
 
     for (const std::string& cfgName : o.configs) {
         RenderSettings rs;
-        if (!applyConfig(cfgName, rs)) { std::printf("unknown config %s\n", cfgName.c_str()); continue; }
+        bool gore = true;
+        if (!applyConfig(cfgName, rs, gore)) { std::printf("unknown config %s\n", cfgName.c_str()); continue; }
+        sim.params().goreEnabled = gore;
         for (const std::string& scen : o.scenarios) {
             for (int count : o.counts) {
                 // ---- scenario setup

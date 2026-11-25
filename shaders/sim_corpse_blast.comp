@@ -33,7 +33,10 @@ void main() {
     a.pos = vec4(cp.pos.xyz + vec3(0.0, 0.15, 0.0), 1.0);
     a.vel = vec4(0.0);
     a.prev = vec4(a.pos.xyz, 0.0);
-    a.dirs = vec4(0.0, 0.0, cp.pos.w, 0.0);
-    a.info = uvec4(ST_DYING | (cp.info.x & 0xFFFFFF00u), cp.info.y, floatBitsToUint(0.0), 0u);   // same zombie, same look
+    uint k = (cp.info.z >> 8) % CORPSE_POSES;
+    float roll = hash01(k * 8u + 9137u) > 0.5 ? 3.14159265 : 0.0;   // keep lying the way the corpse lay (tumble state)
+    a.dirs = vec4(roll, 0.0, cp.pos.w, 0.0);
+    // same zombie: same look, missing parts and blood
+    a.info = uvec4(ST_DYING | (cp.info.x & 0xFFFFFF00u), cp.info.y, packAgentZ(0.0, corpseSevered(cp.info.z), corpseBlood(cp.info.z)), 0u);
     agents[slot] = a;
 }

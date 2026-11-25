@@ -17,9 +17,12 @@
 #define ANIM_DYING  6u
 #define ANIM_CORPSE 7u
 
+#ifndef TTZ_QUAT_HELPERS
+#define TTZ_QUAT_HELPERS
 vec4 qmul(vec4 a, vec4 b) { return vec4(a.w * b.xyz + b.w * a.xyz + cross(a.xyz, b.xyz), a.w * b.w - dot(a.xyz, b.xyz)); }
 vec3 qrot(vec4 q, vec3 v) { vec3 t = 2.0 * cross(q.xyz, v); return v + q.w * t + cross(q.xyz, t); }
 vec4 qaxis(vec3 axis, float a) { return vec4(axis * sin(0.5 * a), cos(0.5 * a)); }
+#endif
 vec4 qeulerXYZ(vec3 e) { return qmul(qmul(qaxis(vec3(1, 0, 0), e.x), qaxis(vec3(0, 1, 0), e.y)), qaxis(vec3(0, 0, 1), e.z)); }
 
 struct PoseInput {
@@ -32,7 +35,15 @@ struct PoseInput {
     float timer;     // state timer (s)
     float vary;      // stable per-zombie random
     float time;      // render time (s)
+    float roll;      // falling / dying: tumble angle (rad), integrated by the simulation
+    float flail;     // falling / dying: 0 limp (resting on something) .. 1 flying, limbs flailing
 };
+// PoseInput defaults for the new fields; character code fills them from the agent record
+void poseTumble(inout PoseInput p, vec4 dirs, vec3 vel) {
+    bool tumbling = p.state == ST_FALL || p.state == ST_DYING;
+    p.roll = (tumbling && p.state == ST_DYING) ? dirs.x : 0.0;
+    p.flail = tumbling ? smoothstep(0.8, 3.5, length(vel)) : 0.0;
+}
 
 // Previews (ANIM_* forced from the debug UI / command line) also force the matching body posture.
 void applyForcedPosture(inout PoseInput p) {
@@ -105,8 +116,9 @@ void animTargets(PoseInput p, out vec3 E[10], out float bob, out float tilt, out
         E[7].x += k * (0.4 + 0.4 * max(0.0, cos(ph)));  E[9].x += k * (0.4 + 0.4 * max(0.0, -cos(ph)));
         E[0].x += k * -0.7;
     }
-    if (wFlail > 0.0) {                                  // thrown / falling / dying: limbs flail
+    if (wFlail > 0.0) {                                  // thrown / falling / dying: limbs flail while airborne
         float ft = p.time * (3.1 + p.vary * 2.0) + p.vary * 30.0;
+        float fk = anim == ANIM_AUTO ? p.flail : 1.0;
         E[2] = vec3(-2.6 + 1.1 * sin(ft + 2.0), 0.0, 0.5 + 0.3 * sin(ft * 1.7));
         E[4] = vec3(-2.6 + 1.1 * sin(ft - 2.0), 0.0, -(0.5 + 0.3 * sin(ft * 1.7 + 1.0)));
         E[3] = vec3(-0.6 * max(0.0, sin(ft * 1.3 + 1.0)), 0.0, 0.0);
@@ -117,10 +129,16 @@ void animTargets(PoseInput p, out vec3 E[10], out float bob, out float tilt, out
         E[9] = vec3(0.3 + 0.5 * max(0.0, sin(ft - 1.0)), 0.0, 0.0);
         E[0] = vec3(0.3 * sin(ft * 0.6), 0.0, 0.0);
         E[1] = vec3(0.0, 0.0, 0.2 * sin(ft * 0.8));
+        // limp, splayed limbs once the body rests on something (matches the corpse library's poses)
+        float sgn = p.vary > 0.5 ? 1.0 : -1.0;
+        vec3 L[10] = vec3[10](vec3(0.3, 0.0, 0.25 * sgn), vec3(0.0), vec3(-2.6 + 0.4 * p.vary, 0.0, 0.45), vec3(-0.3, 0.0, 0.0),
+                              vec3(-2.75 + 0.3 * p.vary, 0.0, -0.4), vec3(-0.2, 0.0, 0.0), vec3(-0.1, 0.0, 0.3), vec3(0.3, 0.0, 0.0),
+                              vec3(-0.15, 0.0, -0.32), vec3(0.25, 0.0, 0.0));
+        for (int i = 0; i < 10; ++i) E[i] = mix(L[i], E[i], fk);
     }
     tilt = p.prone * 1.45;                               // forward onto the belly when prone / lying
-    if (anim == ANIM_DYING || (anim == ANIM_AUTO && p.state == ST_DYING))
-        roll = p.timer * (2.0 + 3.0 * p.vary) * (p.vary > 0.5 ? 1.0 : -1.0);
+    if (anim == ANIM_DYING) roll = p.timer * (2.0 + 3.0 * p.vary) * (p.vary > 0.5 ? 1.0 : -1.0);   // preview only
+    else if (anim == ANIM_AUTO && p.state == ST_DYING) roll = p.roll;                             // simulated tumble
 }
 
 // Corpse library pose k: lying face down or up, limbs splayed (static; computed once at start-up).
@@ -129,7 +147,7 @@ void corpseTargets(uint k, out vec3 E[10], out float tilt, out float roll, out f
     for (int i = 0; i < 8; ++i) v[i] = hash01(k * 8u + uint(i) + 9137u);
     roll = (v[0] > 0.5 ? 3.14159265 : 0.0) + (v[1] - 0.5) * 0.5;
     tilt = 1.45;
-    lift = v[0] > 0.5 ? 0.26 : 0.0;                      // face-up bodies rest on their back (metres)
+    lift = 0.0;                                          // face-up bodies: evaluatePose lifts by the roll (0.26 m on the back)
     E[0] = vec3(0.3, 0.0, (v[2] - 0.5) * 0.8);
     E[1] = vec3(0.0);
     E[2] = vec3(-2.8 + 0.4 * v[3], 0.0, 0.2 + 0.5 * v[4]);  E[3] = vec3(-0.5 * v[5], 0.0, 0.0);
@@ -146,6 +164,7 @@ void evaluatePose(vec3 E[10], float bob, float tilt, float roll, float prone, fl
     // body root: tilt/roll about the body centre, lowered onto the ground when lying (as the original renderer)
     vec3 c = vec3(0.0, 9.0, 0.0);                        // body centre, voxels
     vec4 qb = qmul(qaxis(vec3(1, 0, 0), tilt), qaxis(vec3(0, 0, 1), roll));
+    lift += 0.13 * (1.0 - cos(roll)) * prone;            // lying on the back: chest depth (as the corpse poses)
     vec3 tb = (-qrot(qb, c) + mix(c, vec3(0.0, 1.8, 0.0), prone)) * scale + vec3(0.0, lift, 0.0);
     // order: torso, head, uaL, faL, uaR, faR, thL, shL, thR, shR (parents before children)
     const int ORDER[10] = int[10](1, 0, 2, 3, 4, 5, 6, 7, 8, 9);

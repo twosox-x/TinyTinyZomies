@@ -26,10 +26,12 @@ struct CharacterSettings {
     bool poseInVertexShader = false;   // comparison mode: evaluate the joint hierarchy per vertex
     bool occlusionCull = true;  // conservative culling behind static buildings
     uint32_t forcedAnim = 0;    // ANIM_* override for previews (0 = from simulation state)
+    bool quadIndexing = true;   // draw faces as indexed quads (4 shaded vertices per face instead of 6)
 };
 
 struct CharacterStats {         // from the GPU counters (async in the app, exact in benchmarks)
-    uint32_t visible = 0, visibleAgents = 0, visibleCorpses = 0, overflow = 0, segments = 0, triangles = 0, vsInvocations = 0, occluded = 0;
+    uint32_t visible = 0, visibleAgents = 0, visibleCorpses = 0, overflow = 0, segments = 0, triangles = 0, vsInvocations = 0, occluded = 0,
+             visibleGibs = 0;
 };
 
 class CharacterRenderer {
@@ -41,10 +43,12 @@ public:
     void prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, const float viewProj[16], const float eye[3], double time, const CharacterSettings& cs);
     // static occluders (tall buildings and walls of the current map)
     void setOccluders(const std::vector<float>& boxesMinMax);
+    void setShadowField(SDL_GPUBuffer* b) { shadowField_ = b; }   // owned by the Renderer
     // Records the draws inside the scene render pass (frame uniforms already pushed to slot 0).
     void draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs);
 
-    uint32_t drawCalls(const CharacterSettings& cs) const { return (uint32_t)classes_[cs.geometryLevel][cs.classMode].maxVerts.size(); }
+    uint32_t drawCalls(const CharacterSettings& cs) const { return (uint32_t)classSet(cs).maxVerts.size(); }
+    bool quadIndexingAvailable(int level) const { return quadOK_[level]; }
     SDL_GPUBuffer* counters() const { return counters_; }
     SDL_GPUBuffer* segmentInstances() const { return segInsts_; }
     static CharacterStats parseCounters(const uint32_t* cc);
@@ -57,9 +61,13 @@ public:
     float metresPerVoxel() const { return scale_; }
 
 private:
+    SDL_GPUBuffer* shadowField_ = nullptr;
     struct ClassSet { std::vector<uint32_t> maxVerts; SDL_GPUBuffer* meshInfo = nullptr; SDL_GPUBuffer* classInfo = nullptr; };
     bool loadAsset(const std::string& path);
+    void buildQuads();
     void buildClasses();
+    bool indexed(const CharacterSettings& cs) const { return cs.quadIndexing && quadOK_[cs.geometryLevel]; }
+    const ClassSet& classSet(const CharacterSettings& cs) const { return classes_[cs.geometryLevel][cs.classMode][indexed(cs) ? 1 : 0]; }
 
     GpuContext* gpu_ = nullptr;
     float scale_ = 1.7f / 18.f;
@@ -71,13 +79,16 @@ private:
     std::vector<uint32_t> meshTable_;                   // [mesh*3+level]*2: offset, count
     std::vector<uint32_t> meshFamily_;
     LevelStats levelStats_[4];
-    ClassSet classes_[4][2];
+    ClassSet classes_[4][2][2];                         // [level][class mode][indexed quads]
+    std::vector<uint32_t> quadWords_, quadTable_;       // quad layout: 4 vertices per face; [mesh*4+level]*2: offset, count
+    bool quadOK_[4] = {false, false, false, false};
+    uint32_t maxQuadIndices_ = 0;
 
     SDL_GPUComputePipeline *pCull_ = nullptr, *pPrefix_ = nullptr, *pPose_ = nullptr, *pLib_ = nullptr;
     SDL_GPUGraphicsPipeline* pDraw_ = nullptr;
     SDL_GPUBuffer *verts_ = nullptr, *counters_ = nullptr, *args_ = nullptr, *visList_ = nullptr, *segLocal_ = nullptr,
                   *segInsts_ = nullptr, *poseLib_ = nullptr;
-    SDL_GPUBuffer *meshVoxBuf_ = nullptr, *tagBuf_ = nullptr, *occluders_ = nullptr;
+    SDL_GPUBuffer *meshVoxBuf_ = nullptr, *tagBuf_ = nullptr, *occluders_ = nullptr, *quadVerts_ = nullptr, *quadIndex_ = nullptr;
     uint32_t occluderCount_ = 0;
     SDL_GPUTransferBuffer* zeros_ = nullptr;
 };

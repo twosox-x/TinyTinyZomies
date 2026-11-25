@@ -21,11 +21,13 @@ vec3 pointLights(vec3 P, vec3 N) {
     }
     return c;
 }
-vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) {
+// vis: moon visibility (1 lit, 0 in a building's shadow), see shadow.glsl
+vec3 shadeV(vec3 albedo, vec3 N, vec3 P, float ao, float vis) {
     vec3 hemi = mix(groundColor.rgb, skyColor.rgb, N.y * 0.5 + 0.5) * ao;
-    vec3 moon = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0);
+    vec3 moon = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0) * vis;
     return albedo * (hemi + moon + pointLights(P, N));
 }
+vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) { return shadeV(albedo, N, P, ao, 1.0); }
 vec3 finish(vec3 col, vec3 P) {
     float d = length(P - camPos.xyz);
     float f = 1.0 - exp(-fogColor.w * d);

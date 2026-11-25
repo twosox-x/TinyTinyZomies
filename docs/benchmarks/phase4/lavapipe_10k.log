@@ -1,0 +1,27 @@
+GPU driver: vulkan, shader dir: /home/user/tinytinyzomies/build/shaders/
+loaded 45 parameters from config/sim.cfg
+loaded assets/models/zombie.glb: 480 vertices, 720 indices, texture 8x8, 8 variant rows
+character asset: 2277 segment meshes, vertices naive 1569060 / culled 558996 / greedy 331824 / voxel-material 138852
+character geometry level 0: indexed quads yes
+character geometry level 1: indexed quads yes
+character geometry level 2: indexed quads yes
+character geometry level 3: indexed quads yes
+
+backend: vulkan, 1280x720, MSAA x4, solver iterations 3, vertical on, corpses on, 15 measured frames
+| config | scenario | agents | visible | draws | triangles | sim ms | char ms | draw ms | frame ms avg / p95 / p99 | fps avg / 1% low |
+|---|---|---|---|---|---|---|---|---|---|---|
+| phase3 | dispersed | 10000 | 8335 | 10 | 1610516 | 17.60 | 4.71 | 491.79 | 516.0 / 953.9 / 953.9 | 1.94 / 1.05 |
+| phase3 | siege | 10000 | 6737 | 10 | 1304138 | 19.46 | 3.88 | 520.27 | 544.6 / 619.0 / 619.0 | 1.84 / 1.62 |
+| phase3 | city | 10000 | 2136 | 10 | 410558 | 16.97 | 1.68 | 251.61 | 270.8 / 315.7 / 315.7 | 3.69 / 3.17 |
+| final-tris | dispersed | 10000 | 8362 | 11 | 1616846 | 18.59 | 4.79 | 516.10 | 540.5 / 578.8 / 578.8 | 1.85 / 1.73 |
+| final-tris | siege | 10000 | 7401 | 11 | 1327950 | 16.18 | 3.86 | 609.65 | 630.8 / 715.5 / 715.5 | 1.59 / 1.40 |
+| final-tris | city | 10000 | 2155 | 11 | 417252 | 21.40 | 2.05 | 309.66 | 333.7 / 428.1 / 428.1 | 3.00 / 2.34 |
+| final-noshadow | dispersed | 10000 | 8363 | 11 | 1616246 | 20.47 | 5.04 | 503.78 | 529.9 / 740.4 / 740.4 | 1.89 / 1.35 |
+| final-noshadow | siege | 10000 | 7346 | 11 | 1316078 | 19.08 | 4.44 | 553.46 | 578.0 / 677.0 / 677.0 | 1.73 / 1.48 |
+| final-noshadow | city | 10000 | 2195 | 11 | 425158 | 17.95 | 1.73 | 248.11 | 268.4 / 318.5 / 318.5 | 3.73 / 3.14 |
+| final | dispersed | 10000 | 8419 | 11 | 1625410 | 16.79 | 4.75 | 499.42 | 521.5 / 581.2 / 581.2 | 1.92 / 1.72 |
+| final | siege | 10000 | 7386 | 11 | 1326814 | 17.90 | 4.02 | 585.94 | 608.8 / 732.3 / 732.3 | 1.64 / 1.37 |
+| final | city | 10000 | 2162 | 11 | 419714 | 17.78 | 1.69 | 250.78 | 270.7 / 302.3 / 302.3 | 3.69 / 3.31 |
+
+GPU buffers allocated by the engine: 118.5 MB (character asset 10.1 MB), process RSS: 572 MB
+exit=0

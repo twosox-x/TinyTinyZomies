@@ -15,6 +15,7 @@
 namespace ttz {
 
 struct AppOptions {
+    int traceEvery = 0;           // headless: log stats every N frames
     bool headless = false;
     int width = 1600, height = 900;
     std::string screenshot;       // save a PNG after `frames` frames, then exit
@@ -48,6 +49,8 @@ struct AppState {
     Renderer renderer;
     CharacterRenderer chars;
     Camera camera;
+    float trauma = 0.f;            // screen shake energy (explosions), decays over ~1 s
+    bool screenShake = true;
     Model zombieModel;
     RenderSettings renderSettings;
     AppOptions opt;

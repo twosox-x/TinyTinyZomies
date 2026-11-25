@@ -97,3 +97,37 @@ Branch `phase3-character-integration`, based on `phase1-engine-foundation`. Same
 - No Metal measurement; Mac commands are in BENCHMARKS.md.
 - D3D12 backend not built or tested.
 - Lighting differs from the Lab (engine sun and ambient vs three.js lights); geometry, materials and noise are exact.
+
+## 2026-11-25 — Phase 4: gore, game feel, fixes from the first Mac session
+
+Branch `phase4-gore-and-feel`, based on `phase3-character-integration`. The owner's first Mac session: phase 3 ran on Metal on the first try, with 10,000 zombies at 105–126 FPS (see BENCHMARKS.md). Feedback: "I hate the spinning when they are touching the walls", plus a request for blood, detachable limbs, and more satisfying, optimised and better-looking effects.
+
+### The spinning (root cause, measured)
+- A dying body's roll angle was `timer × (2..5 rad/s)`: unbounded, and its limbs flailed on a clock. A body settled only when grounded and slow, otherwise after an 8 s timeout.
+- **Measured** with the new `--trace` (city wall siege, one blast, 90 killed): about 60 bodies never met the settle rule. They lay on the crowd or jammed against the wall and kept rolling and flailing until the 8 s timeout.
+- **Fix:**
+  - The tumble is now simulated (`dirs.xy` while FALLING/DYING): blasts set the spin, contact brakes it, and the body rolls onto its front or back.
+  - Flailing scales with speed and goes limp at rest.
+  - Bodies that lie still on other bodies or against a wall settle after 1.5 s (timeout 4 s).
+  - The corpse keeps the heading and front/back side it came to rest with.
+- **Result:** the same scene settles everything within 4 s, 90 % within ~1.8 s. A regression test checks that ≤ 15 % are still tumbling 2.5 s after a blast (measured 6–11 of ~105).
+
+### Gore
+- **Data:** severed-segment mask, bloodiness and tumble state are packed into existing agent and corpse fields, so the agent is still 80 bytes. Particles, gibs and decals are GPU ring buffers and grids (ARCHITECTURE.md).
+- **Body parts:** severed parts use the exact approved segment meshes. They render through the character pipeline as one-segment characters, with raw flesh painted at the cut joints.
+- **Bug found by the new test:** parts torn off by a blast also received that blast's impulse in the gib pass of the same step. They were launched twice (up to ~36 m high) and were still in the air 4.5 s later. Fixed: parts created this step are skipped, speed is capped at 16 m/s, and a little air drag is added. 792 of 796 parts now rest after 4.5 s.
+- **Tuning from screenshots:**
+  - The first version sprayed up to 12 bright, stretched droplets per zombie hit, which looked like red rain. Now it sprays 0.3–5 dark droplets, with less stretch.
+  - Smoke puffs over 1 m looked like floating boulders, so they were made smaller and shorter-lived.
+
+### Looks and feel
+- **Moon shadows** of all static boxes come from a precomputed shadow height field: exact for boxes, one lookup per fragment.
+- **Screen shake** on explosions (interactive only; headless captures and benchmarks are unaffected).
+- **Explosions:** voxel fireball, smoke, debris, sparks, and a persistent scorch decal (replaces the 20 s fake scorch).
+
+### Optimisation
+- **Indexed quads.** Every face's two triangles are re-joined into a 4-vertex quad with an order that reproduces the same two triangles (same winding and diagonal). Each face is drawn with a static index pattern. All four geometry levels pair up completely. Vertex-shader invocations drop by 33 % (self-test: 3.13 M → 2.09 M for 5,000 zombies) with identical triangles.
+
+### Tests
+- **New checks:** bodies stop tumbling quickly; limbs come off as body parts; parts stay finite and above ground, and come to rest; blood lands as decals; blasts leave scorch; legless zombies crawl; indexed quads draw the same triangles with fewer invocations.
+- All 57 checks pass (lavapipe).
