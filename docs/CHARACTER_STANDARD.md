@@ -73,7 +73,7 @@ The decoration code is the Lab's `decorate()` itself. It runs per segment, with 
 - **Baked variants:** 33 per segment module: Low, plus Medium and High × 4 decomposition levels {0.25, 0.55, 0.75, 0.9} × 4 seeds {101, 202, 303, 404}.
 - **Continuous decomposition:** the Lab's 0–1 value is quantised to those 4 levels. The Street Walker (0.55) and Rotter (0.9) values are exact.
 - **Seeds:** the Lab draws one random seed per character; the engine picks one of the 4 baked seeds from a hash of the character's look. That one seed drives both the decoration geometry and the per-voxel noise, as in the Lab.
-- **Colour noise:** not baked. The fragment shader recomputes the Lab's `hash3` per voxel (same integer hash, same seed), so greedy-merged faces keep exact per-voxel shading.
+- **Colour noise and materials:** neither is baked into the merged geometry. The fragment shader finds the voxel behind each fragment, reads its material from the mesh's voxel grid, and recomputes the Lab's `hash3` noise for it (same integer hash, same seed). Merged faces therefore keep exact per-voxel colour.
 
 ## Appearance encoding (56 bits per zombie)
 

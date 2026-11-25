@@ -109,11 +109,14 @@ bool applyConfig(const std::string& name, RenderSettings& rs) {
     CharacterSettings& c = rs.chars;
     if (name == "placeholder") { rs.characterModel = 0; return true; }
     rs.characterModel = 1;
+    c.occlusionCull = false;   // ladder steps before occlusion culling
     if (name == "naive")        { c.geometryLevel = 0; c.poseInVertexShader = true;  c.classMode = 0; c.frustumCull = false; return true; }
     if (name == "culled")       { c.geometryLevel = 1; c.poseInVertexShader = false; c.classMode = 0; c.frustumCull = false; return true; }
     if (name == "greedy")       { c.geometryLevel = 2; c.poseInVertexShader = false; c.classMode = 0; c.frustumCull = false; return true; }
     if (name == "classes")      { c.geometryLevel = 2; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = false; return true; }
     if (name == "culling")      { c.geometryLevel = 2; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true;  return true; }
+    c.occlusionCull = true;
+    if (name == "nocclusion")   { c.geometryLevel = 3; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true; c.occlusionCull = false; return true; }
     if (name == "final")        { c.geometryLevel = 3; c.poseInVertexShader = false; c.classMode = 1; c.frustumCull = true;  return true; }
     if (name == "final-posevs") { c.geometryLevel = 3; c.poseInVertexShader = true;  c.classMode = 1; c.frustumCull = true;  return true; }
     return false;
@@ -168,6 +171,7 @@ int runBenchmarks(const BenchOptions& o) {
                 if (sb.map != map) {
                     sb.build(params.cellSize, params.gridW, params.gridH, map);
                     renderer.setSandbox(sb);
+                    chars.setOccluders(sb.occluders());
                 }
                 sim.reset(sb);
                 const Scenario& sc = sb.scenarios[city ? 3 : siege ? 5 : 4];
@@ -183,7 +187,7 @@ int runBenchmarks(const BenchOptions& o) {
                 }
                 if (siege) cam.setImmediate({sb.wallX - 15.f, 0, 0}, 0.9f, 0.75f, 70.f);
                 else if (city) cam.setImmediate({-20.f, 0, 0}, -1.45f, 0.45f, 60.f);      // along the avenue, buildings occlude
-                else if (offscreen) cam.setImmediate({sb.wallX + 20.f, 0, 60.f}, 0.2f, 0.4f, 40.f);   // looking away from the horde
+                else if (offscreen) cam.setImmediate({sb.wallX + 40.f, 0, 0.f}, -1.5708f, 0.35f, 30.f);   // behind the wall, facing away from the horde
                 else cam.setImmediate({-30.f, 0, 0}, 0.9f, 0.75f, 140.f);
                 int warm = siege ? o.warmupSiege : o.warmupDispersed;
                 if (corpses) warm = std::max(warm, 20);
@@ -229,7 +233,7 @@ int runBenchmarks(const BenchOptions& o) {
                 uint32_t tris = rs.characterModel == 1 ? cst.triangles : visible * (renderer.zombieIndexCount() / 3);
                 uint32_t invoc = rs.characterModel == 1 ? cst.vsInvocations : visible * renderer.zombieIndexCount();
                 uint32_t draws = renderer.drawCalls(rs, &chars);
-                if (city && cfgName == "final")
+                if (city && cfgName == "nocclusion")
                     std::printf("  occlusion study (city): %.1f %% of frustum-visible zombies are completely hidden by buildings\n",
                                 100.0 * occludedFraction(gpu, sim, sb, cam, (float)o.width / o.height, live));
                 double fpsAvg = 1000.0 / frameMs.avg(), fpsLow = 1000.0 / frameMs.worstAvg(0.01);

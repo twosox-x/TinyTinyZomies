@@ -50,6 +50,7 @@ struct CharUniforms
     float4 cparams;
     uint4 ccfg;
     uint4 ccfg2;
+    float4 eye;
 };
 
 struct CharCounters

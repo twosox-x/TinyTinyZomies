@@ -10,7 +10,8 @@ namespace ttz {
 //   greedy      : + lossless greedy merging
 //   classes     : + vertex-count size classes (less vertex padding)
 //   culling     : + GPU frustum culling
-//   final       : + greedy by AO with per-voxel material lookup ("approved, after optimisation")
+//   nocclusion  : + greedy by AO with per-voxel material lookup
+//   final       : + conservative occlusion culling behind buildings ("approved, after optimisation")
 //   final-posevs: final, but pose evaluated per vertex (comparison)
 struct BenchOptions {
     std::vector<int> counts = {1000, 5000, 10000, 25000, 50000};

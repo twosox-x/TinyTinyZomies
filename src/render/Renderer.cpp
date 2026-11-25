@@ -222,7 +222,9 @@ void Renderer::prepareCharacters(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t
                                  double time, const RenderSettings& rs, CharacterRenderer* chars) {
     if (!chars || rs.characterModel != 1) return;
     M4 vp = mul(cam.proj((float)w / (float)h), cam.view());
-    chars->prepare(cmd, sim, vp.m, time, rs.chars);
+    V3 e = cam.eye();
+    float eye[3] = {e.x, e.y, e.z};
+    chars->prepare(cmd, sim, vp.m, eye, time, rs.chars);
 }
 
 uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* chars) const {

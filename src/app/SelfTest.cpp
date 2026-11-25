@@ -417,12 +417,13 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     bool charsOk = chars.init(gpu, params, std::string(TTZ_SOURCE_DIR) + "/assets/characters/zombie_parts.ttzc", 16384);
     check(charsOk, "character asset and pipelines load", "");
     if (charsOk) {
-        auto prepare = [&](V3 eye, V3 target, uint32_t anim, int level, int classMode) {
+        auto prepare = [&](V3 eye, V3 target, uint32_t anim, int level, int classMode, bool occl = false) {
             M4 vp = mul(perspective(0.9f, 16.f / 9.f, 0.5f, 600.f), lookAt(eye, target, {0, 1, 0}));
             CharacterSettings cs;
-            cs.forcedAnim = anim; cs.geometryLevel = level; cs.classMode = classMode;
+            cs.forcedAnim = anim; cs.geometryLevel = level; cs.classMode = classMode; cs.occlusionCull = occl;
             SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(gpu.device());
-            chars.prepare(cmd, w.sim, vp.m, 1.234, cs);
+            float e[3] = {eye.x, eye.y, eye.z};
+            chars.prepare(cmd, w.sim, vp.m, e, 1.234, cs);
             SDL_GPUFence* f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
             SDL_WaitForGPUFences(gpu.device(), true, &f, 1);
             SDL_ReleaseGPUFence(gpu.device(), f);
@@ -450,6 +451,70 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
                     greedy.triangles, all.triangles);
         check(greedy.segments == all.segments && all.triangles < greedy.triangles && greedy.triangles < culled.triangles,
               "each geometry level draws the same segments with fewer triangles", fmt("%.0f -> %.0f -> %.0f", culled.triangles, greedy.triangles, all.triangles));
+
+
+        // ---- occlusion culling in the city: conservative (nothing visible may be culled)
+        {
+            Sandbox city;
+            city.build(params.cellSize, params.gridW, params.gridH, MapKind::City);
+            w.sim.reset(city);
+            w.sim.setGoals({});
+            w.sim.requestSpawn(city.scenarios[3].spawns[0], 4000);
+            w.run(2);
+            w.read();
+            std::vector<float> occ = city.occluders();
+            chars.setOccluders(occ);
+            V3 eye{-20.f + std::sin(-1.45f) * std::cos(0.45f) * 60.f, std::sin(0.45f) * 60.f, std::cos(-1.45f) * std::cos(0.45f) * 60.f};
+            V3 tgt{-20.f, 0.f, 0.f};
+            auto visibleSet = [&](bool occl) {
+                CharacterStats st = prepare(eye, tgt, 0, 3, 1, occl);
+                std::vector<uint32_t> vis(std::max(1u, st.visible));
+                if (st.visible) {
+                    // visList lives right after the counters in no particular buffer: read via segment refs instead
+                    std::vector<uint32_t> raw((size_t)st.segments * 8);
+                    gpu.downloadNow(chars.segmentInstances(), raw.data(), (uint32_t)(raw.size() * 4));
+                    std::set<uint32_t> refs;
+                    for (uint32_t i = 0; i < st.segments; ++i) { uint32_t r; std::memcpy(&r, &raw[i * 8 + 7], 4); refs.insert(r); }
+                    return std::make_pair(st, refs);
+                }
+                return std::make_pair(st, std::set<uint32_t>{});
+            };
+            auto [stOff, setOff] = visibleSet(false);
+            auto [stOn, setOn] = visibleSet(true);
+            int culled = 0, wrong = 0;
+            uint32_t rng = 12345;
+            auto rnd = [&]() { rng = rng * 1664525u + 1013904223u; return (rng >> 8) / 16777216.0f; };
+            auto segHits = [&](V3 p0, V3 p1, const float* b) {
+                float t0 = 0, t1 = 1;
+                float p[3] = {p0.x, p0.y, p0.z}, d[3] = {p1.x - p0.x, p1.y - p0.y, p1.z - p0.z};
+                for (int k = 0; k < 3; ++k) {
+                    if (std::fabs(d[k]) < 1e-9f) { if (p[k] < b[k] || p[k] > b[4 + k]) return false; continue; }
+                    float a = (b[k] - p[k]) / d[k], c = (b[4 + k] - p[k]) / d[k];
+                    t0 = std::max(t0, std::min(a, c)); t1 = std::min(t1, std::max(a, c));
+                }
+                return t0 <= t1;
+            };
+            for (uint32_t r : setOff) {
+                if (setOn.count(r)) continue;
+                ++culled;
+                const GpuAgent& a = w.agents[r];
+                for (int k = 0; k < 64; ++k) {   // random points of the character's bounding volume must all be hidden
+                    V3 p{a.pos.x - 1.1f + 2.2f * rnd(), a.pos.y - 0.2f + 2.6f * rnd(), a.pos.z - 1.1f + 2.2f * rnd()};
+                    bool hidden = false;
+                    for (size_t b = 0; b < occ.size() / 8 && !hidden; ++b) hidden = segHits(eye, p, &occ[b * 8]);
+                    if (!hidden) { ++wrong; break; }
+                }
+            }
+            check(stOn.occluded > 0 && (uint32_t)culled == stOn.occluded, "occlusion culling removes zombies hidden behind buildings",
+                  fmt("frustum-visible %.0f, occluded %.0f, drawn %.0f", stOff.visible, stOn.occluded, stOn.visible));
+            check(wrong == 0, "occlusion culling is conservative (no visible zombie culled)", fmt("culled=%.0f, wrongly culled=%.0f", culled, wrong));
+            chars.setOccluders({});
+            w.sim.reset(w.sb);                       // restore the arena crowd for the following tests
+            w.sim.setGoals({});
+            w.sim.requestSpawn(Rect{-90.f, -90.f, -10.f, 90.f}, 5000);
+            w.run(2);
+            w.read();
+        }
 
         const char* animNames[8] = {"auto", "idle", "walk", "reach", "climb", "flail", "dying", "corpse"};
         for (uint32_t anim = 0; anim < 8; ++anim) {

@@ -2,6 +2,7 @@
 
 #include "app/App.h"
 #include "imgui.h"
+#include "sim/Look.h"
 
 namespace ttz {
 
@@ -79,6 +80,7 @@ void drawDebugUI(AppState& s) {
                 ImGui::Text("visible %u of %u (%u zombies, %u corpses)", st.visible, s.sim.stats().live + s.sim.stats().corpses,
                             st.visibleAgents, st.visibleCorpses);
                 ImGui::Text("segments %u  triangles %.2fM  VS invocations %.2fM", st.segments, st.triangles / 1e6, st.vsInvocations / 1e6);
+                ImGui::Text("hidden behind buildings (culled): %u", st.occluded);
                 if (st.overflow) ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "render capacity exceeded: %u not drawn", st.overflow);
             }
             ImGui::Text("draw calls: %u (characters %u)", s.renderer.drawCalls(rs, &s.chars), s.chars.drawCalls(cs));
@@ -87,6 +89,8 @@ void drawDebugUI(AppState& s) {
             const char* cls[] = {"per body-part family", "vertex-count size classes"};
             ImGui::Combo("batching", &cs.classMode, cls, 2);
             ImGui::Checkbox("frustum culling", &cs.frustumCull);
+            ImGui::SameLine();
+            ImGui::Checkbox("occlusion", &cs.occlusionCull);
             ImGui::SameLine();
             ImGui::Checkbox("pose per vertex", &cs.poseInVertexShader);
             const char* anims[] = {"from simulation", "idle", "walk", "reach", "climb", "flail", "dying", "corpse pose"};
@@ -100,6 +104,37 @@ void drawDebugUI(AppState& s) {
             ImGui::SliderFloat("heavily damaged", &sp.lookHeavy, 0.f, 1.f);
             ImGui::SliderFloat("skeletal", &sp.lookSkeletal, 0.f, 1.f);
             ImGui::SliderFloat("missing limbs", &sp.lookMissing, 0.f, 1.f);
+            if (ImGui::TreeNode("Custom zombie (pick every variant)")) {
+                static int mods[10] = {1, 1, 0, 0, 0, 0, 0, 0, 0, 0}, tier = 1, decay = 1, pal[8] = {};
+                static const char* heads[] = {"bald", "short hair", "long hair", "beanie", "scalp wound", "lost eye", "missing jaw", "half skull"};
+                static const char* torsos[] = {"t-shirt", "shirt and tie", "hoodie", "open jacket", "tank top", "open ribcage", "gutted"};
+                static const char* uppers[] = {"sleeve", "bare", "torn sleeve", "exposed muscle", "bone"};
+                static const char* fores[] = {"sleeve + hand", "bare + hand", "bloody", "skinned", "bone + bony hand", "missing (stump)"};
+                static const char* thighs[] = {"trousers", "shorts", "torn trousers", "exposed muscle", "bare femur"};
+                static const char* shins[] = {"trousers + shoe", "bare shin + shoe", "barefoot", "torn + bloody", "skinned", "bone + bony foot"};
+                ImGui::Combo("head", &mods[0], heads, 8);
+                ImGui::Combo("torso", &mods[1], torsos, 7);
+                ImGui::Combo("L upper arm", &mods[2], uppers, 5); ImGui::Combo("L forearm", &mods[3], fores, 6);
+                ImGui::Combo("R upper arm", &mods[4], uppers, 5); ImGui::Combo("R forearm", &mods[5], fores, 6);
+                ImGui::Combo("L thigh", &mods[6], thighs, 5); ImGui::Combo("L shin", &mods[7], shins, 6);
+                ImGui::Combo("R thigh", &mods[8], thighs, 5); ImGui::Combo("R shin", &mods[9], shins, 6);
+                ImGui::SliderInt("detail tier", &tier, 0, 2);
+                ImGui::SliderInt("decomposition", &decay, 0, 3);
+                ImGui::SliderInt("skin", &pal[0], 0, 7); ImGui::SliderInt("top", &pal[1], 0, 8); ImGui::SliderInt("shirt", &pal[2], 0, 3);
+                ImGui::SliderInt("trousers", &pal[3], 0, 5); ImGui::SliderInt("hair", &pal[4], 0, 5); ImGui::SliderInt("hat", &pal[6], 0, 4);
+                if (ImGui::Button("Spawn at camera target")) {
+                    LookSpec l;
+                    l.head = mods[0]; l.torso = mods[1]; l.upperArmL = mods[2]; l.forearmL = mods[3]; l.upperArmR = mods[4]; l.forearmR = mods[5];
+                    l.thighL = mods[6]; l.shinL = mods[7]; l.thighR = mods[8]; l.shinR = mods[9];
+                    l.tier = tier; l.decayBucket = decay;
+                    l.skin = pal[0]; l.top = pal[1]; l.shirt = pal[2]; l.pants = pal[3]; l.hair = pal[4]; l.tie = pal[5]; l.hat = pal[6]; l.shoe = pal[7];
+                    uint32_t x, y;
+                    encodeLook(l, x, y);
+                    V3 t = s.camera.target();
+                    s.sim.requestSpawnLook({t.x - 0.5f, t.z - 0.5f, t.x + 0.5f, t.z + 0.5f}, 1, x, y);
+                }
+                ImGui::TreePop();
+            }
             if (ImGui::Button("Lab lineup")) s.showcaseRequested = 0;
             ImGui::SameLine();
             if (ImGui::Button("Lineup corpses")) s.showcaseRequested = 1;

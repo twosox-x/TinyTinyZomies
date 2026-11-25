@@ -17,7 +17,8 @@ struct CharUniforms {
     Vec4 planes[6];
     Vec4 cparams;   // metres per voxel, time, bounding radius, bounding centre height
     UVec4 ccfg;     // mode, capacity, class count, flags
-    UVec4 ccfg2;    // forced anim, corpse capacity
+    UVec4 ccfg2;    // forced anim, corpse capacity, occluder count
+    Vec4 eye;
 };
 struct CharDraw {
     UVec4 draw;     // class, pose in VS
@@ -208,15 +209,24 @@ void CharacterRenderer::shutdown() {
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
     for (auto& lv : classes_) for (auto& cs : lv) { gpu_->releaseBuffer(cs.meshInfo); gpu_->releaseBuffer(cs.classInfo); }
-    for (auto b : {&meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_}) gpu_->releaseBuffer(*b);
+    for (auto b : {&occluders_, &meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_}) gpu_->releaseBuffer(*b);
     for (auto p : {pCull_, pPrefix_, pPose_, pLib_}) if (p) SDL_ReleaseGPUComputePipeline(d, p);
     if (pDraw_) SDL_ReleaseGPUGraphicsPipeline(d, pDraw_);
     if (zeros_) SDL_ReleaseGPUTransferBuffer(d, zeros_);
     gpu_ = nullptr;
 }
 
-void CharacterRenderer::prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, const float viewProj[16], double time,
+void CharacterRenderer::setOccluders(const std::vector<float>& b) {
+    gpu_->releaseBuffer(occluders_);
+    occluderCount_ = (uint32_t)(b.size() / 8);
+    std::vector<float> data = b.empty() ? std::vector<float>(8, 0.f) : b;
+    occluders_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ, (uint32_t)(data.size() * 4), "charOccluders");
+    gpu_->uploadNow(occluders_, data.data(), (uint32_t)(data.size() * 4));
+}
+
+void CharacterRenderer::prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, const float viewProj[16], const float eye[3], double time,
                                 const CharacterSettings& cs) {
+    if (!occluders_) setOccluders({});
     const ClassSet& set = classes_[cs.geometryLevel][cs.classMode];
     // reset counters (copy from a static zero buffer: no CPU writes per frame)
     SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
@@ -228,15 +238,17 @@ void CharacterRenderer::prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, 
     CharUniforms u{};
     frustumPlanes(viewProj, u.planes);
     u.cparams = {scale_, (float)time, 2.0f, 0.9f};
-    u.ccfg = {0, capacity_, (uint32_t)set.maxVerts.size(), (cs.frustumCull ? 1u : 0u) | (cs.poseInVertexShader ? 2u : 0u)};
-    u.ccfg2 = {cs.forcedAnim, corpseCapacity_, 0, 0};
+    u.ccfg = {0, capacity_, (uint32_t)set.maxVerts.size(),
+              (cs.frustumCull ? 1u : 0u) | (cs.poseInVertexShader ? 2u : 0u) | (cs.occlusionCull && occluderCount_ ? 4u : 0u)};
+    u.ccfg2 = {cs.forcedAnim, corpseCapacity_, occluderCount_, 0};
+    u.eye = {eye[0], eye[1], eye[2], 0};
     auto D = [&](SDL_GPUComputePipeline* p, std::initializer_list<SDL_GPUBuffer*> ro, std::initializer_list<SDL_GPUBuffer*> rw) {
         return Dispatch{cmd, p, ro, rw, &u, sizeof(u)};
     };
-    dispatchIndirect(D(pCull_, {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo}, {counters_, visList_, segLocal_}),
+    dispatchIndirect(D(pCull_, {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo, occluders_}, {counters_, visList_, segLocal_}),
                      sim.indirect(), I_AGENT_DISPATCH * 4);
     u.ccfg.x = 1;
-    dispatchIndirect(D(pCull_, {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo}, {counters_, visList_, segLocal_}),
+    dispatchIndirect(D(pCull_, {sim.agents(), sim.corpses(), sim.counters(), set.meshInfo, occluders_}, {counters_, visList_, segLocal_}),
                      sim.indirect(), I_CORPSE_DISPATCH * 4);
     u.ccfg.x = 0;
     dispatch(D(pPrefix_, {set.classInfo}, {counters_, args_}), 1);
@@ -263,7 +275,7 @@ void CharacterRenderer::draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
 CharacterStats CharacterRenderer::parseCounters(const uint32_t* cc) {
     CharacterStats s;
     s.visible = cc[0]; s.overflow = cc[1]; s.triangles = cc[2]; s.segments = cc[3];
-    s.visibleAgents = cc[4]; s.visibleCorpses = cc[5]; s.vsInvocations = cc[6];
+    s.visibleAgents = cc[4]; s.visibleCorpses = cc[5]; s.vsInvocations = cc[6]; s.occluded = cc[7];
     return s;
 }
 

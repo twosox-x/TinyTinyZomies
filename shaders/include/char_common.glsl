@@ -11,6 +11,7 @@
 #define CC_VIS_AGENTS   4u
 #define CC_VIS_CORPSES  5u
 #define CC_VS_INVOC     6u   // vertex shader invocations incl. size-class padding
+#define CC_OCCLUDED     7u   // characters inside the frustum but hidden behind a building
 #define CC_CLASS_COUNT  16u  // + class
 #define CC_CLASS_BASE   32u  // + class
 #define CC_SIZE         48u

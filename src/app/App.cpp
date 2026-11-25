@@ -60,6 +60,7 @@ bool App::init() {
     if (!s_.renderer.init(s_.gpu, s_.zombieModel, s_.sandbox, s_.params, swapFmt)) return false;
     if (!s_.chars.init(s_.gpu, s_.params, dataPath("assets/characters/zombie_parts.ttzc"), (uint32_t)s_.params.visibleCharacterCapacity)) return false;
     s_.sim.setExtraReadback(s_.chars.counters(), 48 * 4);
+    s_.chars.setOccluders(s_.sandbox.occluders());
     s_.renderSettings.debugFlags = o.debugFlags;
     s_.renderSettings.characterModel = o.characterModel;
     s_.renderSettings.chars = o.charSettings;
@@ -97,6 +98,7 @@ void App::loadScenario(int index, int count) {
         SDL_WaitForGPUIdle(s_.gpu.device());
         s_.sandbox.build(s_.params.cellSize, s_.params.gridW, s_.params.gridH, sc.map);
         s_.renderer.setSandbox(s_.sandbox);
+        s_.chars.setOccluders(s_.sandbox.occluders());
     }
     s_.staticHeights = s_.sandbox.rasterize();
     s_.sim.reset(s_.sandbox);
@@ -122,6 +124,7 @@ void App::loadShowcase(int which) {
         SDL_WaitForGPUIdle(s.gpu.device());
         s.sandbox.build(s.params.cellSize, s.params.gridW, s.params.gridH, MapKind::Arena);
         s.renderer.setSandbox(s.sandbox);
+        s.chars.setOccluders(s.sandbox.occluders());
     }
     s.staticHeights = s.sandbox.rasterize();
     s.sim.reset(s.sandbox);

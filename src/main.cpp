@@ -61,6 +61,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--classes")) o.charSettings.classMode = std::strcmp(next(), "family") ? 1 : 0;
         else if (!std::strcmp(a, "--no-cull")) o.charSettings.frustumCull = false;
         else if (!std::strcmp(a, "--pose-vs")) o.charSettings.poseInVertexShader = true;
+        else if (!std::strcmp(a, "--no-occlusion")) o.charSettings.occlusionCull = false;
         else if (!std::strcmp(a, "--anim")) {
             const char* n = next();
             const char* names[] = {"auto", "idle", "walk", "reach", "climb", "flail", "dying", "corpse"};

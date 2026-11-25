@@ -44,6 +44,7 @@ struct Sandbox {
 
     void build(float cellSize, int gridW, int gridH, MapKind map = MapKind::City);
     std::vector<float> rasterize() const;   // static obstacle top per cell
+    std::vector<float> occluders(float minHeight = 3.0f) const;   // solid boxes tall enough to hide a zombie: min xyz, 0, max xyz, 0
 };
 
 } // namespace ttz

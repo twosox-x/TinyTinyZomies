@@ -124,6 +124,13 @@ void Sandbox::build(float cs, int gw, int gh, MapKind mapKind) {
                          {ext - 10.f, 0.f}, 20000});
 }
 
+std::vector<float> Sandbox::occluders(float minHeight) const {
+    std::vector<float> out;
+    for (const Box& b : boxes)
+        if (b.solid && b.height >= minHeight) out.insert(out.end(), {b.minX, 0.f, b.minZ, 0.f, b.maxX, b.height, b.maxZ, 0.f});
+    return out;
+}
+
 std::vector<float> Sandbox::rasterize() const {
     std::vector<float> h((size_t)gridW * gridH, 0.0f);
     for (const Box& b : boxes) {

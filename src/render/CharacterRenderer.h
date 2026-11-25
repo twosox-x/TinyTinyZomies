@@ -24,11 +24,12 @@ struct CharacterSettings {
     int classMode = 1;          // 0 one batch per body-part family, 1 batches by vertex-count size class (default)
     bool frustumCull = true;
     bool poseInVertexShader = false;   // comparison mode: evaluate the joint hierarchy per vertex
+    bool occlusionCull = true;  // conservative culling behind static buildings
     uint32_t forcedAnim = 0;    // ANIM_* override for previews (0 = from simulation state)
 };
 
 struct CharacterStats {         // from the GPU counters (async in the app, exact in benchmarks)
-    uint32_t visible = 0, visibleAgents = 0, visibleCorpses = 0, overflow = 0, segments = 0, triangles = 0, vsInvocations = 0;
+    uint32_t visible = 0, visibleAgents = 0, visibleCorpses = 0, overflow = 0, segments = 0, triangles = 0, vsInvocations = 0, occluded = 0;
 };
 
 class CharacterRenderer {
@@ -37,7 +38,9 @@ public:
     void shutdown();
 
     // Records passes 1-3 (outside any render pass).
-    void prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, const float viewProj[16], double time, const CharacterSettings& cs);
+    void prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, const float viewProj[16], const float eye[3], double time, const CharacterSettings& cs);
+    // static occluders (tall buildings and walls of the current map)
+    void setOccluders(const std::vector<float>& boxesMinMax);
     // Records the draws inside the scene render pass (frame uniforms already pushed to slot 0).
     void draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs);
 
@@ -74,7 +77,8 @@ private:
     SDL_GPUGraphicsPipeline* pDraw_ = nullptr;
     SDL_GPUBuffer *verts_ = nullptr, *counters_ = nullptr, *args_ = nullptr, *visList_ = nullptr, *segLocal_ = nullptr,
                   *segInsts_ = nullptr, *poseLib_ = nullptr;
-    SDL_GPUBuffer *meshVoxBuf_ = nullptr, *tagBuf_ = nullptr;
+    SDL_GPUBuffer *meshVoxBuf_ = nullptr, *tagBuf_ = nullptr, *occluders_ = nullptr;
+    uint32_t occluderCount_ = 0;
     SDL_GPUTransferBuffer* zeros_ = nullptr;
 };
 

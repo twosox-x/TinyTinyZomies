@@ -23,15 +23,22 @@ Nothing about the geometry is re-typed. If the design changes in a new Zombie La
 
 ## What is baked
 
-For every slot, module, stump state (upper arms) and decoration variant there are 2,277 segment meshes, each at three geometry levels:
+For every slot, module, stump state (upper arms) and decoration variant there are 2,277 segment meshes, each at four geometry levels:
 
 | Level | What it is | Triangles (all meshes) | Triangles: Drone / Walker / Rotter |
 |---|---|---|---|
 | naive | every cube face of every voxel | 523,020 | 2,424 / 2,616 / 2,076 |
 | culled | faces between voxels of the same segment removed (identical to Zombie Lab's own mesher) | 186,332 | 856 / 904 / 780 |
-| greedy | culled faces merged into rectangles where material and ambient occlusion are uniform | **110,608** | **280 / 496 / 572** |
+| greedy | culled faces merged into rectangles where material and ambient occlusion are uniform | 110,608 | 280 / 496 / 572 |
+| **voxel** (default) | culled faces merged where ambient occlusion is uniform; the fragment shader looks up each voxel's material in a per-mesh voxel grid | **46,284** | **172 / 222 / 238** |
 
-**Lossless guarantee.** For every mesh, the converter rasterises both the greedy and the culled triangles back into unit faces. It compares position, direction, material tag and the AO value at each corner, and aborts the conversion on any difference. Faces with non-uniform AO keep their own quad and the Lab's diagonal rule, so the shading is unchanged.
+**Lossless guarantee.** For every mesh, the converter rasterises the greedy and voxel-material triangles back into unit faces and compares them with the culled faces. It checks position, direction, material tag and the AO value at each corner; for voxel-material faces, the tag is resolved through the voxel grid exactly as the fragment shader does. It aborts the conversion on any difference. Faces with non-uniform AO keep their own quad and the Lab's diagonal rule, so the shading is unchanged.
+
+**Fragment-side materials (level 3).** The fragment shader already reconstructs the rest-pose centre of the voxel behind each fragment, which it needs for the Lab's per-voxel colour noise. With that centre it reads one byte from the mesh's voxel grid. Two details keep this exact on silhouettes:
+- `centroid` interpolation, so MSAA edge samples never extrapolate outside the face;
+- a fallback that steps back from an empty boundary cell into the face's own voxel.
+
+The validation renders contain zero invalid-material pixels.
 
 **What is never merged across segments.** Faces between *different* segments are kept. Joints rotate, modules are interchangeable and forearms can be missing, so a face hidden by a neighbouring segment can become visible.
 
@@ -39,10 +46,12 @@ For every slot, module, stump state (upper arms) and decoration variant there ar
 
 | Section | Content |
 |---|---|
-| header (16 × u32) | magic `TTZC`, version, mesh count, level count (3), decoration variants (33), words per level, slot count |
+| header (16 × u32) | magic `TTZC`, version 2, mesh count, level count (4), decoration variants (33), words per level, slot count, material-blob words |
 | slot table (10 × 4 u32) | first mesh, module count, stump states, family |
-| mesh table (meshes × 3 levels × 2 u32) | vertex offset, vertex count |
+| mesh table (meshes × 4 levels × 2 u32) | vertex offset, vertex count |
+| mesh voxel table (meshes × 4 u32) | material-grid byte offset, grid origin, grid dimensions |
 | vertex blobs | one per level, packed vertices |
+| material blob | one byte per voxel cell of every mesh (tag + 1, 0 = empty) |
 
 **Vertex format.** One `uint32`; non-indexed triangle lists, pulled from a storage buffer.
 
@@ -50,12 +59,12 @@ For every slot, module, stump state (upper arms) and decoration variant there ar
 bits  0..20  x, y, z  in half-voxels relative to the segment joint (7 bits each, +64 bias, exact)
 bits 21..23  face direction (normal is one of 6 axes)
 bits 24..25  ambient-occlusion level (Lab values 0.5 / 0.67 / 0.84 / 1.0)
-bits 26..30  material tag
+bits 26..30  material tag (31 = look up the voxel's material in the mesh's grid; level 3)
 ```
 
 Compared with a typical float vertex (position + normal + colour = 36 bytes), that is 9× less memory. Positions are exact, because voxel corners lie on the half-voxel grid.
 
-The whole asset is 9.9 MB, of which the greedy level is 1.3 MB. The naive and culled levels are kept only so the benchmarks can show the before/after; a shipping build could keep just the greedy level.
+The whole asset is 10.6 MB. The default level 3 is 0.54 MB of vertices plus 0.3 MB of material grids. The other levels are kept only so the benchmarks can show the before/after; a shipping build could keep level 3 alone.
 
 **Why non-indexed.** Vertices are pulled by `gl_VertexIndex` and instances share a batch of a fixed size, so there is no hardware post-transform cache to reuse. An index buffer would add a fetch without saving vertex-shader work. Indexed, per-mesh draws were rejected; see [OPTIMIZATION.md](OPTIMIZATION.md).
 
