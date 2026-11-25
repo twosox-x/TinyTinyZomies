@@ -1024,7 +1024,7 @@ function skinLobby(S) {
   };
 }
 // postmodern shaft: polished stone, proper paired windows with dark sills, banding, recessed glass slot up the middle
-function skinPomo2(S, slotOn) {
+function skinPomo2(S, slotOn, arches) {
   return (len, h, info) => {
     const F = new Relief(len, h, 2, S.stone), n = Math.floor(h / FH), mid = len >> 1, slot = slotOn && len > 44;
     const cs = bays(len, 14, 4);
@@ -1032,6 +1032,10 @@ function skinPomo2(S, slotOn) {
       const v = f * FH;
       cs.forEach((c, k) => {
         if (slot && Math.abs(c - mid) < 10) return;
+        if (arches && f >= n - 2) {                                                          // arched loggia storey on top
+          if (f === n - 2) { reliefArch(F, c - 5, c + 5, v + 3, v + FH + 3, 0, glassMat(S.seed, k, 99, 0.6, S.tint), S.dark, 3); F.rect(c - 6, v + 2, c + 6, v + 3, 3, S.dark); }
+          return;
+        }
         F.rect(c - 5, v + 4, c - 1, v + 12, 1, glassMat(S.seed, k * 2 + f * 17, f, 0.3, S.tint));
         F.rect(c + 1, v + 4, c + 5, v + 12, 1, glassMat(S.seed, k * 2 + 1 + f * 17, f, 0.3, S.tint));
         F.rect(c - 6, v + 3, c + 6, v + 4, 3, S.dark);                                    // sill
@@ -1378,7 +1382,7 @@ function towerPomo(E, C, W, D, spec, R) {
   const tiers = [
     Object.assign(inset(W, D, 0, 0, 0, 0), { h: 2 * FH + 6 + FH + 6, skin: skinPomoBase(S), party: spec.party, roof: { mat: S.dark } }),
     Object.assign(t1, { notch: 6, h: n1 * FH + 2, skin: skinPomo2(S, slot), roof: { mat: S.dark } }),
-    Object.assign(t2, { notch: 4, h: (n - n1) * FH + 2, skin: skinPomo2(S, slot), roof: { mat: S.dark, units: 0 } })
+    Object.assign(t2, { notch: 4, h: (n - n1) * FH + 2, skin: skinPomo2(S, slot, true), roof: { mat: S.dark, units: 0 } })
   ];
   const y = buildTiers(E, C, W, D, tiers, spec.seed);
   const w = t2.x1 - t2.x0 - 8, d = t2.z1 - t2.z0 - 8;
@@ -1417,13 +1421,14 @@ function towerBrutal(E, C, W, D, spec, R) {
     dir = 'z';
   }
   const lob = { x0: slab.x0 + 5, z0: slab.z0 + 8, x1: slab.x1 - 5, z1: slab.z1 - 8 };
-  const hS = n * FH + 4, hC = lH + hS + FH, bH = 2 * FH + 6;
+  const hS = n * FH + 4, hC = lH + hS + 2 * FH + 6, bH = 2 * FH + 6;
   buildTiers(E, C, W, D, [
     Object.assign({}, lob, { h: lH, skin: skinLobby({ seed: spec.seed, mull: BM.STEEL_DARK }), noRoof: true }),
-    Object.assign({}, slab, { h: hS, skin: skinBrutal(S), floating: true, soffit: BM.CONCRETE, roof: { mat: S.conc, units: 4 } })
+    Object.assign({}, slab, { h: hS, skin: skinBrutal(S), floating: true, soffit: BM.CONCRETE, roof: { mat: S.conc } }),
+    { x0: slab.x0 - 3, z0: slab.z0 - 4, x1: slab.x1 + 3, z1: slab.z1 + 4, h: FH + 6, skin: skinBoiler(S), floating: true, soffit: BM.CONCRETE, roof: { mat: S.rib, units: 4 } }
   ], spec.seed);
   const over = 7;
-  const boiler = dir === 'x' ? { x0: core.x0 - over, z0: core.z0 - over, x1: core.x1 + over, z1: core.z1 + over } : { x0: core.x0 - over, z0: core.z0 - over, x1: core.x1 + over, z1: core.z1 + over };
+  const boiler = { x0: Math.max(1, core.x0 - over), z0: core.z0 - over, x1: Math.min(W - 1, core.x1 + over), z1: Math.min(D - 1, core.z1 + over) };
   const yB = buildTiers(E, C, W, D, [
     Object.assign({}, core, { h: hC, skin: skinCore(S), noRoof: true }),
     Object.assign({}, boiler, { h: bH, skin: skinBoiler(S), floating: true, soffit: BM.CONCRETE, roof: { mat: S.rib, units: 2 } })

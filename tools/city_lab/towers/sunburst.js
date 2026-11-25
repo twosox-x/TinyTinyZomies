@@ -62,11 +62,11 @@
       F.rect(0, gH, len, gH + 2, 4, BM.BRONZE);                                    // bronze lobby fascia
       const cs = paintShaft(F, len, gH + 2, nb, S, 3);
       paintCap(F, len, gH + 2 + nb * FH, h, S, cs);
-      const ss = L.bays(len, 16, 5), cm = ss[ss.length >> 1], portal = info.front && len > 60;
+      const ss = L.bays(len, 16, 5), cm = len >> 1, portal = info.front && len > 60;
       ss.forEach((c, k) => {
         if (portal && Math.abs(c - cm) < 24) return;
         F.rect(c - 8, 0, c - 6, gH, 3, S.gran);                                    // granite pilasters
-        if (k === ss.length - 1 || (portal && c + 16 === cm - 16)) F.rect(c + 8, 0, c + 10, gH, 3, S.gran);
+        if (k === ss.length - 1 || (portal && Math.abs(c + 16 - cm) < 24)) F.rect(c + 8, 0, c + 10, gH, 3, S.gran);
         F.rect(c - 5, 2, c + 5, gH - 2, 1, BM.BRONZE);                             // bronze shopfront
         F.rect(c - 4, 3, c + 4, 13, 0, L.glassMat(S.seed, k, 40, 0.55, 'dark'));
         for (let u = c - 4; u < c + 4; u += 2) F.rect(u, 15, u + 1, gH - 4, 0, L.glassMat(S.seed, k, u, 0.5, 'dark'));
@@ -93,9 +93,9 @@
         F.rect(c - 3, pH + 3, c + 3, pH + 6, 4, BM.BRONZE);                        // keystone clock plaque
         F.rect(c - 2, pH + 4, c + 2, pH + 5, 4, BM.TRIM);
         for (const sx of [-1, 1]) {                                                // bronze lanterns either side
-          const u = c + sx * (hw + 8);
+          const u = c + sx * (hw + 7);
           F.rect(u - 1, 9, u + 1, 16, 5, BM.BRONZE); F.rect(u - 1, 11, u + 1, 14, 5, BM.GLASS_LIT);
-          F.rect(u - 3, 2, u + 3, 6, 3, BM.BRONZE);                                // name plaque
+          F.rect(u - 2, 2, u + 2, 6, 3, BM.BRONZE);                                // name plaque
         }
         // marquee: bulb rows round a white letter board, bronze cap
         const m0 = 11, mu0 = c - hw - 6, mu1 = c + hw + 6;

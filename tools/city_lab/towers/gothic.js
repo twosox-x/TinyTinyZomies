@@ -6,7 +6,7 @@
   const A = self.CityArch, L = A.lib, BM = L.BM, FH = L.FH, H2 = L.H2;
 
   // bays of 9: rib (2) | lancet (3) | colonette (1) | lancet (3)
-  function ribBays(len) { return L.bays(len, 9, 6); }
+  function ribBays(len) { return L.bays(len, 9, 3); }
   function paintRibs(F, len, v0, n, S, salt, top) {
     const cs = ribBays(len);
     for (let f = 0; f < n; ++f) {
@@ -67,11 +67,11 @@
     return (len, h) => {
       const F = new L.Relief(len, h, 4, S.stone), cs = ribBays(len), r0 = h - CAP, vt = r0 - 1;
       cs.forEach((c, k) => {
-        F.rect(c - 2, 2, c + 5, vt - 3, 0, BM.COPPER);
+        F.rect(c - 2, 2, c + 5, vt - 3, 1, BM.COPPER);
         for (const [a, b] of [[c - 2, c + 1], [c + 2, c + 5]]) {
-          F.rect(a, 2, b, vt - 2, 0, L.glassMat(S.seed, k, a, 0.55));
-          F.rect(a + 1, vt - 2, a + 2, vt, 0, L.glassMat(S.seed, k, a + 1, 0.55));
-          for (let v = 10; v < vt - 4; v += 9) F.rect(a, v, b, v + 1, 1, S.trim);
+          F.rect(a, 2, b, vt - 2, 1, L.glassMat(S.seed, k, a, 0.55));
+          F.rect(a + 1, vt - 2, a + 2, vt, 1, L.glassMat(S.seed, k, a + 1, 0.55));
+          for (let v = 10; v < vt - 4; v += 9) F.rect(a, v, b, v + 1, 2, S.trim);
         }
         F.rect(c + 1, 2, c + 2, vt, 3, S.stone);
       });
@@ -273,7 +273,7 @@
     if (S.spand === stone) S.spand = BM.LIMESTONE_DARK;
     const n = Math.max(24, Math.min(54, Math.round(spec.floors * (1.0 + R() * 0.3))));
     const zA = 10 + Math.floor(R() * 4), aH = 2 * FH + 8;
-    const n1 = Math.round(n * (0.4 + R() * 0.12)), roof = { mat: S.trim, deck: BM.ROOF_TAR, parapet: 2 };
+    const n1 = Math.round(n * (0.32 + R() * 0.1)), roof = { mat: S.trim, deck: BM.ROOF_TAR, parapet: 2 };
     const tw = Math.min(84, Math.round(Math.min(W * (0.5 + R() * 0.14), D * 0.62))) & ~1;
     const cx = W >> 1, tz = R() < 0.6 ? 0 : Math.round(D * 0.08);
     const t2 = { x0: cx - (tw >> 1), z0: tz, x1: cx + (tw >> 1), z1: tz + tw };

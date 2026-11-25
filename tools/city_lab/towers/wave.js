@@ -14,17 +14,23 @@
       const front = info.which === 0;
       if (front) {
         const mid = len >> 1;
-        // shop bays between white piers
-        const step = 26, n = Math.max(1, Math.round(len / step)), bw = len / n;
-        for (let k = 0; k < n; ++k) {
-          const u0 = Math.round(k * bw), u1 = Math.round((k + 1) * bw);
-          if (u1 > mid - 12 && u0 < mid + 12) continue;
-          F.rect(u0 + 2, 1, u1 - 2, gH - 5, 1, L.glassMat(S.seed, k, 1, 0.55, 'dark'));
-          for (let u = u0 + 2; u < u1 - 2; u += 6) F.rect(u, 1, u + 1, gH - 5, 2, BM.MULLION);
-          F.rect(u0 + 2, gH - 5, u1 - 2, gH - 2, 1, BM.STEEL_DARK);                                // sign band
-          const dc = u0 + 2 + ((u1 - u0 - 4) >> 1);
-          F.rect(dc - 2, 1, dc + 2, 11, 0, BM.STEEL_DARK);                                          // shop door
-          F.rect(u0 + 3, gH - 4, u0 + 3 + Math.min(10, u1 - u0 - 8), gH - 3, 2, L.H2(S.seed, k, 9) < 0.5 ? BM.LED : BM.NEON);   // shop sign
+        // shop bays between slim white piers, either side of the lobby
+        let k = 0;
+        for (const [a0, a1] of [[2, mid - 14], [mid + 14, len - 2]]) {
+          const sl = a1 - a0;
+          if (sl < 10) continue;
+          const nb = Math.max(1, Math.round(sl / 22)), bw = sl / nb;
+          for (let b = 0; b < nb; ++b, ++k) {
+            const u0 = a0 + Math.round(b * bw) + 1, u1 = a0 + Math.round((b + 1) * bw) - 1;
+            F.rect(u0, 1, u1, gH - 5, 1, L.glassMat(S.seed, k, 1, 0.55, 'dark'));
+            for (let u = u0 + 5; u < u1 - 2; u += 5) F.rect(u, 1, u + 1, gH - 5, 1, BM.MULLION);
+            F.rect(u0, gH - 5, u1, gH - 2, 1, BM.STEEL_DARK);                                       // sign band
+            const sw = Math.min(12, u1 - u0 - 4), s0 = u0 + ((u1 - u0 - sw) >> 1);
+            F.rect(s0, gH - 4, s0 + sw, gH - 3, 2, L.H2(S.seed, k, 9) < 0.5 ? BM.LED : BM.NEON);      // shop sign
+            const dc = L.H2(S.seed, k, 4) < 0.5 ? u0 + 3 : u1 - 7;
+            F.rect(dc, 1, dc + 4, 11, 0, BM.STEEL_DARK);                                            // shop door
+            if (b > 0) F.rect(u0 - 2, 0, u0, gH - 2, 3, BM.WHITE_CONCRETE);                         // pier
+          }
         }
         // residents' lobby: deep double-height glass recess with a wood-lined portal and a slim canopy
         F.rect(mid - 12, 0, mid + 12, gH + 4, 4, BM.WHITE_CONCRETE);
@@ -193,17 +199,28 @@
     for (let x = px; x < px + pw; x += 4) { M.box(x, 0, pz, x + 1, 13, pz + 1, BM.MULLION); M.box(x, 0, pz + pd - 1, x + 1, 13, pz + pd, BM.MULLION); }
     for (let z = pz; z < pz + pd; z += 4) { M.box(px, 0, z, px + 1, 13, z + 1, BM.MULLION); M.box(px + pw - 1, 0, z, px + pw, 13, z + 1, BM.MULLION); }
     M.box(px - 4, 13, pz - 5, px + pw + 4, 15, pz + pd + 3, BM.WHITE_CONCRETE);                     // floating roof
-    // lift / stair core behind, in white concrete with a louvred top
+    // lift / stair core above the pavilion, wrapped in a louvred mechanical screen
     const cx = px + (pw >> 1) - 6;
-    M.box(cx, 15, pz + 2, cx + 12, 22, pz + pd - 4, BM.WHITE_CONCRETE);
-    for (let y = 16; y < 21; y += 2) M.box(cx - 1 + 1, y, pz + 1, cx + 12 - 1, y + 1, pz + 2, BM.LOUVER);
-    // plunge pool + loungers in front of the pavilion
-    const qw = Math.min(28, rw - 20), qx = (rw - qw) >> 1, qz = 6;
+    M.box(cx, 15, pz + 2, cx + 12, 23, pz + pd - 4, BM.WHITE_CONCRETE);
+    for (let y = 16; y < 22; y += 2) M.box(cx - 1, y, pz + 1, cx + 13, y + 1, pz + pd - 3, BM.LOUVER);
+    // timber deck with a plunge pool, loungers and parasols in front of the pavilion
+    const qw = Math.min(28, rw - 20), qx = (rw - qw) >> 1, qz = 7;
     if (pz - 5 > qz + 16) {
+      M.box(qx - 4, 0, qz - 3, qx + qw + 4, 1, qz + 17, BM.WOOD);
       M.box(qx, 0, qz, qx + qw, 2, qz + 8, BM.WHITE_CONCRETE);
       M.box(qx + 1, 0, qz + 1, qx + qw - 1, 1, qz + 7, BM.WATER);
       M.box(qx + 1, 1, qz + 1, qx + qw - 1, 2, qz + 7, -1);
-      for (let x = qx + 2; x + 3 < qx + qw; x += 6) M.box(x, 0, qz + 10, x + 3, 1, qz + 15, BM.TRIM);
+      for (let x = qx + 1; x + 3 < qx + qw; x += 6) { M.box(x, 1, qz + 10, x + 3, 2, qz + 15, BM.TRIM); M.box(x, 2, qz + 14, x + 3, 3, qz + 15, BM.TRIM); }
+      for (const x of [qx + 5, qx + qw - 6]) {
+        M.box(x, 1, qz + 16, x + 1, 9, qz + 17, BM.METAL);
+        M.box(x - 3, 9, qz + 13, x + 4, 10, qz + 20, L.pick(R, [BM.TRIM, BM.AWNING_BLUE, BM.AWNING_GREEN]));
+      }
+    }
+    // green roof beside the pavilion: lawn with a couple of trees
+    const gx0 = px < rw / 2 ? px + pw + 7 : 5, gx1 = px < rw / 2 ? rw - 5 : px - 7;
+    if (gx1 - gx0 >= 10) {
+      M.box(gx0, 0, pz, gx1, 1, rd - 5, BM.GRASS);
+      for (let z = pz + 4; z < rd - 8; z += 10) tree(M, (gx0 + gx1) >> 1, 1, z, R, false);
     }
     // planters around the edge
     for (let x = 3; x + 6 < rw - 3; x += 12) { planter(M, x, 0, 1, x + 6, 4, BM.WHITE_CONCRETE); M.box(x + 1, 4, 2, x + 5, 6, 3, BM.LEAF_DARK); }
@@ -218,7 +235,7 @@
       seed: spec.seed, tint: L.pick(R, ['blue', 'curtain', 'green', 'dark']),
       rail: L.pick(R, [BM.GLASS_BLUE, BM.CURTAIN, BM.GLASS_GREEN])
     };
-    const amp = 3 + R() * 5, dmin = 3, m = Math.ceil(dmin + amp) + 2;
+    const amp = 5 + R() * 4, dmin = 3, m = Math.ceil(dmin + amp) + 2;
     const pH = 20 + FH + 3;
     const sx = Math.max(m + 4, Math.round(W * (0.08 + R() * 0.05)));
     const fz = Math.max(m + 16, Math.round(D * (0.2 + R() * 0.08))), bz = m + 3;
@@ -235,13 +252,16 @@
     const body = Object.assign({}, t, { h: n * FH, skin: skinBody(S, n) });
     tier(E, C, body, pH, null);
     const yTop = pH + n * FH;
-    L.roofMask(E, C, tm, null, W, D, yTop, { parapet: 0, deck: BM.WOOD }, spec.seed + 5);
+    L.roofMask(E, C, tm, null, W, D, yTop, { parapet: 0, deck: BM.PRECAST }, spec.seed + 5);
     // undulating balconies: the wave count fits the perimeter so the ripple closes around the corners
     const P = 2 * (tw + td), waves = Math.max(3, Math.round(P / (38 + R() * 40)));
-    const mode = R() < 0.55 ? 'drift' : 'sway', dphi = (0.22 + R() * 0.3) * (R() < 0.5 ? 1 : -1), sway = 1.2 + R() * 1.4;
+    // 'drift': one wave whose crests climb diagonally around the tower; 'pools': two waves crossing in opposite
+    // directions, so the slab edges swell into hills and hollows like contour lines on a map
+    const mode = R() < 0.5 ? 'drift' : 'pools', dphi = (0.22 + R() * 0.3) * (R() < 0.5 ? 1 : -1);
+    const waves2 = Math.max(2, waves + (R() < 0.5 ? -1 : 1)), dphi2 = -(0.18 + R() * 0.25) * Math.sign(dphi), c2 = R() * TAU;
     for (let f = 1; f <= n; ++f) {
-      const ph = mode === 'drift' ? f * dphi : sway * Math.sin(f * 0.33);
-      const depth = (u) => dmin + amp * (0.5 + 0.5 * Math.sin(TAU * waves * u + ph));
+      const depth = mode === 'drift' ? (u) => dmin + amp * (0.5 + 0.5 * Math.sin(TAU * waves * u + f * dphi))
+        : (u) => dmin + amp * (0.5 + 0.25 * Math.sin(TAU * waves * u + f * dphi) + 0.25 * Math.sin(TAU * waves2 * u + f * dphi2 + c2));
       const top = f === n;
       E.vox(C, slabRing(tw, td, m, depth, S, f, top), t.x0, pH + f * FH - (top ? 4 : 1), t.z0);
     }
