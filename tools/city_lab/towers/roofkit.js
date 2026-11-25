@@ -4,7 +4,8 @@
 //   roof area [x0,x1) x [z0,z1) in building-local voxels (0.25 m) at height y (the deck surface);
 //   opts { style: 'historic' | 'office' | 'residential' | 'industrial', floors, avoid: [[x0,z0,x1,z1], ...] }
 // CityArch.lib.waterTankImpl(E, cx, cz, y, C [, o]) - NYC water tanks in several designs, picked by a hash of
-//   (cx, cz, y) unless o.design is given; centred on (cx, cz); returns the footprint {w, d, h}.
+//   (cx, cz, y) unless o.design is given (o.maxS caps the footprint, 13 by default); centred on (cx, cz);
+//   returns the footprint {w, d, h}.
 //
 // Layout logic (z = 0 is the street front, z1 the back of the lot):
 //   1. the core: a stair bulkhead / elevator machine room at the back (or mid-depth on deep roofs), or a
@@ -161,7 +162,8 @@
   function waterTankImpl(E, cx, cz, y, C, o) {
     o = o || {};
     const h = (k) => H2(cx * 7 + k * 131, cz * 13 - k * 71, y * 3 + k * 17);
-    const p = o.design || tankDesign(h, o);
+    // without a design, stay close to the classic 10-voxel tank footprint so existing callers' layouts still fit
+    const p = o.design || tankDesign(h, Object.assign({ maxS: 13 }, o));
     if (!p) return null;
     const M = tankModel(p);
     E.vox(C, M, cx - (M.w >> 1), y, cz - (M.d >> 1));
@@ -607,7 +609,7 @@
       return dx + dz;
     };
     // ---- 2. water tank (mainly historic / residential), on the bulkhead roof or on dunnage beside it
-    const tankP = { historic: 0.55, residential: ia > 600 ? 0.3 : 0.18, office: 0.1, industrial: 0.3 }[style] || 0.1;
+    const tankP = { historic: 0.45, residential: ia > 1200 ? 0.3 : 0.14, office: 0.1, industrial: 0.3 }[style] || 0.1;
     if (R() < tankP && ia >= 180) {
       const hs = R() * 1e6 | 0, h = (k) => H2(hs, k, 911);
       const onTop = core && !core.small && !core.emr && !core.ant && R() < 0.45;
