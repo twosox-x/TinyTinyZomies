@@ -249,7 +249,7 @@
     const fz = Math.max(m + 16, Math.round(D * (0.2 + R() * 0.08))), bz = m + 3;
     const t = { x0: sx, z0: fz, x1: W - sx, z1: D - bz };
     const tw = t.x1 - t.x0, td = t.z1 - t.z0;
-    const n = Math.max(16, Math.min(40, Math.floor(7600 / (tw + td)), Math.floor(spec.floors * (0.9 + R() * 0.3))));   // ~90k tris cap
+    const n = Math.max(16, Math.min(40, Math.floor(6600 / (tw + td)), Math.floor(spec.floors * (0.9 + R() * 0.3))));   // ~90k tris cap
     // podium
     const pod = { x0: 0, z0: 0, x1: W, z1: D, h: pH, skin: skinPodium(S) };
     tier(E, C, pod, 0, spec.party);
