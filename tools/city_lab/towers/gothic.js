@@ -13,7 +13,7 @@
       const v = v0 + f * FH, lastF = top && f === n - 1;
       cs.forEach((c, k) => {
         F.rect(c - 2, v, c + 5, v + 3, 1, S.spand);                               // recessed spandrel
-        if (f % 2 === 1) { F.set(c - 1, v + 1, 1, S.trim); F.set(c + 3, v + 1, 1, S.trim); }   // tracery boss
+        if (f % 3 === 1) { F.set(c - 1, v + 1, 1, S.trim); F.set(c + 3, v + 1, 1, S.trim); }   // tracery boss
         const vt = lastF ? v + FH + 2 : v + FH;
         F.rect(c - 2, v + 3, c + 1, vt, 1, L.glassMat(S.seed, k * 2 + salt, v, 0.3));
         F.rect(c + 2, v + 3, c + 5, vt, 1, L.glassMat(S.seed, k * 2 + 1 + salt, v, 0.3));
@@ -274,11 +274,11 @@
     const n = Math.max(24, Math.min(54, Math.round(spec.floors * (1.0 + R() * 0.3))));
     const zA = 10 + Math.floor(R() * 4), aH = 2 * FH + 8;
     const n1 = Math.round(n * (0.32 + R() * 0.1)), roof = { mat: S.trim, deck: BM.ROOF_TAR, parapet: 2 };
-    const tw = Math.min(84, Math.round(Math.min(W * (0.5 + R() * 0.14), D * 0.62))) & ~1;
+    const tw = Math.min(84, Math.max(44, Math.round(Math.min(W * (0.5 + R() * 0.14), D * 0.62)))) & ~1;
     const cx = W >> 1, tz = R() < 0.6 ? 0 : Math.round(D * 0.08);
     const t2 = { x0: cx - (tw >> 1), z0: tz, x1: cx + (tw >> 1), z1: tz + tw };
     const n2 = Math.round((n - n1) * 0.55), n3 = Math.max(3, n - n1 - n2 - 2);
-    const i3 = Math.max(8, Math.round(tw * 0.1)), i4 = Math.max(6, Math.round(tw * 0.08));
+    const i3 = Math.max(7, Math.round(tw * 0.1)), i4 = Math.max(5, Math.round(tw * 0.08));
     const t3 = { x0: t2.x0 + i3, z0: t2.z0 + i3, x1: t2.x1 - i3, z1: t2.z1 - i3 };
     const t4 = { x0: t3.x0 + i4, z0: t3.z0 + i4, x1: t3.x1 - i4, z1: t3.z1 - i4 };
     const tiers = [

@@ -1,5 +1,5 @@
 // 'sunburst': a late-1920s machine-age Art Deco skyscraper. A granite and bronze lobby storey with a tall
-// sunburst portal and a lit marquee; a dark brick body striped by continuous white piers that rises in three
+// sunburst portal and a lit marquee; a dark brick body striped by continuous white piers that rises in three or four
 // setbacks; steel eagles at the last setback; a gleaming steel crown of stacked, diminishing arches with
 // triangular lit windows between sunburst rays, finished with a slender needle.
 (function () {
