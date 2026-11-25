@@ -82,3 +82,22 @@ cd tools/city_lab && python3 -m http.server 8765
   - Stacked cantilevered glass volumes.
   - Slanted voxel-stepped crowns with fins.
   - Glass on a limestone podium with a lantern.
+
+### Phase 5B, third pass: signature towers
+
+Each high-rise in the core is its own project with a purpose-built base or an older building to rise from. Eight archetypes are dealt from a shuffled deck, so neighbours never repeat:
+
+| Archetype | Base | Body | Top |
+|---|---|---|---|
+| Art Deco | rusticated granite, 3-storey bronze portal | zoning setbacks, stone piers, bronze spandrels | ziggurat crown, spire and beacon |
+| Adaptive reuse | kept 1900s brick/limestone building | recessed reveal floor, glass with fins and notched corners, mechanical louver floors | maintenance crane, masts |
+| International Style | own granite plaza with fountains and trees, glass lobby on columns | bronze I-beam slab | louvered mechanical penthouse |
+| Slim residential | stone podium with lobby canopy, retail, roof garden | limestone / terracotta fins | open structural lantern |
+| Postmodern | granite arcade | pink granite, paired windows, glazed central slot | stepped pyramid or broken pediment |
+| Brutalist | recessed glass base on columns | overhanging precast frame grid | antenna cluster |
+| Terraced glass | stone and glass retail podium | curtain wall stepping back in planted terraces | crane |
+| Twist | stone podium | rotating floor plates | masts |
+
+- **Parts.** Crowns, lanterns, masts, cranes, plazas and planters are voxel models meshed as one solid each (no overlapping boxes). The water tank was rebuilt the same way.
+- **Glass.** It reflects sky and street by Fresnel, varies in tone from pane to pane, catches sun glints, and is lit at night. Beacons blink.
+- **Plazas.** Trees and benches line the edge, and only larger plazas get a central kiosk with café tables.

@@ -1612,25 +1612,51 @@ function placeProps(ctx) {
     return cls[1] === MAT.SIDEWALK || cls[1] === MAT.SIDEWALK_JOINT || (want === 'any' && cls[1] === MAT.PLAZA);
   };
   const through = (r) => r.P.cls === 'arterial' || r.P.cls === 'collector';
-  // plazas, squares and pocket plazas: kiosks, food carts, cafe tables, benches and trees on a jittered grid
+  // plazas, squares and pocket plazas. Per block: a ring of street trees and benches along the paving edge
+  // (every plaza reads as a designed space), and - only where there is room - a small cluster in the middle:
+  // a kiosk or food cart with cafe tables around it. Small plazas get the ring only.
   if (R.blockArea === undefined) R.blockAreas();
   {
-    const b = net.bounds, step = 6.5;
+    const b = net.bounds, step = 4;
+    const byBlock = new Map();
     for (let gz = b.z0; gz < b.z1; gz += step) for (let gx = b.x0; gx < b.x1; gx += step) {
+      const c = F.blockAt(gx, gz), kind = c >= 0 ? R.blockArea.get(c) : undefined;
+      if (kind !== 'pocket' && kind !== 'plaza') continue;       // Union Square keeps its own layout below
+      R.classify(gx, gz, o, cls);
+      if (!(cls[1] === MAT.PLAZA || cls[1] === MAT.PLAZA_JOINT)) continue;
+      const depth = o.car - o.sw;
+      if (depth < 1.5) continue;
+      let L = byBlock.get(c); if (!L) byBlock.set(c, L = []);
+      L.push({ x: gx, z: gz, depth, road: o.road, s: o.s });
+    }
+    for (const [c, L] of byBlock) {
+      const ring = L.filter(p => p.depth < 3.6), inner = L.filter(p => p.depth > 7);
+      ring.forEach((p, k) => {
+        const r = net.roads[p.road], [px, pz] = pointAt(r, Math.max(0, Math.min(r.len, p.s)));
+        const yaw = yawTowards(p.x, p.z, [px, pz]);
+        if (k % 2 === 0) out.push({ type: 'tree', x: p.x, y: hsM, z: p.z, yaw, road: p.road });
+        else if (k % 4 === 1) out.push({ type: 'bench', x: p.x, y: hsM, z: p.z, yaw: yaw + Math.PI, road: p.road });
+      });
+      if (inner.length >= 6) {
+        let cx = 0, cz = 0; for (const p of inner) { cx += p.x; cz += p.z; } cx /= inner.length; cz /= inner.length;
+        inner.sort((a, b2) => Math.hypot(a.x - cx, a.z - cz) - Math.hypot(b2.x - cx, b2.z - cz));
+        const hub = inner[0], h = hash2(c, 3, 9);
+        out.push({ type: h < 0.5 ? 'newsstand' : 'hotdog', x: hub.x, y: hsM, z: hub.z, yaw: h * 6.28, road: hub.road });
+        for (let k = 1; k < Math.min(inner.length, 5); ++k) out.push({ type: 'cafe', x: inner[k].x, y: hsM, z: inner[k].z, yaw: k, road: hub.road });
+      }
+    }
+    // Union Square (and any 'square'): the original jittered layout, which reads well at that size
+    for (let gz = b.z0; gz < b.z1; gz += 6.5) for (let gx = b.x0; gx < b.x1; gx += 6.5) {
       const h = hash2(Math.round(gx * 3), Math.round(gz * 3), 71), h2 = hash2(Math.round(gx * 5), Math.round(gz * 7), 29);
       const x = gx + (h - 0.5) * 3, z = gz + (h2 - 0.5) * 3;
-      const c = F.blockAt(x, z), kind = c >= 0 ? R.blockArea.get(c) : undefined;
-      if (kind !== 'pocket' && kind !== 'plaza' && kind !== 'square') continue;
+      const c = F.blockAt(x, z);
+      if (c < 0 || R.blockArea.get(c) !== 'square') continue;
       R.classify(x, z, o, cls);
       if (!(cls[1] === MAT.PLAZA || cls[1] === MAT.PLAZA_JOINT) || o.car < o.sw + 1.6) continue;
-      const r = net.roads[o.road];
-      const [px, pz] = pointAt(r, Math.max(0, Math.min(r.len, o.s)));
-      const yaw = yawTowards(x, z, [px, pz]);
-      const nearEdge = o.car < o.sw + 6;
-      const t = hash2(Math.round(gx), Math.round(gz), 5);
-      let type;
-      if (nearEdge) type = t < 0.3 ? 'tree' : t < 0.5 ? 'bench' : t < 0.68 ? 'hotdog' : t < 0.8 ? 'newsstand' : 'cafe';
-      else type = t < 0.35 ? 'tree' : t < 0.55 ? 'cafe' : t < 0.75 ? 'bench' : t < 0.88 ? 'hotdog' : null;
+      const r = net.roads[o.road], [px, pz] = pointAt(r, Math.max(0, Math.min(r.len, o.s)));
+      const yaw = yawTowards(x, z, [px, pz]), t = hash2(Math.round(gx), Math.round(gz), 5);
+      const type = o.car < o.sw + 6 ? (t < 0.3 ? 'tree' : t < 0.5 ? 'bench' : t < 0.68 ? 'hotdog' : t < 0.8 ? 'newsstand' : 'cafe')
+        : (t < 0.35 ? 'tree' : t < 0.55 ? 'cafe' : t < 0.75 ? 'bench' : t < 0.88 ? 'hotdog' : null);
       if (type) out.push({ type, x, y: hsM, z, yaw, road: o.road });
     }
   }

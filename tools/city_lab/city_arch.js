@@ -24,7 +24,9 @@ const BM = {
   TRIM: 84, TRIM_DARK: 85, GLASS: 86, GLASS_LIT: 87, CURTAIN: 88, CURTAIN_LIT: 89, MULLION: 90, SPANDREL: 91,
   ROOF_TAR: 92, SHINGLE_GRAY: 93, SHINGLE_BROWN: 94, DOOR_RED: 95, AWNING_RED: 96, AWNING_GREEN: 97, AWNING_BLUE: 98,
   METAL: 99, WOOD: 100, COPPER: 101, STOREFRONT: 102, SHUTTER_GREEN: 103, SHUTTER_BLACK: 104, DOOR_NAVY: 105,
-  PAINT_SALMON: 106, PAINT_SAGE: 107, SIDING_GRAY: 108, CONCRETE: 109, SHINGLE_SLATE: 110, SIDING_SHADE: 111, BRICK_SHADE: 112
+  PAINT_SALMON: 106, PAINT_SAGE: 107, SIDING_GRAY: 108, CONCRETE: 109, SHINGLE_SLATE: 110, SIDING_SHADE: 111, BRICK_SHADE: 112,
+  GRANITE_PINK: 141, GRANITE_DARK: 142, BRONZE: 143, TERRACOTTA: 144, PRECAST: 145, GLASS_GREEN: 146, GLASS_DARK: 147,
+  GLASS_GREEN_LIT: 148, GLASS_DARK_LIT: 149, BEACON: 150, LOUVER: 151, WATER: 152
 };
 // muted, slightly washed-out sRGB colours; lit glass glows at night (renderer)
 const ARCH_PALETTE = {
@@ -33,9 +35,11 @@ const ARCH_PALETTE = {
   84: [226, 222, 210], 85: [88, 84, 80], 86: [92, 108, 120], 87: [250, 214, 150], 88: [118, 142, 160], 89: [244, 222, 170], 90: [72, 78, 84], 91: [84, 92, 100],
   92: [108, 106, 104], 93: [96, 98, 102], 94: [112, 90, 76], 95: [150, 52, 46], 96: [168, 64, 56], 97: [72, 110, 84], 98: [70, 96, 130],
   99: [150, 154, 156], 100: [140, 108, 78], 101: [110, 150, 134], 102: [70, 86, 98], 103: [58, 84, 66], 104: [44, 46, 50], 105: [48, 62, 92],
-  106: [214, 156, 136], 107: [160, 176, 146], 108: [196, 198, 198], 109: [176, 172, 166], 110: [84, 92, 104], 111: [0, 0, 0], 112: [0, 0, 0]
+  106: [214, 156, 136], 107: [160, 176, 146], 108: [196, 198, 198], 109: [176, 172, 166], 110: [84, 92, 104], 111: [0, 0, 0], 112: [0, 0, 0],
+  141: [178, 146, 136], 142: [92, 88, 90], 143: [104, 88, 70], 144: [182, 148, 124], 145: [184, 180, 170], 146: [92, 122, 122], 147: [62, 70, 80],
+  148: [246, 226, 176], 149: [240, 214, 160], 150: [230, 60, 50], 151: [124, 128, 130], 152: [104, 146, 168]
 };
-const LIT = new Set([87, 89]);
+const LIT = new Set([87, 89, 148, 149]);
 
 // ------------------------------------------------------------------------------------------------ emitter
 // Writes quads in building-local voxel coordinates (x along the street, y up, z into the lot) into a mesh
@@ -61,6 +65,15 @@ class Emitter {
     this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], m, [0, 0, 1]);
     this.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], m, [-1, 0, 0]);
     this.quad([x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], m, [1, 0, 0]);
+  }
+  // a VoxModel (voxel = BV) placed with its model origin at building-local (x, y, z); greedy-meshed once
+  vox(C, M, x, y, z) {
+    const m = M._mesh || (M._mesh = C.meshVoxels3D(M));
+    const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]], P = m.pos, s = 1 / C.PV;
+    for (let q = 0; q < m.quads; ++q) {
+      const k = q * 12, c = (i) => [P[k + i] * s + x, P[k + i + 1] * s + y, P[k + i + 2] * s + z];
+      this.quad(c(0), c(3), c(6), c(9), m.mat[q * 4], NV[m.nrm[q * 4]]);
+    }
   }
   // relief / height map meshed by the column mesher, then mapped: map(rx, ry, rz) -> local (x, y, z)
   relief(H, M, w, d, map, wallMat, C, clampDepth) {
@@ -324,13 +337,17 @@ function flatRoof(E, x0, z0, x1, z1, yTop, S, C, opts) {
   return { H, M };
 }
 // New York rooftop water tank: wooden barrel on a steel frame (voxel boxes)
-function waterTank(E, cx, cz, y) {
-  for (const [dx, dz] of [[-3, -3], [2, -3], [-3, 2], [2, 2]]) E.box(cx + dx, y, cz + dz, cx + dx + 1, y + 7, cz + dz + 1, BM.METAL, true);
-  E.box(cx - 4, y + 7, cz - 4, cx + 4, y + 8, cz + 4, BM.METAL, true);
-  E.box(cx - 4, y + 8, cz - 3, cx + 4, y + 18, cz + 3, BM.WOOD, true);
-  E.box(cx - 3, y + 8, cz - 4, cx + 3, y + 18, cz + 4, BM.WOOD, true);
-  for (let k = 0; k < 3; ++k) E.box(cx - 3 + k, y + 18 + k, cz - 3 + k, cx + 3 - k, y + 19 + k, cz + 3 - k, BM.WOOD, true);   // conical lid
-  E.box(cx - 4, y + 11, cz - 4, cx + 4, y + 12, cz + 4, BM.METAL, true);                          // hoop
+function waterTank(E, cx, cz, y, C) {
+  // wooden barrel on a steel frame, one voxel model (no overlapping boxes)
+  const M = new C.VoxModel(10, 22, 10, 5, 5);
+  for (const [dx, dz] of [[-4, -4], [3, -4], [-4, 3], [3, 3]]) M.box(dx, 0, dz, dx + 1, 7, dz + 1, BM.METAL);
+  M.box(-4, 7, -4, 4, 8, 4, BM.METAL);
+  for (let yy = 8; yy < 18; ++yy) for (let z = -4; z < 4; ++z) for (let x = -4; x < 4; ++x) {
+    const r = Math.hypot(x + 0.5, z + 0.5);
+    if (r < 4.1) M.box(x, yy, z, x + 1, yy + 1, z + 1, (yy === 11 || yy === 15) && r > 3.1 ? BM.METAL : BM.WOOD);
+  }
+  for (let k = 0; k < 3; ++k) M.box(-3 + k, 18 + k, -3 + k, 3 - k, 19 + k, 3 - k, BM.WOOD);
+  E.vox(C, M, cx, y, cz);
 }
 // gable roof with overhangs, ridge along x; gable end triangles in the wall colour; chimney
 function gableRoof(E, x0, z0, x1, z1, yTop, S, C) {
@@ -406,7 +423,7 @@ function buildRows(E, W, D, spec, C) {
     const dc = bays(w, 8, 2); const c = x + dc[dc.length - 1];
     for (let s = 0; s < 3; ++s) E.box(c - 3, 0, -4 - (3 - s) * 2, c + 3, 1 + s, -4 - (3 - s) * 2 + 2, BM.LIMESTONE);
     E.box(c - 3, 0, -4, c + 3, 4, 0, BM.LIMESTONE);
-    if (R() < 0.3 && w > 24 && D > 30) waterTank(E, x + (w >> 1), Math.floor(D * 0.6), floors * fh + 4);
+    if (R() < 0.3 && w > 24 && D > 30) waterTank(E, x + (w >> 1), Math.floor(D * 0.6), floors * fh + 4, C);
     x += w; ++k;
   }
 }
@@ -421,125 +438,566 @@ function buildMid(E, W, D, spec, C) {
   const floors = spec.floors, fh = 14;
   facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, floors, fh, S, side), C, true, spec.party);
   flatRoof(E, 0, 0, W, D, floors * fh + 5, S, C, { parapet: 2, parapetMat: BM.LIMESTONE_DARK, penthouse: floors >= 7 });
-  if (R() < 0.45 && W > 30 && D > 30) waterTank(E, Math.floor(W * (0.2 + R() * 0.5)), Math.floor(D * 0.6), floors * fh + 5);
+  if (R() < 0.45 && W > 30 && D > 30) waterTank(E, Math.floor(W * (0.2 + R() * 0.5)), Math.floor(D * 0.6), floors * fh + 5, C);
 }
-function buildTower(E, W, D, spec, C) {
-  const R = C.mulberry32(spec.seed);
-  const deco = R() < 0.62;
-  const fh = 14;
-  if (deco) {
-    // Art Deco: podium, two setbacks, crown with a stepped top and a spire
-    const S = { seed: spec.seed, wall: pick(R, [BM.LIMESTONE, BM.BUFF, BM.BRICK_BROWN]), trim: BM.TRIM };
-    const tiers = [];
-    let x0 = 0, z0 = 0, x1 = W, z1 = D, y = 0, fl = spec.floors;
-    const plan = [Math.round(fl * 0.25), Math.round(fl * 0.45), fl - Math.round(fl * 0.25) - Math.round(fl * 0.45)];
-    plan.forEach((n, t) => {
-      if (n <= 0 || x1 - x0 < 16 || z1 - z0 < 16) return;
-      tiers.push({ x0, z0, x1, z1, y, n, crown: t === 2 });
-      y += n * fh + (t === 2 ? 4 : 1);
-      const ix = Math.max(4, Math.round((x1 - x0) * 0.14)), iz = Math.max(4, Math.round((z1 - z0) * 0.14));
-      x0 += ix; x1 -= ix; z0 += iz; z1 -= iz;
-    });
-    for (const t of tiers) {
-      facades(E, t.x0, t.z0, t.x1, t.z1, t.y, (len) => facadeDeco(len, t.n, fh, S, t.crown), C, true);
-      flatRoof(E, t.x0, t.z0, t.x1, t.z1, t.y + t.n * fh + (t.crown ? 4 : 1), S, C, { parapet: 2, parapetMat: S.wall, units: 0 });
+// ================================================================================================ signature towers
+// Every high-rise is its own project: a base built for it (or an older building it rises from), a body with its
+// own facade system, and a top that finishes the idea. Eight archetypes, dealt from a shuffled deck so
+// neighbouring towers never share a design. Rectangular tiers use facades() (corner returns), notched tiers use
+// prism() (facades along every outline run). Roofs know which part is covered by the next tier: no parapets or
+// tar under walls, so nothing is coplanar.
+const FH = 14;                                                     // storey height in voxels (3.5 m)
+function rectMask(W, D, x0, z0, x1, z1, notch) {
+  const m = new Uint8Array(W * D);
+  for (let z = Math.max(0, z0); z < Math.min(D, z1); ++z) for (let x = Math.max(0, x0); x < Math.min(W, x1); ++x) {
+    if (notch && (x < x0 + notch || x >= x1 - notch) && (z < z0 + notch || z >= z1 - notch)) continue;
+    m[z * W + x] = 1;
+  }
+  return m;
+}
+function stripExt(F) { for (let v = 0; v < F.h; ++v) for (let e = 1; e <= F.ext; ++e) { F.set(-e, v, -1, 0); F.set(F.w0 - 1 + e, v, -1, 0); } return F; }
+// facades along every straight run of a mask outline
+function prism(E, C, mask, W, D, y0, h, skin) {
+  const inn = (x, z) => x >= 0 && z >= 0 && x < W && z < D && mask[z * W + x] === 1;
+  const runs = [];
+  for (let z = 0; z <= D; ++z) {
+    let cur = null;
+    for (let x = 0; x <= W; ++x) {
+      const a = inn(x, z - 1), b = inn(x, z), t = x < W ? (b && !a ? 'nz' : a && !b ? 'pz' : null) : null;
+      if (cur && cur.t !== t) { runs.push(cur); cur = null; }
+      if (t && !cur) cur = { t, s: x, e: x + 1, L: z };
+      else if (t) cur.e = x + 1;
     }
-    const top = tiers[tiers.length - 1];
-    const cx = (top.x0 + top.x1) >> 1, cz = (top.z0 + top.z1) >> 1, yt = top.y + top.n * fh + 4;
-    for (let k = 0; k < 4; ++k) E.box(cx - 8 + 2 * k, yt + k * 6, cz - 8 + 2 * k, cx + 8 - 2 * k, yt + (k + 1) * 6, cz + 8 - 2 * k, k % 2 ? S.wall : BM.TRIM);
-    E.box(cx - 1, yt + 24, cz - 1, cx + 1, yt + 64, cz + 1, BM.METAL);                           // spire
-  } else {
-    const v = R();
-    if (v < 0.3) modernTwist(E, W, D, spec, C, R);
-    else if (v < 0.6) modernStack(E, W, D, spec, C, R);
-    else if (v < 0.8) modernSlant(E, W, D, spec, C, R);
-    else modernPodium(E, W, D, spec, C, R);
+  }
+  for (let x = 0; x <= W; ++x) {
+    let cur = null;
+    for (let z = 0; z <= D; ++z) {
+      const a = inn(x - 1, z), b = inn(x, z), t = z < D ? (b && !a ? 'nx' : a && !b ? 'px' : null) : null;
+      if (cur && cur.t !== t) { runs.push(cur); cur = null; }
+      if (t && !cur) cur = { t, s: z, e: z + 1, L: x };
+      else if (t) cur.e = z + 1;
+    }
+  }
+  let minZ = D; for (const r of runs) if (r.t === 'nz') minZ = Math.min(minZ, r.L);
+  for (const r of runs) {
+    const len = r.e - r.s;
+    if (len < 1) continue;
+    const F = stripExt(skin(len, h, { front: r.t === 'nz' && r.L <= minZ + 2, side: r.t === 'nx' || r.t === 'px' }));
+    const map = r.t === 'nz' ? (rx, ry, rz) => [r.s + rx - F.ext, y0 + rz, r.L + BASE - ry]
+      : r.t === 'pz' ? (rx, ry, rz) => [r.e - (rx - F.ext), y0 + rz, r.L + (ry - BASE)]
+      : r.t === 'nx' ? (rx, ry, rz) => [r.L + BASE - ry, y0 + rz, r.e - (rx - F.ext)]
+      : (rx, ry, rz) => [r.L + (ry - BASE), y0 + rz, r.s + (rx - F.ext)];
+    E.relief(F.H, F.M, F.w, F.h, map, (m) => m, C, BASE);
   }
 }
-// one storey of curtain wall: spandrel band at the floor line, glass, projecting mullions (from row 1 up, so a
-// floor slab can sit under it without coplanar faces)
+// flat roof over a mask; cells under the next tier are left out; parapet on the outline; rooftop units
+function roofMask(E, C, mask, cover, W, D, yTop, o, seed) {
+  const W2 = W + 2, H = new Int16Array(W2 * (D + 2)).fill(-1), M = new Uint8Array(W2 * (D + 2));
+  const inn = (x, z) => x >= 0 && z >= 0 && x < W && z < D && mask[z * W + x] === 1;
+  const cov = (x, z) => cover && cover[z * W + x] === 1;
+  const par = o.parapet === undefined ? 2 : o.parapet;
+  for (let z = 0; z < D; ++z) for (let x = 0; x < W; ++x) {
+    if (!inn(x, z) || cov(x, z)) continue;
+    const edge = !inn(x - 1, z) || !inn(x + 1, z) || !inn(x, z - 1) || !inn(x, z + 1);
+    const i = (z + 1) * W2 + x + 1;
+    H[i] = edge ? par : 0; M[i] = edge ? (o.mat || BM.LIMESTONE_DARK) : (o.deck || BM.ROOF_TAR);
+  }
+  const R = C.mulberry32(seed | 0);
+  const free = (bx, bz, bw, bd) => { for (let z = bz - 1; z <= bz + bd; ++z) for (let x = bx - 1; x <= bx + bw; ++x) { if (!inn(x, z) || cov(x, z)) return false; const i = (z + 1) * W2 + x + 1; if (H[i] !== 0) return false; } return true; };
+  let tries = 0, placed = 0;
+  while (placed < (o.units || 0) && tries++ < 60) {
+    const bw = 4 + Math.floor(R() * 5), bd = 3 + Math.floor(R() * 4), bx = Math.floor(R() * W), bz = Math.floor(R() * D);
+    if (!free(bx, bz, bw, bd)) continue;
+    const bh = 3 + Math.floor(R() * 3);
+    for (let z = bz; z < bz + bd; ++z) for (let x = bx; x < bx + bw; ++x) { const i = (z + 1) * W2 + x + 1; H[i] = bh; M[i] = (x - bx) % 2 ? BM.METAL : BM.LOUVER; }
+    placed++;
+  }
+  E.relief(H, M, W, D, (rx, ry, rz) => [rx, yTop + ry, rz], (m) => m, C);
+}
+function buildTiers(E, C, W, D, tiers, seed) {
+  let y = 0;
+  tiers.forEach((t, i) => {
+    const mask = rectMask(W, D, t.x0, t.z0, t.x1, t.z1, t.notch || 0);
+    t.y = y;
+    if (!t.notch) facades(E, t.x0, t.z0, t.x1, t.z1, y, (len, side, front) => t.skin(len, t.h, { side, front }), C, true, t.party);
+    else prism(E, C, mask, W, D, y, t.h, t.skin);
+    const nx = tiers[i + 1];
+    const cover = nx && !nx.floating ? rectMask(W, D, nx.x0, nx.z0, nx.x1, nx.z1, nx.notch || 0) : null;
+    if (!t.noRoof) roofMask(E, C, mask, cover, W, D, y + t.h, t.roof || {}, seed + i * 31);
+    y += t.h;
+  });
+  return y;
+}
+function inset(W, D, l, f, r, b) { return { x0: l, z0: f, x1: W - r, z1: D - b }; }
+
+// ---- skins: (len, h, info) -> Relief. h is the exact height in voxels.
+function glassMat(seed, a, b, lit, dark) {
+  const on = H2(seed, a, b) < (lit === undefined ? 0.3 : lit);
+  if (dark === 'green') return on ? BM.GLASS_GREEN_LIT : BM.GLASS_GREEN;
+  if (dark === 'dark') return on ? BM.GLASS_DARK_LIT : BM.GLASS_DARK;
+  if (dark === 'curtain') return on ? BM.CURTAIN_LIT : BM.CURTAIN;
+  return on ? BM.GLASS_LIT : BM.GLASS;
+}
+// storefront base: lobby with revolving door + canopy on the front, shops elsewhere, stone above
+function skinPodium(S) {
+  return (len, h, info) => {
+    const F = new Relief(len, h, 2, S.stone), gH = 18;
+    F.rect(0, 0, len, gH, BASE, S.stoneDark);
+    F.rect(0, gH, len, gH + 1, 3, S.stoneDark);
+    const cs = bays(len, 12, 3), mid = cs.length >> 1;
+    cs.forEach((c, k) => {
+      if (info.front && k === mid && len > 30) {
+        F.rect(c - 9, 0, c + 9, gH - 1, 0, glassMat(S.seed, k, 1, 0.6, 'dark'));            // double-height lobby
+        for (let u = c - 9; u <= c + 8; u += 4) F.rect(u, 0, u + 1, gH - 1, 1, BM.BRONZE);
+        F.rect(c - 2, 0, c + 2, 9, 1, BM.BRONZE);                                           // revolving door
+        F.rect(c - 12, gH - 4, c + 12, gH - 2, 7, S.canopy || BM.BRONZE);                   // canopy
+        return;
+      }
+      F.rect(c - 5, 1, c + 5, gH - 6, 1, glassMat(S.seed, k, 2, 0.45, 'dark'));            // shop window
+      F.rect(c - 5, gH - 6, c + 5, gH - 4, 1, BM.TRIM_DARK);                                // sign band
+      F.rect(c - 6, 0, c - 5, gH - 3, 3, S.stoneDark); F.rect(c + 5, 0, c + 6, gH - 3, 3, S.stoneDark);
+    });
+    const n = Math.floor((h - gH - 3) / FH);
+    for (let f = 0; f < n; ++f) cs.forEach((c, k) => {
+      const v0 = gH + 1 + f * FH + 3;
+      F.rect(c - 4, v0, c + 4, v0 + 8, 1, glassMat(S.seed, k * 3 + f, 7));
+      F.rect(c - 4, v0 + 3, c + 4, v0 + 4, 1, BM.BRONZE);
+      F.rect(c - 5, v0 - 1, c + 5, v0, 3, S.stoneDark);
+    });
+    F.rect(0, h - 3, len, h - 1, 3, S.stoneDark); F.rect(0, h - 1, len, h, 4, S.stone);
+    F.returns();
+    return F;
+  };
+}
+// Art Deco: continuous stone piers, recessed windows over chevron spandrels, crowned bands
+function skinDeco(S, crown) {
+  return (len, h) => {
+    const F = new Relief(len, h, 2, S.stone);
+    const cs = bays(len, 6, 3), n = Math.floor((h - (crown ? 6 : 2)) / FH);
+    for (let f = 0; f < n; ++f) cs.forEach((c, k) => {
+      const v = f * FH;
+      F.rect(c - 2, v + 3, c + 2, v + FH - 2, 1, glassMat(S.seed, k * 13 + f, f, 0.35));
+      F.rect(c - 2, v + FH - 2, c + 2, v + FH, 1, BM.BRONZE);
+      F.rect(c - 1, v + FH - 1, c + 1, v + FH, 1, S.trim);                                  // chevron accent
+      F.rect(c - 2, v, c + 2, v + 3, 1, BM.BRONZE);
+    });
+    cs.forEach((c) => F.rect(c + 2, 0, c + 4, n * FH, 3, S.stone));                         // piers
+    F.rect(0, 0, 3, h, 4, S.stone); F.rect(len - 3, 0, len, h, 4, S.stone);                 // corner piers
+    if (crown) {
+      F.rect(0, h - 6, len, h - 5, 3, S.trim);
+      for (let u = 0; u < len; ++u) F.rect(u, h - 5, u + 1, h, (u % 6) < 3 ? 4 : 3, (u % 6) < 3 ? S.stone : S.trim);
+    } else F.rect(0, h - 2, len, h, 3, S.trim);
+    F.returns();
+    return F;
+  };
+}
+function skinDecoBase(S) {
+  return (len, h, info) => {
+    const F = new Relief(len, h, 2, S.stone), gH = 20;
+    F.rect(0, 0, len, gH, BASE, BM.GRANITE_DARK);
+    for (let v = 2; v < gH; v += 3) F.rect(0, v, len, v + 1, 3, BM.GRANITE_DARK);           // rusticated granite
+    const cs = bays(len, 12, 3), mid = cs.length >> 1;
+    cs.forEach((c, k) => {
+      if (info.front && k === mid && len > 30) {                                            // grand portal, 3 storeys
+        F.rect(c - 7, 0, c + 7, gH + 2 * FH, 0, BM.BRONZE);
+        for (let v = 4; v < gH + 2 * FH; v += 5) F.rect(c - 6, v, c + 6, v + 3, 0, glassMat(S.seed, v, 3, 0.6, 'dark'));
+        F.rect(c - 9, 0, c - 7, gH + 2 * FH + 3, 4, S.stone); F.rect(c + 7, 0, c + 9, gH + 2 * FH + 3, 4, S.stone);
+        F.rect(c - 9, gH + 2 * FH, c + 9, gH + 2 * FH + 3, 4, S.stone);
+        return;
+      }
+      F.rect(c - 4, 2, c + 4, gH - 4, 1, glassMat(S.seed, k, 2, 0.45, 'dark'));
+      F.rect(c - 4, gH - 4, c + 4, gH - 3, 1, BM.BRONZE);
+    });
+    const n = Math.floor((h - gH - 4) / FH);
+    for (let f = 0; f < n; ++f) cs.forEach((c, k) => {
+      if (info.front && k === mid && len > 30 && f < 2) return;
+      const v0 = gH + f * FH + 3;
+      F.rect(c - 3, v0, c + 3, v0 + 9, 1, glassMat(S.seed, k * 7 + f, 5));
+      F.rect(c - 4, v0 - 1, c + 4, v0, 3, S.trim);
+      F.rect(c + 5, gH, c + 6, h - 4, 3, S.stone);
+    });
+    F.rect(0, h - 4, len, h - 3, 3, S.trim); F.rect(0, h - 3, len, h - 1, 4, S.stone); F.rect(0, h - 1, len, h, 5, S.trim);
+    F.returns();
+    return F;
+  };
+}
+// curtain wall: per-floor spandrel + slab edge, projecting mullions, mechanical louver floors
+function skinCurtain(S, o) {
+  o = o || {};
+  return (len, h) => {
+    const F = new Relief(len, h, 1, BM.CURTAIN), pitch = o.pitch || 5, n = Math.floor(h / FH);
+    for (let f = 0; f < n; ++f) {
+      const v = f * FH, mech = o.mech && o.mech.includes(f);
+      if (mech) {
+        for (let r = 0; r < FH; ++r) F.rect(0, v + r, len, v + r + 1, BASE, r % 2 ? BM.LOUVER : BM.METAL);
+        continue;
+      }
+      for (let u = 0; u < len; u += pitch) F.rect(u, v + 2, Math.min(len, u + pitch), v + FH, BASE, glassMat(S.seed, u + f * 101, f, o.lit, o.tint || 'curtain'));
+      F.rect(0, v, len, v + 2, BASE, o.spandrel || BM.SPANDREL);
+      if (o.slabs) F.rect(0, v, len, v + 1, 4, o.slabMat || BM.TRIM);
+    }
+    for (let u = 0; u <= len - 1; u += pitch) F.rect(u, 0, u + 1, n * FH, o.fin ? 4 : 3, o.mullion || BM.MULLION);
+    F.rect(len - 1, 0, len, n * FH, 3, o.mullion || BM.MULLION);
+    if (h > n * FH) F.rect(0, n * FH, len, h, 3, o.cap || o.mullion || BM.MULLION);
+    F.returns();
+    return F;
+  };
+}
+// International Style: bronze I-beam mullions every 4 voxels, dark glass, bronze spandrels
+function skinBronze(S, o) {
+  o = o || {};
+  return (len, h) => {
+    const F = new Relief(len, h, 2, BM.BRONZE), n = Math.floor(h / FH);
+    for (let f = 0; f < n; ++f) {
+      const v = f * FH;
+      if (o.mech && o.mech.includes(f)) { for (let r = 1; r < FH; r += 2) F.rect(0, v + r, len, v + r + 1, 1, BM.LOUVER); continue; }
+      for (let u = 0; u < len; u += 6) F.rect(u, v + 3, u + 6, v + FH, 1, glassMat(S.seed, u, f, 0.28, 'dark'));
+      F.rect(0, v, len, v + 3, BASE, BM.BRONZE);
+    }
+    for (let u = 0; u < len; u += 6) F.rect(u, 0, u + 1, n * FH, 3, BM.BRONZE);
+    if (h > n * FH) F.rect(0, n * FH, len, h, 3, BM.BRONZE);
+    F.returns();
+    return F;
+  };
+}
+// pilotis: deeply recessed glass lobby behind columns, transfer beam on top
+function skinPilotis(S) {
+  return (len, h) => {
+    const F = new Relief(len, h, 0, S.col);
+    F.rect(0, 0, len, h - 3, 0, glassMat(S.seed, 1, 1, 0.7, 'dark'));
+    for (let u = 0; u < len; u += 4) F.rect(u, 0, u + 1, h - 3, 0, BM.BRONZE);
+    for (let u = 3; u < len - 2; u += 14) F.rect(u, 0, u + 3, h - 3, 4, S.col);
+    F.rect(0, 0, 3, h, 4, S.col); F.rect(len - 3, 0, len, h, 4, S.col);
+    F.rect(0, h - 3, len, h, 4, S.col);
+    return F;
+  };
+}
+// slim residential: limestone / terracotta fins, recessed glass, bronze spandrels, banded every 4 floors
+function skinFins(S) {
+  return (len, h) => {
+    const F = new Relief(len, h, 2, S.stone), n = Math.floor(h / FH);
+    for (let f = 0; f < n; ++f) {
+      const v = f * FH;
+      for (let u = 0; u < len; u += 4) F.rect(u + 1, v + 3, Math.min(len, u + 4), v + FH, 1, glassMat(S.seed, u, f, 0.38, 'green'));
+      F.rect(0, v, len, v + 3, 1, BM.BRONZE);
+      if (f % 4 === 3) F.rect(0, v + FH - 1, len, v + FH, 4, S.stone);
+    }
+    for (let u = 0; u < len; u += 4) F.rect(u, 0, u + 1, n * FH, 4, (u / 4) % 2 ? S.stone : S.alt);
+    F.rect(0, 0, 2, h, 4, S.stone); F.rect(len - 2, 0, len, h, 4, S.stone);
+    if (h > n * FH) F.rect(0, n * FH, len, h, 3, S.stone);
+    F.returns();
+    return F;
+  };
+}
+// postmodern: polished granite, paired punched windows, dark bands, a recessed glass slot up the middle
+function skinPomo(S) {
+  return (len, h, info) => {
+    const F = new Relief(len, h, 2, S.stone), n = Math.floor(h / FH);
+    const cs = bays(len, 10, 3), mid = len >> 1;
+    for (let f = 0; f < n; ++f) {
+      const v = f * FH;
+      cs.forEach((c, k) => {
+        if (Math.abs(c - mid) < 6) return;
+        F.rect(c - 4, v + 4, c - 1, v + 11, 1, glassMat(S.seed, k * 2 + f * 17, f, 0.3, 'green'));
+        F.rect(c + 1, v + 4, c + 4, v + 11, 1, glassMat(S.seed, k * 2 + 1 + f * 17, f, 0.3, 'green'));
+        F.rect(c - 5, v + 3, c + 5, v + 4, 3, S.dark);
+      });
+      if (f % 4 === 0) F.rect(0, v, len, v + 2, 3, S.dark);
+    }
+    if (len > 24) {
+      F.rect(mid - 4, 0, mid + 4, n * FH, 0, BM.GLASS_GREEN);
+      for (let f = 0; f < n; ++f) F.rect(mid - 4, f * FH, mid + 4, f * FH + 1, 0, S.dark);
+      if (H2(S.seed, 1, 1) < 0.5) for (let f = 0; f < n; ++f) F.rect(mid - 4, f * FH + 2, mid + 4, f * FH + FH - 1, 0, glassMat(S.seed, 9, f, 0.4, 'green'));
+    }
+    if (h > n * FH) F.rect(0, n * FH, len, h, 4, S.dark);
+    F.returns();
+    return F;
+  };
+}
+function skinArcade(S) {
+  return (len, h) => {
+    const F = new Relief(len, h, 2, S.stone), aH = 2 * FH + 4;
+    F.rect(0, 0, len, aH, 0, S.dark);
+    const cs = bays(len, 10, 2);
+    cs.forEach((c, k) => F.rect(c - 3, 1, c + 3, aH - 6, 0, glassMat(S.seed, k, 4, 0.5, 'green')));
+    for (let u = 0; u < len; u += 10) F.rect(u, 0, Math.min(len, u + 3), aH, 4, S.stone);  // square piers
+    F.rect(0, aH - 3, len, aH, 4, S.stone);
+    F.rect(len - 3, 0, len, aH, 4, S.stone);
+    for (let f = 0; aH + f * FH + 12 < h; ++f) cs.forEach((c, k) => F.rect(c - 3, aH + f * FH + 3, c + 3, aH + f * FH + 10, 1, glassMat(S.seed, k, f + 9, 0.3, 'green')));
+    F.rect(0, h - 2, len, h, 4, S.dark);
+    F.returns();
+    return F;
+  };
+}
+// brutalist precast: deep concrete frames around every window
+function skinPrecast(S) {
+  return (len, h) => {
+    const F = new Relief(len, h, 2, S.conc), n = Math.floor(h / FH);
+    for (let f = 0; f < n; ++f) for (let u = 0; u + 6 <= len; u += 6) {
+      const v = f * FH;
+      F.rect(u, v, u + 6, v + FH, 3, S.conc);
+      F.rect(u + 1, v + 3, u + 6, v + FH - 1, 1, glassMat(S.seed, u, f, 0.3, 'dark'));
+      F.rect(u + 1, v + 2, u + 6, v + 3, 2, S.conc);
+    }
+    if (h > n * FH) for (let u = 0; u < len; u += 3) F.rect(u, n * FH, u + 2, h, 3, S.conc);
+    F.returns();
+    return F;
+  };
+}
+function skinLouver(S) {
+  return (len, h) => {
+    const F = new Relief(len, h, 1, BM.METAL);
+    for (let v = 0; v < h; ++v) F.rect(0, v, len, v + 1, v % 2 ? 3 : 2, v % 2 ? BM.LOUVER : BM.METAL);
+    for (let u = 0; u < len; u += 8) F.rect(u, 0, u + 1, h, 4, S.frame || BM.MULLION);
+    F.rect(0, h - 1, len, h, 4, S.frame || BM.MULLION);
+    F.returns();
+    return F;
+  };
+}
+
+// ---- voxel parts (VoxModel at building voxel scale): crowns, lanterns, masts, cranes, plaza pieces
+function decoCrownModel(s, S) {
+  const M = new C_VoxModel(s + 4, 120, s + 4, (s >> 1) + 2, (s >> 1) + 2), h0 = s >> 1;
+  let r = h0, y = 0, k = 0;
+  while (r > 3) {
+    const t = k % 2 ? S.trim : S.stone;
+    M.box(-r, y, -r, r, y + 7, r, t);
+    for (let u = -r + 2; u < r - 1; u += 3) { M.box(u, y + 2, -r - 1, u + 1, y + 6, -r, BM.BRONZE); M.box(u, y + 2, r, u + 1, y + 6, r + 1, BM.BRONZE); M.box(-r - 1, y + 2, u, -r, y + 6, u + 1, BM.BRONZE); M.box(r, y + 2, u, r + 1, y + 6, u + 1, BM.BRONZE); }
+    y += 7; r -= 3; ++k;
+  }
+  M.box(-2, y, -2, 2, y + 6, 2, BM.BRONZE); M.box(-1, y + 6, -1, 1, y + 40, 1, BM.METAL); M.box(-1, y + 40, -1, 1, y + 41, 1, BM.BEACON);
+  return M;
+}
+function lanternModel(w, d, S) {
+  // open structural crown: corner posts, mid posts, beams at two levels; sky visible through it
+  const M = new C_VoxModel(w + 2, 40, d + 2, 1, 1);
+  const posts = [];
+  for (let x = 0; x <= w - 2; x += Math.max(4, (w - 2) >> 2)) { posts.push([x, 0]); posts.push([x, d - 2]); }
+  for (let z = 0; z <= d - 2; z += Math.max(4, (d - 2) >> 2)) { posts.push([0, z]); posts.push([w - 2, z]); }
+  for (const [x, z] of posts) M.box(x, 0, z, x + 2, 28, z + 2, S.stone);
+  for (const y of [13, 26]) { M.box(0, y, 0, w, y + 2, 2, S.stone); M.box(0, y, d - 2, w, y + 2, d, S.stone); M.box(0, y, 2, 2, y + 2, d - 2, S.stone); M.box(w - 2, y, 2, w, y + 2, d - 2, S.stone); }
+  M.box((w >> 1) - 1, 28, (d >> 1) - 1, (w >> 1) + 1, 38, (d >> 1) + 1, BM.METAL); M.box((w >> 1) - 1, 38, (d >> 1) - 1, (w >> 1) + 1, 39, (d >> 1) + 1, BM.BEACON);
+  return M;
+}
+function mastsModel(R) {
+  const M = new C_VoxModel(16, 80, 16, 8, 8);
+  M.box(-5, 0, -5, 5, 3, 5, BM.METAL);
+  const n = 2 + Math.floor(R() * 2);
+  for (let k = 0; k < n; ++k) {
+    const x = -4 + k * 4, hgt = 30 + Math.floor(R() * 40);
+    M.box(x, 3, -1, x + 1, hgt, 0, BM.METAL); M.box(x, hgt, -1, x + 1, hgt + 1, 0, BM.BEACON);
+    for (let y = 10; y < hgt; y += 12) M.box(x - 1, y, -2, x + 2, y + 1, 1, BM.METAL);
+  }
+  return M;
+}
+function craneModel(L) {
+  // window-washing gantry: rail ring + small jib
+  const M = new C_VoxModel(L + 4, 14, 10, 2, 5);
+  M.box(0, 0, -1, L, 1, 1, BM.METAL);
+  M.box(2, 1, -2, 6, 5, 2, BM.METAL); M.box(3, 5, -1, 5, 12, 1, BM.METAL); M.box(3, 11, -1, 14, 12, 0, BM.METAL);
+  return M;
+}
+function pyramidModel(w, d, S) {
+  const M = new C_VoxModel(w + 2, 80, d + 2, 1, 1);
+  let y = 0, a = 0;
+  while (w - 2 * a > 4 && d - 2 * a > 4) { M.box(a, y, a, w - a, y + 3, d - a, (a / 2) % 2 ? S.dark : S.stone); y += 3; a += 2; }
+  M.box((w >> 1) - 1, y, (d >> 1) - 1, (w >> 1) + 1, y + 14, (d >> 1) + 1, BM.BRONZE);
+  return M;
+}
+function pedimentModel(w, d, S) {
+  // broken pediment: a stepped gable along x with a round-ish notch cut out of the apex
+  const M = new C_VoxModel(w + 2, 60, d + 2, 1, 1);
+  const half = w >> 1, rise = Math.min(30, half);
+  for (let x = 0; x < w; ++x) {
+    const hh = Math.round(rise * (1 - Math.abs(x - half + 0.5) / half));
+    for (let y = 0; y < hh; ++y) {
+      const dx = x - half + 0.5, dy = y - rise + 4;
+      if (dx * dx + dy * dy < 30 && y > rise - 9) continue;                          // the notch
+      M.box(x, y, 0, x + 1, y + 1, d, y >= hh - 2 ? S.dark : S.stone);
+    }
+  }
+  return M;
+}
+function plazaModel(w, d, R) {
+  // corporate plaza: granite paving, two fountain basins, planters with trees
+  const M = new C_VoxModel(w, 40, d, 0, 0);
+  M.box(0, 0, 0, w, 1, d, BM.GRANITE_DARK);
+  for (let x = 4; x < w - 4; x += 8) M.box(x, 0, 2, x + 7, 1, d - 2, BM.LIMESTONE);
+  const bw = Math.min(22, (w >> 1) - 8), bd = Math.min(12, d - 10);
+  if (bd >= 6) for (const x0 of [4, w - 4 - bw]) {
+    M.box(x0, 1, 4, x0 + bw, 3, 4 + bd, BM.LIMESTONE);
+    M.box(x0 + 1, 1, 5, x0 + bw - 1, 2, 3 + bd, BM.WATER);
+  }
+  for (let x = 3; x < w - 6; x += 16) {
+    const z = d - 6;
+    M.box(x, 1, z, x + 5, 4, z + 5, BM.GRANITE_DARK); M.box(x + 2, 4, z + 2, x + 3, 14, z + 3, 135);
+    M.box(x - 2, 12, z - 2, x + 7, 18, z + 7, 133); M.box(x, 18, z, x + 5, 21, z + 5, 134);
+  }
+  return M;
+}
+function planterRowModel(len) {
+  const M = new C_VoxModel(len, 10, 4, 0, 0);
+  for (let x = 0; x + 4 <= len; x += 6) { M.box(x, 0, 0, x + 4, 3, 4, BM.CONCRETE); M.box(x, 3, 0, x + 4, 6, 4, x % 12 ? 133 : 134); }
+  return M;
+}
+let C_VoxModel = null;                                             // set by buildAll (CityCore.VoxModel)
+
+// ---- the eight archetypes. Each returns nothing; spec.party carries attached neighbours for the base.
+function towerDeco(E, C, W, D, spec, R) {
+  const S = { seed: spec.seed, stone: pick(R, [BM.LIMESTONE, BM.BUFF, BM.TERRACOTTA]), trim: pick(R, [BM.LIMESTONE_DARK, BM.BRONZE]) };
+  const n = Math.max(20, spec.floors), b = 5, n1 = Math.round(n * 0.32), n2 = Math.round(n * 0.25), n3 = Math.max(6, n - b - n1 - n2);
+  const t1 = inset(W, D, Math.round(W * 0.1), Math.round(D * 0.12), Math.round(W * 0.1), Math.round(D * 0.06));
+  const t2 = inset(W, D, Math.round(W * 0.2), Math.round(D * 0.22), Math.round(W * 0.2), Math.round(D * 0.16));
+  const s = Math.min(t2.x1 - t2.x0, t2.z1 - t2.z0) - 12, cx = (t2.x0 + t2.x1) >> 1, cz = (t2.z0 + t2.z1) >> 1;
+  const tiers = [
+    Object.assign(inset(W, D, 0, 0, 0, 0), { h: 20 + 4 * FH + 4, skin: skinDecoBase(S), party: spec.party, roof: { mat: S.trim } }),
+    Object.assign(t1, { h: n1 * FH + 2, skin: skinDeco(S, false), roof: { mat: S.trim } }),
+    Object.assign(t2, { notch: 6, h: n2 * FH + 2, skin: skinDeco(S, false), roof: { mat: S.trim } }),
+    { x0: cx - (s >> 1), z0: cz - (s >> 1), x1: cx + (s >> 1), z1: cz + (s >> 1), h: n3 * FH + 6, skin: skinDeco(S, true), roof: { mat: S.trim, units: 0 } }
+  ];
+  const y = buildTiers(E, C, W, D, tiers, spec.seed);
+  E.vox(C, decoCrownModel(Math.max(10, s - 6), S), cx, y, cz);
+}
+function towerReuse(E, C, W, D, spec, R) {
+  // a 1900s building kept as the base; the glass tower rises from it behind a recessed reveal floor
+  const brick = R() < 0.5;
+  const SH = { seed: spec.seed, wall: brick ? pick(R, [BM.BRICK_RED, BM.BRICK_BROWN]) : pick(R, [BM.LIMESTONE, BM.BUFF]), base: BM.LIMESTONE_DARK,
+    awning: pick(R, [BM.AWNING_RED, BM.AWNING_GREEN, BM.AWNING_BLUE]), shops: true, bayW: pick(R, [9, 10, 11]), lintels: true, trim: BM.TRIM };
+  const bf = 5 + Math.floor(R() * 2), bh = bf * 14 + 5;
+  const tw = inset(W, D, Math.round(W * 0.1), Math.max(12, Math.round(D * 0.14)), Math.round(W * 0.1), Math.round(D * 0.08));
+  const rv = { x0: tw.x0 + 4, z0: tw.z0 + 4, x1: tw.x1 - 4, z1: tw.z1 - 4 };
+  const n = Math.max(14, spec.floors - bf);
+  const S = { seed: spec.seed + 3 };
+  const mech = [Math.round(n * 0.5), n - 1];
+  const tint = pick(R, ['curtain', 'green', 'dark']);
+  const tiers = [
+    Object.assign(inset(W, D, 0, 0, 0, 0), { h: bh, skin: (len, h, info) => facadeMid(len, bf, 14, SH, false), party: spec.party, roof: { mat: SH.wall, units: 0 } }),
+    Object.assign(rv, { h: 12, skin: (len, h) => { const F = new Relief(len, h, 0, BM.GLASS_DARK); for (let u = 0; u < len; u += 6) F.rect(u, 0, u + 1, h, 3, BM.MULLION); return F; }, noRoof: true }),
+    Object.assign(tw, { notch: 4, h: n * FH + 3, skin: skinCurtain(S, { fin: true, mech, tint, pitch: 5, mullion: BM.MULLION, cap: BM.MULLION }), roof: { mat: BM.MULLION, units: 2 } })
+  ];
+  // the reveal floor has no roof of its own: the tower above it is wider, so its underside closes it
+  const y = buildTiers(E, C, W, D, tiers, spec.seed);
+  E.quad([tw.x0, bh + 12, tw.z0], [tw.x1, bh + 12, tw.z0], [tw.x1, bh + 12, tw.z1], [tw.x0, bh + 12, tw.z1], BM.MULLION, [0, -1, 0]);
+  E.vox(C, craneModel(Math.min(40, tw.x1 - tw.x0 - 12)), tw.x0 + 6, y, (tw.z0 + tw.z1) >> 1);
+  if (R() < 0.6) E.vox(C, mastsModel(R), (tw.x0 + tw.x1) >> 1, y, tw.z1 - 10);
+}
+function towerInternational(E, C, W, D, spec, R) {
+  // set back behind its own granite plaza; raised on a glass lobby; bronze I-beam slab; mechanical penthouse
+  const S = { seed: spec.seed, col: pick(R, [BM.GRANITE_DARK, BM.BRONZE]) };
+  const zf = Math.max(24, Math.round(D * 0.38)), slabD = Math.min(D - zf - 2, Math.max(36, Math.round(D * 0.5)));
+  const t0 = { x0: Math.round(W * 0.12), z0: zf, x1: W - Math.round(W * 0.12), z1: zf + slabD };
+  if (t0.x1 - t0.x0 < 30 || slabD < 30) return towerReuse(E, C, W, D, spec, R);
+  const n = Math.max(18, spec.floors);
+  const tiers = [
+    Object.assign({}, t0, { h: 18, skin: skinPilotis(S), noRoof: false, roof: { parapet: 0, deck: S.col } }),
+    Object.assign({}, t0, { h: n * FH + 2, skin: skinBronze(S, { mech: [Math.round(n * 0.55)] }), roof: { mat: BM.BRONZE, units: 0 } }),
+    { x0: t0.x0 + 8, z0: t0.z0 + 8, x1: t0.x1 - 8, z1: t0.z1 - 8, h: 12, skin: skinLouver({ frame: BM.BRONZE }), roof: { mat: BM.BRONZE, units: 2 } }
+  ];
+  tiers[0].h = 18;
+  buildTiers(E, C, W, D, tiers, spec.seed);
+  E.vox(C, plazaModel(W - 4, zf - 4, R), 2, 0, 2);
+}
+function towerPencil(E, C, W, D, spec, R) {
+  const S = { seed: spec.seed, stone: pick(R, [BM.LIMESTONE, BM.BUFF]), alt: pick(R, [BM.TERRACOTTA, BM.LIMESTONE_DARK]), stoneDark: BM.GRANITE_DARK, canopy: BM.BRONZE };
+  const sw = Math.min(W - 16, 76), sd = Math.min(D - 30, 84);
+  if (sw < 32 || sd < 32) return towerDeco(E, C, W, D, spec, R);
+  const x0 = (W - sw) >> 1, z0 = Math.max(14, Math.round((D - sd) * 0.4));
+  const n = Math.max(30, spec.floors + 14), top = 6;
+  const tiers = [
+    Object.assign(inset(W, D, 0, 0, 0, 0), { h: 18 + 5 * FH + 3, skin: skinPodium(S), party: spec.party, roof: { mat: S.stone, deck: BM.CONCRETE } }),
+    { x0, z0, x1: x0 + sw, z1: z0 + sd, h: (n - top) * FH, skin: skinFins(S), roof: { mat: S.stone } },
+    { x0: x0 + 6, z0: z0 + 6, x1: x0 + sw - 6, z1: z0 + sd - 6, notch: 6, h: top * FH + 2, skin: skinFins(S), roof: { mat: S.stone, units: 0 } }
+  ];
+  const y = buildTiers(E, C, W, D, tiers, spec.seed);
+  const p0 = 18 + 5 * FH + 3;
+  for (const zz of [3, D - 7]) if (z0 > 10 || zz > 3) E.vox(C, planterRowModel(W - 8), 4, p0, zz);    // podium roof garden
+  E.vox(C, lanternModel(sw - 16, sd - 16, S), x0 + 8, y, z0 + 8);
+}
+function towerPomo(E, C, W, D, spec, R) {
+  const S = { seed: spec.seed, stone: pick(R, [BM.GRANITE_PINK, BM.GRANITE_PINK, BM.BUFF]), dark: BM.GRANITE_DARK };
+  const n = Math.max(18, spec.floors);
+  const t1 = inset(W, D, 10, 12, 10, 8), n1 = Math.round(n * 0.7);
+  const t2 = { x0: t1.x0 + 10, z0: t1.z0 + 10, x1: t1.x1 - 10, z1: t1.z1 - 10 };
+  const tiers = [
+    Object.assign(inset(W, D, 0, 0, 0, 0), { h: 2 * FH + 4 + FH + 2, skin: skinArcade(S), party: spec.party, roof: { mat: S.dark } }),
+    Object.assign(t1, { notch: 6, h: n1 * FH + 2, skin: skinPomo(S), roof: { mat: S.dark } }),
+    Object.assign(t2, { notch: 4, h: (n - n1) * FH + 2, skin: skinPomo(S), roof: { mat: S.dark, units: 0 } })
+  ];
+  const y = buildTiers(E, C, W, D, tiers, spec.seed);
+  const w = t2.x1 - t2.x0 - 8, d = t2.z1 - t2.z0 - 8;
+  if (R() < 0.5) E.vox(C, pyramidModel(w, d, S), t2.x0 + 4, y, t2.z0 + 4);
+  else E.vox(C, pedimentModel(w, Math.max(6, d), S), t2.x0 + 4, y, t2.z0 + 4);
+}
+function towerBrutal(E, C, W, D, spec, R) {
+  const S = { seed: spec.seed, conc: BM.PRECAST, col: BM.PRECAST };
+  const n = Math.max(16, Math.min(28, spec.floors));
+  const t = inset(W, D, 6, 8, 6, 6);
+  const tiers = [
+    Object.assign({}, t, { h: 20, skin: skinPilotis(S), roof: { parapet: 0, deck: BM.PRECAST } }),
+    Object.assign({}, inset(W, D, 2, 4, 2, 2), { h: n * FH + 6, skin: skinPrecast(S), floating: true, roof: { mat: BM.PRECAST, units: 3 } })
+  ];
+  // the body overhangs the recessed base: its underside is a soffit
+  const y = buildTiers(E, C, W, D, tiers, spec.seed);
+  const b = tiers[1];
+  E.quad([b.x0, 20, b.z0], [b.x1, 20, b.z0], [b.x1, 20, b.z1], [b.x0, 20, b.z1], BM.PRECAST, [0, -1, 0]);
+  E.vox(C, mastsModel(R), (b.x0 + b.x1) >> 1, y, (b.z0 + b.z1) >> 1);
+}
+function towerTerraced(E, C, W, D, spec, R) {
+  // glass that steps back in planted terraces towards the rear; stepped glass crown
+  const S = { seed: spec.seed, stone: pick(R, [BM.LIMESTONE, BM.GRANITE_DARK]), stoneDark: BM.GRANITE_DARK, canopy: BM.MULLION };
+  const n = Math.max(18, spec.floors), tint = pick(R, ['green', 'curtain', 'dark']);
+  const x0 = 8, x1 = W - 8;
+  let z0 = Math.max(10, Math.round(D * 0.12));
+  const z1 = D - 6, tiers = [Object.assign(inset(W, D, 0, 0, 0, 0), { h: 18 + 3 * FH + 3, skin: skinPodium(S), party: spec.party, roof: { mat: S.stone, deck: BM.CONCRETE } })];
+  let left = n - 4, step = Math.max(6, Math.round((z1 - z0) * 0.12));
+  while (left > 0 && z1 - z0 > 24) {
+    const k = Math.min(left, 5 + Math.floor(R() * 4));
+    tiers.push({ x0, z0, x1, z1, h: k * FH + 1, skin: skinCurtain(S, { slabs: true, slabMat: BM.TRIM, tint, pitch: 6, cap: BM.TRIM }), roof: { mat: BM.MULLION, deck: BM.CONCRETE } });
+    left -= k; z0 += step;
+  }
+  const y = buildTiers(E, C, W, D, tiers, spec.seed);
+  // planters along every terrace edge
+  for (let i = 2; i < tiers.length; ++i) { const t = tiers[i - 1]; E.vox(C, planterRowModel(x1 - x0 - 4), x0 + 2, tiers[i].y, t.z0 + 2); }
+  const last = tiers[tiers.length - 1];
+  E.vox(C, craneModel(Math.min(40, x1 - x0 - 12)), x0 + 6, y, (last.z0 + last.z1) >> 1);
+}
+function towerTwist(E, C, W, D, spec, R) {
+  const S = { seed: spec.seed, stone: pick(R, [BM.LIMESTONE_DARK, BM.GRANITE_DARK]), stoneDark: BM.GRANITE_DARK, canopy: BM.MULLION };
+  const pH = 18 + 3 * FH + 3;
+  buildTiers(E, C, W, D, [Object.assign(inset(W, D, 0, 0, 0, 0), { h: pH, skin: skinPodium(S), party: spec.party, roof: { mat: S.stone, deck: BM.CONCRETE } })], spec.seed);
+  const n = Math.max(20, spec.floors - 4), side = Math.floor(Math.min(W, D) * 0.6), cx = W / 2, cz = D * 0.55;
+  const total = (0.7 + R() * 0.7) * (R() < 0.5 ? 1 : -1), Sg = { seed: spec.seed };
+  for (let k = 0; k < n; ++k) {
+    const th = total * k / Math.max(1, n - 1);
+    const Ek = rotated(E, cx, cz, th, -side / 2, -side / 2);
+    facades(Ek, 0, 0, side, side, pH + k * FH + 1, (len) => facadeGlassFloor(len, FH - 1, Sg, k), C, true);
+    Ek.box(-1, pH + k * FH, -1, side + 1, pH + k * FH + 1, side + 1, BM.TRIM, k > 0);
+    if (k === n - 1) {
+      flatRoof(Ek, 0, 0, side, side, pH + n * FH, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 3, parapetMat: BM.MULLION, units: 2 });
+      Ek.vox(C, mastsModel(R), side >> 1, pH + n * FH, side >> 1);
+    }
+  }
+}
+const TOWER_TYPES = [towerDeco, towerReuse, towerInternational, towerPencil, towerPomo, towerBrutal, towerTerraced, towerTwist];
+let towerDeck = [], TOWER_LOG = [];
+function buildTower(E, W, D, spec, C) {
+  const R = C.mulberry32(spec.seed);
+  if (!towerDeck.length) {                                         // deal the next round of designs
+    const order = TOWER_TYPES.slice();
+    const Rd = C.mulberry32(spec.seed ^ 0x9e3779b9);
+    for (let i = order.length - 1; i > 0; --i) { const j = Math.floor(Rd() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    towerDeck = order;
+  }
+  const fn = towerDeck.pop();
+  TOWER_LOG.push({ type: fn.name, x: E.O[0] + (W / 2) * BV * E.e1[0] + (D / 2) * BV * E.e2[0], z: E.O[1] + (W / 2) * BV * E.e1[1] + (D / 2) * BV * E.e2[1], floors: spec.floors });
+  fn(E, C, W, D, spec, R);
+}
 function facadeGlassFloor(W, fh, S, k, fin) {
   const F = new Relief(W, fh, 0, BM.CURTAIN);
   for (let u = 0; u < W; u += 5) F.rect(u, 2, u + 5, fh, BASE, H2(S.seed, u, k) < 0.33 ? BM.CURTAIN_LIT : BM.CURTAIN);
   F.rect(0, 0, W, 2, BASE, BM.SPANDREL);
   for (let u = 0; u < W; u += 5) F.rect(u, 1, u + 1, fh, fin ? 4 : 3, BM.MULLION);
   return F;
-}
-function glassBlock(E, x0, z0, x1, z1, y0, n, fh, S, C, opts) {
-  opts = opts || {};
-  for (let k = 0; k < n; ++k) {
-    facades(E, x0, z0, x1, z1, y0 + k * fh, (len) => facadeGlassFloor(len, fh, S, k, opts.fins), C, true);
-    if (opts.slabs) E.box(x0 - 1, y0 + k * fh, z0 - 1, x1 + 1, y0 + k * fh + 1, z1 + 1, BM.TRIM, k > 0);   // balcony / floor slab edge
-  }
-}
-// Twisting tower: square floor plates, each rotated a little further (total 45-90 degrees), slab edges
-// expressing every floor - the silhouette spirals as the camera moves around it
-function modernTwist(E, W, D, spec, C, R) {
-  const fh = 14, n = spec.floors, S = { seed: spec.seed };
-  const side = Math.floor(Math.min(W, D) * 0.68), cx = W / 2, cz = D / 2;
-  const total = (0.8 + R() * 0.8) * (R() < 0.5 ? 1 : -1);
-  // stone plinth (lobby) under the twist
-  facades(E, 2, 2, W - 2, D - 2, 0, (len) => { const F = new Relief(len, 16, 0, BM.LIMESTONE_DARK); F.rect(2, 2, len - 2, 14, 1, BM.STOREFRONT); return F; }, C, true);
-  flatRoof(E, 2, 2, W - 2, D - 2, 16, { seed: spec.seed, trim: BM.LIMESTONE }, C, { parapet: 1, parapetMat: BM.LIMESTONE, units: 0 });
-  for (let k = 0; k < n; ++k) {
-    const th = total * k / Math.max(1, n - 1);
-    const Ek = rotated(E, cx, cz, th, -side / 2, -side / 2);
-    Ek.y0 = E.y0 + 16 * BV + 1 * BV;
-    facades(Ek, 0, 0, side, side, k * fh + 1, (len) => facadeGlassFloor(len, fh - 1, S, k), C, true);
-    Ek.box(-1, k * fh, -1, side + 1, k * fh + 1, side + 1, BM.TRIM, k > 0);
-    if (k === n - 1) {
-      flatRoof(Ek, 0, 0, side, side, k * fh + fh, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 3, parapetMat: BM.MULLION, units: 2 });
-      Ek.box((side >> 1) - 1, k * fh + fh, (side >> 1) - 1, (side >> 1) + 1, k * fh + fh + 30, (side >> 1) + 1, BM.METAL, true);   // mast
-    }
-  }
-}
-// Stacked cantilevers: 3-4 glass volumes of different sizes, each shifted so it overhangs the one below
-function modernStack(E, W, D, spec, C, R) {
-  const fh = 14, S = { seed: spec.seed };
-  const nb = 3 + (R() < 0.5 ? 1 : 0);
-  let y = 0, left = spec.floors;
-  for (let b = 0; b < nb; ++b) {
-    const n = b === nb - 1 ? left : Math.max(3, Math.round(spec.floors / nb + (R() - 0.5) * 4));
-    left -= n; if (n <= 0) break;
-    const bw = Math.floor(W * (0.55 + R() * 0.3)), bd = Math.floor(D * (0.55 + R() * 0.3));
-    const x0 = b === 0 ? Math.floor((W - bw) / 2) : (b % 2 ? 0 : W - bw), z0 = b === 0 ? Math.floor((D - bd) / 2) : (b % 2 ? D - bd : 0);
-    glassBlock(E, x0, z0, x0 + bw, z0 + bd, y, n, fh, { seed: spec.seed + b }, C, { fins: b % 2 === 1 });
-    E.quad([x0, y, z0], [x0 + bw, y, z0], [x0 + bw, y, z0 + bd], [x0, y, z0 + bd], BM.SPANDREL, [0, -1, 0]);   // soffit
-    y += n * fh;
-    flatRoof(E, x0, z0, x0 + bw, z0 + bd, y, { seed: spec.seed + b, trim: BM.MULLION }, C, { parapet: 2, parapetMat: BM.MULLION, units: b === nb - 1 ? 3 : 0 });
-    y += 0;
-  }
-}
-// Slanted crown: a glass shaft with vertical fins whose top slopes in voxel steps across the roof
-function modernSlant(E, W, D, spec, C, R) {
-  const fh = 14, S = { seed: spec.seed };
-  const n = spec.floors;
-  glassBlock(E, 0, 0, W, D, 0, n, fh, S, C, { fins: true });
-  const rise = Math.round(Math.min(W, D) * (0.5 + R() * 0.4)), W2 = W + 2;
-  const H = new Int16Array(W2 * (D + 2)).fill(-1), M = new Uint8Array(W2 * (D + 2));
-  const alongX = R() < 0.5;
-  for (let z = 0; z < D; ++z) for (let x = 0; x < W; ++x) {
-    const t = alongX ? x / (W - 1) : z / (D - 1);
-    const i = (z + 1) * W2 + x + 1;
-    H[i] = 1 + Math.round(t * rise);
-    M[i] = (alongX ? x : z) % 5 === 0 ? BM.MULLION : (H2(spec.seed, x, z) < 0.25 ? BM.CURTAIN_LIT : BM.CURTAIN);
-  }
-  E.relief(H, M, W, D, (rx, ry, rz) => [rx, n * fh + ry, rz], (m) => m, C);
-}
-// Glass tower on a limestone podium with a setback and a glazed lantern on top
-function modernPodium(E, W, D, spec, C, R) {
-  const fh = 14;
-  const SP = { seed: spec.seed, wall: pick(R, [BM.LIMESTONE, BM.LIMESTONE_DARK]), base: BM.LIMESTONE_DARK, awning: BM.AWNING_BLUE, shops: true, bayW: 10, lintels: false, trim: BM.TRIM };
-  const podF = 4;
-  facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, podF, fh, SP, side), C, true);
-  flatRoof(E, 0, 0, W, D, podF * fh + 5, SP, C, { parapet: 2, parapetMat: SP.wall, units: 2 });
-  const ix = Math.max(6, Math.round(W * 0.16)), iz = Math.max(6, Math.round(D * 0.16));
-  const n = spec.floors - podF, y0 = podF * fh + 5;
-  glassBlock(E, ix, iz, W - ix, D - iz, y0, n, fh, { seed: spec.seed + 7 }, C, { slabs: false });
-  const lx = Math.round((W - 2 * ix) * 0.25), lz = Math.round((D - 2 * iz) * 0.25);
-  glassBlock(E, ix + lx, iz + lz, W - ix - lx, D - iz - lz, y0 + n * fh, 2, fh, { seed: spec.seed + 9 }, C, { fins: true });
-  flatRoof(E, ix, iz, W - ix, D - iz, y0 + n * fh, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 3, parapetMat: BM.MULLION, units: 0 });
-  flatRoof(E, ix + lx, iz + lz, W - ix - lx, D - iz - lz, y0 + (n + 2) * fh, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 2, parapetMat: BM.MULLION, units: 1 });
 }
 function shadeOf(m) {
   // a slightly darker companion colour for siding courses / belt courses (registered in the palette below)
@@ -722,6 +1180,8 @@ function zoneOf(net, r, x, z) {
   return r.P.cls === 'arterial' ? 'mid' : 'row';
 }
 function buildAll(PL, R, voxel, C) {
+  C_VoxModel = C.VoxModel;
+  towerDeck = []; TOWER_LOG = [];
   const mb = new C.MeshBuffer();
   const lots = lotRectangles(PL, C);
   const hs = R.hs * voxel;
@@ -812,6 +1272,7 @@ function buildAll(PL, R, voxel, C) {
   emitJobs();
   const res = mb.finish(0.002);
   res.counts = counts;
+  res.towers = TOWER_LOG;
   return res;
 }
 
