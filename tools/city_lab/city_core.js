@@ -950,15 +950,24 @@ class Plots {
   assignAt(x, z, o) {
     const F = this.F, roads = this.net.roads;
     const rank = (r) => ({ arterial: 3, collector: 2, local: 1, alley: 0 })[r.P.cls];
+    // o.cls / o.near: what the point is (0 nothing, 1 buildable block land, 2 open area, 3 street, 4 alley) and the
+    // street it belongs to; the block placer (city_arch) cuts its blocks from the buildable land
+    o.cls = 0; o.near = -1;
     F.sample(x, z, o);
     if (o.road < 0 || o.car > 900 || this.net.kind === 'test') return -1;
-    if (this.Ra.areaAt(x, z, o.road, o.u)) return -1;
-    if (o.car < 0.3 || (roads[o.road].P.id === 'alley' && o.car < 0.6)) return -1;   // on a road or an alley
+    o.near = o.road;
+    if (this.Ra.areaAt(x, z, o.road, o.u)) { o.cls = 2; return -1; }
+    if (o.car < 0.3 || (roads[o.road].P.id === 'alley' && o.car < 0.6)) { o.cls = roads[o.road].P.id === 'alley' ? 4 : 3; return -1; }   // on a road or an alley
     F.evalPoint(x, z, o, true);
     if (o.road < 0) return -1;
+    o.near = o.road;
     // distances to the individual streets (not the rounded curb returns): square building corners
     let rid = o.road, s = o.s, d = o.dj - o.sw;
-    if (d < 0.3 || o.oth - o.sw < 0.3) return -1;
+    if (d < 0.3 || o.oth - o.sw < 0.3) {
+      if (d >= 0.3 && o.road2 >= 0) o.near = o.road2;
+      o.cls = roads[o.near].P.id === 'alley' ? 4 : 3; return -1;
+    }
+    o.cls = 1;
     if (o.road2 >= 0) {
       const r2 = roads[o.road2], d2 = o.oth - o.sw;
       const i2 = this.lotInfo(o.road2, this.findLot(o.road2, o.s2));
@@ -982,9 +991,13 @@ class Plots {
     const n = this.nx * this.nz, nx = this.nx, nz = this.nz;
     const P = new Int32Array(n).fill(-1);
     const o = {};
+    this.base = new Uint8Array(n); this.near = new Int32Array(n);
     for (let iz = 0; iz < nz; ++iz)
-      for (let ix = 0; ix < nx; ++ix)
-        P[iz * nx + ix] = this.assignAt(this.x0 + (ix + 0.5) * this.cell, this.z0 + (iz + 0.5) * this.cell, o);
+      for (let ix = 0; ix < nx; ++ix) {
+        const i = iz * nx + ix;
+        P[i] = this.assignAt(this.x0 + (ix + 0.5) * this.cell, this.z0 + (iz + 0.5) * this.cell, o);
+        this.base[i] = o.cls; this.near[i] = o.near;
+      }
     const r = Math.max(1, Math.round(1.5 / this.cell));
     // erosion: horizontal then vertical runs of the same id covering +-r
     const E1 = new Int32Array(n).fill(-1), E = new Int32Array(n).fill(-1);

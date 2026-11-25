@@ -1684,24 +1684,34 @@ for (const m of [BM.SIDING_WHITE, BM.SIDING_YELLOW, BM.SIDING_BLUE, BM.SIDING_SA
 
 // ------------------------------------------------------------------------------------------------ occupancy
 class Occupancy {
-  constructor(b) { this.c = 0.5; this.x0 = b.x0 - 10; this.z0 = b.z0 - 10; this.nx = Math.ceil((b.x1 - b.x0 + 20) / this.c); this.nz = Math.ceil((b.z1 - b.z0 + 20) / this.c); this.g = new Uint8Array(this.nx * this.nz); }
-  // oriented rectangle: origin O, axes e1/e2, extents [a0,a1] x [b0,b1] (metres); mode 'test' returns covered fraction
-  rect(O, e1, e2, a0, a1, b0, b1, mark) {
+  constructor(b) { this.c = 0.5; this.x0 = b.x0 - 10; this.z0 = b.z0 - 10; this.nx = Math.ceil((b.x1 - b.x0 + 20) / this.c); this.nz = Math.ceil((b.z1 - b.z0 + 20) / this.c); this.g = new Uint8Array(this.nx * this.nz); this.ang = new Uint8Array(this.nx * this.nz); }
+  // oriented rectangle: origin O, axes e1/e2, extents [a0,a1] x [b0,b1] (metres).
+  // mark: false -> returns the covered fraction; true -> marks with 1; a number -> marks with that value
+  // (1 block buildings, 2 houses, 3+ one value per street pass of an irregular block).
+  // foreign (a predicate on non-zero values and the marked frame angle): returns the number of covered cells it
+  // accepts instead. ang: frame angle (degrees mod 90) stored with a mark.
+  rect(O, e1, e2, a0, a1, b0, b1, mark, foreign, ang) {
     const pts = [[a0, b0], [a1, b0], [a0, b1], [a1, b1]].map(([a, b]) => [O[0] + a * e1[0] + b * e2[0], O[1] + a * e1[1] + b * e2[1]]);
     const xs = pts.map(p => p[0]), zs = pts.map(p => p[1]);
     const i0 = Math.max(0, Math.floor((Math.min(...xs) - this.x0) / this.c)), i1 = Math.min(this.nx - 1, Math.ceil((Math.max(...xs) - this.x0) / this.c));
     const j0 = Math.max(0, Math.floor((Math.min(...zs) - this.z0) / this.c)), j1 = Math.min(this.nz - 1, Math.ceil((Math.max(...zs) - this.z0) / this.c));
+    const val = mark === true ? 1 : mark || 0;
     let inside = 0, hit = 0;
     for (let j = j0; j <= j1; ++j) for (let i = i0; i <= i1; ++i) {
       const x = this.x0 + (i + 0.5) * this.c - O[0], z = this.z0 + (j + 0.5) * this.c - O[1];
       const a = x * e1[0] + z * e1[1], b = x * e2[0] + z * e2[1];
       if (a < a0 || a > a1 || b < b0 || b > b1) continue;
       ++inside;
-      const k = j * this.nx + i;
-      if (this.g[k]) ++hit;
-      if (mark) this.g[k] = 1;
+      const k = j * this.nx + i, g = this.g[k];
+      if (foreign) { if (g && foreign(g, this.ang[k])) ++hit; continue; }
+      if (g) ++hit;
+      if (val) { this.g[k] = val; if (ang !== undefined) this.ang[k] = ang; }
     }
-    return inside ? hit / inside : 0;
+    return foreign ? hit : inside ? hit / inside : 0;
+  }
+  at(x, z) {
+    const i = Math.floor((x - this.x0) / this.c), j = Math.floor((z - this.z0) / this.c);
+    return i < 0 || j < 0 || i >= this.nx || j >= this.nz ? 0 : this.g[j * this.nx + i];
   }
 }
 
@@ -1848,11 +1858,422 @@ function zoneOf(net, r, x, z) {
   if (dc < 230) return 'mid';
   return r.P.cls === 'arterial' ? 'mid' : 'row';
 }
+// ------------------------------------------------------------------------------------------------ block placement
+// Downtown and old-town land is laid out block by block, like a real US city block. A block is a connected piece of
+// buildable land between streets, alleys and open areas (Plots.base). In the frame of its main street:
+//  - the largest rectangle of the block is cut into a front strip along the main street and a back strip along the
+//    opposite street, each made of a corner lot at either end (its own building, wrapping onto the side street) and
+//    mid-block lots of varied widths between; the two strips meet back to back, or, in deep blocks, side-street lots
+//    close the ends and leave a small service court in the middle;
+//  - on alley blocks every lot runs back to the alley: a deep building, or a front building, a yard and an
+//    alley-facing rear building;
+//  - land the rectangle misses (wedges on diagonal streets) is packed street by street, clear of other buildings.
+// Lot edges are snapped to the voxel grid (0.25 m) of the block frame, so attached buildings are exactly flush; the
+// buildings are never closer than 4 m otherwise. Heights follow the street (avenues taller), the distance to the
+// core and a gentle walk along each strip.
+const RANK = { arterial: 3, collector: 2, local: 1, alley: 0 };
+const ZONE_LOTS = {     // metres: strip depth cap, min depth, min width, corner width range, frontage widths
+  row:  { cap: 24, minD: 8, minW: 6.5, corner: [9, 15], width: (R) => R() < 0.6 ? 7 + R() * 5 : 11 + R() * 9 },
+  mid:  { cap: 32, minD: 9, minW: 10, corner: [12, 22], width: (R) => 10 + Math.pow(R(), 1.2) * 21 },
+  core: { cap: 34, minD: 12, minW: 12, corner: [16, 26], width: (R) => 14 + R() * 16 }
+};
+function blockRegions(PL) {
+  const nx = PL.nx, nz = PL.nz, B = PL.base, N = PL.near, n = B.length, c = PL.cell;
+  const lab = new Int32Array(n).fill(-1), regs = [], st = [];
+  for (let i = 0; i < n; ++i) {
+    if (B[i] !== 1 || lab[i] >= 0) continue;
+    const id = regs.length, cells = [];
+    lab[i] = id; st.push(i);
+    while (st.length) {
+      const q = st.pop(), x = q % nx; cells.push(q);
+      if (x > 0 && B[q - 1] === 1 && lab[q - 1] < 0) { lab[q - 1] = id; st.push(q - 1); }
+      if (x < nx - 1 && B[q + 1] === 1 && lab[q + 1] < 0) { lab[q + 1] = id; st.push(q + 1); }
+      if (q >= nx && B[q - nx] === 1 && lab[q - nx] < 0) { lab[q - nx] = id; st.push(q - nx); }
+      if (q + nx < n && B[q + nx] === 1 && lab[q + nx] < 0) { lab[q + nx] = id; st.push(q + nx); }
+    }
+    regs.push({ id, cells });
+  }
+  for (const g of regs) {
+    let mx = 0, mz = 0;
+    const fr = new Map();                      // street id -> frontage cells
+    for (const q of g.cells) {
+      const x = q % nx, z = (q / nx) | 0; mx += x; mz += z;
+      for (const r of [x > 0 ? q - 1 : -1, x < nx - 1 ? q + 1 : -1, z > 0 ? q - nx : -1, z < nz - 1 ? q + nx : -1]) {
+        if (r < 0 || (B[r] !== 3 && B[r] !== 4)) continue;
+        let a = fr.get(N[r]); if (!a) fr.set(N[r], a = []);
+        a.push(q); break;
+      }
+    }
+    g.mx = PL.x0 + (mx / g.cells.length + 0.5) * c; g.mz = PL.z0 + (mz / g.cells.length + 0.5) * c;
+    g.area = g.cells.length * c * c;
+    g.front = fr;
+  }
+  return { lab, regs };
+}
+// the region in a street-aligned frame (origin O, axes e1/e2) as a mask of 0.5 m cells; free: also clear of occ
+function frameMask(PL, lab, g, O, e1, e2, occ) {
+  const nx = PL.nx, nz = PL.nz, c = PL.cell;
+  let a0 = 1e9, a1 = -1e9, b0 = 1e9, b1 = -1e9;
+  for (const q of g.cells) {
+    const x = PL.x0 + (q % nx + 0.5) * c - O[0], z = PL.z0 + (((q / nx) | 0) + 0.5) * c - O[1];
+    const a = x * e1[0] + z * e1[1], b = x * e2[0] + z * e2[1];
+    if (a < a0) a0 = a; if (a > a1) a1 = a; if (b < b0) b0 = b; if (b > b1) b1 = b;
+  }
+  a0 = Math.floor(a0 / c) * c - c; b0 = Math.floor(b0 / c) * c - c; a1 += 2 * c; b1 += 2 * c;
+  const w = Math.ceil((a1 - a0) / c), d = Math.ceil((b1 - b0) / c), mask = new Uint8Array(w * d);
+  for (let j = 0; j < d; ++j) for (let i = 0; i < w; ++i) {
+    const a = a0 + (i + 0.5) * c, b = b0 + (j + 0.5) * c;
+    const x = O[0] + a * e1[0] + b * e2[0], z = O[1] + a * e1[1] + b * e2[1];
+    const ix = Math.floor((x - PL.x0) / c), iz = Math.floor((z - PL.z0) / c);
+    if (ix < 0 || iz < 0 || ix >= nx || iz >= nz || lab[iz * nx + ix] !== g.id) continue;
+    if (occ && occ.at(x, z)) continue;
+    mask[j * w + i] = 1;
+  }
+  return { a0, b0, w, d, c, mask };
+}
+// largest axis-aligned rectangle of a mask (histogram method): { i0, i1, j0, j1 } in cells
+function maxRect(mask, w, d) {
+  const hgt = new Int32Array(w);
+  let best = 0, R = null;
+  for (let j = 0; j < d; ++j) {
+    for (let i = 0; i < w; ++i) hgt[i] = mask[j * w + i] ? hgt[i] + 1 : 0;
+    const st = [];
+    for (let i = 0; i <= w; ++i) {
+      const hh = i < w ? hgt[i] : 0;
+      while (st.length && hgt[st[st.length - 1]] >= hh) {
+        const top = st.pop(), hTop = hgt[top], left = st.length ? st[st.length - 1] + 1 : 0, area = hTop * (i - left);
+        if (area > best) { best = area; R = { i0: left, i1: i, j0: j - hTop + 1, j1: j + 1 }; }
+      }
+      st.push(i);
+    }
+  }
+  return R;
+}
+// what lies beyond one side of a block rectangle: samples just outside the side, first thing that is not this block
+function sideKind(PL, lab, g, pts, out) {
+  const nx = PL.nx, nz = PL.nz, c = PL.cell, roads = PL.net.roads;
+  const votes = new Map();
+  for (const [x, z] of pts) {
+    let k = 'land', road = -1;
+    for (const t of [0.75, 1.75, 3, 4.5]) {
+      const ix = Math.floor((x + out[0] * t - PL.x0) / c), iz = Math.floor((z + out[1] * t - PL.z0) / c);
+      if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) { k = 'open'; break; }
+      const i = iz * nx + ix, b = PL.base[i];
+      if (b === 1 && lab[i] === g.id) continue;
+      if (b === 3 || b === 4) { road = PL.near[i]; k = roads[road].P.id === 'alley' || b === 4 ? 'alley' : 'street'; }
+      else k = b === 2 ? 'open' : 'land';
+      break;
+    }
+    const key = k + ':' + road;
+    votes.set(key, (votes.get(key) || 0) + 1);
+  }
+  let best = null, bn = 0;
+  for (const [k, v] of votes) if (v > bn) { bn = v; best = k; }
+  const [type, rd] = best.split(':');
+  const road = +rd >= 0 ? roads[+rd] : null;
+  return { type, road, rank: type === 'street' ? RANK[road.P.cls] : type === 'open' ? 0.5 : 0 };
+}
+// split a run of len voxels into lot widths: optional corner lots at either end, varied widths between
+function splitRun(len, R, Z, cwL, cwR) {
+  const v = (m) => Math.max(1, Math.round(m / BV)), minW = v(Z.minW);
+  if (len < 2 * minW) return [len];
+  cwL = Math.min(cwL || 0, len); cwR = Math.min(cwR || 0, len - cwL);
+  let mid = len - cwL - cwR;
+  if (mid < minW && (cwL || cwR)) {                  // too short for a middle lot: the corner lots take it
+    if (cwL && cwR) { const h = mid >> 1; cwL += h; cwR += mid - h; } else if (cwL) cwL += mid; else cwR += mid;
+    mid = 0;
+  }
+  const out = [];
+  if (cwL) out.push(cwL);
+  let rem = mid;
+  while (rem > 0) {
+    let x = v(Z.width(R));
+    if (rem - x < minW) x = rem;
+    out.push(x); rem -= x;
+  }
+  if (cwR) out.push(cwR);
+  return out;
+}
+// Lay out one block rectangle (W x D voxels; front side b = 0 on the main street). sides: { F, B, L, R } from
+// sideKind. lot(a0, a1, b0, b1, face, props) places a lot (it trims against what is already placed).
+function cutBlock(W, D, sides, zone, R, lot) {
+  const Z = ZONE_LOTS[zone] || ZONE_LOTS.mid, v = (m) => Math.round(m / BV);
+  const Dm = D * BV, Wm = W * BV;
+  const st = (s) => s.type === 'street', strip = (s) => s.type === 'street' || s.type === 'open';
+  const rnd = (r) => r[0] + R() * (r[1] - r[0]);
+  // depth split between the front strip and the back strip (street or open space behind)
+  let df = D, db = 0, court = 0;
+  const backStrip = strip(sides.B) && Dm >= 2 * Math.max(Z.minD, 11);
+  if (backStrip) {
+    const share = Math.max(0.4, Math.min(0.62, 0.5 + 0.06 * (sides.F.rank - sides.B.rank)));
+    let fm = Math.min(Z.cap, Dm * share), bm = Math.min(Z.cap, Dm - fm);
+    if (Dm - fm - bm < 5) { fm += (Dm - fm - bm) / 2; bm = Dm - fm; }
+    df = v(fm); db = D - df - v(Math.max(0, Dm - fm - bm));
+    db = Math.max(0, Math.min(db, D - df));
+    court = D - df - db;
+  }
+  // side-street lots close the ends of a deep block (around the service court)
+  let dsL = 0, dsR = 0;
+  if (court > 0) {
+    const both = st(sides.L) && st(sides.R);
+    let ds = Math.min(Z.cap, both ? Wm / 2 : Wm);
+    if (Wm - (both ? 2 : 1) * ds < 5) ds = both ? Wm / 2 : Wm;
+    if (st(sides.L)) dsL = v(ds);
+    if (st(sides.R)) dsR = both ? W - dsL - Math.max(0, W - 2 * v(ds)) : v(ds);
+    if (both && W - dsL - dsR < v(5)) dsR = W - dsL;
+  }
+  const corner = (s, ds) => st(s) ? (ds || v(Math.min(rnd(Z.corner), Wm / 2))) : 0;
+  // towers (core blocks): a corner lot of the front strip, sometimes the opposite corner of the back strip
+  const towerAt = {};
+  if (zone === 'core' && Wm >= 24) {
+    const k = st(sides.L) && (!st(sides.R) || R() < 0.5) ? 'L' : 'R';
+    towerAt.F = k;
+    if (backStrip && db * BV >= 18 && R() < 0.85) towerAt.B = k === 'L' ? 'R' : 'L';
+  }
+  const alleyBack = sides.B.type === 'alley';
+  // one strip of lots over [s0, s1] (block a); F runs left to right, B (facing the back street) right to left
+  const run = (face, depth, s0, s1) => {
+    const F = face === 'F', len = s1 - s0;
+    if (len < v(Z.minW) * 0.7) return null;
+    const atL = F ? s0 === 0 : s1 === W, atR = F ? s1 === W : s0 === 0;          // run start / end at a block corner
+    let cwL = atL ? corner(F ? sides.L : sides.R, F ? dsL : dsR) : 0;
+    let cwR = atR ? corner(F ? sides.R : sides.L, F ? dsR : dsL) : 0;
+    const tw = towerAt[face];
+    const tSide = !tw ? null : (F === (tw === 'L')) ? 'l' : 'r';
+    const tWidth = v(Math.min(Wm * 0.6, 24 + R() * 14));
+    if (tSide === 'l' && atL) cwL = Math.max(cwL, tWidth); else if (tSide === 'r' && atR) cwR = Math.max(cwR, tWidth);
+    const ws = splitRun(len, R, Z, cwL, cwR);
+    let a = 0, through = null;
+    ws.forEach((w, i) => {
+      const isL = i === 0 && cwL > 0, isR = i === ws.length - 1 && cwR > 0, isCorner = isL || isR;
+      const tower = (tSide === 'l' && isL && atL) || (tSide === 'r' && isR && atR) ||
+        (zone === 'core' && !isCorner && w * BV >= 22 && depth * BV >= 20 && R() < 0.4);
+      const a0 = F ? s0 + a : s1 - a - w, a1 = a0 + w;
+      a += w;
+      let d = depth, rear = 0;
+      if (tower) {
+        d = Dm <= 46 ? D : Math.min(v(46), Math.max(depth, v(18)));
+        if (d === D) through = [a0, a1];
+      } else if (F && !backStrip && Dm > Z.cap + 4) {
+        // lots running back to an alley (or to land behind): deep building, or front building + yard (+ rear building)
+        const p = R(), cap = Z.cap;
+        if (alleyBack && w * BV >= 6 && Dm >= Z.minD + 13 && p < (isCorner ? 0.2 : 0.35)) {
+          const rm = Math.min(12, Math.max(8, Dm - cap - 5)), ym = 4 + R() * 1.5;
+          if (Dm - rm - ym >= Z.minD) { rear = v(rm); d = D - rear - v(ym); }
+        } else if (Dm <= cap + 12 && p < 0.82) d = D;
+        else d = v(Math.max(Z.minD, Math.min(cap, Dm - 4 - R() * 4)));
+      }
+      const pr = { corner: isCorner, tower, strip: face, idx: i };
+      if (F) lot(a0, a1, 0, d, 'F', pr); else lot(a0, a1, D - d, D, 'B', pr);
+      if (rear) lot(a0, a1, D - rear, D, 'B', { rear: true, strip: 'A', idx: i });
+    });
+    return through;
+  };
+  const thr = run('F', df, 0, W);
+  if (backStrip) {
+    if (thr && thr[0] === 0) run('B', db, thr[1], W);
+    else if (thr) run('B', db, 0, thr[0]);
+    else run('B', db, 0, W);
+  }
+  // side-street lots between the strips
+  for (const [k, ds] of [['L', dsL], ['R', dsR]]) {
+    if (!ds) continue;
+    const len = D - df - db;
+    if (len < v(Z.minW)) continue;
+    const ws = splitRun(len, R, Z, 0, 0);
+    let b = df;
+    ws.forEach((w, i) => {
+      if (k === 'L') lot(0, ds, b, b + w, 'L', { strip: 'L', idx: i }); else lot(W - ds, W, b, b + w, 'R', { strip: 'R', idx: i });
+      b += w;
+    });
+  }
+  return { df, db, court };
+}
+// storeys of one lot: block base (zone, distance to the core) + street rank + corner + a gentle walk along the strip
+function blockBase(zone, district, dc, R) {
+  const cl = (x) => Math.max(0, Math.min(1, x));
+  let b;
+  if (zone === 'core') b = 10.5 - 2.5 * cl(dc / 160);
+  else if (zone === 'mid') b = district === 'oldtown' ? 5.2 - 1.2 * cl((dc - 80) / 120) : 7.2 - 2.7 * cl((dc - 160) / 140);
+  else b = district === 'oldtown' ? 3.8 - cl((dc - 120) / 220) : 4.2 - 0.8 * cl((dc - 230) / 150);
+  return b + (R() - 0.5) * 1.2;
+}
+function lotFloors(zone, road, pr, base, walk, R) {
+  const rk = road ? RANK[road.P.cls] : 0;
+  let f = base + walk;
+  if (zone === 'row') f += (rk >= 3 ? 1 : rk === 2 ? 0.5 : 0) + (pr.corner ? 0.6 : 0);
+  else f += (rk >= 3 ? 1.5 : rk === 2 ? 0.6 : 0) + (pr.corner ? 0.7 : 0) + (R() < 0.06 ? 2 + R() * 1.5 : 0);
+  const lim = zone === 'row' ? [2, 6] : zone === 'core' ? [7, 16] : [3, 12];
+  return Math.max(lim[0], Math.min(lim[1], Math.round(f)));
+}
+// Lay out every downtown / old-town block; addJob(O, e1, e2, W, D, props) with W, D in voxels (front at z = 0).
+// Residential blocks (most frontage on residential streets) are left to the subdivisions and house rows.
+const frameAngle = (e1) => Math.round(((Math.atan2(e1[1], e1[0]) * 180 / Math.PI) % 90 + 90) % 90) % 90;
+const angDiff = (a, b) => { const d = Math.abs(a - b) % 90; return Math.min(d, 90 - d); };
+const DBG = (g) => typeof process !== 'undefined' && process.env.PDBG && process.env.PDBG.split(',').includes(String(g.id));
+function placeBlocks(PL, C, occ, addJob) {
+  const net = PL.net, roads = net.roads, core = (net.origins && net.origins.core) || [0, 0];
+  const { lab, regs } = blockRegions(PL);
+  const handled = new Set(), stats = { blocks: 0, rect: 0, packed: 0, lots: 0 };
+  const zkey = (z) => z === 'tower' ? 'core' : z === 'house' ? 'row' : z;
+  let pass = 3;
+  for (const g of regs) {
+    if (g.area < 120) continue;
+    let best = -1, bs = -1, res = 0, tot = 0;
+    for (const [rid, cells] of g.front) {
+      const r = roads[rid]; if (r.P.id === 'alley') continue;
+      const sc = cells.length * (1 + RANK[r.P.cls]);
+      tot += cells.length; if (r.district === 'residential') res += cells.length;
+      if (sc > bs) { bs = sc; best = rid; }
+    }
+    if (best < 0 || res >= tot * 0.5) continue;
+    handled.add(g.id); stats.blocks++;
+    const dcB = Math.hypot(g.mx - core[0], g.mz - core[1]);
+    const rzone = zkey(zoneOf(net, roads[best], g.mx, g.mz));
+    const district = roads[best].district;
+    const Rb = C.mulberry32((g.id * 2654435761 ^ (PL.seed * 40503)) >>> 0);
+    const base = blockBase(rzone, district, dcB, Rb);
+    const walks = {};
+    // one lot -> one job (world frame), with its storeys and type
+    const emitLot = (O, e1, e2, W, D, road, pr, markVal) => {
+      const wm = W * BV, dm = D * BV;
+      // overlap test inset by 0.3 m: cells on a shared edge belong to both flush neighbours
+      if (occ.rect(O, e1, e2, 0.3, wm - 0.3, 0.3, dm - 0.3, false) > 0.02) { if (DBG(g)) console.log(' rej occ', pr.strip, wm, dm); return false; }
+      if (occ.rect(O, e1, e2, -4, wm + 4, -4, dm + 4, false, (v) => v === 2)) { if (DBG(g)) console.log(' rej house'); return false; }   // clear of houses
+      const cx = O[0] + e1[0] * wm / 2 + e2[0] * dm / 2, cz = O[1] + e1[1] * wm / 2 + e2[1] * dm / 2;
+      const zone = pr.rear ? 'row' : road ? zkey(zoneOf(net, road, cx, cz)) : rzone;
+      const zb = zone === rzone ? base : blockBase(zone, road ? road.district : district, Math.hypot(cx - core[0], cz - core[1]), Rb);
+      const wk = walks[pr.strip] = Math.max(-1.5, Math.min(1.5, (walks[pr.strip] || 0) + [-1, 0, 0, 1][Math.floor(Rb() * 4)]));
+      const seed = (g.id * 7919 + (pr.strip || 'X').charCodeAt(0) * 104729 + (pr.idx || 0) * 31337 + PL.seed * 977) >>> 0;
+      const Rl = C.mulberry32(seed ^ 0x2545f491);
+      let kind, floors;
+      if (pr.tower && wm >= 18 && dm >= 18) {
+        kind = 'tower';
+        floors = Math.min(44, 18 + Math.floor(Rl() * Rl() * 26) + Math.round(6 * Math.max(0, 1 - Math.hypot(cx - core[0], cz - core[1]) / 160)));
+      } else if (pr.rear) { kind = 'row'; floors = 2 + (Rl() < 0.35 ? 1 : 0); }
+      else { kind = zone === 'row' ? 'row' : 'mid'; floors = lotFloors(zone, road, pr, zb, wk, Rl); }
+      occ.rect(O, e1, e2, 0, wm, 0, dm, markVal, undefined, frameAngle(e1));
+      addJob(O, e1, e2, W, D, { kind, floors, seed, zone: zone === 'core' ? 'core' : zone === 'row' ? 'row' : 'mid',
+        tag: g.id + ':' + pr.strip + (pr.idx || 0), corner: !!pr.corner, shops: !pr.rear && !!road && (RANK[road.P.cls] >= 2 || !!pr.corner || zone === 'core') });
+      stats.lots++;
+      return true;
+    };
+    // main street frame
+    const fc = g.front.get(best);
+    let fx = 0, fz = 0;
+    for (const q of fc) { fx += q % PL.nx; fz += (q / PL.nx) | 0; }
+    fx = PL.x0 + (fx / fc.length + 0.5) * PL.cell; fz = PL.z0 + (fz / fc.length + 0.5) * PL.cell;
+    const [tx, tz] = PL.tangentNear(roads[best], fx, fz);
+    let E1 = [tx, tz], E2 = [-tz, tx];
+    if ((g.mx - fx) * E2[0] + (g.mz - fz) * E2[1] < 0) { E1 = [-E1[0], -E1[1]]; E2 = [-E2[0], -E2[1]]; }
+    const fm = frameMask(PL, lab, g, [fx, fz], E1, E2, occ);
+    const mr = maxRect(fm.mask, fm.w, fm.d);
+    const P = (a, b) => [fx + a * E1[0] + b * E2[0], fz + a * E1[1] + b * E2[1]];
+    if (mr && (mr.i1 - mr.i0) * fm.c >= 14 && (mr.j1 - mr.j0) * fm.c >= 14 && (mr.i1 - mr.i0) * (mr.j1 - mr.j0) * fm.c * fm.c >= 0.55 * g.area) {
+      stats.rect++;
+      const pvA = 3 + (pass++ % 250);
+      const A0 = fm.a0 + mr.i0 * fm.c, A1 = fm.a0 + mr.i1 * fm.c, B0 = fm.b0 + mr.j0 * fm.c, B1 = fm.b0 + mr.j1 * fm.c;
+      const W = Math.round((A1 - A0) / BV), D = Math.round((B1 - B0) / BV);
+      const samp = (f) => [0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9].map(f);
+      const sides = {
+        F: sideKind(PL, lab, g, samp((t) => P(A0 + t * (A1 - A0), B0)), [-E2[0], -E2[1]]),
+        B: sideKind(PL, lab, g, samp((t) => P(A0 + t * (A1 - A0), B1)), E2),
+        L: sideKind(PL, lab, g, samp((t) => P(A0, B0 + t * (B1 - B0))), [-E1[0], -E1[1]]),
+        R: sideKind(PL, lab, g, samp((t) => P(A1, B0 + t * (B1 - B0))), E1)
+      };
+      const bo = new Uint8Array(W * D), lots = [];
+      const rowFree = (b, a0, a1) => { for (let a = a0; a < a1; ++a) if (bo[b * W + a]) return false; return true; };
+      const colFree = (a, b0, b1) => { for (let b = b0; b < b1; ++b) if (bo[b * W + a]) return false; return true; };
+      const lot = (a0, a1, b0, b1, face, pr) => {
+        a0 = Math.max(0, a0); b0 = Math.max(0, b0); a1 = Math.min(W, a1); b1 = Math.min(D, b1);
+        if (a1 - a0 < 8 || b1 - b0 < 8) return;
+        // keep the frontage, cut the depth where it meets an earlier lot
+        if (face === 'F') { if (!rowFree(b0, a0, a1)) return; let b = b0; while (b < b1 && rowFree(b, a0, a1)) ++b; b1 = b; }
+        else if (face === 'B') { if (!rowFree(b1 - 1, a0, a1)) return; let b = b1; while (b > b0 && rowFree(b - 1, a0, a1)) --b; b0 = b; }
+        else if (face === 'L') { if (!colFree(a0, b0, b1)) return; let a = a0; while (a < a1 && colFree(a, b0, b1)) ++a; a1 = a; }
+        else { if (!colFree(a1 - 1, b0, b1)) return; let a = a1; while (a > a0 && colFree(a - 1, b0, b1)) --a; a0 = a; }
+        const wv = face === 'F' || face === 'B' ? a1 - a0 : b1 - b0, dv = face === 'F' || face === 'B' ? b1 - b0 : a1 - a0;
+        if (wv * BV < 5 || dv * BV < (pr.rear ? 6 : 8)) return;
+        for (let b = b0; b < b1; ++b) bo.fill(1, b * W + a0, b * W + a1);
+        lots.push({ a0, a1, b0, b1, face, pr });
+      };
+      const Rc = C.mulberry32((g.id * 40503 + PL.seed * 7) >>> 0);
+      const cb = cutBlock(W, D, sides, rzone, Rc, lot);
+      if (DBG(g)) console.log('blk', g.id, rzone, 'W', W * BV, 'D', D * BV, 'cov', ((A1 - A0) * (B1 - B0) / g.area).toFixed(2), Object.entries(sides).map(([k, s]) => k + ':' + s.type + (s.road ? s.road.P.cls[0] : '')).join(' '), JSON.stringify(cb), lots.map(l => l.face + (l.a1 - l.a0) * BV + 'x' + (l.b1 - l.b0) * BV).join(' '));
+      const Ob = P(A0, B0), Q = (a, b) => [Ob[0] + a * BV * E1[0] + b * BV * E2[0], Ob[1] + a * BV * E1[1] + b * BV * E2[1]];
+      for (const L of lots) {
+        const { a0, a1, b0, b1, face, pr } = L;
+        let O, e1, e2, W2, D2;
+        if (face === 'F') { O = Q(a0, b0); e1 = E1; e2 = E2; W2 = a1 - a0; D2 = b1 - b0; }
+        else if (face === 'B') { O = Q(a1, b1); e1 = [-E1[0], -E1[1]]; e2 = [-E2[0], -E2[1]]; W2 = a1 - a0; D2 = b1 - b0; }
+        else if (face === 'L') { O = Q(a0, b1); e1 = [-E2[0], -E2[1]]; e2 = E1; W2 = b1 - b0; D2 = a1 - a0; }
+        else { O = Q(a1, b0); e1 = E2; e2 = [-E1[0], -E1[1]]; W2 = b1 - b0; D2 = a1 - a0; }
+        const sd = sides[face === 'F' ? 'F' : face === 'B' ? 'B' : face === 'L' ? 'L' : 'R'];
+        emitLot(O, e1, e2, W2, D2, sd.type === 'street' ? sd.road : null, pr, pvA);
+      }
+    }
+    // the rest (irregular blocks, wedges): packed street by street, 4 m clear of buildings from other passes
+    const order = [...g.front.entries()].filter(([rid]) => roads[rid].P.id !== 'alley')
+      .sort((a, b) => b[1].length * (1 + RANK[roads[b[0]].P.cls]) - a[1].length * (1 + RANK[roads[a[0]].P.cls]));
+    const Z = ZONE_LOTS[rzone] || ZONE_LOTS.mid;
+    for (const [rid, cells] of order) {
+      if (cells.length < 2 * Z.minW / PL.cell) continue;
+      const road = roads[rid], pv = 3 + (pass++ % 250);
+      let cx = 0, cz = 0;
+      for (const q of cells) { cx += q % PL.nx; cz += (q / PL.nx) | 0; }
+      cx = PL.x0 + (cx / cells.length + 0.5) * PL.cell; cz = PL.z0 + (cz / cells.length + 0.5) * PL.cell;
+      const [ux, uz] = PL.tangentNear(road, cx, cz);
+      let e1 = [ux, uz], e2 = [-uz, ux];
+      if ((g.mx - cx) * e2[0] + (g.mz - cz) * e2[1] < 0) { e1 = [-e1[0], -e1[1]]; e2 = [-e2[0], -e2[1]]; }
+      const m = frameMask(PL, lab, g, [cx, cz], e1, e2, occ), myAng = frameAngle(e1);
+      let fa0 = 1e9, fa1 = -1e9;
+      const bs = [];
+      for (const q of cells) {
+        const x = PL.x0 + (q % PL.nx + 0.5) * PL.cell - cx, z = PL.z0 + (((q / PL.nx) | 0) + 0.5) * PL.cell - cz;
+        const a = x * e1[0] + z * e1[1]; bs.push(x * e2[0] + z * e2[1]);
+        if (a < fa0) fa0 = a; if (a > fa1) fa1 = a;
+      }
+      bs.sort((p, q) => p - q);
+      const bF = Math.ceil((bs[bs.length >> 1] - 0.25) / BV) * BV;
+      const jF = Math.floor((bF + 0.25 - m.b0) / m.c);
+      if (DBG(g)) console.log(' pass', rid, roads[rid].P.cls, 'cells', cells.length, 'fa', fa0.toFixed(1), fa1.toFixed(1), 'bF', bF, 'jF', jF, m.d);
+      if (jF < 0 || jF >= m.d) continue;
+      const fits = (a, w) => {                       // depth (m) of the free rectangle [a, a+w] behind the frontage
+        const i0 = Math.floor((a + 0.1 - m.a0) / m.c), i1 = Math.ceil((a + w - 0.1 - m.a0) / m.c);
+        if (i0 < 0 || i1 > m.w) return 0;
+        let j = jF;
+        const capJ = jF + Math.round(Z.cap / m.c);
+        for (; j < m.d && j < capJ; ++j) { let ok = true; for (let i = i0; i < i1; ++i) if (!m.mask[j * m.w + i]) { ok = false; break; } if (!ok) break; }
+        return j === jF ? 0 : m.b0 + j * m.c - bF;
+      };
+      const Rp = C.mulberry32((g.id * 977 + rid * 7919 + PL.seed) >>> 0);
+      let a = Math.ceil((fa0 - 0.25) / BV) * BV, lastEnd = -1e9, k = 0;
+      const end = fa1 + 0.25;
+      while (a + Z.minW <= end) {
+        if (a > lastEnd && a < lastEnd + 4) { a = lastEnd + 4; continue; }
+        let w = Math.min(Math.round(Z.width(Rp) / BV) * BV, end - a), placed = false;
+        if (end - a - w < Z.minW) w = Math.floor((end - a) / BV) * BV;
+        for (; w >= Z.minW; w -= 1) {
+          let d = fits(a, w);
+          d = Math.floor(Math.min(d, Z.cap) / BV) * BV;
+          if (d < Z.minD) { if (DBG(g) && w === Z.minW) console.log('  a', a, 'w', w, 'd', d); continue; }
+          const O = [cx + a * e1[0] + bF * e2[0], cz + a * e1[1] + bF * e2[1]];
+          // 4 m clear of buildings in (nearly) the same grid; skewed ones (diagonal streets) may touch
+          if (occ.rect(O, e1, e2, -4, w + 4, -4, d + 4, false, (v, an) => v !== pv && (v === 2 || angDiff(an, myAng) < 25))) { if (DBG(g)) console.log('  a', a, 'w', w, 'd', d, 'clear'); continue; }
+          if (emitLot(O, e1, e2, Math.round(w / BV), Math.round(d / BV), road, { strip: 'P' + rid, idx: k++ }, pv)) {
+            stats.packed++; placed = true; a += w; lastEnd = a; break;
+          }
+        }
+        if (!placed) a += 1;
+      }
+    }
+  }
+  return { lab, handled, stats };
+}
 function buildAll(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
   towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = [];
   const mb = new C.MeshBuffer();
-  const lots = lotRectangles(PL, C);
   const hs = R.hs * voxel;
   const counts = {};
   counts.house = 0;
@@ -1863,35 +2284,52 @@ function buildAll(PL, R, voxel, C) {
     const E = new Emitter(mb, O, e1, e2, hs, voxel);
     buildHouse(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
   });
+  for (let i = 0; i < occ.g.length; ++i) if (occ.g[i]) occ.g[i] = 2;          // houses: kept 4 m clear of city blocks
+  // jobs: O = front-left corner, e1 along the frontage, e2 into the lot, W x D voxels
+  const jobs = [];
+  const addJob = (O, e1, e2, W, D, p) => jobs.push(Object.assign({ O, e1, e2, W, D }, p));
+  const tb = Date.now();
+  const blocks = PL.base ? placeBlocks(PL, C, occ, addJob) : null;
+  counts.placeMs = Date.now() - tb;
+  // the remaining plots (residential house rows, blocks the block placer leaves alone): largest clean rectangles
+  const lots = lotRectangles(PL, C);
   const place = (L, a0, a1, b0, b1, kind, floors, seed) => {
     const W = Math.floor((a1 - a0) / BV), D = Math.floor((b1 - b0) / BV);
     if (W < 16 || D < 16) return;
     const Oc = [L.mx, L.mz];
     if (occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, false) > 0.02) return;
-    occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, true);
-    jobs.push({ L, a0, a1, b0, b1, W, D, kind, floors, seed });
+    occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, kind === 'house' ? 2 : 1);
+    const O = [L.mx + a0 * L.e1[0] + b0 * L.e2[0], L.mz + a0 * L.e1[1] + b0 * L.e2[1]];
+    const zone = kind === 'mid' && zoneOf(PL.net, L.road, L.mx, L.mz) === 'tower' ? 'core' : kind === 'row' ? 'row' : 'mid';
+    addJob(O, L.e1, L.e2, W, D, { kind, floors, seed, zone, shops: L.road.P.cls !== 'local' && L.part === 0 });
   };
-  const jobs = [];
   const emitJobs = () => {
     // second pass: with every footprint known, attached neighbours at either end become party walls
     for (const J of jobs) {
-      const { L, a0, a1, b0, b1, W, D, kind, floors, seed } = J;
-      const Oc = [L.mx, L.mz], bi0 = b0 + Math.min(1, (b1 - b0) / 4), bi1 = b1 - Math.min(1, (b1 - b0) / 4);
-      const party = { l: occ.rect(Oc, L.e1, L.e2, a0 - 0.75, a0 - 0.25, bi0, bi1, false) > 0.5,
-                      r: occ.rect(Oc, L.e1, L.e2, a1 + 0.25, a1 + 0.75, bi0, bi1, false) > 0.5 };
-      const O = [L.mx + a0 * L.e1[0] + b0 * L.e2[0], L.mz + a0 * L.e1[1] + b0 * L.e2[1]];
-      const E = new Emitter(mb, O, L.e1, L.e2, hs, voxel);
-      const spec = { seed, floors, party, shops: L.road.P.cls !== 'local' && L.part === 0 };
+      const { O, e1, e2, W, D, kind, floors, seed } = J;
+      const wm = W * BV, dm = D * BV, bi0 = Math.min(1, dm / 4), bi1 = dm - Math.min(1, dm / 4);
+      const party = { l: occ.rect(O, e1, e2, -0.75, -0.25, bi0, bi1, false) > 0.5,
+                      r: occ.rect(O, e1, e2, wm + 0.25, wm + 0.75, bi0, bi1, false) > 0.5 };
+      const E = new Emitter(mb, O, e1, e2, hs, voxel);
+      const spec = { seed, floors, party, shops: !!J.shops };
+      if (J.corner) spec.corner = true;
+      const q0 = mb.quads;
       if (kind === 'house') buildHouse(E, W, D, spec, C);
       else if (kind === 'row') buildMidAny(E, W, D, spec, C, 'row');
-      else if (kind === 'mid') buildMidAny(E, W, D, spec, C, zoneOf(PL.net, L.road, L.mx, L.mz) === 'tower' ? 'core' : 'mid');
+      else if (kind === 'mid') buildMidAny(E, W, D, spec, C, J.zone === 'core' ? 'core' : 'mid');
       else buildTower(E, W, D, spec, C);
       counts[kind] = (counts[kind] || 0) + 1;
+      counts[kind + 'Tris'] = (counts[kind + 'Tris'] || 0) + 2 * (mb.quads - q0);
     }
   };
-  const housesBefore = counts.house;
   for (const L of lots) {
     const zone = zoneOf(PL.net, L.road, L.mx, L.mz);
+    if (blocks) {                                   // skip plots inside blocks laid out above
+      const a = (L.a0 + L.a1) / 2, b = (L.b0 + L.b1) / 2;
+      const ix = Math.floor((L.mx + a * L.e1[0] + b * L.e2[0] - PL.x0) / PL.cell), iz = Math.floor((L.mz + a * L.e1[1] + b * L.e2[1] - PL.z0) / PL.cell);
+      const rg = ix >= 0 && iz >= 0 && ix < PL.nx && iz < PL.nz ? blocks.lab[iz * PL.nx + ix] : -1;
+      if (rg >= 0 && blocks.handled.has(rg)) continue;
+    }
     const seed0 = ((L.id * 2654435761) ^ (L.part * 40503)) >>> 0;
     const Rn = C.mulberry32(seed0);
     const lw = L.a1 - L.a0, ld = L.b1 - L.b0;
@@ -1913,7 +2351,6 @@ function buildAll(PL, R, voxel, C) {
       if (lw < 5.5) continue;
       const rd = Math.min(ld, 26);
       place(L, L.a0, L.a1, L.b0, L.b0 + rd, 'row', 3 + (Rn() < 0.4 ? 1 : 0), seed0);
-      if (ld - rd >= 8) place(L, L.a0, L.a1, L.b0 + rd, L.b1, lw >= 10 ? 'mid' : 'row', 4, (seed0 ^ 0x5bd1e995) >>> 0);
       continue;
     }
     // mid-rise / tower zones: split long frontages into separate buildings of different heights and styles
@@ -1924,17 +2361,9 @@ function buildAll(PL, R, voxel, C) {
       if (L.a1 - a - pw < 10) pw = L.a1 - a;
       const seed = (seed0 + k * 104729) >>> 0;
       const Rk = C.mulberry32(seed);
-      if (tower && pw >= 18) {
-        const td = Math.min(ld, 46);
-        place(L, a, a + pw, L.b0, L.b0 + td, 'tower', 18 + Math.floor(Rk() * Rk() * 26), seed);
-        if (ld - td >= 8) place(L, a, a + pw, L.b0 + td, L.b1, 'mid', 5, (seed ^ 0x27d4eb2f) >>> 0);
-      }
-      else if (pw >= 10 && ld >= 9) {
-        const core = zone === 'tower';
-        const md = Math.min(ld, 34);
-        place(L, a, a + pw, L.b0, L.b0 + md, 'mid', core ? 8 + Math.floor(Rk() * 7) : 4 + Math.floor(Rk() * 6), seed);
-        if (ld - md >= 8) place(L, a, a + pw, L.b0 + md, L.b1, 'mid', 3 + Math.floor(Rk() * 4), (seed ^ 0x27d4eb2f) >>> 0);   // rear building
-      } else place(L, a, a + pw, L.b0, Math.min(L.b1, L.b0 + 14), 'row', 4, seed);
+      if (tower && pw >= 18) place(L, a, a + pw, L.b0, L.b0 + Math.min(ld, 46), 'tower', 18 + Math.floor(Rk() * Rk() * 26), seed);
+      else if (pw >= 10 && ld >= 9) place(L, a, a + pw, L.b0, L.b0 + Math.min(ld, 34), 'mid', zone === 'tower' ? 8 + Math.floor(Rk() * 7) : 4 + Math.floor(Rk() * 6), seed);
+      else place(L, a, a + pw, L.b0, Math.min(L.b1, L.b0 + 14), 'row', 4, seed);
       a += pw; ++k;
     }
   }
@@ -1943,6 +2372,8 @@ function buildAll(PL, R, voxel, C) {
   res.counts = counts;
   res.towers = TOWER_LOG;
   res.mids = MID_LOG;
+  res.blocks = blocks ? blocks.stats : null;
+  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag }));
   return res;
 }
 
