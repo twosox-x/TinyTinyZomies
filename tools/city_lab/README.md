@@ -31,9 +31,12 @@ Interactive Three.js prototype of the city layout and voxel road system. **Not p
 
    Every spot is checked against the voxel classification. Signals run a 30 s cycle in the shader, with crossing roads alternating.
 8. **Clean-up rules (from the visual review).** These are applied everywhere, not at single spots:
-   - Enclosed areas under 45 m² that aren't road are filled with asphalt, so there are no curb islands inside junctions.
+   - Curb, gutter and sidewalk widths use the field divided by its gradient (a true distance), so widths stay constant through the curb returns. Within 1 m of a curb the field is evaluated exactly, so edges don't wobble.
+   - Enclosed areas under 60 m² that aren't road are filled with asphalt, plus a 1 m margin so no gutter ring is left. Connectivity is checked diagonally too, so sidewalk noses stay attached.
+   - A crosswalk is drawn only where both ends land on a sidewalk. Otherwise it slides back up to 10 m, or is dropped.
+   - The Grand / Division / Broadway crossing is laid out as three junctions around a triangular plaza, not as one six-way.
    - Open spaces (plazas, squares, lots) take whole blocks.
-   - Junctions closer than 22 m merge into one, so no crosswalk or lane box is squeezed in between.
+   - Junctions closer than 22 m merge into one, so no crosswalk or lane box is squeezed in between. Cross streets meet Broadway at least about 30 m from the avenue crossings.
    - Raised medians must run at least 16 m.
    - Markings and curb edges are at least 1.5 voxels wide, so diagonals stay connected.
    - Sidewalk joints are drawn only well inside one street's sidewalk.
@@ -42,7 +45,7 @@ Interactive Three.js prototype of the city layout and voxel road system. **Not p
    - Lots are cut square to the street.
    - Each plot is opened by 1 m to remove spikes and slivers, and plots under 60 m² are dropped.
    - Buildings of 9+ storeys become a podium with a tower set back 3 m. Plots are opened by 3 m (no part thinner than 6 m), height is capped on narrow plots, and gaps between buildings are 0 or 4–6 m.
-   - Footprints are traced on a grid aligned with the frontage street, simplified into straight edges and extruded as polygon blockouts. Walls along diagonal and curved streets are straight and evenly lit, and corners are square to the streets.
+   - Voxel blockouts on a 0.5 m grid aligned with each building's frontage street: facades are flat voxel walls, and other sides step in 0.5 m blocks. Corners are square to the streets, and towers are square blocks.
 
 
 Run it locally (workers need http, not file://):
