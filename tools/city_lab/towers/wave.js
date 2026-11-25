@@ -47,6 +47,14 @@
         for (let u = 4; u + 10 < len - 4; u += 14) {
           const nearFront = info.which === 3 ? u < 24 : info.which === 2 ? u > len - 28 : false;
           if (nearFront) { F.rect(u, 1, u + 10, gH - 4, 1, L.glassMat(S.seed, u, 5, 0.5, 'dark')); continue; }
+          const j = Math.round(u / 14);
+          if (info.which === 1 && j % 3 === 1) {                                                      // loading bay: roll-up door
+            F.rect(u - 1, 0, u + 11, 14, 3, BM.WHITE_CONCRETE);
+            F.rect(u, 0, u + 10, 13, 1, BM.METAL);
+            for (let v = 1; v < 13; v += 2) F.rect(u, v, u + 10, v + 1, 1, BM.STEEL_DARK);
+            continue;
+          }
+          if (j % 3 === 2) { F.rect(u + 1, 5, u + 9, gH - 5, 1, L.glassMat(S.seed, u, 6, 0.3, 'dark')); F.rect(u, 4, u + 10, 5, 3, BM.WHITE_CONCRETE); continue; }
           for (let v = 3; v < gH - 4; v += 2) F.rect(u, v, u + 10, v + 1, 1, BM.LOUVER);
         }
       }
@@ -232,7 +240,7 @@
 
   function towerWave(E, C, W, D, spec, R) {
     const S = {
-      seed: spec.seed, tint: L.pick(R, ['blue', 'curtain', 'green', 'dark']),
+      seed: spec.seed, tint: L.pick(R, ['blue', 'dark', 'green', 'dark', 'curtain']),
       rail: L.pick(R, [BM.GLASS_BLUE, BM.CURTAIN, BM.GLASS_GREEN])
     };
     const amp = 5 + R() * 4, dmin = 3, m = Math.ceil(dmin + amp) + 2;

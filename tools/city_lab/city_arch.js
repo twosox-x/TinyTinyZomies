@@ -1253,7 +1253,8 @@ function towerReuse(E, C, W, D, spec, R) {
   const S = { seed: spec.seed + 3 };
   const mech = [Math.round(n * 0.5)];
   const tint = pick(R, ['curtain', 'green', 'dark', 'blue']), mull = pick(R, [BM.MULLION, BM.STEEL_DARK, BM.METAL]);
-  const glassSkin = skinCurtain(S, { fin: R() < 0.5, mech, tint, pitch: 5, mullion: mull, cap: mull, slabs: R() < 0.5, slabMat: mull });
+  let pitch = 5; while (n * 2 * (tw.x1 - tw.x0 + tw.z1 - tw.z0) / pitch > 2600) ++pitch;        // triangle budget
+  const glassSkin = skinCurtain(S, { fin: R() < 0.5, mech, tint, pitch, mullion: mull, cap: mull, slabs: R() < 0.5, slabMat: mull });
   const tiers = [
     Object.assign(inset(W, D, 0, 0, 0, 0), { h: bh, skin: (len) => facadeMid(len, bf, 14, SH, false), party: spec.party, roof: { mat: SH.wall, deck: BM.WOOD } }),
     Object.assign({}, rv, { h: gap, skin: skinSkyLobby(S), noRoof: true }),
@@ -1280,8 +1281,8 @@ function towerReuse(E, C, W, D, spec, R) {
   const sh = (z) => h0 + Math.round(rise * z / sdp);
   for (let z = 0; z < sdp; ++z) for (const x of [0, sw - 1]) M.box(x, 0, z, x + 1, sh(z), z + 1, BM.CURTAIN);
   for (let x = 1; x < sw - 1; ++x) { M.box(x, 0, 0, x + 1, sh(0), 1, BM.CURTAIN); M.box(x, 0, sdp - 1, x + 1, sh(sdp - 1), sdp, BM.CURTAIN); }
-  for (let x = 0; x < sw; x += 5) { M.box(x, 0, -1, x + 1, sh(0) + 1, 0, mull); M.box(x, 0, sdp, x + 1, sh(sdp - 1) + 1, sdp + 1, mull); }
-  for (let z = 0; z < sdp; z += 5) { M.box(-1, 0, z, 0, sh(z) + 1, z + 1, mull); M.box(sw, 0, z, sw + 1, sh(z) + 1, z + 1, mull); }
+  for (let x = 0; x < sw; x += pitch) { M.box(x, 0, -1, x + 1, sh(0) + 1, 0, mull); M.box(x, 0, sdp, x + 1, sh(sdp - 1) + 1, sdp + 1, mull); }
+  for (let z = 0; z < sdp; z += pitch) { M.box(-1, 0, z, 0, sh(z) + 1, z + 1, mull); M.box(sw, 0, z, sw + 1, sh(z) + 1, z + 1, mull); }
   M.box(-1, 0, -1, 0, sh(0) + 1, 0, mull); M.box(sw, 0, -1, sw + 1, sh(0) + 1, 0, mull);
   M.box(-1, 0, sdp, 0, sh(sdp - 1) + 1, sdp + 1, mull); M.box(sw, 0, sdp, sw + 1, sh(sdp - 1) + 1, sdp + 1, mull);
   M.box(8, 0, 8, sw - 8, 10, sdp - 8, BM.LOUVER);                                           // plant room behind the screen
@@ -1375,7 +1376,7 @@ function towerPencil(E, C, W, D, spec, R) {
 function towerPomo(E, C, W, D, spec, R) {
   const pal = pick(R, [[BM.GRANITE_PINK, BM.GRANITE_DARK, 'green'], [BM.BUFF, BM.TERRACOTTA, 'dark'], [BM.LIMESTONE, BM.GRANITE_PINK, 'blue'], [BM.GRANITE_PINK, BM.TERRACOTTA, 'green']]);
   const S = { seed: spec.seed, stone: pal[0], dark: pal[1], tint: pal[2] };
-  const n = Math.max(18, spec.floors);
+  const n = Math.max(18, Math.min(40, spec.floors));
   const t1 = inset(W, D, 10, 12, 10, 8), n1 = Math.round(n * 0.7);
   const t2 = { x0: t1.x0 + 10, z0: t1.z0 + 10, x1: t1.x1 - 10, z1: t1.z1 - 10 };
   const slot = R() < 0.6;
@@ -1535,13 +1536,15 @@ function towerTwist(E, C, W, D, spec, R) {
   const accent = oblong ? pick(R, ['balc', 'fins', 'balc']) : pick(R, ['loggia', 'fins', 'loggia']);
   const s = 3, ev = (v) => Math.max(24, v - (v & 1));
   const d0 = ev(Math.floor(lim / Math.hypot(asp, 1) - 2 * s - (accent === 'balc' ? 2 : 0))), w0 = ev(Math.floor(d0 * asp));
-  const n = Math.max(26, Math.round(spec.floors * (1 + R() * 0.3)));
+  const n = Math.min(50, Math.max(26, Math.round(spec.floors * (1 + R() * 0.3))));
   const total = (0.6 + R() * 1.0) * (R() < 0.5 ? 1 : -1), prof = pick(R, ['lin', 'ease', 'late']);
   const P = (t) => prof === 'lin' ? t : prof === 'ease' ? t * t * (3 - 2 * t) : t * t;
   const taper = R() < 0.4 ? 0.8 + R() * 0.1 : 1;
   const crown = pick(R, ['slope', 'spire', 'lantern']);
   const K = crown === 'slope' ? 5 + Math.floor(R() * 3) : 0;
-  const pitch = accent === 'fins' ? pick(R, [5, 6]) : pick(R, [4, 5, 6]), spand = R() < 0.5 ? BM.SPANDREL : edge, finD = accent === 'fins' ? 5 : 3;
+  let pitch = accent === 'fins' ? pick(R, [5, 6]) : pick(R, [4, 5, 6]);
+  while (n * 2 * (w0 + d0) / pitch > 3500) ++pitch;                                         // triangle budget
+  const spand = R() < 0.5 ? BM.SPANDREL : edge, finD = accent === 'fins' ? 5 : 3;
   const cx = W / 2, cz = fb + (D - fb) / 2;
   const dims = [];
   for (let k = 0; k < n; ++k) {
