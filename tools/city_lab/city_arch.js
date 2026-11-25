@@ -1285,10 +1285,12 @@ function towerReuse(E, C, W, D, spec, R) {
   for (let z = 0; z < sdp; z += pitch) { M.box(-1, 0, z, 0, sh(z) + 1, z + 1, mull); M.box(sw, 0, z, sw + 1, sh(z) + 1, z + 1, mull); }
   M.box(-1, 0, -1, 0, sh(0) + 1, 0, mull); M.box(sw, 0, -1, sw + 1, sh(0) + 1, 0, mull);
   M.box(-1, 0, sdp, 0, sh(sdp - 1) + 1, sdp + 1, mull); M.box(sw, 0, sdp, sw + 1, sh(sdp - 1) + 1, sdp + 1, mull);
-  M.box(8, 0, 8, sw - 8, 10, sdp - 8, BM.LOUVER);                                           // plant room behind the screen
-  for (let x = 8; x < sw - 8; x += 4) M.box(x, 0, 7, x + 1, 11, 8, BM.METAL);
+  const px0 = Math.round(sw * 0.3), px1 = Math.round(sw * 0.7), pz0 = Math.round(sdp * 0.35), pz1 = Math.round(sdp * 0.75);
+  M.box(px0, 0, pz0, px1, 10, pz1, BM.LOUVER);                                              // plant room behind the screen
+  for (let x = px0; x < px1; x += 4) M.box(x, 0, pz0 - 1, x + 1, 11, pz0, BM.METAL);
+  M.box(px0, 10, pz0, px1, 11, pz1, BM.METAL);
   E.vox(C, M, tw.x0, y, tw.z0);
-  E.vox(C, craneModel(Math.min(40, sw - 24)), tw.x0 + 12, y + 10, (tw.z0 + tw.z1) >> 1);
+  E.vox(C, craneModel(Math.min(40, sw - 12)), tw.x0 + 6, y, tw.z0 + pz0 - 8);
 }
 // International Style: a bronze / black steel / green glass slab set back behind its own plaza with fountains,
 // raised on columns over a recessed glass lobby; louvred plant floors and penthouse.
@@ -1425,7 +1427,7 @@ function towerBrutal(E, C, W, D, spec, R) {
   const hS = n * FH + 4, hC = lH + hS + 2 * FH + 6, bH = 2 * FH + 6;
   buildTiers(E, C, W, D, [
     Object.assign({}, lob, { h: lH, skin: skinLobby({ seed: spec.seed, mull: BM.STEEL_DARK }), noRoof: true }),
-    Object.assign({}, slab, { h: hS, skin: skinBrutal(S), floating: true, soffit: BM.CONCRETE, roof: { mat: S.conc } }),
+    Object.assign({}, slab, { h: hS, skin: skinBrutal(S), floating: true, soffit: BM.CONCRETE, noRoof: true }),
     { x0: slab.x0 - 3, z0: slab.z0 - 4, x1: slab.x1 + 3, z1: slab.z1 + 4, h: FH + 6, skin: skinBoiler(S), floating: true, soffit: BM.CONCRETE, roof: { mat: S.rib, units: 4 } }
   ], spec.seed);
   const over = 7;
