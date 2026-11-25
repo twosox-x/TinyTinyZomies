@@ -1,0 +1,253 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Pose
+{
+    float phase;
+    float speed;
+    float prone;
+    float flail;
+    float climb;
+    float roll;
+    float vary;
+    float dead;
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+};
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    float3 vNormal [[user(locn1)]];
+    float2 vUv [[user(locn2)]];
+    float vAo [[user(locn3)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 inPos [[attribute(0)]];
+    float3 inNormal [[attribute(1)]];
+    float2 inUv [[attribute(2)]];
+    float3 inPivot [[attribute(3)]];
+    float inPart [[attribute(4)]];
+};
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float3x3 rotX(thread const float& a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return float3x3(float3(1.0, 0.0, 0.0), float3(0.0, c, s), float3(0.0, -s, c));
+}
+
+static inline __attribute__((always_inline))
+float3x3 rotZ(thread const float& a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return float3x3(float3(c, s, 0.0), float3(-s, c, 0.0), float3(0.0, 0.0, 1.0));
+}
+
+static inline __attribute__((always_inline))
+float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _405)
+{
+    float sw = sin(s.phase);
+    float gait = fast::clamp(s.speed / 1.60000002384185791015625, 0.0, 1.0);
+    float3x3 R = float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0));
+    if ((part == 4) || (part == 5))
+    {
+        float side = (part == 4) ? 1.0 : (-1.0);
+        float a = ((side * sw) * 0.550000011920928955078125) * fast::max(gait, s.climb);
+        a += (((s.flail * side) * sin((s.phase * 2.7000000476837158203125) + (s.vary * 9.0))) * 0.800000011920928955078125);
+        float param = a;
+        float param_1 = (s.dead * side) * (0.25 + (0.20000000298023223876953125 * s.vary));
+        R = rotX(param) * rotZ(param_1);
+    }
+    else
+    {
+        if ((part == 2) || (part == 3))
+        {
+            float side_1 = (part == 2) ? 1.0 : (-1.0);
+            float reach = (-1.35000002384185791015625) + (0.119999997317790985107421875 * sin(((s.phase * 0.5) + side_1) + (s.vary * 6.0)));
+            float climbReach = (-2.400000095367431640625) + (0.60000002384185791015625 * sin(s.phase + ((side_1 > 0.0) ? 0.0 : 3.141590118408203125)));
+            float a_1 = mix(reach, climbReach, s.climb);
+            a_1 = mix(a_1, (-2.599999904632568359375) + (sin((s.phase * 3.099999904632568359375) + (side_1 * 2.0)) * 1.10000002384185791015625), s.flail);
+            a_1 = mix(a_1, (-2.7999999523162841796875) + ((side_1 * 0.4000000059604644775390625) * s.vary), s.dead);
+            float splay = side_1 * ((0.07999999821186065673828125 + (0.5 * s.flail)) + ((0.60000002384185791015625 * s.dead) * s.vary));
+            float param_2 = a_1;
+            float param_3 = splay;
+            R = rotX(param_2) * rotZ(param_3);
+        }
+        else
+        {
+            if (part == 1)
+            {
+                float param_4 = ((0.25 * sin((s.phase * 0.5) + (s.vary * 5.0))) * (1.0 - s.dead)) + ((s.vary - 0.5) * 0.5);
+                float param_5 = 0.1500000059604644775390625 + (0.20000000298023223876953125 * s.dead);
+                R = rotZ(param_4) * rotX(param_5);
+            }
+        }
+    }
+    float3 q = pivot + (R * (p - pivot));
+    n = R * n;
+    q.y += (((abs(sw) * 0.0500000007450580596923828125) * gait) * (1.0 - s.prone));
+    float param_6 = ((0.119999997317790985107421875 * gait) * (1.0 - s.prone)) + (s.prone * 1.4500000476837158203125);
+    float param_7 = s.roll;
+    float3x3 B = rotX(param_6) * rotZ(param_7);
+    float3 c = float3(0.0, _405.modelP.y * 0.5, 0.0);
+    q = (B * (q - c)) + mix(c, float3(0.0, 0.17000000178813934326171875, 0.0), float3(s.prone));
+    n = B * n;
+    return q;
+}
+
+static inline __attribute__((always_inline))
+float3x3 rotY(thread const float& a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return float3x3(float3(c, 0.0, -s), float3(0.0, 1.0, 0.0), float3(s, 0.0, c));
+}
+
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0)]], const device Agents& _438 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
+{
+    main0_out out = {};
+    Agent a;
+    a.pos = _438.agents[int(gl_InstanceIndex)].pos;
+    a.vel = _438.agents[int(gl_InstanceIndex)].vel;
+    a.prev = _438.agents[int(gl_InstanceIndex)].prev;
+    a.dirs = _438.agents[int(gl_InstanceIndex)].dirs;
+    a.info = _438.agents[int(gl_InstanceIndex)].info;
+    uint st = a.info.x & 255u;
+    uint variant = (a.info.x >> uint(8)) & 255u;
+    uint param = a.info.y;
+    float vary = hash01(param);
+    Pose s;
+    s.phase = a.vel.w;
+    s.speed = length(a.vel.xz);
+    s.prone = fast::clamp(a.pos.w, 0.0, 1.0);
+    float _491;
+    if (st == 1u)
+    {
+        _491 = 1.0;
+    }
+    else
+    {
+        _491 = s.prone * 0.60000002384185791015625;
+    }
+    s.climb = _491;
+    s.flail = float((st == 2u) || (st == 3u));
+    float _510;
+    if (st == 3u)
+    {
+        _510 = (a.dirs.w * (2.0 + (3.0 * vary))) * ((vary > 0.5) ? 1.0 : (-1.0));
+    }
+    else
+    {
+        _510 = 0.0;
+    }
+    s.roll = _510;
+    s.vary = vary;
+    s.dead = 0.0;
+    if ((st == 3u) || (st == 2u))
+    {
+        s.phase = (_405.camPos.w * 6.0) + (vary * 20.0);
+    }
+    float3 n = in.inNormal;
+    float3 param_1 = in.inPos * (0.89999997615814208984375 + (0.20000000298023223876953125 * vary));
+    float3 param_2 = in.inPivot * (0.89999997615814208984375 + (0.20000000298023223876953125 * vary));
+    int param_3 = int(in.inPart + 0.5);
+    Pose param_4 = s;
+    float3 param_5 = n;
+    float3 _575 = animateVertex(param_1, param_2, param_3, param_4, param_5, _405);
+    n = param_5;
+    float3 q = _575;
+    float param_6 = a.dirs.z;
+    float3x3 Y = rotY(param_6);
+    out.vWorld = a.pos.xyz + (Y * q);
+    out.vNormal = Y * n;
+    out.vUv = in.inUv + float2(0.0, float(variant % uint(_405.modelP.x)) / _405.modelP.x);
+    out.vAo = fast::clamp(0.449999988079071044921875 + ((in.inPos.y / _405.modelP.y) * 0.699999988079071044921875), 0.0, 1.0) * ((st == 3u) ? 0.699999988079071044921875 : 1.0);
+    out.gl_Position = _405.viewProj * float4(out.vWorld, 1.0);
+    return out;
+}
+

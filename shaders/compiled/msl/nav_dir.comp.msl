@@ -1,0 +1,200 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct Dist
+{
+    float dist[1];
+};
+
+struct NavDir
+{
+    float2 navDir[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(16u, 16u, 1u);
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _35)
+{
+    return (uint(c.y) * _35.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+float D(thread const int2& c, thread const float& fallback, constant SimUniforms& _35, device Dist& _88)
+{
+    bool _52 = c.x < 0;
+    bool _59;
+    if (!_52)
+    {
+        _59 = c.y < 0;
+    }
+    else
+    {
+        _59 = _52;
+    }
+    bool _69;
+    if (!_59)
+    {
+        _69 = c.x >= int(_35.grid.x);
+    }
+    else
+    {
+        _69 = _59;
+    }
+    bool _79;
+    if (!_69)
+    {
+        _79 = c.y >= int(_35.grid.y);
+    }
+    else
+    {
+        _79 = _69;
+    }
+    if (_79)
+    {
+        return fallback;
+    }
+    int2 param = c;
+    float d = _88.dist[cellIndex(param, _35)];
+    return (d >= 5000000.0) ? fallback : d;
+}
+
+kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Dist& _88 [[buffer(1)]], device NavDir& _327 [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    int2 c = int2(gl_GlobalInvocationID.xy);
+    bool _116 = c.x >= int(_35.grid.x);
+    bool _126;
+    if (!_116)
+    {
+        _126 = c.y >= int(_35.grid.y);
+    }
+    else
+    {
+        _126 = _116;
+    }
+    if (_126)
+    {
+        return;
+    }
+    int2 param = c;
+    uint id = cellIndex(param, _35);
+    float d0 = _88.dist[id];
+    float2 dir = float2(0.0);
+    if (d0 < 5000000.0)
+    {
+        if (d0 <= 0.0)
+        {
+            dir = float2(0.0);
+        }
+        else
+        {
+            float bump = d0 + (_35.world.z * 2.0);
+            int2 param_1 = c - int2(1, 0);
+            float param_2 = bump;
+            float xm = D(param_1, param_2, _35, _88);
+            int2 param_3 = c + int2(1, 0);
+            float param_4 = bump;
+            float xp = D(param_3, param_4, _35, _88);
+            int2 param_5 = c - int2(0, 1);
+            float param_6 = bump;
+            float zm = D(param_5, param_6, _35, _88);
+            int2 param_7 = c + int2(0, 1);
+            float param_8 = bump;
+            float zp = D(param_7, param_8, _35, _88);
+            float _197;
+            if (fast::min(xm, xp) < d0)
+            {
+                float _203;
+                if (xm < xp)
+                {
+                    _203 = d0 - xm;
+                }
+                else
+                {
+                    _203 = xp - d0;
+                }
+                _197 = _203;
+            }
+            else
+            {
+                _197 = 0.0;
+            }
+            float gx = _197;
+            float _222;
+            if (fast::min(zm, zp) < d0)
+            {
+                float _228;
+                if (zm < zp)
+                {
+                    _228 = d0 - zm;
+                }
+                else
+                {
+                    _228 = zp - d0;
+                }
+                _222 = _228;
+            }
+            else
+            {
+                _222 = 0.0;
+            }
+            float gz = _222;
+            float2 g = float2(gx, gz);
+            float gl = length(g);
+            if (gl > 9.9999997473787516355514526367188e-06)
+            {
+                dir = (-g) / float2(gl);
+            }
+            else
+            {
+                float bestSlope = 0.0;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if ((dx == 0) && (dy == 0))
+                        {
+                            continue;
+                        }
+                        float l = length(float2(float(dx), float(dy)));
+                        int2 param_9 = c + int2(dx, dy);
+                        float param_10 = 10000000.0;
+                        float slope = (d0 - D(param_9, param_10, _35, _88)) / l;
+                        if (slope > bestSlope)
+                        {
+                            bestSlope = slope;
+                            dir = float2(float(dx), float(dy)) / float2(l);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    _327.navDir[id] = dir;
+}
+

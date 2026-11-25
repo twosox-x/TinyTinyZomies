@@ -1,0 +1,53 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct Indirect
+{
+    uint ind[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(1u);
+
+kernel void main0(constant SimUniforms& _32 [[buffer(0)]], device Counters& _12 [[buffer(1)]], device Indirect& _55 [[buffer(2)]])
+{
+    uint live = min((_12.counters[0] + _12.counters[1]), _32.grid.w);
+    _12.counters[0] = live;
+    _12.counters[10] = live;
+    _12.counters[1] = 0u;
+    _12.counters[4] = 0u;
+    _12.counters[5] = 0u;
+    _12.counters[8] = 0u;
+    _12.counters[6] = 0u;
+    _55.ind[0] = max(((live + 255u) / 256u), 1u);
+    _55.ind[1] = 1u;
+    _55.ind[2] = 1u;
+}
+

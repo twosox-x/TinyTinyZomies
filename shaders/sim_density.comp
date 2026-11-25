@@ -1,0 +1,26 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Per cell: crowd density (agents / m^2, temporally smoothed) and the top of the crowd (max body top).
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer CellStart { uint cellStart[]; };
+layout(std430, set = 0, binding = 1) readonly buffer CellCount { uint cellCount[]; };
+layout(std430, set = 0, binding = 2) readonly buffer PosFinal  { vec4 posFinal[]; };
+layout(std430, set = 1, binding = 0) buffer Density { vec4 density[]; };
+void main() {
+    uint c = gl_GlobalInvocationID.x;
+    if (c >= grid.z) return;
+    uint s = cellStart[c], n = cellCount[c];
+    float top = 0.0, elevated = 0.0;
+    for (uint k = s; k < s + min(n, 64u); ++k) {
+        vec4 p = posFinal[k];
+        top = max(top, p.y + p.w);
+        elevated += p.y > 0.5 ? 1.0 : 0.0;
+    }
+    float rho = float(n) * world.w * world.w;
+    vec4 d = density[c];
+    d.x = mix(d.x, rho, 0.25);
+    d.y = top;
+    d.z = elevated;
+    density[c] = d;
+}

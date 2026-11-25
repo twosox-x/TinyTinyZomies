@@ -1,0 +1,1 @@
+{ "samplers": 1, "storage_textures": 0, "storage_buffers": 0, "uniform_buffers": 1, "inputs": [{ "name": "vUv", "type": "float2", "location": 2 }, { "name": "vNormal", "type": "float3", "location": 1 }, { "name": "vWorld", "type": "float3", "location": 0 }, { "name": "vAo", "type": "float", "location": 3 }], "outputs": [{ "name": "outColor", "type": "float4", "location": 0 }] }

@@ -1,0 +1,9 @@
+build/
+build-*/
+*.png
+!docs/**/*.png
+!docs/reference/*
+.DS_Store
+.vscode/
+.idea/
+benchmark_results.csv

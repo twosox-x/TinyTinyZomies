@@ -1,0 +1,48 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Flow direction = normalised negative gradient of the distance field (one-sided at obstacles).
+#include "common.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430, set = 0, binding = 0) readonly buffer Dist { float dist[]; };
+layout(std430, set = 1, binding = 0) buffer NavDir { vec2 navDir[]; };
+const float BIG = 1.0e7;
+float D(ivec2 c, float fallback) {
+    if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) return fallback;
+    float d = dist[cellIndex(c)];
+    return d >= BIG * 0.5 ? fallback : d;
+}
+void main() {
+    ivec2 c = ivec2(gl_GlobalInvocationID.xy);
+    if (c.x >= int(grid.x) || c.y >= int(grid.y)) return;
+    uint id = cellIndex(c);
+    float d0 = dist[id];
+    vec2 dir = vec2(0.0);
+    if (d0 < BIG * 0.5) {
+        if (d0 <= 0.0) {
+            // inside a goal: arrived, stop and mill (a sink direction would crush arrivals into a mound)
+            dir = vec2(0.0);
+        } else {
+            float bump = d0 + world.z * 2.0;   // blocked neighbours look uphill
+            float xm = D(c - ivec2(1, 0), bump), xp = D(c + ivec2(1, 0), bump);
+            float zm = D(c - ivec2(0, 1), bump), zp = D(c + ivec2(0, 1), bump);
+            // upwind one-sided differences (consistent with the Eikonal solver)
+            float gx = (min(xm, xp) < d0) ? ((xm < xp) ? d0 - xm : xp - d0) : 0.0;
+            float gz = (min(zm, zp) < d0) ? ((zm < zp) ? d0 - zm : zp - d0) : 0.0;
+            vec2 g = vec2(gx, gz);
+            float gl = length(g);
+            if (gl > 1e-5) dir = -g / gl;
+            else {
+                // flat / saddle: steepest descent over the 8-neighbourhood by slope
+                float bestSlope = 0.0;
+                for (int dy = -1; dy <= 1; ++dy)
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if (dx == 0 && dy == 0) continue;
+                    float l = length(vec2(dx, dy));
+                    float slope = (d0 - D(c + ivec2(dx, dy), BIG)) / l;
+                    if (slope > bestSlope) { bestSlope = slope; dir = vec2(dx, dy) / l; }
+                }
+            }
+        }
+    }
+    navDir[id] = dir;
+}

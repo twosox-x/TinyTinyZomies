@@ -1,0 +1,31 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Appends spawnCount new agents at random positions inside spawnRect.
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 1, binding = 0) buffer Agents { Agent agents[]; };
+layout(std430, set = 1, binding = 1) buffer Counters { uint counters[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counts.z) return;
+    uint rng = pcgHash(i * 9781u + counts.w * 6271u + 17u);
+    // never spawn inside static geometry: retry a few random positions inside the rect
+    vec2 p = vec2(0.0);
+    bool found = false;
+    for (int t = 0; t < 32 && !found; ++t) {
+        p = vec2(mix(spawnRect.x, spawnRect.z, rand01(rng)), mix(spawnRect.y, spawnRect.w, rand01(rng)));
+        found = staticH[cellIndex(cellCoord(p))] <= 0.0;
+    }
+    if (!found) return;
+    uint slot = counters[C_LIVE] + atomicAdd(counters[C_APPEND], 1u);
+    if (slot >= grid.w) return;
+    Agent a;
+    a.pos = vec4(p.x, 0.0, p.y, 0.0);
+    a.vel = vec4(0.0, 0.0, 0.0, rand01(rng) * 6.2831);
+    a.prev = vec4(a.pos.xyz, 0.0);
+    a.dirs = vec4(0.0, 0.0, rand01(rng) * 6.2831, 0.0);
+    uint variant = pcgHash(rng) & 0xFFu;
+    a.info = uvec4(ST_WALK | (variant << 8), pcgHash(rng + 1u), floatBitsToUint(1.0), floatBitsToUint(0.0));
+    agents[slot] = a;
+}

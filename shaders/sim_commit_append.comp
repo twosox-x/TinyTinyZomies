@@ -1,0 +1,21 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// 1 thread. Commits agents appended this step (spawns, reactivated corpses),
+// writes the indirect dispatch args for per-agent passes, clears per-step stats.
+#include "common.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 1, binding = 0) buffer Counters { uint counters[]; };
+layout(std430, set = 1, binding = 1) buffer Indirect { uint ind[]; };
+void main() {
+    uint live = min(counters[C_LIVE] + counters[C_APPEND], grid.w);
+    counters[C_LIVE] = live;
+    counters[C_PREV_LIVE] = live;
+    counters[C_APPEND] = 0u;
+    counters[C_CLIMBING] = 0u;
+    counters[C_AIRBORNE] = 0u;
+    counters[C_ELEVATED] = 0u;
+    counters[C_MAX_HEIGHT_MM] = 0u;
+    ind[I_AGENT_DISPATCH + 0u] = max((live + 255u) / 256u, 1u);
+    ind[I_AGENT_DISPATCH + 1u] = 1u;
+    ind[I_AGENT_DISPATCH + 2u] = 1u;
+}

@@ -1,0 +1,271 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+};
+
+constant spvUnsafeArray<float3, 4> _623 = spvUnsafeArray<float3, 4>({ float3(0.800000011920928955078125, 0.60000002384185791015625, 0.0500000007450580596923828125), float3(0.449999988079071044921875, 0.0599999986588954925537109375, 0.0599999986588954925537109375), float3(0.07999999821186065673828125, 0.1500000059604644775390625, 0.3499999940395355224609375), float3(0.60000002384185791015625, 0.60000002384185791015625, 0.62000000476837158203125) });
+
+struct main0_out
+{
+    float4 outColor [[color(0)]];
+};
+
+struct main0_in
+{
+    float3 vWorld [[user(locn0)]];
+    float3 vNormal [[user(locn1)]];
+    float2 vKindSeed [[user(locn2), flat]];
+    float3 vLocal [[user(locn3)]];
+};
+
+static inline __attribute__((always_inline))
+float hash12(thread const float2& p)
+{
+    float3 p3 = fract(p.xyx * 0.103100001811981201171875);
+    p3 += float3(dot(p3, p3.yzx + float3(33.3300018310546875)));
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+static inline __attribute__((always_inline))
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _57)
+{
+    float3 c = float3(0.0);
+    for (uint i = 0u; i < _57.gridDim.z; i++)
+    {
+        float3 L = _57.lightPos[i].xyz - P;
+        float d = length(L);
+        float att = fast::clamp(1.0 - (d / _57.lightPos[i].w), 0.0, 1.0);
+        att *= att;
+        c += (((_57.lightCol[i].xyz * _57.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+    }
+    for (int i_1 = 0; i_1 < 8; i_1++)
+    {
+        float age = _57.blasts[i_1].w;
+        if ((age < 0.0) || (age > 0.89999997615814208984375))
+        {
+            continue;
+        }
+        float3 L_1 = (_57.blasts[i_1].xyz + float3(0.0, 2.0, 0.0)) - P;
+        float d_1 = length(L_1);
+        float att_1 = fast::clamp(1.0 - (d_1 / 28.0), 0.0, 1.0);
+        float k = 1.0 - (age / 0.89999997615814208984375);
+        c += (((((float3(9.0, 4.94999980926513671875, 1.7999999523162841796875) * k) * k) * att_1) * att_1) * fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.20000000298023223876953125));
+    }
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _57)
+{
+    float3 hemi = mix(_57.groundColor.xyz, _57.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 moon = _57.sunColor.xyz * fast::max(dot(N, _57.sunDir.xyz), 0.0);
+    float3 param = P;
+    float3 param_1 = N;
+    return albedo * ((hemi + moon) + pointLights(param, param_1, _57));
+}
+
+static inline __attribute__((always_inline))
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _57)
+{
+    float d = length(P - _57.camPos.xyz);
+    float f = 1.0 - exp((-_57.fogColor.w) * d);
+    col = mix(col, _57.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    col /= (float3(1.0) + (col * 0.3499999940395355224609375));
+    return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _57 [[buffer(0)]])
+{
+    main0_out out = {};
+    int kind = int(in.vKindSeed.x + 0.5);
+    float seed = in.vKindSeed.y;
+    float3 N = fast::normalize(in.vNormal);
+    float3 albedo = float3(0.300000011920928955078125);
+    float3 emissive = float3(0.0);
+    float ao = 1.0;
+    float _336;
+    if (abs(N.x) > 0.5)
+    {
+        _336 = in.vLocal.z;
+    }
+    else
+    {
+        _336 = in.vLocal.x;
+    }
+    float u = _336;
+    float v = in.vLocal.y;
+    bool side = abs(N.y) < 0.5;
+    if (kind == 0)
+    {
+        float3 brickA = mix(float3(0.36000001430511474609375, 0.12999999523162841796875, 0.100000001490116119384765625), float3(0.2599999904632568359375, 0.1500000059604644775390625, 0.20000000298023223876953125), float3(fract(seed * 7.13000011444091796875)));
+        float2 brick = float2((u * 4.0) + (floor(v * 8.0) * 0.5), v * 8.0);
+        float mortar = step(0.89999997615814208984375, fract(brick.x)) + step(0.86000001430511474609375, fract(brick.y));
+        float2 param = floor(brick) + float2(seed);
+        albedo = (brickA * (0.85000002384185791015625 + (0.300000011920928955078125 * hash12(param)))) * (1.0 - (0.3499999940395355224609375 * fast::clamp(mortar, 0.0, 1.0)));
+        if (side)
+        {
+            float floorH = 3.2000000476837158203125;
+            float fl = floor(v / floorH);
+            float2 cellW = float2(2.599999904632568359375, floorH);
+            float2 f = float2(fract(u / cellW.x), fract(v / cellW.y));
+            float2 id = float2(floor(u / cellW.x), fl);
+            bool groundFloor = fl < 1.0;
+            float2 wMin = select(float2(0.25, 0.2800000011920928955078125), float2(0.07999999821186065673828125, 0.0599999986588954925537109375), bool2(groundFloor));
+            float2 wMax = select(float2(0.75, 0.800000011920928955078125), float2(0.920000016689300537109375, 0.7200000286102294921875), bool2(groundFloor));
+            bool _474 = all(f > wMin);
+            bool _481;
+            if (_474)
+            {
+                _481 = all(f < wMax);
+            }
+            else
+            {
+                _481 = _474;
+            }
+            bool win = _481;
+            if (win)
+            {
+                float2 param_1 = id + float2(seed * 3.099999904632568359375);
+                float h = hash12(param_1);
+                albedo = float3(0.039999999105930328369140625, 0.0500000007450580596923828125, 0.07999999821186065673828125);
+                if (h > (groundFloor ? 0.550000011920928955078125 : 0.7799999713897705078125))
+                {
+                    emissive = mix(float3(1.0, 0.62000000476837158203125, 0.2800000011920928955078125), float3(0.89999997615814208984375, 0.85000002384185791015625, 0.60000002384185791015625), float3(fract(h * 17.0))) * (groundFloor ? 1.2000000476837158203125 : 0.800000011920928955078125);
+                }
+                else
+                {
+                    if (h > 0.699999988079071044921875)
+                    {
+                        emissive = float3(0.0719999969005584716796875, 0.108000002801418304443359375, 0.20999999344348907470703125);
+                    }
+                }
+            }
+            if (fract(v / floorH) < 0.0599999986588954925537109375)
+            {
+                albedo *= 0.60000002384185791015625;
+            }
+        }
+        else
+        {
+            float2 param_2 = floor(in.vWorld.xz * 0.5);
+            albedo = float3(0.100000001490116119384765625, 0.100000001490116119384765625, 0.14000000059604644775390625) * (0.800000011920928955078125 + (0.4000000059604644775390625 * hash12(param_2)));
+        }
+        ao = fast::clamp(0.449999988079071044921875 + (v * 0.119999997317790985107421875), 0.449999988079071044921875, 1.0);
+    }
+    else
+    {
+        if (kind == 1)
+        {
+            float2 param_3 = floor(float2(u, v) * 3.0);
+            albedo = float3(0.300000011920928955078125, 0.300000011920928955078125, 0.319999992847442626953125) * (0.85000002384185791015625 + (0.20000000298023223876953125 * hash12(param_3)));
+            if ((v > 2.900000095367431640625) && side)
+            {
+                albedo = select(float3(0.0500000007450580596923828125), float3(0.75, 0.60000002384185791015625, 0.100000001490116119384765625), bool3(fract((u + v) * 1.2000000476837158203125) < 0.5));
+            }
+            ao = fast::clamp(0.5 + (v * 0.20000000298023223876953125), 0.5, 1.0);
+        }
+        else
+        {
+            if (kind == 2)
+            {
+                albedo = select(float3(0.75), float3(0.60000002384185791015625, 0.07999999821186065673828125, 0.0599999986588954925537109375), bool3(fract(u * 0.800000011920928955078125) < 0.5));
+                ao = 0.800000011920928955078125;
+            }
+            else
+            {
+                if (kind == 3)
+                {
+                    albedo = _623[int(fract(seed * 3.7000000476837158203125) * 4.0) & 3];
+                    if ((v > 0.800000011920928955078125) && side)
+                    {
+                        albedo = float3(0.0500000007450580596923828125, 0.0599999986588954925537109375, 0.0900000035762786865234375);
+                    }
+                    if (v < 0.3499999940395355224609375)
+                    {
+                        albedo = float3(0.02999999932944774627685546875);
+                    }
+                    ao = 0.75;
+                }
+                else
+                {
+                    albedo = float3(0.07999999821186065673828125);
+                    if (v > 5.099999904632568359375)
+                    {
+                        emissive = float3(3.0, 2.099999904632568359375, 1.2000000476837158203125);
+                    }
+                }
+            }
+        }
+    }
+    albedo = powr(albedo, float3(2.2000000476837158203125)) * 2.0;
+    float3 param_4 = albedo;
+    float3 param_5 = N;
+    float3 param_6 = in.vWorld;
+    float param_7 = ao;
+    float3 col = shade(param_4, param_5, param_6, param_7, _57) + emissive;
+    float3 param_8 = col;
+    float3 param_9 = in.vWorld;
+    float3 _679 = finish(param_8, param_9, _57);
+    out.outColor = float4(_679, 1.0);
+    return out;
+}
+

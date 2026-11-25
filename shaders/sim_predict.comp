@@ -1,0 +1,110 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Per agent: explosions, desired velocity from the shared flow field + density-dependent speed,
+// gravity / climbing, prediction of the new position, and the counting-sort histogram.
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer NavDir  { vec2 navDir[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Density { vec4 density[]; };
+layout(std430, set = 0, binding = 2) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 0, binding = 3) readonly buffer CorpseH { int corpseH[]; };
+layout(std430, set = 1, binding = 0) buffer Agents    { Agent agents[]; };
+layout(std430, set = 1, binding = 1) buffer CellCount { uint cellCount[]; };
+layout(std430, set = 1, binding = 2) buffer CellLocal { uvec2 cellLocal[]; };
+layout(std430, set = 1, binding = 3) buffer Counters  { uint counters[]; };
+#include "fields.glsl"
+
+vec2 dirAt(ivec2 c) {
+    c = clamp(c, ivec2(0), ivec2(int(grid.x) - 1, int(grid.y) - 1));
+    return navDir[cellIndex(c)];
+}
+vec2 sampleDir(vec2 xz) {
+    vec2 g = (xz - world.xy) * world.w - 0.5;
+    ivec2 c0 = ivec2(floor(g));
+    vec2 f = g - vec2(c0);
+    vec2 d = mix(mix(dirAt(c0), dirAt(c0 + ivec2(1, 0)), f.x), mix(dirAt(c0 + ivec2(0, 1)), dirAt(c0 + ivec2(1, 1)), f.x), f.y);
+    float l = length(d);
+    return l > 1e-3 ? d / l : vec2(0.0);
+}
+float sampleDensity(vec2 xz) { return density[cellIndex(cellCoord(xz))].x; }
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters[C_LIVE]) return;
+    Agent a = agents[i];
+    uint st = agentState(a);
+    uint variant = agentVariant(a);
+    uint rng = pcgHash(a.info.y ^ (uint(timeP.z) * 2654435761u));  // per-step stream; info.y stays a stable seed
+    float dt = timeP.x;
+
+    if (st == ST_DEAD) {
+        cellLocal[i] = uvec2(grid.z, atomicAdd(cellCount[grid.z], 1u));  // graveyard bucket
+        return;
+    }
+
+    vec3 p = a.pos.xyz;
+    vec3 v = a.vel.xyz;
+    float timer = a.dirs.w;
+    float health = uintBitsToFloat(a.info.z);
+    float vary = hash01(a.info.y);  // stable per-agent [0,1)
+
+    // ---- explosions (only agents inside a radius do extra work) ------------
+    for (uint e = 0u; e < counts.y; ++e) {
+        vec3 c = explo[e].xyz;
+        float r = explo[e].w;
+        vec3 d = (p + vec3(0.0, 0.6, 0.0)) - c;
+        float dist = length(d);
+        if (dist >= r) continue;
+        float f = 1.0 - dist / r;
+        vec3 dir = dist > 1e-3 ? d / dist : vec3(0.0, 1.0, 0.0);
+        dir.y = abs(dir.y) + exploP[e].z;
+        dir = normalize(dir);
+        float rnd = rand01(rng);
+        v += dir * exploP[e].x * f * (0.55 + 0.9 * rnd);
+        if (st < ST_DYING) {
+            health -= f * f * exploP[e].y * (0.6 + 0.8 * rand01(rng));
+            if (health <= 0.0) { st = ST_DYING; timer = 0.0; }
+            else { st = ST_FALL; timer = max(timer, 0.4 + 1.6 * f); }
+        }
+    }
+
+    // ---- desired velocity -----------------------------------------------------
+    vec2 flow = sampleDir(p.xz);
+    float wob = sin(timeP.y * (0.5 + vary) + vary * 40.0) * extraP.y;
+    float cw = cos(wob), sw = sin(wob);
+    flow = vec2(cw * flow.x - sw * flow.y, sw * flow.x + cw * flow.y);
+    float rhoAhead = sampleDensity(p.xz + flow * crowdP.w);
+    float speedF = clamp(1.0 - (rhoAhead - crowdP.x) / max(crowdP.y - crowdP.x, 1e-3), crowdP.z, 1.0);
+    float baseSpeed = agentP.w * (0.7 + 0.6 * vary);
+    float speed = mix(baseSpeed * speedF, extraP.w * (0.8 + 0.4 * vary), clamp(a.pos.w, 0.0, 1.0));
+    vec2 desired = flow * speed;
+
+    if (st == ST_WALK || st == ST_CLIMB) {
+        v.xz += (desired - v.xz) * min(1.0, moveP.x * dt);
+    } else {
+        desired = vec2(0.0);
+        v.xz *= 1.0 - min(1.0, 0.3 * dt);
+    }
+
+    if (st == ST_CLIMB) {
+        float target = uintBitsToFloat(a.info.w);
+        v.y = p.y < target ? moveP.z : min(v.y, 0.0);
+    } else {
+        v.y -= moveP.y * dt;
+    }
+    float sp = length(v);
+    if (sp > extraP.x) v *= extraP.x / sp;
+
+    a.prev.xyz = p;
+    p += v * dt;
+    a.pos.xyz = p;
+    a.vel.xyz = v;
+    a.dirs.xy = desired;
+    a.dirs.w = timer;
+    a.info.x = st | (variant << 8);
+    a.info.z = floatBitsToUint(health);
+    agents[i] = a;
+
+    uint cell = cellIndex(cellCoord(p.xz));
+    cellLocal[i] = uvec2(cell, atomicAdd(cellCount[cell], 1u));
+}

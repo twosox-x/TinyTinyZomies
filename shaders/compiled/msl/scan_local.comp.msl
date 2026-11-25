@@ -1,0 +1,128 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct BlockSums
+{
+    uint blockSums[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+kernel void main0(constant SimUniforms& _19 [[buffer(0)]], device CellCount& _51 [[buffer(1)]], device CellStart& _105 [[buffer(2)]], device BlockSums& _121 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]])
+{
+    threadgroup spvUnsafeArray<uint, 256> sh;
+    uint n = _19.grid.z + 1u;
+    uint gi = gl_GlobalInvocationID.x;
+    uint li = gl_LocalInvocationID.x;
+    uint _45;
+    if (gi < n)
+    {
+        _45 = _51.cellCount[gi];
+    }
+    else
+    {
+        _45 = 0u;
+    }
+    uint v = _45;
+    sh[li] = v;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    uint _79;
+    for (uint off = 1u; off < 256u; off = off << 1u)
+    {
+        if (li >= off)
+        {
+            _79 = sh[li - off];
+        }
+        else
+        {
+            _79 = 0u;
+        }
+        uint t = _79;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        sh[li] += t;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (gi < n)
+    {
+        _105.cellStart[gi] = sh[li] - v;
+    }
+    if (li == 255u)
+    {
+        _121.blockSums[gl_WorkGroupID.x] = sh[255];
+    }
+}
+

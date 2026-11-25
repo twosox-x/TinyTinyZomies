@@ -1,0 +1,235 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct Density
+{
+    float4 density[1];
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct Dist
+{
+    float dist[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(16u, 16u, 1u);
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _36)
+{
+    return (uint(c.y) * _36.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+float corpseAt(thread int2& c, constant SimUniforms& _36, device CorpseH& _65)
+{
+    c = clamp(c, int2(0), int2(int(_36.grid.x) - 1, int(_36.grid.y) - 1));
+    int2 param = c;
+    return float(_65.corpseH[cellIndex(param, _36)]) * 0.001000000047497451305389404296875;
+}
+
+static inline __attribute__((always_inline))
+float cellCost(thread const int2& c, constant SimUniforms& _36, device CorpseH& _65, device Density& _87, device StaticH& _110)
+{
+    int2 param = c;
+    uint id = cellIndex(param, _36);
+    float rho = ((device float*)&_87.density[id])[0u];
+    float cost = 1.0 + (_36.navP.x * fast::max(rho - _36.crowdP.x, 0.0));
+    float s = _110.staticH[id];
+    if (s > 0.0)
+    {
+        int2 param_1 = c;
+        float _122 = corpseAt(param_1, _36, _65);
+        float support = _122;
+        int2 _135;
+        int2 _142;
+        for (int k = 0; k < 4; k++)
+        {
+            if (k == 0)
+            {
+                _135 = int2(1, 0);
+            }
+            else
+            {
+                if (k == 1)
+                {
+                    _142 = int2(-1, 0);
+                }
+                else
+                {
+                    _142 = select(int2(0, -1), int2(0, 1), bool2(k == 2));
+                }
+                _135 = _142;
+            }
+            int2 o = _135;
+            int2 nc = clamp(c + o, int2(0), int2(_36.grid.xy) - int2(1));
+            int2 param_2 = nc;
+            uint nid = cellIndex(param_2, _36);
+            if (_110.staticH[nid] <= 0.0)
+            {
+                int2 param_3 = nc;
+                float _187 = corpseAt(param_3, _36, _65);
+                support = fast::max(support, fast::max(((device float*)&_87.density[nid])[1u], _187));
+            }
+        }
+        int2 param_4 = c;
+        float _196 = corpseAt(param_4, _36, _65);
+        float climb = (s + _196) - support;
+        if (climb > _36.navP.z)
+        {
+            return -1.0;
+        }
+        cost += (_36.navP.y * fast::max(climb, 0.0));
+    }
+    return cost;
+}
+
+kernel void main0(constant SimUniforms& _36 [[buffer(0)]], device StaticH& _110 [[buffer(1)]], device CorpseH& _65 [[buffer(2)]], device Density& _87 [[buffer(3)]], device Dist& _313 [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    int2 c = int2(gl_GlobalInvocationID.xy);
+    bool _231 = c.x >= int(_36.grid.x);
+    bool _241;
+    if (!_231)
+    {
+        _241 = c.y >= int(_36.grid.y);
+    }
+    else
+    {
+        _241 = _231;
+    }
+    if (_241)
+    {
+        return;
+    }
+    if (uint((c.x + c.y) & 1) != _36.misc.y)
+    {
+        return;
+    }
+    int2 param = c;
+    uint id = cellIndex(param, _36);
+    float2 center = _36.world.xy + ((float2(c) + float2(0.5)) * _36.world.z);
+    for (uint g = 0u; g < _36.counts.x; g++)
+    {
+        bool _295 = _36.goals[g].w > 0.5;
+        bool _307;
+        if (_295)
+        {
+            _307 = distance(center, _36.goals[g].xz) < _36.navP.w;
+        }
+        else
+        {
+            _307 = _295;
+        }
+        if (_307)
+        {
+            _313.dist[id] = 0.0;
+            return;
+        }
+    }
+    int2 param_1 = c;
+    float cost = cellCost(param_1, _36, _65, _87, _110);
+    if (cost < 0.0)
+    {
+        _313.dist[id] = 10000000.0;
+        return;
+    }
+    float _335;
+    if (c.x > 0)
+    {
+        int2 param_2 = c - int2(1, 0);
+        _335 = _313.dist[cellIndex(param_2, _36)];
+    }
+    else
+    {
+        _335 = 10000000.0;
+    }
+    float xm = _335;
+    float _354;
+    if (c.x < (int(_36.grid.x) - 1))
+    {
+        int2 param_3 = c + int2(1, 0);
+        _354 = _313.dist[cellIndex(param_3, _36)];
+    }
+    else
+    {
+        _354 = 10000000.0;
+    }
+    float xp = _354;
+    float _369;
+    if (c.y > 0)
+    {
+        int2 param_4 = c - int2(0, 1);
+        _369 = _313.dist[cellIndex(param_4, _36)];
+    }
+    else
+    {
+        _369 = 10000000.0;
+    }
+    float zm = _369;
+    float _388;
+    if (c.y < (int(_36.grid.y) - 1))
+    {
+        int2 param_5 = c + int2(0, 1);
+        _388 = _313.dist[cellIndex(param_5, _36)];
+    }
+    else
+    {
+        _388 = 10000000.0;
+    }
+    float zp = _388;
+    float a = fast::min(xm, xp);
+    float b = fast::min(zm, zp);
+    float f = cost * _36.world.z;
+    float best;
+    if (fast::min(a, b) >= 5000000.0)
+    {
+        best = 10000000.0;
+    }
+    else
+    {
+        if (abs(a - b) >= f)
+        {
+            best = fast::min(a, b) + f;
+        }
+        else
+        {
+            best = 0.5 * ((a + b) + sqrt(((2.0 * f) * f) - ((a - b) * (a - b))));
+        }
+    }
+    _313.dist[id] = fast::min(best, 10000000.0);
+}
+

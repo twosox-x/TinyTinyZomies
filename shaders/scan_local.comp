@@ -1,0 +1,26 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Pass 1 of a 3-pass exclusive prefix sum over numCells+1 cell counts.
+// Each 256-thread workgroup scans 256 elements (Blelloch-free Hillis-Steele in shared memory).
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer CellCount { uint cellCount[]; };
+layout(std430, set = 1, binding = 0) buffer CellStart { uint cellStart[]; };
+layout(std430, set = 1, binding = 1) buffer BlockSums { uint blockSums[]; };
+shared uint sh[256];
+void main() {
+    uint n = grid.z + 1u;
+    uint gi = gl_GlobalInvocationID.x;
+    uint li = gl_LocalInvocationID.x;
+    uint v = gi < n ? cellCount[gi] : 0u;
+    sh[li] = v;
+    barrier();
+    for (uint off = 1u; off < 256u; off <<= 1u) {
+        uint t = li >= off ? sh[li - off] : 0u;
+        barrier();
+        sh[li] += t;
+        barrier();
+    }
+    if (gi < n) cellStart[gi] = sh[li] - v;           // exclusive
+    if (li == 255u) blockSums[gl_WorkGroupID.x] = sh[255];
+}

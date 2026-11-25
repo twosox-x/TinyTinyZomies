@@ -1,0 +1,70 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct BoxInst
+{
+    float4 mn;
+    float4 mx;
+};
+
+struct BoxInst_1
+{
+    float4 mn;
+    float4 mx;
+};
+
+struct Boxes
+{
+    BoxInst_1 boxes[1];
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+};
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    float3 vNormal [[user(locn1)]];
+    float2 vKindSeed [[user(locn2)]];
+    float3 vLocal [[user(locn3)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 inPos [[attribute(0)]];
+    float3 inNormal [[attribute(1)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _85 [[buffer(0)]], const device Boxes& _15 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
+{
+    main0_out out = {};
+    BoxInst b;
+    b.mn = _15.boxes[int(gl_InstanceIndex)].mn;
+    b.mx = _15.boxes[int(gl_InstanceIndex)].mx;
+    float3 size = b.mx.xyz - b.mn.xyz;
+    out.vWorld = b.mn.xyz + (in.inPos * size);
+    out.vNormal = in.inNormal;
+    out.vKindSeed = float2(b.mn.w, b.mx.w);
+    out.vLocal = in.inPos * size;
+    out.gl_Position = _85.viewProj * float4(out.vWorld, 1.0);
+    return out;
+}
+

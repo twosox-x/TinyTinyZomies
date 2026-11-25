@@ -1,0 +1,62 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// One red-black Gauss-Seidel half-sweep of the shared navigation distance field
+// (Eikonal equation |grad D| = cost, upwind Godunov scheme). misc.y = parity of the cells updated.
+// Red-black ordering avoids the odd/even decoupling (checkerboard) of a plain Jacobi update and
+// updates in place; the cell's own old value is not used, so distances can also rise when goals move.
+// cost = 1 + congestion + climb cost of static obstacles relative to local support (crowd top / corpses).
+// No "keep own value" term, so the field also rises correctly when goals move.
+#include "common.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430, set = 0, binding = 0) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 0, binding = 1) readonly buffer CorpseH { int corpseH[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Density { vec4 density[]; };
+layout(std430, set = 1, binding = 0) buffer Dist { float dist[]; };
+#include "fields.glsl"
+const float BIG = 1.0e7;
+
+float cellCost(ivec2 c) {
+    uint id = cellIndex(c);
+    float rho = density[id].x;
+    float cost = 1.0 + navP.x * max(rho - crowdP.x, 0.0);
+    float s = staticH[id];
+    if (s > 0.0) {
+        float support = corpseAt(c);
+        for (int k = 0; k < 4; ++k) {
+            ivec2 o = (k == 0) ? ivec2(1, 0) : (k == 1) ? ivec2(-1, 0) : (k == 2) ? ivec2(0, 1) : ivec2(0, -1);
+            ivec2 nc = clamp(c + o, ivec2(0), ivec2(grid.xy) - 1);
+            uint nid = cellIndex(nc);
+            if (staticH[nid] <= 0.0) support = max(support, max(density[nid].y, corpseAt(nc)));
+        }
+        float climb = (s + corpseAt(c)) - support;
+        if (climb > navP.z) return -1.0;           // impassable
+        cost += navP.y * max(climb, 0.0);
+    }
+    return cost;
+}
+
+void main() {
+    ivec2 c = ivec2(gl_GlobalInvocationID.xy);
+    if (c.x >= int(grid.x) || c.y >= int(grid.y)) return;
+    if (uint((c.x + c.y) & 1) != misc.y) return;
+    uint id = cellIndex(c);
+    vec2 center = world.xy + (vec2(c) + 0.5) * world.z;
+    for (uint g = 0u; g < counts.x; ++g) {
+        if (goals[g].w > 0.5 && distance(center, goals[g].xz) < navP.w) { dist[id] = 0.0; return; }
+    }
+    float cost = cellCost(c);
+    if (cost < 0.0) { dist[id] = BIG; return; }
+    // Upwind (Godunov) Eikonal update: |grad D| = cost. Isotropic, unlike 8-neighbour Dijkstra,
+    // so the gradient gives smooth, unbiased flow directions.
+    float xm = (c.x > 0) ? dist[cellIndex(c - ivec2(1, 0))] : BIG;
+    float xp = (c.x < int(grid.x) - 1) ? dist[cellIndex(c + ivec2(1, 0))] : BIG;
+    float zm = (c.y > 0) ? dist[cellIndex(c - ivec2(0, 1))] : BIG;
+    float zp = (c.y < int(grid.y) - 1) ? dist[cellIndex(c + ivec2(0, 1))] : BIG;
+    float a = min(xm, xp), b = min(zm, zp);
+    float f = cost * world.z;
+    float best;
+    if (min(a, b) >= BIG * 0.5) best = BIG;
+    else if (abs(a - b) >= f) best = min(a, b) + f;
+    else best = 0.5 * (a + b + sqrt(2.0 * f * f - (a - b) * (a - b)));
+    dist[id] = min(best, BIG);
+}

@@ -1,0 +1,131 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct CellLocal
+{
+    uint2 cellLocal[1];
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct AgentsA
+{
+    Agent_1 agentsA[1];
+};
+
+struct AgentsB
+{
+    Agent_1 agentsB[1];
+};
+
+struct PosP
+{
+    float4 posP[1];
+};
+
+struct PrevS
+{
+    float4 prevS[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+float bodyHeight(thread const float& prone, constant SimUniforms& _61)
+{
+    return mix(_61.agentP.y, _61.agentP.z, fast::clamp(prone, 0.0, 1.0));
+}
+
+static inline __attribute__((always_inline))
+float encodeDesired(thread const float2& v)
+{
+    float s = length(v);
+    if (s < 0.001000000047497451305389404296875)
+    {
+        return 0.0;
+    }
+    float ang = precise::atan2(v.y, v.x) + 3.1415927410125732421875;
+    return ang + (8.0 * round(fast::min(s, 50.0) * 100.0));
+}
+
+kernel void main0(constant SimUniforms& _61 [[buffer(0)]], device AgentsA& _136 [[buffer(1)]], device CellLocal& _103 [[buffer(2)]], device CellStart& _121 [[buffer(3)]], device Counters& _88 [[buffer(4)]], device AgentsB& _158 [[buffer(5)]], device PosP& _177 [[buffer(6)]], device PrevS& _196 [[buffer(7)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= _88.counters[0])
+    {
+        return;
+    }
+    uint2 cl = _103.cellLocal[i];
+    if (cl.x >= _61.grid.z)
+    {
+        return;
+    }
+    uint dst = _121.cellStart[cl.x] + cl.y;
+    Agent a;
+    a.pos = _136.agentsA[i].pos;
+    a.vel = _136.agentsA[i].vel;
+    a.prev = _136.agentsA[i].prev;
+    a.dirs = _136.agentsA[i].dirs;
+    a.info = _136.agentsA[i].info;
+    _158.agentsB[dst].pos = a.pos;
+    _158.agentsB[dst].vel = a.vel;
+    _158.agentsB[dst].prev = a.prev;
+    _158.agentsB[dst].dirs = a.dirs;
+    _158.agentsB[dst].info = a.info;
+    float param = a.pos.w;
+    _177.posP[dst] = float4(a.pos.xyz, bodyHeight(param, _61));
+    float2 param_1 = a.dirs.xy;
+    _196.prevS[dst] = float4(a.prev.xyz, encodeDesired(param_1));
+}
+

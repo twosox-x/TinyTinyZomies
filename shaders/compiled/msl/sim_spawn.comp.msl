@@ -1,0 +1,151 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float rand01(thread uint& s)
+{
+    uint param = s;
+    s = pcgHash(param);
+    return float(s & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _76)
+{
+    float2 g = (xz - _76.world.xy) * _76.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_76.grid.x) - 1, int(_76.grid.y) - 1));
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _76)
+{
+    return (uint(c.y) * _76.grid.x) + uint(c.x);
+}
+
+kernel void main0(constant SimUniforms& _76 [[buffer(0)]], device StaticH& _192 [[buffer(1)]], device Agents& _287 [[buffer(2)]], device Counters& _212 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= _76.counts.z)
+    {
+        return;
+    }
+    uint param = ((i * 9781u) + (_76.counts.w * 6271u)) + 17u;
+    uint rng = pcgHash(param);
+    float2 p = float2(0.0);
+    bool found = false;
+    for (int t = 0; (t < 32) && (!found); t++)
+    {
+        uint param_1 = rng;
+        float _176 = rand01(param_1);
+        rng = param_1;
+        uint param_2 = rng;
+        float _185 = rand01(param_2);
+        rng = param_2;
+        p = float2(mix(_76.spawnRect.x, _76.spawnRect.z, _176), mix(_76.spawnRect.y, _76.spawnRect.w, _185));
+        float2 param_3 = p;
+        int2 param_4 = cellCoord(param_3, _76);
+        found = _192.staticH[cellIndex(param_4, _76)] <= 0.0;
+    }
+    if (!found)
+    {
+        return;
+    }
+    uint _214 = _212.counters[0];
+    uint _216 = atomic_fetch_add_explicit((device atomic_uint*)&_212.counters[1], 1u, memory_order_relaxed);
+    uint slot = _214 + _216;
+    if (slot >= _76.grid.w)
+    {
+        return;
+    }
+    Agent a;
+    a.pos = float4(p.x, 0.0, p.y, 0.0);
+    uint param_5 = rng;
+    float _238 = rand01(param_5);
+    rng = param_5;
+    a.vel = float4(0.0, 0.0, 0.0, _238 * 6.283100128173828125);
+    a.prev = float4(a.pos.xyz, 0.0);
+    uint param_6 = rng;
+    float _257 = rand01(param_6);
+    rng = param_6;
+    a.dirs = float4(0.0, 0.0, _257 * 6.283100128173828125, 0.0);
+    uint param_7 = rng;
+    uint variant = pcgHash(param_7) & 255u;
+    uint param_8 = rng + 1u;
+    a.info = uint4(0u | (variant << uint(8)), pcgHash(param_8), as_type<uint>(1.0), as_type<uint>(0.0));
+    _287.agents[slot].pos = a.pos;
+    _287.agents[slot].vel = a.vel;
+    _287.agents[slot].prev = a.prev;
+    _287.agents[slot].dirs = a.dirs;
+    _287.agents[slot].info = a.info;
+}
+

@@ -1,0 +1,250 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Corpse
+{
+    float4 pos;
+    float4 info;
+};
+
+struct Corpse_1
+{
+    float4 pos;
+    float4 info;
+};
+
+struct Corpses
+{
+    Corpse_1 corpses[1];
+};
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+constant spvUnsafeArray<int2, 4> _140 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _66)
+{
+    return (uint(c.y) * _66.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+void splatCorpse(thread const float2& xz, thread const float& heightM, constant SimUniforms& _66, device CorpseH& _193)
+{
+    float2 g = ((xz - _66.world.xy) * _66.world.w) - float2(0.5);
+    int2 c0 = int2(floor(g));
+    float2 f = g - float2(c0);
+    spvUnsafeArray<float, 4> _132 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
+    spvUnsafeArray<float, 4> w = _132;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 c = c0 + _140[k];
+        bool _159 = c.x < 0;
+        bool _166;
+        if (!_159)
+        {
+            _166 = c.y < 0;
+        }
+        else
+        {
+            _166 = _159;
+        }
+        bool _176;
+        if (!_166)
+        {
+            _176 = c.x >= int(_66.grid.x);
+        }
+        else
+        {
+            _176 = _166;
+        }
+        bool _186;
+        if (!_176)
+        {
+            _186 = c.y >= int(_66.grid.y);
+        }
+        else
+        {
+            _186 = _176;
+        }
+        if (_186)
+        {
+            continue;
+        }
+        int2 param = c;
+        int _208 = atomic_fetch_add_explicit((device atomic_int*)&_193.corpseH[cellIndex(param, _66)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
+    }
+}
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+kernel void main0(constant SimUniforms& _66 [[buffer(0)]], device Corpses& _242 [[buffer(1)]], device Agents& _409 [[buffer(2)]], device CorpseH& _193 [[buffer(3)]], device Counters& _222 [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= min(_222.counters[2], uint(_66.corpseP.w)))
+    {
+        return;
+    }
+    Corpse cp;
+    cp.pos = _242.corpses[i].pos;
+    cp.info = _242.corpses[i].info;
+    if (cp.info.z < 0.5)
+    {
+        return;
+    }
+    bool hit = false;
+    for (uint e = 0u; e < _66.counts.y; e++)
+    {
+        if (distance(cp.pos.xyz, _66.explo[e].xyz) < (_66.explo[e].w * 0.699999988079071044921875))
+        {
+            hit = true;
+            break;
+        }
+    }
+    if (!hit)
+    {
+        return;
+    }
+    uint _302 = _222.counters[0];
+    uint _304 = atomic_fetch_add_explicit((device atomic_uint*)&_222.counters[1], 1u, memory_order_relaxed);
+    uint slot = _302 + _304;
+    if (slot >= _66.grid.w)
+    {
+        return;
+    }
+    cp.info.z = 0.0;
+    _242.corpses[i].pos = cp.pos;
+    _242.corpses[i].info = cp.info;
+    float2 fwd = float2(sin(cp.pos.w), cos(cp.pos.w));
+    float2 param = cp.pos.xz + (fwd * 0.449999988079071044921875);
+    float param_1 = -cp.info.w;
+    splatCorpse(param, param_1, _66, _193);
+    float2 param_2 = cp.pos.xz - (fwd * 0.449999988079071044921875);
+    float param_3 = -cp.info.w;
+    splatCorpse(param_2, param_3, _66, _193);
+    uint _357 = atomic_fetch_add_explicit((device atomic_uint*)&_222.counters[7], 1u, memory_order_relaxed);
+    Agent a;
+    a.pos = float4(cp.pos.xyz + float3(0.0, 0.1500000059604644775390625, 0.0), 1.0);
+    a.vel = float4(0.0);
+    a.prev = float4(a.pos.xyz, 0.0);
+    a.dirs = float4(0.0, 0.0, cp.pos.w, 0.0);
+    uint param_4 = (i * 31u) + 7u;
+    uint seed = pcgHash(param_4);
+    a.info = uint4(3u | (uint(cp.info.y) << uint(8)), seed, as_type<uint>(0.0), 0u);
+    _409.agents[slot].pos = a.pos;
+    _409.agents[slot].vel = a.vel;
+    _409.agents[slot].prev = a.prev;
+    _409.agents[slot].dirs = a.dirs;
+    _409.agents[slot].info = a.info;
+}
+

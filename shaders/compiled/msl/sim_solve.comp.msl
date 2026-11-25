@@ -1,0 +1,466 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct PosIn
+{
+    float4 posIn[1];
+};
+
+struct PrevS
+{
+    float4 prevS[1];
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+struct PosOut
+{
+    float4 posOut[1];
+};
+
+struct ContactAux
+{
+    float4 contactAux[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+float2 decodeDesired(thread const float& e)
+{
+    if (e <= 0.0)
+    {
+        return float2(0.0);
+    }
+    float q = floor(e / 8.0);
+    float ang = (e - (8.0 * q)) - 3.1415927410125732421875;
+    return float2(cos(ang), sin(ang)) * (q * 0.00999999977648258209228515625);
+}
+
+static inline __attribute__((always_inline))
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _96)
+{
+    float2 g = (xz - _96.world.xy) * _96.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_96.grid.x) - 1, int(_96.grid.y) - 1));
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _96)
+{
+    return (uint(c.y) * _96.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+float corpseAt(thread int2& c, constant SimUniforms& _96, device CorpseH& _186)
+{
+    c = clamp(c, int2(0), int2(int(_96.grid.x) - 1, int(_96.grid.y) - 1));
+    int2 param = c;
+    return float(_186.corpseH[cellIndex(param, _96)]) * 0.001000000047497451305389404296875;
+}
+
+static inline __attribute__((always_inline))
+float corpseBilinear(thread const float2& xz, constant SimUniforms& _96, device CorpseH& _186)
+{
+    float2 g = ((xz - _96.world.xy) * _96.world.w) - float2(0.5);
+    int2 c0 = int2(floor(g));
+    float2 f = g - float2(c0);
+    int2 param = c0;
+    float _222 = corpseAt(param, _96, _186);
+    float h00 = _222;
+    int2 param_1 = c0 + int2(1, 0);
+    float _228 = corpseAt(param_1, _96, _186);
+    float h10 = _228;
+    int2 param_2 = c0 + int2(0, 1);
+    float _234 = corpseAt(param_2, _96, _186);
+    float h01 = _234;
+    int2 param_3 = c0 + int2(1);
+    float _240 = corpseAt(param_3, _96, _186);
+    float h11 = _240;
+    return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+}
+
+static inline __attribute__((always_inline))
+float groundHeight(thread const float2& xz, thread const float& feetY, constant SimUniforms& _96, device CorpseH& _186, device StaticH& _293)
+{
+    float2 param = xz;
+    int2 param_1 = cellCoord(param, _96);
+    float s = _293.staticH[cellIndex(param_1, _96)];
+    float base = (feetY >= (s - _96.moveP.w)) ? s : 0.0;
+    float2 param_2 = xz;
+    return base + corpseBilinear(param_2, _96, _186);
+}
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float staticAt(thread const int2& c, constant SimUniforms& _96, device StaticH& _293)
+{
+    bool _258 = c.x < 0;
+    bool _265;
+    if (!_258)
+    {
+        _265 = c.y < 0;
+    }
+    else
+    {
+        _265 = _258;
+    }
+    bool _275;
+    if (!_265)
+    {
+        _275 = c.x >= int(_96.grid.x);
+    }
+    else
+    {
+        _275 = _265;
+    }
+    bool _285;
+    if (!_275)
+    {
+        _285 = c.y >= int(_96.grid.y);
+    }
+    else
+    {
+        _285 = _275;
+    }
+    if (_285)
+    {
+        return 1000.0;
+    }
+    int2 param = c;
+    return _293.staticH[cellIndex(param, _96)];
+}
+
+kernel void main0(constant SimUniforms& _96 [[buffer(0)]], device PosIn& _364 [[buffer(1)]], device PrevS& _380 [[buffer(2)]], device CellStart& _518 [[buffer(3)]], device CellCount& _527 [[buffer(4)]], device StaticH& _293 [[buffer(5)]], device CorpseH& _186 [[buffer(6)]], device Counters& _337 [[buffer(7)]], device PosOut& _1043 [[buffer(8)]], device ContactAux& _1061 [[buffer(9)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= _337.counters[0])
+    {
+        return;
+    }
+    float R = _96.agentP.x;
+    float R2 = 2.0 * R;
+    bool vertical = (_96.misc.w & 1u) != 0u;
+    float4 pi = _364.posIn[i];
+    float3 xi = pi.xyz;
+    float hi = pi.w;
+    float4 qi = _380.prevS[i];
+    float param = qi.w;
+    float2 desiredVel = decodeDesired(param);
+    float dsl = length(desiredVel);
+    float2 _395;
+    if (dsl > 0.001000000047497451305389404296875)
+    {
+        _395 = desiredVel / float2(dsl);
+    }
+    else
+    {
+        _395 = float2(0.0);
+    }
+    float2 desiredDir = _395;
+    float2 param_1 = xi.xz;
+    float param_2 = xi.y;
+    float gi = groundHeight(param_1, param_2, _96, _186, _293);
+    float wi = exp((-_96.solverP.z) * fast::max(xi.y - gi, 0.0));
+    float a0 = xi.y + R;
+    float a1 = xi.y + fast::max(hi - R, R);
+    float3 sum = float3(0.0);
+    float n = 0.0;
+    float2 fric = float2(0.0);
+    float nf = 0.0;
+    float frontTop = -10000.0;
+    float supportTop = -10000.0;
+    float contacts = 0.0;
+    float2 param_3 = xi.xz;
+    int2 c = cellCoord(param_3, _96);
+    uint visited = 0u;
+    float3 nrm;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int2 cc = c + int2(dx, dy);
+            bool _479 = cc.x < 0;
+            bool _486;
+            if (!_479)
+            {
+                _486 = cc.y < 0;
+            }
+            else
+            {
+                _486 = _479;
+            }
+            bool _496;
+            if (!_486)
+            {
+                _496 = cc.x >= int(_96.grid.x);
+            }
+            else
+            {
+                _496 = _486;
+            }
+            bool _506;
+            if (!_496)
+            {
+                _506 = cc.y >= int(_96.grid.y);
+            }
+            else
+            {
+                _506 = _496;
+            }
+            if (_506)
+            {
+                continue;
+            }
+            int2 param_4 = cc;
+            uint cid = cellIndex(param_4, _96);
+            uint s = _518.cellStart[cid];
+            uint e = s + _527.cellCount[cid];
+            for (uint k = s; k < e; k++)
+            {
+                if (k == i)
+                {
+                    continue;
+                }
+                uint _548 = visited;
+                uint _549 = _548 + uint(1);
+                visited = _549;
+                if (_549 > _96.misc.x)
+                {
+                    break;
+                }
+                float4 pj = _364.posIn[k];
+                float2 dxz = xi.xz - pj.xz;
+                float d2 = dot(dxz, dxz);
+                if (d2 >= (R2 * R2))
+                {
+                    continue;
+                }
+                float b0 = pj.y + R;
+                float b1 = pj.y + fast::max(pj.w - R, R);
+                float gap = 0.0;
+                if (vertical)
+                {
+                    if (a0 > b1)
+                    {
+                        gap = a0 - b1;
+                    }
+                    else
+                    {
+                        if (b0 > a1)
+                        {
+                            gap = a1 - b0;
+                        }
+                    }
+                }
+                float3 d = float3(dxz.x, gap, dxz.y);
+                float dist = length(d);
+                if (dist >= R2)
+                {
+                    continue;
+                }
+                if (dist > 9.9999997473787516355514526367188e-06)
+                {
+                    nrm = d / float3(dist);
+                }
+                else
+                {
+                    uint param_5 = (i * 7919u) + (k * 104729u);
+                    float ang = hash01(param_5) * 6.283185482025146484375;
+                    nrm = float3(cos(ang), 0.0, sin(ang));
+                }
+                float pen = R2 - dist;
+                float wj = exp((-_96.solverP.z) * fast::max(pj.y - gi, 0.0));
+                float share = wi / (wi + wj);
+                sum += (nrm * ((pen * share) * _96.solverP.y));
+                n += 1.0;
+                contacts += 1.0;
+                float topJ = pj.y + pj.w;
+                if (nrm.y > _96.climbP.z)
+                {
+                    supportTop = fast::max(supportTop, topJ);
+                    float4 qj = _380.prevS[k];
+                    float2 dispJ = pj.xz - qj.xz;
+                    float2 dispI = xi.xz - qi.xz;
+                    fric += ((dispJ + (desiredVel * _96.timeP.x)) - dispI);
+                    nf += 1.0;
+                }
+                else
+                {
+                    if (nrm.y < 0.5)
+                    {
+                        float2 toJ = (-dxz) / float2(fast::max(sqrt(d2), 9.9999997473787516355514526367188e-05));
+                        if (dot(toJ, desiredDir) > 0.3499999940395355224609375)
+                        {
+                            frontTop = fast::max(frontTop, topJ);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    float3 x = xi;
+    if (n > 0.0)
+    {
+        x += (sum * (_96.solverP.x / n));
+    }
+    if (nf > 0.0)
+    {
+        float3 _795 = x;
+        float2 _797 = _795.xz + (fric * (_96.solverP.w / nf));
+        x.x = _797.x;
+        x.z = _797.y;
+    }
+    float wallAhead = -10000.0;
+    float2 param_6 = x.xz;
+    int2 cx = cellCoord(param_6, _96);
+    for (int dy_1 = -1; dy_1 <= 1; dy_1++)
+    {
+        for (int dx_1 = -1; dx_1 <= 1; dx_1++)
+        {
+            int2 cc_1 = cx + int2(dx_1, dy_1);
+            int2 param_7 = cc_1;
+            float top = staticAt(param_7, _96, _293);
+            if (top <= 0.0)
+            {
+                continue;
+            }
+            int2 param_8 = cc_1;
+            float _841 = corpseAt(param_8, _96, _186);
+            top += _841;
+            if (x.y >= (top - _96.moveP.w))
+            {
+                continue;
+            }
+            float2 bmin = _96.world.xy + (float2(cc_1) * _96.world.z);
+            float2 bmax = bmin + float2(_96.world.z);
+            float2 cl = fast::clamp(x.xz, bmin, bmax);
+            float2 dd = x.xz - cl;
+            float dl = length(dd);
+            if (dl >= R)
+            {
+                continue;
+            }
+            if (dl > 9.9999997473787516355514526367188e-06)
+            {
+                float3 _902 = x;
+                float2 _904 = _902.xz + ((dd / float2(dl)) * (R - dl));
+                x.x = _904.x;
+                x.z = _904.y;
+            }
+            else
+            {
+                float2 dmin = x.xz - bmin;
+                float2 dmax = bmax - x.xz;
+                float m = fast::min(fast::min(dmin.x, dmax.x), fast::min(dmin.y, dmax.y));
+                if (m == dmin.x)
+                {
+                    x.x = bmin.x - R;
+                }
+                else
+                {
+                    if (m == dmax.x)
+                    {
+                        x.x = bmax.x + R;
+                    }
+                    else
+                    {
+                        if (m == dmin.y)
+                        {
+                            x.z = bmin.y - R;
+                        }
+                        else
+                        {
+                            x.z = bmax.y + R;
+                        }
+                    }
+                }
+            }
+            float2 toBox = cl - xi.xz;
+            if (dot(toBox, desiredDir) > 0.0)
+            {
+                wallAhead = fast::max(wallAhead, top);
+            }
+        }
+    }
+    float2 param_9 = x.xz;
+    float param_10 = x.y;
+    float g = groundHeight(param_9, param_10, _96, _186, _293);
+    if (x.y < g)
+    {
+        x.y = g;
+    }
+    float2 wmin = _96.world.xy + float2(R);
+    float2 wmax = (_96.world.xy + (float2(_96.grid.xy) * _96.world.z)) - float2(R);
+    float3 _1031 = x;
+    float2 _1035 = fast::clamp(_1031.xz, wmin, wmax);
+    x.x = _1035.x;
+    x.z = _1035.y;
+    _1043.posOut[i] = float4(x, hi);
+    if ((_96.misc.y & 1u) != 0u)
+    {
+        _1061.contactAux[i] = float4(frontTop, supportTop, wallAhead, contacts);
+    }
+}
+

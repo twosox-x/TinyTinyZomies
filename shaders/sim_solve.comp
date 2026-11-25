@@ -1,0 +1,148 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// One Jacobi iteration of position-based constraints (gather form: no atomics, no races).
+//
+// Bodies are vertical capsules (radius R, height h = mix(stand, prone)). Two vertical capsules
+// collide along the vector between the closest points of their axis segments, which smoothly
+// blends from a horizontal push (side by side) to a vertical push (one on top of another).
+// That single rule gives both horizontal crowd separation and 3D support for stacking.
+//
+//  - mass scaling (Macklin et al. 2014): lower bodies are heavier, so stacks converge in few iterations
+//  - support friction: a body resting on another follows its support's displacement plus its own
+//    crawl intent (so climbers ride the pile and crawl forward instead of sliding off);
+//    supports steeper than the friction cone get no friction -> piles have an angle of repose
+//  - static boxes (buildings, wall) per grid cell, ground = static top + corpse height field
+#include "common.glsl"
+layout(local_size_x = 256) in;   // must match the 256-wide indirect agent dispatch args
+layout(std430, set = 0, binding = 0) readonly buffer PosIn     { vec4 posIn[]; };
+layout(std430, set = 0, binding = 1) readonly buffer PrevS     { vec4 prevS[]; };
+layout(std430, set = 0, binding = 2) readonly buffer CellStart { uint cellStart[]; };
+layout(std430, set = 0, binding = 3) readonly buffer CellCount { uint cellCount[]; };
+layout(std430, set = 0, binding = 4) readonly buffer StaticH   { float staticH[]; };
+layout(std430, set = 0, binding = 5) readonly buffer CorpseH   { int corpseH[]; };
+layout(std430, set = 0, binding = 6) readonly buffer Counters  { uint counters[]; };
+layout(std430, set = 1, binding = 0) buffer PosOut     { vec4 posOut[]; };
+layout(std430, set = 1, binding = 1) buffer ContactAux { vec4 contactAux[]; };
+#include "fields.glsl"
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters[C_LIVE]) return;
+    const float R = agentP.x;
+    const float R2 = 2.0 * R;
+    const bool vertical = (misc.w & FLAG_VERTICAL) != 0u;
+
+    vec4 pi = posIn[i];
+    vec3 xi = pi.xyz;
+    float hi = pi.w;
+    vec4 qi = prevS[i];
+    vec2 desiredVel = decodeDesired(qi.w);
+    float dsl = length(desiredVel);
+    vec2 desiredDir = dsl > 1e-3 ? desiredVel / dsl : vec2(0.0);
+
+    float gi = groundHeight(xi.xz, xi.y);
+    float wi = exp(-solverP.z * max(xi.y - gi, 0.0));
+
+    float a0 = xi.y + R, a1 = xi.y + max(hi - R, R);
+    vec3 sum = vec3(0.0);
+    float n = 0.0;
+    vec2 fric = vec2(0.0);
+    float nf = 0.0;
+    float frontTop = -1e4, supportTop = -1e4, contacts = 0.0;
+
+    ivec2 c = cellCoord(xi.xz);
+    uint visited = 0u;
+    for (int dy = -1; dy <= 1; ++dy)
+    for (int dx = -1; dx <= 1; ++dx) {
+        ivec2 cc = c + ivec2(dx, dy);
+        if (cc.x < 0 || cc.y < 0 || cc.x >= int(grid.x) || cc.y >= int(grid.y)) continue;
+        uint cid = cellIndex(cc);
+        uint s = cellStart[cid];
+        uint e = s + cellCount[cid];
+        for (uint k = s; k < e; ++k) {
+            if (k == i) continue;
+            if (++visited > misc.x) break;
+            vec4 pj = posIn[k];
+            vec2 dxz = xi.xz - pj.xz;
+            float d2 = dot(dxz, dxz);
+            if (d2 >= R2 * R2) continue;
+            float b0 = pj.y + R, b1 = pj.y + max(pj.w - R, R);
+            float gap = 0.0;
+            if (vertical) {
+                if (a0 > b1) gap = a0 - b1;          // i above j
+                else if (b0 > a1) gap = a1 - b0;     // i below j (negative)
+            }
+            vec3 d = vec3(dxz.x, gap, dxz.y);
+            float dist = length(d);
+            if (dist >= R2) continue;
+            vec3 nrm;
+            if (dist > 1e-5) nrm = d / dist;
+            else {
+                float ang = hash01(i * 7919u + k * 104729u) * 6.2831853;
+                nrm = vec3(cos(ang), 0.0, sin(ang));
+            }
+            float pen = R2 - dist;
+            float wj = exp(-solverP.z * max(pj.y - gi, 0.0));
+            float share = wi / (wi + wj);
+            sum += nrm * (pen * share * solverP.y);
+            n += 1.0;
+            contacts += 1.0;
+            float topJ = pj.y + pj.w;
+            if (nrm.y > climbP.z) {
+                // j supports i: ride along with j's displacement plus own crawl intent
+                supportTop = max(supportTop, topJ);
+                vec4 qj = prevS[k];
+                vec2 dispJ = pj.xz - qj.xz;
+                vec2 dispI = xi.xz - qi.xz;
+                fric += (dispJ + desiredVel * timeP.x) - dispI;
+                nf += 1.0;
+            } else if (nrm.y < 0.5) {
+                vec2 toJ = -dxz / max(sqrt(d2), 1e-4);
+                if (dot(toJ, desiredDir) > 0.35) frontTop = max(frontTop, topJ);
+            }
+        }
+    }
+
+    vec3 x = xi;
+    if (n > 0.0) x += sum * (solverP.x / n);
+    if (nf > 0.0) x.xz += fric * (solverP.w / nf);
+
+    // ---- static boxes (one per solid grid cell) --------------------------------
+    float wallAhead = -1e4;
+    ivec2 cx = cellCoord(x.xz);
+    for (int dy = -1; dy <= 1; ++dy)
+    for (int dx = -1; dx <= 1; ++dx) {
+        ivec2 cc = cx + ivec2(dx, dy);
+        float top = staticAt(cc);
+        if (top <= 0.0) continue;
+        top += corpseAt(cc);
+        if (x.y >= top - moveP.w) continue;         // standing on top of it
+        vec2 bmin = world.xy + vec2(cc) * world.z;
+        vec2 bmax = bmin + vec2(world.z);
+        vec2 cl = clamp(x.xz, bmin, bmax);
+        vec2 dd = x.xz - cl;
+        float dl = length(dd);
+        if (dl >= R) continue;
+        if (dl > 1e-5) {
+            x.xz += dd / dl * (R - dl);
+        } else {
+            // centre inside the box: leave through the nearest face
+            vec2 dmin = x.xz - bmin, dmax = bmax - x.xz;
+            float m = min(min(dmin.x, dmax.x), min(dmin.y, dmax.y));
+            if (m == dmin.x) x.x = bmin.x - R; else if (m == dmax.x) x.x = bmax.x + R;
+            else if (m == dmin.y) x.z = bmin.y - R; else x.z = bmax.y + R;
+        }
+        vec2 toBox = cl - xi.xz;
+        if (dot(toBox, desiredDir) > 0.0) wallAhead = max(wallAhead, top);
+    }
+
+    // ---- ground and world bounds ---------------------------------------------------
+    float g = groundHeight(x.xz, x.y);
+    if (x.y < g) x.y = g;
+    vec2 wmin = world.xy + vec2(R);
+    vec2 wmax = world.xy + vec2(grid.xy) * world.z - vec2(R);
+    x.xz = clamp(x.xz, wmin, wmax);
+
+    posOut[i] = vec4(x, hi);
+    if ((misc.y & 1u) != 0u) contactAux[i] = vec4(frontTop, supportTop, wallAhead, contacts);
+}

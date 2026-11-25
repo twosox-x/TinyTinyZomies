@@ -1,0 +1,17 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// 1 thread. After the counting sort, the live count is the start of the graveyard bucket.
+#include "common.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) readonly buffer CellStart { uint cellStart[]; };
+layout(std430, set = 1, binding = 0) buffer Counters { uint counters[]; };
+layout(std430, set = 1, binding = 1) buffer Indirect { uint ind[]; };
+void main() {
+    uint live = cellStart[grid.z];
+    counters[C_LIVE] = live;
+    ind[I_AGENT_DISPATCH + 0u] = max((live + 255u) / 256u, 1u);
+    uint corpses = min(counters[C_CORPSES], uint(corpseP.w));
+    ind[I_CORPSE_DISPATCH + 0u] = max((corpses + 255u) / 256u, 1u);
+    ind[I_CORPSE_DISPATCH + 1u] = 1u;
+    ind[I_CORPSE_DISPATCH + 2u] = 1u;
+}

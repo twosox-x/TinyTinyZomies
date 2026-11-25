@@ -1,0 +1,73 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+struct PosFinal
+{
+    float4 posFinal[1];
+};
+
+struct Density
+{
+    float4 density[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+kernel void main0(constant SimUniforms& _27 [[buffer(0)]], device CellStart& _43 [[buffer(1)]], device CellCount& _52 [[buffer(2)]], device PosFinal& _79 [[buffer(3)]], device Density& _117 [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint c = gl_GlobalInvocationID.x;
+    if (c >= _27.grid.z)
+    {
+        return;
+    }
+    uint s = _43.cellStart[c];
+    uint n = _52.cellCount[c];
+    float top = 0.0;
+    float elevated = 0.0;
+    for (uint k = s; k < (s + min(n, 64u)); k++)
+    {
+        float4 p = _79.posFinal[k];
+        top = fast::max(top, p.y + p.w);
+        elevated += float(p.y > 0.5);
+    }
+    float rho = (float(n) * _27.world.w) * _27.world.w;
+    float4 d = _117.density[c];
+    d.x = mix(d.x, rho, 0.25);
+    d.y = top;
+    d.z = elevated;
+    _117.density[c] = d;
+}
+

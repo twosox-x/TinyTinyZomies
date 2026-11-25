@@ -1,0 +1,338 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+};
+
+struct NavDir
+{
+    float2 navDir[1];
+};
+
+struct Density
+{
+    float4 density[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct CellLocal
+{
+    uint2 cellLocal[1];
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+uint agentVariant(thread const Agent& a)
+{
+    return (a.info.x >> uint(8)) & 255u;
+}
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float rand01(thread uint& s)
+{
+    uint param = s;
+    s = pcgHash(param);
+    return float(s & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _123)
+{
+    return (uint(c.y) * _123.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+float2 dirAt(thread int2& c, constant SimUniforms& _123, device NavDir& _181)
+{
+    c = clamp(c, int2(0), int2(int(_123.grid.x) - 1, int(_123.grid.y) - 1));
+    int2 param = c;
+    return _181.navDir[cellIndex(param, _123)];
+}
+
+static inline __attribute__((always_inline))
+float2 sampleDir(thread const float2& xz, constant SimUniforms& _123, device NavDir& _181)
+{
+    float2 g = ((xz - _123.world.xy) * _123.world.w) - float2(0.5);
+    int2 c0 = int2(floor(g));
+    float2 f = g - float2(c0);
+    int2 param = c0;
+    float2 _214 = dirAt(param, _123, _181);
+    int2 param_1 = c0 + int2(1, 0);
+    float2 _219 = dirAt(param_1, _123, _181);
+    int2 param_2 = c0 + int2(0, 1);
+    float2 _229 = dirAt(param_2, _123, _181);
+    int2 param_3 = c0 + int2(1);
+    float2 _234 = dirAt(param_3, _123, _181);
+    float2 d = mix(mix(_214, _219, float2(f.x)), mix(_229, _234, float2(f.x)), float2(f.y));
+    float l = length(d);
+    float2 _250;
+    if (l > 0.001000000047497451305389404296875)
+    {
+        _250 = d / float2(l);
+    }
+    else
+    {
+        _250 = float2(0.0);
+    }
+    return _250;
+}
+
+static inline __attribute__((always_inline))
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _123)
+{
+    float2 g = (xz - _123.world.xy) * _123.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_123.grid.x) - 1, int(_123.grid.y) - 1));
+}
+
+static inline __attribute__((always_inline))
+float sampleDensity(thread const float2& xz, constant SimUniforms& _123, device Density& _266)
+{
+    float2 param = xz;
+    int2 param_1 = cellCoord(param, _123);
+    return ((device float*)&_266.density[cellIndex(param_1, _123)])[0u];
+}
+
+kernel void main0(constant SimUniforms& _123 [[buffer(0)]], device NavDir& _181 [[buffer(1)]], device Density& _266 [[buffer(2)]], device Agents& _299 [[buffer(3)]], device CellCount& _356 [[buffer(4)]], device CellLocal& _349 [[buffer(5)]], device Counters& _287 [[buffer(6)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= _287.counters[0])
+    {
+        return;
+    }
+    Agent a;
+    a.pos = _299.agents[i].pos;
+    a.vel = _299.agents[i].vel;
+    a.prev = _299.agents[i].prev;
+    a.dirs = _299.agents[i].dirs;
+    a.info = _299.agents[i].info;
+    Agent param = a;
+    uint st = agentState(param);
+    Agent param_1 = a;
+    uint variant = agentVariant(param_1);
+    uint param_2 = a.info.y ^ (uint(_123.timeP.z) * 2654435761u);
+    uint rng = pcgHash(param_2);
+    float dt = _123.timeP.x;
+    if (st == 4u)
+    {
+        uint _360 = atomic_fetch_add_explicit((device atomic_uint*)&_356.cellCount[_123.grid.z], 1u, memory_order_relaxed);
+        _349.cellLocal[i] = uint2(_123.grid.z, _360);
+        return;
+    }
+    float3 p = a.pos.xyz;
+    float3 v = a.vel.xyz;
+    float timer = a.dirs.w;
+    float health = as_type<float>(a.info.z);
+    uint param_3 = a.info.y;
+    float vary = hash01(param_3);
+    float3 _433;
+    for (uint e = 0u; e < _123.counts.y; e++)
+    {
+        float3 c = _123.explo[e].xyz;
+        float r = _123.explo[e].w;
+        float3 d = (p + float3(0.0, 0.60000002384185791015625, 0.0)) - c;
+        float dist = length(d);
+        if (dist >= r)
+        {
+            continue;
+        }
+        float f = 1.0 - (dist / r);
+        if (dist > 0.001000000047497451305389404296875)
+        {
+            _433 = d / float3(dist);
+        }
+        else
+        {
+            _433 = float3(0.0, 1.0, 0.0);
+        }
+        float3 dir = _433;
+        dir.y = abs(dir.y) + _123.exploP[e].z;
+        dir = fast::normalize(dir);
+        uint param_4 = rng;
+        float _457 = rand01(param_4);
+        rng = param_4;
+        float rnd = _457;
+        v += (((dir * _123.exploP[e].x) * f) * (0.550000011920928955078125 + (0.89999997615814208984375 * rnd)));
+        if (st < 3u)
+        {
+            uint param_5 = rng;
+            float _488 = rand01(param_5);
+            rng = param_5;
+            health -= (((f * f) * _123.exploP[e].y) * (0.60000002384185791015625 + (0.800000011920928955078125 * _488)));
+            if (health <= 0.0)
+            {
+                st = 3u;
+                timer = 0.0;
+            }
+            else
+            {
+                st = 2u;
+                timer = fast::max(timer, 0.4000000059604644775390625 + (1.60000002384185791015625 * f));
+            }
+        }
+    }
+    float2 param_6 = p.xz;
+    float2 flow = sampleDir(param_6, _123, _181);
+    float wob = sin((_123.timeP.y * (0.5 + vary)) + (vary * 40.0)) * _123.extraP.y;
+    float cw = cos(wob);
+    float sw = sin(wob);
+    flow = float2((cw * flow.x) - (sw * flow.y), (sw * flow.x) + (cw * flow.y));
+    float2 param_7 = p.xz + (flow * _123.crowdP.w);
+    float rhoAhead = sampleDensity(param_7, _123, _266);
+    float speedF = fast::clamp(1.0 - ((rhoAhead - _123.crowdP.x) / fast::max(_123.crowdP.y - _123.crowdP.x, 0.001000000047497451305389404296875)), _123.crowdP.z, 1.0);
+    float baseSpeed = _123.agentP.w * (0.699999988079071044921875 + (0.60000002384185791015625 * vary));
+    float speed = mix(baseSpeed * speedF, _123.extraP.w * (0.800000011920928955078125 + (0.4000000059604644775390625 * vary)), fast::clamp(a.pos.w, 0.0, 1.0));
+    float2 desired = flow * speed;
+    if ((st == 0u) || (st == 1u))
+    {
+        float3 _615 = v;
+        float3 _624 = v;
+        float2 _626 = _624.xz + ((desired - _615.xz) * fast::min(1.0, _123.moveP.x * dt));
+        v.x = _626.x;
+        v.z = _626.y;
+    }
+    else
+    {
+        desired = float2(0.0);
+        float3 _637 = v;
+        float2 _639 = _637.xz * (1.0 - fast::min(1.0, 0.300000011920928955078125 * dt));
+        v.x = _639.x;
+        v.z = _639.y;
+    }
+    if (st == 1u)
+    {
+        float target = as_type<float>(a.info.w);
+        float _656;
+        if (p.y < target)
+        {
+            _656 = _123.moveP.z;
+        }
+        else
+        {
+            _656 = fast::min(v.y, 0.0);
+        }
+        v.y = _656;
+    }
+    else
+    {
+        v.y -= (_123.moveP.y * dt);
+    }
+    float sp = length(v);
+    if (sp > _123.extraP.x)
+    {
+        v *= (_123.extraP.x / sp);
+    }
+    a.prev.x = p.x;
+    a.prev.y = p.y;
+    a.prev.z = p.z;
+    p += (v * dt);
+    a.pos.x = p.x;
+    a.pos.y = p.y;
+    a.pos.z = p.z;
+    a.vel.x = v.x;
+    a.vel.y = v.y;
+    a.vel.z = v.z;
+    a.dirs.x = desired.x;
+    a.dirs.y = desired.y;
+    a.dirs.w = timer;
+    a.info.x = st | (variant << uint(8));
+    a.info.z = as_type<uint>(health);
+    _299.agents[i].pos = a.pos;
+    _299.agents[i].vel = a.vel;
+    _299.agents[i].prev = a.prev;
+    _299.agents[i].dirs = a.dirs;
+    _299.agents[i].info = a.info;
+    float2 param_8 = p.xz;
+    int2 param_9 = cellCoord(param_8, _123);
+    uint cell = cellIndex(param_9, _123);
+    uint _757 = atomic_fetch_add_explicit((device atomic_uint*)&_356.cellCount[cell], 1u, memory_order_relaxed);
+    _349.cellLocal[i] = uint2(cell, _757);
+}
+

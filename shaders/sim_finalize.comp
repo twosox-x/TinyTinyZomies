@@ -1,0 +1,126 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Per agent (sorted order): derive velocity from the solved position, update pressure/blocked
+// estimate, run the WALK / CLIMB / FALL / DYING state machine and convert settled bodies to corpses.
+// Writes back into agentsA so that the persistent agent array stays spatially sorted.
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer AgentsB    { Agent agentsB[]; };
+layout(std430, set = 0, binding = 1) readonly buffer PosFinal   { vec4 posFinal[]; };
+layout(std430, set = 0, binding = 2) readonly buffer ContactAux { vec4 contactAux[]; };
+layout(std430, set = 0, binding = 3) readonly buffer StaticH    { float staticH[]; };
+layout(std430, set = 1, binding = 0) buffer AgentsA  { Agent agentsA[]; };
+layout(std430, set = 1, binding = 1) buffer Corpses  { Corpse corpses[]; };
+layout(std430, set = 1, binding = 2) buffer CorpseH  { int corpseH[]; };
+layout(std430, set = 1, binding = 3) buffer Counters { uint counters[]; };
+#define TTZ_CORPSE_WRITABLE
+#include "fields.glsl"
+
+float lerpAngle(float a, float b, float t) {
+    float d = mod(b - a + 3.14159265, 6.2831853) - 3.14159265;
+    return a + d * t;
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters[C_LIVE]) return;
+    Agent a = agentsB[i];
+    float dt = timeP.x;
+    vec3 x = posFinal[i].xyz;
+    vec3 v = (x - a.prev.xyz) / dt;
+    uint st = agentState(a);
+    // Constraint projections must not become launch velocities ("popcorn" in dense jams):
+    // only ballistic bodies (explosions) keep large velocities.
+    float vmax = (st == ST_FALL || st == ST_DYING) ? extraP.x : max(agentP.w * 2.0, moveP.z * 1.5);
+    float sp = length(v);
+    if (sp > vmax) v *= vmax / sp;
+
+    uint variant = agentVariant(a);
+    float timer = a.dirs.w;
+    float vary = hash01(a.info.y);
+    vec4 aux = contactAux[i];
+    float ground = groundHeight(x.xz, x.y);
+    float elev = x.y - ground;
+    bool grounded = elev < 0.05;
+    if (grounded && v.y < 0.0) v.y = 0.0;
+    bool supported = grounded || aux.y > x.y - 0.25;
+    if (supported && v.y < 0.0 && !grounded) v.y *= 0.5;   // contact damping on top of the pile
+
+    // pressure / blocked estimate: how much of the desired motion is not happening
+    vec2 desired = a.dirs.xy;
+    float dsp2 = dot(desired, desired);
+    float progress = dsp2 > 0.0025 ? clamp(dot(v.xz, desired) / dsp2, 0.0, 1.0) : 1.0;
+    float blocked = mix(a.prev.w, 1.0 - progress, 1.0 - exp(-dt / 0.6));
+
+    const bool vertical = (misc.w & FLAG_VERTICAL) != 0u && climbP.x > 0.5;
+    float climbTarget = uintBitsToFloat(a.info.w);
+    float standH = agentP.y;
+
+    if (st == ST_WALK) {
+        // Climb onto the blocking body ahead if we have been pushed long enough.
+        // The target is the top of an actual neighbour -> no climbing invisible walls.
+        // Requires sustained pressure AND a dense contact neighbourhood (crowd crush), so free-flowing
+        // crowds do not climb; thresholds vary per agent so the crowd never climbs in sync.
+        float thr = climbP.y * (0.8 + 0.4 * vary);
+        if (vertical && blocked > thr && aux.w >= 4.0 && aux.x > x.y + 0.3 && aux.x < x.y + standH * 1.25) {
+            st = ST_CLIMB;
+            timer = 0.0;
+            climbTarget = aux.x + 0.05;
+        }
+    } else if (st == ST_CLIMB) {
+        timer += dt;
+        if (!vertical || x.y >= climbTarget - 0.03 || timer > climbP.w || aux.w < 0.5) { st = ST_WALK; timer = 0.0; }
+    } else if (st == ST_FALL) {
+        timer -= dt;
+        if (timer <= 0.0 && supported) { st = ST_WALK; timer = 0.0; }
+    } else if (st == ST_DYING) {
+        timer += dt;
+        bool settled = (grounded && length(v) < corpseP.z && timer > 0.35) || timer > 8.0;
+        if (settled) {
+            st = ST_DEAD;
+            atomicAdd(counters[C_DEATHS_TOTAL], 1u);
+            if ((misc.w & FLAG_CORPSES) != 0u) {
+                float yaw = a.dirs.z + (vary - 0.5) * 1.5;
+                vec2 fwd = vec2(sin(yaw), cos(yaw));
+                uint idx = atomicAdd(counters[C_CORPSES], 1u);
+                float h = corpseP.y;
+                Corpse cp;
+                cp.pos = vec4(x.x, ground, x.z, yaw);
+                cp.info = vec4(vary, float(variant), 1.0, h);
+                if (idx < uint(corpseP.w)) corpses[idx] = cp;
+                else atomicAdd(counters[C_CORPSE_OVERFLOW], 1u);   // height still accumulates; instance not stored
+                splatCorpse(x.xz + fwd * 0.45, h);
+                splatCorpse(x.xz - fwd * 0.45, h);
+            }
+        }
+    }
+
+    // pose: crawl when climbing or riding the crowd, flat when falling/dying
+    float proneTarget = 0.0;
+    if (st == ST_CLIMB || (elev > 0.45 && supported)) proneTarget = 1.0;
+    if (st == ST_FALL) proneTarget = 0.6;
+    if (st == ST_DYING) proneTarget = 1.0;
+    float prone = mix(a.pos.w, proneTarget, 1.0 - exp(-dt * extraP.z));
+
+    float hsp = length(v.xz);
+    float heading = a.dirs.z;
+    if (st == ST_WALK || st == ST_CLIMB) {
+        vec2 face = hsp > 0.25 ? v.xz : desired;
+        if (dot(face, face) > 1e-4) heading = lerpAngle(heading, atan(face.x, face.y), 1.0 - exp(-dt * 5.0));
+    }
+    float phase = a.vel.w + dt * (st == ST_CLIMB ? 9.0 : (1.0 + hsp * 4.2));
+
+    if (st == ST_CLIMB) atomicAdd(counters[C_CLIMBING], 1u);
+    if (st == ST_FALL || st == ST_DYING) atomicAdd(counters[C_AIRBORNE], 1u);
+    if (elev > 0.5 && st != ST_DEAD) atomicAdd(counters[C_ELEVATED], 1u);
+    if (st != ST_DEAD) atomicMax(counters[C_MAX_HEIGHT_MM], uint(max(elev, 0.0) * 1000.0));
+
+    a.pos = vec4(x, prone);
+    a.vel = vec4(v, mod(phase, 6283.0));
+    a.prev.w = blocked;
+    a.dirs.z = heading;
+    a.dirs.w = timer;
+    a.info.x = st | (variant << 8);
+    a.info.w = floatBitsToUint(climbTarget);
+    agentsA[i] = a;
+}
