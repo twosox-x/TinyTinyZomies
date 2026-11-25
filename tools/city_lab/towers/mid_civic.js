@@ -270,12 +270,14 @@
     return (len, h, info) => {
       const F = new L.Relief(len, h, 4, S.ostone), n = Math.floor((h - 6) / FH), cs = L.bays(len, 10, 4);
       for (let f = 0; f < n; ++f) cs.forEach((c, k) => {
-        const v = f * FH + 3;
+        const v = f * FH + 3, last = f === n - 1;
         F.rect(c - 4, v, c - 1, v + 9, 1, gm(S.seed, k * 2 + f * 13, v, 0.32));
         F.rect(c + 1, v, c + 4, v + 9, 1, gm(S.seed, k * 2 + 1 + f * 13, v, 0.32));
+        if (last) { F.rect(c - 3, v + 9, c - 2, v + 10, 1, BM.GLASS); F.rect(c + 2, v + 9, c + 3, v + 10, 1, BM.GLASS); F.rect(c - 5, v + 10, c + 5, v + 11, 3, S.dark); }
         F.rect(c - 4, v - 2, c + 4, v - 1, 3, S.dark);
         F.rect(c - 1, v, c + 1, v + 9, 2, S.ostone);
       });
+      for (let f = 3; f < n - 1; f += 3) F.rect(0, f * FH, len, f * FH + 1, 3, S.ostone);   // belt courses
       if (!(!info.front && !info.side)) cs.forEach((c, k) => { if (k % 2 === 0) F.rect(c + 4, 0, c + 6, n * FH, 3, S.ostone); });
       F.rect(0, 0, len, 1, 3, S.dark);
       const t = n * FH;
@@ -718,6 +720,7 @@
           F.rect(u0, v, u1, v + 4, 1, S.spand);
           if (!back && (S.zigAll || f % 2 === 0)) for (let u = u0; u < u1; ++u) F.set(u, v + 1 + Math.abs(((u - u0) % 4) - 2), 1, S.zig);
           F.rect(u0, v + 4, u1, v + FH, 1, gm(S.seed, k * 13 + len, v, 0.32));
+          if (back) return;
           if (u1 - u0 >= 6) F.rect(c, v + 4, c + 1, v + FH, 1, S.mull);
           F.rect(u0, v + 8, u1, v + 9, 1, S.mull);
         });
@@ -782,7 +785,7 @@
     ]);
     const S = Object.assign({ seed, gH: 22, shops: spec.shops !== false }, pal);
     S.gran = L.pick(R, [BM.GRANITE_DARK, BM.GRANITE_PINK, BM.GRANITE_DARK, BM.LIMESTONE_DARK]);
-    S.bw = L.pick(R, [8, 8, 10]); S.alt = R() < 0.4; S.zigAll = R() < 0.5;
+    S.bw = W >= 130 ? 10 : L.pick(R, [8, 8, 10]); S.alt = R() < 0.4; S.zigAll = W < 120 && spec.floors < 13 && R() < 0.5;
     S.name = fit(R, DECO_NAMES, 2 * Math.max(11, Math.min(15, Math.round(W * 0.12))) - 4);
     const floors = spec.floors;
     let n2 = floors >= 11 && W >= 72 && D >= 64 ? 2 + (R() < 0.4 ? 1 : 0) : 0;
