@@ -47,7 +47,8 @@ Raw data: [`benchmarks/phase3/ladder_10k.csv`](benchmarks/phase3/ladder_10k.csv)
 2. **Greedy merging, then voxel materials.** Lossless, and verified. Greedy by material: 1,450 → 968 ms (−33 %). Merging by AO only, with the material looked up per voxel in the fragment shader: 723 → 455 ms (−37 % dispersed, −33 % siege). It roughly halves the triangles of decorated zombies (Street Walker 496 → 222, Rotter 572 → 238).
 3. **Size-class batching.** Vertex-shader work went from 2.08× to 1.08× the useful vertices; draw time 968 → 744 ms (−23 %). That is 11 draw calls instead of 6.
 4. **GPU frustum culling.** Depends on the view. In the overview camera only 12 % (dispersed) and 31 % (siege) of zombies were outside the frustum: dispersed 744 → 723 ms; the siege difference (760 → 811 ms) is within frame-to-frame noise. The off-screen scenario in the sweep shows the large case. The culling compute cost is included in the *char* column (3–5 ms at 10k on lavapipe, whichever configuration).
-5. **Unchanged simulation.** The *sim* column stays at 15–20 ms in every configuration, as in phase 1. Character work never touches the simulation passes.
+5. **Conservative occlusion culling behind buildings.** In the city view at 10,000 zombies, draw time fell from 415 to 228 ms and the frame from 433 to 246 ms (−43 %). Details below.
+6. **Unchanged simulation.** The *sim* column stays at 15–20 ms in every configuration, as in phase 1. Character work never touches the simulation passes.
 
 **Net result at 10,000 zombies, overview camera.** Approved characters before optimisation: 17,318 ms per frame. After: 474 ms (37× faster). Phase-1 placeholder: 419 ms. The approved characters now cost 13 % (dispersed) / 13 % (siege) more draw time than the placeholder, while drawing 1.70 M instead of 2.40 M triangles. The extra cost is per-fragment work: the material lookup, the Lab noise, and more distinct faces in the frame.
 
@@ -89,6 +90,27 @@ These numbers do not depend on the driver.
 
 There are no per-zombie or per-segment uploads, and no synchronous readbacks during gameplay.
 
+## Occlusion culling and the off-screen case
+
+**Test.** `char_cull.comp` hides a zombie only when all 8 corners of its bounding box are behind the *same* building box, seen from the camera. A box is convex, so if every corner's sight line hits it, the whole zombie is hidden. The test can therefore never hide a visible zombie (self-test: every culled zombie is checked at 64 sample points). Occluders are the sandbox's static boxes at least 3 m tall, uploaded when the map changes.
+
+**How much it could cull.** A separate, exact per-zombie study in the benchmark (`city` scenario) found that 63–67 % of the zombies inside the frustum are completely hidden by buildings. The conservative test culls 63 % of them (10k: 5,843 → 2,155 drawn), so it captures almost all of the available savings.
+
+| City, lavapipe 1280×720 4× MSAA | Drawn | Triangles | Char ms | Draw ms | Frame ms (avg / p95) |
+|---|---|---|---|---|---|
+| 1,000, frustum only | 607 | 0.12 M | 1.0 | 135 | 152 / 234 |
+| 1,000, + occlusion | 208 | 0.04 M | 0.6 | 109 | 124 / 139 |
+| 5,000, frustum only | 2,995 | 0.58 M | 1.6 | 267 | 283 / 349 |
+| 5,000, + occlusion | 1,075 | 0.21 M | 1.2 | 186 | 204 / 246 |
+| 10,000, frustum only | 5,843 | 1.13 M | 2.8 | 415 | 433 / 487 |
+| 10,000, + occlusion | 2,155 | 0.42 M | 1.5 | 228 | 246 / 297 |
+
+In the open arena (dispersed and siege), there is almost nothing to occlude. There the occlusion test cost stays inside the char column's noise: 50k dispersed 19.7 → 17.9 ms, 50k siege 12.8 → 13.0 ms.
+
+**Off-screen horde.** With the camera turned away from 50,000 zombies, the final path draws 0 characters. The frame costs 60 ms, of which draw is 35 ms (ground and buildings only) and char 0.7 ms. The placeholder, which has no culling, draws all 50,000 and costs 786 ms.
+
+Raw data: `occlusion_city.csv`, `offscreen.csv`, `final_arena.csv`, `final_sweep.csv`, `placeholder_sweep.csv` in [`benchmarks/phase3/`](benchmarks/phase3/). Full tables are in [BENCHMARKS.md](BENCHMARKS.md).
+
 ## Rejected or deferred approaches
 
 | Approach | Why not (measured or reasoned) |
@@ -98,10 +120,17 @@ There are no per-zombie or per-segment uploads, and no synchronous readbacks dur
 | Index buffers / vertex-cache optimisation (meshoptimizer) | With vertex pulling and fixed-size batches there is no post-transform reuse; indices would add a fetch per vertex without saving shader work. |
 | Merging faces across segments | Unsafe: joints rotate, modules swap, forearms go missing. Faces between segments are always kept. |
 | Distance-based simplified characters | Forbidden by the brief. At gameplay distance a zombie is ~20–60 px tall, so silhouettes would visibly change. |
-| Hi-Z occlusion culling | OCCLUSION_NOTE |
+| Hi-Z (depth pyramid) occlusion culling | Not needed: the occluders are the sandbox's static boxes, so a simpler exact test was implemented instead (below). A Hi-Z pass would add a depth pre-pass and a pyramid build every frame, and would only add value once there are dynamic or non-box occluders. |
 | Caching per-corpse segment transforms | 320 B per corpse (84 MB at capacity) to save 10 quaternion multiplications per *visible* corpse. The 64-entry pose library gives the same static pose for 20 KB. |
 | Updating the flow field less often | Not changed in this phase. The brief puts the simulation out of scope unless a bottleneck is measured, and the character work did not change simulation cost (see the sim column). Still the main fixed simulation cost (phase-1 measurement). |
 
 ## Remaining bottlenecks
 
-REMAINING
+Measured on lavapipe unless stated; none of this has been measured on a Mac.
+
+- **Fragment cost.** With frustum and occlusion culling on, the remaining draw time is dominated by per-fragment work at 4× MSAA: the voxel material lookup, the Lab noise hash, and lighting. The approved characters cost about 13 % more draw time than the phase-1 placeholder at 10k in the open arena, despite drawing fewer triangles. On a real GPU this has to be profiled with Xcode's Metal tools before changing anything. Candidates: material lookup only for tag-31 faces (already the case), cheaper noise, or MSAA 2×.
+- **Simulation fixed cost.** The sim column (15–30 ms on lavapipe) is unchanged from phase 1 and is mostly the 16 full-grid navigation dispatches per step. That is a simulation change, so it is out of scope for this phase.
+- **Corpse culling scales with corpse count.** `char_cull` runs one thread per corpse slot that is in use, visible or not. It is cheap per corpse but grows with a long battle; a coarse grid of corpse cells could cull whole cells first.
+- **Render memory.** 47 MB of character buffers at 131,072 visible-character capacity, 42 MB of it segment instances. Lowering `visibleCharacterCapacity` reduces this linearly; overflow is counted and shown in the debug UI, never written out of bounds.
+- **Joint precision.** Half-float quaternions leave joint gaps of up to 0.43 mm (0.005 voxel), invisible at any zoom level in the game. Full floats would double instance bandwidth.
+- **Not measured at all:** Metal timings, the 10k @ 60 FPS target, the D3D12 backend (not built), and GPU timestamps (SDL3 GPU has no timestamp queries, so pass timings come from fences).

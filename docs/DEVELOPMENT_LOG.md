@@ -81,3 +81,19 @@ Branch `phase3-character-integration`, based on `phase1-engine-foundation`. Same
 ### Problems found while integrating
 - **Weak test setup:** the corpse-retention test first used four blasts in a sparse crowd and produced only 3 corpses. The blasts are now aimed at actual zombies (426 corpses).
 - **Frames in flight:** carried over from phase 1. Headless runs must pace frames on lavapipe.
+- **Fourth geometry level.** Greedy merging by material was limited by decorated zombies (noise and speckles split faces). Level 3 merges by AO only and looks up the material per voxel in the fragment shader; the converter verifies it lossless. Triangles for the whole library: 110,608 → 46,284.
+- **Magenta edge pixels at level 3.** MSAA edge samples extrapolated the rest position outside the face, so the lookup hit an empty cell. Fixed with `centroid` interpolation plus a fallback step back into the face's voxel. The comparison sheets now contain zero invalid pixels.
+- **Stale shaders at run time.** Shaders were copied next to the binary only on relink, so a shader-only change ran old code. Replaced by an always-run `ttz_runtime_data` copy target.
+- **Occlusion culling.** Conservative box test, verified by a new self-test (every culled zombie is checked at 64 sample points). City 10k frame 433 → 246 ms.
+- **Benchmark bug:** the city scenario never received occluders, because the benchmark started on the city map and uploads happened only on map change. Fixed (occluders are set after init) and the city rows re-measured.
+- **Benchmark bug:** the first off-screen camera still saw part of the horde. Re-framed and re-measured; the old rows were removed.
+
+### Media
+- `docs/media/phase3/compare/`: Zombie Lab vs engine sheets for 12 views.
+- `docs/media/phase3/states/`: climb, flail, dying, corpse and settled corpse poses, and a random appearance grid.
+- `docs/media/phase3/gameplay_avenue.png`, `gameplay_siege.png`, `gameplay_corpses.png`: gameplay distance, final renderer.
+
+### Not done / open
+- No Metal measurement; Mac commands are in BENCHMARKS.md.
+- D3D12 backend not built or tested.
+- Lighting differs from the Lab (engine sun and ambient vs three.js lights); geometry, materials and noise are exact.

@@ -120,8 +120,9 @@ Every zombie and corpse is drawn from shared segment meshes; nothing is per-char
 ```
 per frame, after the simulation step (compute passes, one per dependent dispatch):
   copy      reset 48 character counters from a static zero transfer buffer (no CPU writes)
-  char_cull (zombies)  indirect over live agents   : frustum test (2 m sphere) -> visible list,
-  char_cull (corpses)  indirect over corpse slots  : per segment: mesh id from look, size class, atomic slot
+  char_cull (zombies)  indirect over live agents   : frustum test (2 m sphere), conservative occlusion test
+  char_cull (corpses)  indirect over corpse slots  :   against building boxes -> visible list,
+                                                     per segment: mesh id from look, size class, atomic slot
   char_prefix          1 thread                    : class offsets, 16 indirect draw commands, pose dispatch size
   char_pose            indirect over visible chars : 10 joint transforms ONCE per character (corpses: static
                                                      library pose + yaw), scatter 32-byte segment instances
@@ -145,6 +146,8 @@ With a default capacity of 131,072 visible characters, these buffers take 47 MB.
 **Vertex shader.** It fetches its instance (32 B, cached across the instance's vertices) and its packed vertex. It unpacks, rotates by the quaternion and translates. Vertices past the mesh's own count (padding up to the class size) produce a clipped degenerate triangle.
 
 **Fragment shader.** It resolves the palette tag (sleeves follow the torso), applies the Lab's per-voxel noise (same hash, recomputed from the rest-pose position, so merged faces keep it) and the AO level, then the engine lighting. Eyes are emissive.
+
+**Occlusion.** A character is culled only if every corner of its conservative bounding box (2.2 × 2.6 × 2.2 m, covering every pose) is hidden from the camera by the **same** static building box. The region a convex box hides from a point is convex, so the whole bounding box is hidden and nothing can pop. Occluders are the map's solid boxes at least 3 m tall (90 in the city), uploaded once per map. Culled zombies still exist and simulate; visibility never feeds back into the simulation.
 
 **Corpses.** A corpse is 32 bytes: position, yaw, look, pose index and height. Settled corpses are never animated: their pose comes from the baked library, and per frame they cost only a frustum test plus 10 quaternion multiplications if visible. The physics (height field, angle of repose, reactivation by explosions) is unchanged from phase 1. Reactivated corpses re-enter the simulation with the same look.
 

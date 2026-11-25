@@ -1,0 +1,19 @@
+GPU driver: vulkan, shader dir: /tmp/claude-0/p3/shaders/
+loaded 45 parameters from config/sim.cfg
+loaded assets/models/zombie.glb: 480 vertices, 720 indices, texture 8x8, 8 variant rows
+
+backend: vulkan, resolution 1920x1080, MSAA x4, solver iterations 3, vertical on, corpses on
+| scenario | agents | sim ms avg / p95 / max | render ms avg / p95 | frame ms | climbing | elevated | max h | corpses |
+|---|---|---|---|---|---|---|---|---|
+| dispersed | 1000 | 15.93 / 19.98 / 21.20 | 155.73 / 177.42 | 172.73 | 0 | 0 | 0.00 | 0 |
+| dispersed | 5000 | 17.40 / 21.59 / 63.31 | 308.06 / 336.54 | 325.89 | 0 | 0 | 0.00 | 0 |
+| dispersed | 10000 | 17.65 / 27.54 / 29.79 | 542.60 / 681.71 | 560.78 | 0 | 0 | 0.00 | 0 |
+| dispersed | 25000 | 20.81 / 36.10 / 37.20 | 1173.35 / 1261.87 | 1194.70 | 0 | 0 | 0.00 | 0 |
+| dispersed | 50000 | 28.03 / 48.88 / 51.02 | 2256.46 / 2723.17 | 2285.03 | 0 | 1 | 0.57 | 0 |
+| siege | 1000 | 15.82 / 20.05 / 21.63 | 164.79 / 193.11 | 181.14 | 10 | 49 | 3.21 | 0 |
+| siege | 5000 | 16.74 / 20.23 / 20.63 | 356.05 / 422.39 | 373.31 | 500 | 1001 | 5.88 | 0 |
+| siege | 10000 | 19.57 / 24.08 / 24.18 | 647.88 / 713.41 | 667.96 | 527 | 1529 | 4.38 | 0 |
+| siege | 25000 | 24.49 / 33.56 / 54.27 | 1507.90 / 1660.14 | 1532.93 | 621 | 1566 | 4.97 | 0 |
+| siege | 50000 | 27.27 / 38.04 / 61.63 | 2236.18 / 2484.11 | 2263.96 | 597 | 1671 | 5.34 | 0 |
+
+GPU buffers allocated by the engine: 25.5 MB, process RSS: 1171 MB

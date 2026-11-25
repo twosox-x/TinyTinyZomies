@@ -145,6 +145,7 @@ int runBenchmarks(const BenchOptions& o) {
     CharacterRenderer chars;
     if (!chars.init(gpu, params, dataPath("assets/characters/zombie_parts.ttzc"), (uint32_t)params.visibleCharacterCapacity)) return 2;
     renderer.skipCharacterPrepare_ = true;   // recorded separately so it can be timed
+    chars.setOccluders(sb.occluders());     // initial map (city); updated on every map change below
     Camera cam;
     cam.settings.maxDistance = 400.f;
 
