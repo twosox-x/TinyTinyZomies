@@ -12,9 +12,11 @@
 namespace ttz {
 
 static std::string dataPath(const std::string& rel) {
+    SDL_PathInfo info;
+    if (!rel.empty() && (rel[0] == '/' || rel[0] == '\\' || (rel.size() > 1 && rel[1] == ':'))) return rel;   // absolute
+    if (SDL_GetPathInfo(rel.c_str(), &info)) return rel;                                                   // relative to cwd
     const char* base = SDL_GetBasePath();
     std::string p = std::string(base ? base : "") + rel;
-    SDL_PathInfo info;
     if (SDL_GetPathInfo(p.c_str(), &info)) return p;
 #ifdef TTZ_SOURCE_DIR
     std::string q = std::string(TTZ_SOURCE_DIR) + "/" + rel;
@@ -279,6 +281,7 @@ int App::run(const AppOptions& opt) {
         s_.frameTotal.add(dt * 1000.0);
         s_.history.push((float)(dt * 1000.0));
         frame(dt);
+        if (s_.opt.frames > 0 && (int)s_.frameIndex == s_.opt.frames / 2) SDL_Log("halfway: frame %d", (int)s_.frameIndex);
         if (s_.opt.frames > 0 && (int)s_.frameIndex >= s_.opt.frames) {
             SDL_WaitForGPUIdle(s_.gpu.device());
             if (!s_.opt.screenshot.empty()) s_.renderer.saveScreenshot(s_.opt.screenshot);

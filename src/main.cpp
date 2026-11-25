@@ -4,6 +4,7 @@
 //   ttz --headless --frames 600 --screenshot out.png [--cam x z yaw pitch dist] [--blast frame x z]
 //   ttz --bench [--bench-counts 1000,5000,10000] [--bench-scenarios dispersed,siege] [--bench-csv file]
 //   ttz --selftest               (same as the ttz_selftest executable)
+//   ttz --save-config path       write all simulation parameters with their defaults
 #include "app/App.h"
 #include "app/Bench.h"
 #include "app/SelfTest.h"
@@ -61,6 +62,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--bench-frames")) b.measureFrames = std::atoi(next());
         else if (!std::strcmp(a, "--bench-warmup")) b.warmupSiege = std::atoi(next());
         else if (!std::strcmp(a, "--selftest")) selftest = true;
+        else if (!std::strcmp(a, "--save-config")) { ttz::SimParams p; return p.save(next()) ? 0 : 1; }
         else { SDL_Log("unknown argument %s", a); return 2; }
     }
     if (bench) return ttz::runBenchmarks(b);

@@ -38,9 +38,11 @@ double submitAndWait(GpuContext& gpu, SDL_GPUCommandBuffer* cmd) {
 }
 
 std::string dataPath(const std::string& rel) {
+    SDL_PathInfo info;
+    if (!rel.empty() && (rel[0] == '/' || rel[0] == '\\' || (rel.size() > 1 && rel[1] == ':'))) return rel;   // absolute
+    if (SDL_GetPathInfo(rel.c_str(), &info)) return rel;                                                   // relative to cwd
     const char* base = SDL_GetBasePath();
     std::string p = std::string(base ? base : "") + rel;
-    SDL_PathInfo info;
     if (SDL_GetPathInfo(p.c_str(), &info)) return p;
 #ifdef TTZ_SOURCE_DIR
     return std::string(TTZ_SOURCE_DIR) + "/" + rel;

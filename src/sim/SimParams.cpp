@@ -40,7 +40,10 @@ std::map<std::string, Field>& fields() {
 
 bool SimParams::load(const std::string& path) {
     std::ifstream in(path);
-    if (!in) return false;
+    if (!in) {
+        SDL_Log("parameter file %s not found, using built-in defaults", path.c_str());
+        return false;
+    }
     std::string line;
     int n = 0;
     while (std::getline(in, line)) {

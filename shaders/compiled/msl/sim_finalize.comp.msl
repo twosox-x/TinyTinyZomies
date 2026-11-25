@@ -283,7 +283,7 @@ float lerpAngle(thread const float& a, thread const float& b, thread const float
     return a + (d * t);
 }
 
-kernel void main0(constant SimUniforms& _124 [[buffer(0)]], device AgentsB& _437 [[buffer(1)]], device PosFinal& _465 [[buffer(2)]], device ContactAux& _536 [[buffer(3)]], device StaticH& _256 [[buffer(4)]], device AgentsA& _1040 [[buffer(5)]], device Corpses& _840 [[buffer(6)]], device CorpseH& _182 [[buffer(7)]], device Counters& _425 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _124 [[buffer(0)]], device AgentsB& _437 [[buffer(1)]], device PosFinal& _465 [[buffer(2)]], device ContactAux& _536 [[buffer(3)]], device StaticH& _256 [[buffer(4)]], device AgentsA& _1110 [[buffer(5)]], device Corpses& _910 [[buffer(6)]], device CorpseH& _182 [[buffer(7)]], device Counters& _425 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint i = gl_GlobalInvocationID.x;
     if (i >= _425.counters[0])
@@ -482,45 +482,62 @@ kernel void main0(constant SimUniforms& _124 [[buffer(0)]], device AgentsB& _437
                 if (st == 3u)
                 {
                     timer += dt;
-                    bool _773;
-                    if (grounded)
+                    float2 param_5 = x.xz + float2(0.4000000059604644775390625, 0.0);
+                    float2 param_6 = x.xz - float2(0.4000000059604644775390625, 0.0);
+                    float hx = corpseBilinear(param_5, _124, _182) - corpseBilinear(param_6, _124, _182);
+                    float2 param_7 = x.xz + float2(0.0, 0.4000000059604644775390625);
+                    float2 param_8 = x.xz - float2(0.0, 0.4000000059604644775390625);
+                    float hz = corpseBilinear(param_7, _124, _182) - corpseBilinear(param_8, _124, _182);
+                    float2 grad = float2(hx, hz) / float2(0.800000011920928955078125);
+                    float slope = length(grad);
+                    bool steep = slope > 0.64999997615814208984375;
+                    if ((steep && grounded) && (timer < 8.0))
                     {
-                        _773 = length(v) < _124.corpseP.z;
+                        float3 _825 = v;
+                        float2 _827 = _825.xz - (((((grad / float2(fast::max(slope, 0.001000000047497451305389404296875))) * fast::min(slope, 2.0)) * 4.0) * dt) * 10.0);
+                        v.x = _827.x;
+                        v.z = _827.y;
+                    }
+                    bool _836 = grounded && (!steep);
+                    bool _844;
+                    if (_836)
+                    {
+                        _844 = length(v) < _124.corpseP.z;
                     }
                     else
                     {
-                        _773 = grounded;
+                        _844 = _836;
                     }
-                    bool settled = (_773 && (timer > 0.3499999940395355224609375)) || (timer > 8.0);
+                    bool settled = (_844 && (timer > 0.3499999940395355224609375)) || (timer > 8.0);
                     if (settled)
                     {
                         st = 4u;
-                        uint _786 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[3], 1u, memory_order_relaxed);
+                        uint _856 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[3], 1u, memory_order_relaxed);
                         if ((_124.misc.w & 2u) != 0u)
                         {
                             float yaw = a.dirs.z + ((vary - 0.5) * 1.5);
                             float2 fwd = float2(sin(yaw), cos(yaw));
-                            uint _808 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[2], 1u, memory_order_relaxed);
-                            uint idx = _808;
+                            uint _878 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[2], 1u, memory_order_relaxed);
+                            uint idx = _878;
                             float h = _124.corpseP.y;
                             Corpse cp;
                             cp.pos = float4(x.x, ground, x.z, yaw);
                             cp.info = float4(vary, float(variant), 1.0, h);
                             if (idx < uint(_124.corpseP.w))
                             {
-                                _840.corpses[idx].pos = cp.pos;
-                                _840.corpses[idx].info = cp.info;
+                                _910.corpses[idx].pos = cp.pos;
+                                _910.corpses[idx].info = cp.info;
                             }
                             else
                             {
-                                uint _852 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[9], 1u, memory_order_relaxed);
+                                uint _922 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[9], 1u, memory_order_relaxed);
                             }
-                            float2 param_5 = x.xz + (fwd * 0.449999988079071044921875);
-                            float param_6 = h;
-                            splatCorpse(param_5, param_6, _124, _182);
-                            float2 param_7 = x.xz - (fwd * 0.449999988079071044921875);
-                            float param_8 = h;
-                            splatCorpse(param_7, param_8, _124, _182);
+                            float2 param_9 = x.xz + (fwd * 0.449999988079071044921875);
+                            float param_10 = h;
+                            splatCorpse(param_9, param_10, _124, _182);
+                            float2 param_11 = x.xz - (fwd * 0.449999988079071044921875);
+                            float param_12 = h;
+                            splatCorpse(param_11, param_12, _124, _182);
                         }
                     }
                 }
@@ -528,17 +545,17 @@ kernel void main0(constant SimUniforms& _124 [[buffer(0)]], device AgentsB& _437
         }
     }
     float proneTarget = 0.0;
-    bool _874 = st == 1u;
-    bool _882;
-    if (!_874)
+    bool _944 = st == 1u;
+    bool _952;
+    if (!_944)
     {
-        _882 = (elev > 0.449999988079071044921875) && supported;
+        _952 = (elev > 0.449999988079071044921875) && supported;
     }
     else
     {
-        _882 = _874;
+        _952 = _944;
     }
-    if (_882)
+    if (_952)
     {
         proneTarget = 1.0;
     }
@@ -555,49 +572,49 @@ kernel void main0(constant SimUniforms& _124 [[buffer(0)]], device AgentsB& _437
     float heading = a.dirs.z;
     if ((st == 0u) || (st == 1u))
     {
-        float2 _922;
+        float2 _992;
         if (hsp > 0.25)
         {
-            _922 = v.xz;
+            _992 = v.xz;
         }
         else
         {
-            _922 = desired;
+            _992 = desired;
         }
-        float2 face = _922;
+        float2 face = _992;
         if (dot(face, face) > 9.9999997473787516355514526367188e-05)
         {
-            float param_9 = heading;
-            float param_10 = precise::atan2(face.x, face.y);
-            float param_11 = 1.0 - exp((-dt) * 5.0);
-            heading = lerpAngle(param_9, param_10, param_11);
+            float param_13 = heading;
+            float param_14 = precise::atan2(face.x, face.y);
+            float param_15 = 1.0 - exp((-dt) * 5.0);
+            heading = lerpAngle(param_13, param_14, param_15);
         }
     }
-    float _959;
+    float _1029;
     if (st == 1u)
     {
-        _959 = 9.0;
+        _1029 = 9.0;
     }
     else
     {
-        _959 = 1.0 + (hsp * 4.19999980926513671875);
+        _1029 = 1.0 + (hsp * 4.19999980926513671875);
     }
-    float phase = a.vel.w + (dt * _959);
+    float phase = a.vel.w + (dt * _1029);
     if (st == 1u)
     {
-        uint _976 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[4], 1u, memory_order_relaxed);
+        uint _1046 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[4], 1u, memory_order_relaxed);
     }
     if ((st == 2u) || (st == 3u))
     {
-        uint _986 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[5], 1u, memory_order_relaxed);
+        uint _1056 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[5], 1u, memory_order_relaxed);
     }
     if ((elev > 0.5) && (st != 4u))
     {
-        uint _995 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[8], 1u, memory_order_relaxed);
+        uint _1065 = atomic_fetch_add_explicit((device atomic_uint*)&_425.counters[8], 1u, memory_order_relaxed);
     }
     if (st != 4u)
     {
-        uint _1006 = atomic_fetch_max_explicit((device atomic_uint*)&_425.counters[6], uint(fast::max(elev, 0.0) * 1000.0), memory_order_relaxed);
+        uint _1076 = atomic_fetch_max_explicit((device atomic_uint*)&_425.counters[6], uint(fast::max(elev, 0.0) * 1000.0), memory_order_relaxed);
     }
     a.pos = float4(x, prone);
     a.vel = float4(v, mod(phase, 6283.0));
@@ -606,10 +623,10 @@ kernel void main0(constant SimUniforms& _124 [[buffer(0)]], device AgentsB& _437
     a.dirs.w = timer;
     a.info.x = st | (variant << uint(8));
     a.info.w = as_type<uint>(climbTarget);
-    _1040.agentsA[i].pos = a.pos;
-    _1040.agentsA[i].vel = a.vel;
-    _1040.agentsA[i].prev = a.prev;
-    _1040.agentsA[i].dirs = a.dirs;
-    _1040.agentsA[i].info = a.info;
+    _1110.agentsA[i].pos = a.pos;
+    _1110.agentsA[i].vel = a.vel;
+    _1110.agentsA[i].prev = a.prev;
+    _1110.agentsA[i].dirs = a.dirs;
+    _1110.agentsA[i].info = a.info;
 }
 

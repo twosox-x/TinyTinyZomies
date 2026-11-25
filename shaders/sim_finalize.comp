@@ -75,7 +75,14 @@ void main() {
         if (timer <= 0.0 && supported) { st = ST_WALK; timer = 0.0; }
     } else if (st == ST_DYING) {
         timer += dt;
-        bool settled = (grounded && length(v) < corpseP.z && timer > 0.35) || timer > 8.0;
+        // angle of repose: bodies do not come to rest on steep corpse slopes, they slide down first
+        float hx = corpseBilinear(x.xz + vec2(0.4, 0.0)) - corpseBilinear(x.xz - vec2(0.4, 0.0));
+        float hz = corpseBilinear(x.xz + vec2(0.0, 0.4)) - corpseBilinear(x.xz - vec2(0.0, 0.4));
+        vec2 grad = vec2(hx, hz) / 0.8;
+        float slope = length(grad);
+        bool steep = slope > 0.65;
+        if (steep && grounded && timer < 8.0) v.xz -= grad / max(slope, 1e-3) * min(slope, 2.0) * 4.0 * dt * 10.0;
+        bool settled = (grounded && !steep && length(v) < corpseP.z && timer > 0.35) || timer > 8.0;
         if (settled) {
             st = ST_DEAD;
             atomicAdd(counters[C_DEATHS_TOTAL], 1u);
