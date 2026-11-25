@@ -419,7 +419,7 @@ class FieldSampler {
     this.nRoads = roads.length;
   }
   // evaluate one point (full precision)
-  evalPoint(px, pz, out) {
+  evalPoint(px, pz, out, skipAlleys) {
     const roads = this.net.roads;
     const bi = clamp(Math.floor((px - this.x0) / this.B), 0, this.bx - 1) + clamp(Math.floor((pz - this.z0) / this.B), 0, this.bz - 1) * this.bx;
     const list = this.buckets[bi];
@@ -434,6 +434,7 @@ class FieldSampler {
     touched.length = 0;
     for (let k = 0; k < list.length; ++k) {
       const sg = this.segs[list[k]];
+      if (skipAlleys && roads[sg.road].P.id === 'alley') continue;
       const t = sg.len > 0 ? ((px - sg.ax) * sg.tx + (pz - sg.az) * sg.tz) : 0;
       const tc = t < 0 ? 0 : t > sg.len ? sg.len : t;
       const cx = sg.ax + sg.tx * tc, cz = sg.az + sg.tz * tc;
@@ -447,14 +448,24 @@ class FieldSampler {
         qx[r] = cx; qz[r] = cz; tx[r] = sg.tx; tz[r] = sg.tz;
       }
     }
-    let car = 1e9, k = 0, j = -1, j2 = -1, dj = 1e9, dj2 = 1e9, wsum = 0, swsum = 0;
+    let j = -1, j2 = -1, dj = 1e9, dj2 = 1e9, wsum = 0, swsum = 0;
     for (let i = 0; i < touched.length; ++i) {
-      const r = touched[i], d = dR[r], P = roads[r].P;
-      if (i === 0) { car = d; k = P.radius; }
-      else { const kk = Math.min(k, P.radius); car = smin(car, d, kk); k = Math.max(k, P.radius); }
+      const r = touched[i], d = dR[r];
       if (d < dj) { dj2 = dj; j2 = j; dj = d; j = r; } else if (d < dj2) { dj2 = d; j2 = r; }
       const w = 1 / Math.pow(Math.max(d, 0.5), 3);
-      wsum += w; swsum += w * P.sidewalk;
+      wsum += w; swsum += w * roads[r].P.sidewalk;
+    }
+    // Curb returns: smooth union of the two nearest roads. The fillet grows as the corner gets sharper
+    // (radius / sin(crossing angle), up to 2.6x) so acute corners end in a rounded nose, not a thin spike.
+    let car = dj;
+    if (j2 >= 0) {
+      const sinA = Math.abs(tx[j] * tz[j2] - tz[j] * tx[j2]);
+      const k = Math.min(roads[j].P.radius, roads[j2].P.radius) * clamp(1 / Math.max(sinA, 0.3), 1, 2.6);
+      car = smin(dj, dj2, k);
+      for (let i = 0; i < touched.length; ++i) {
+        const r = touched[i];
+        if (r !== j && r !== j2) car = smin(car, dR[r], Math.min(roads[j].P.radius, roads[r].P.radius));
+      }
     }
     out.car = touched.length ? car : 1e3;
     out.road = j; out.road2 = j2;
@@ -478,20 +489,26 @@ class FieldSampler {
       for (let s = 0; s <= r.len; s += step) {
         const [px, pz, tx, tz] = pointAt(r, s);
         let hit = false, major = false;
+        const others = new Set();
         for (const side of [1, -1]) {
           const ex = px + tz * side * (half + 0.1), ez = pz - tx * side * (half + 0.1);
           this.evalPoint(ex, ez, o);
           const otherId = o.road === r.id ? o.road2 : o.road;
           const dOther = o.road === r.id ? o.oth : o.dj;
-          if (otherId >= 0 && dOther < 0.2) { hit = true; if (this.net.roads[otherId].P.id !== 'alley' || r.P.id === 'alley') major = true; }
+          if (otherId >= 0 && dOther < 0.2) {
+            hit = true;
+            if (this.net.roads[otherId].P.id !== 'alley' || r.P.id === 'alley') { major = true; others.add(otherId); }
+          }
         }
         if (hit) {
-          if (cur && s - cur.b <= step * 1.5) { cur.b = s; cur.major = cur.major || major; }
-          else { cur = { a: s, b: s, major }; r.junctions.push(cur); }
+          if (cur && s - cur.b <= step * 1.5) { cur.b = s; cur.major = cur.major || major; others.forEach(o => cur.others.add(o)); }
+          else { cur = { a: s, b: s, major, others: new Set(others) }; r.junctions.push(cur); }
         }
       }
     }
   }
+  // (call after computeJunctions) junction intervals as plain data
+  junctionData() { return this.net.roads.map(r => (r.junctions || []).map(j => ({ a: j.a, b: j.b, major: j.major, others: [...j.others] }))); }
   // distance along the road to the nearest major junction interval; 0 inside one; ahead = +1 if it lies at larger s
   junctionAt(r, s) {
     let best = 1e9, ahead = 0;
@@ -531,7 +548,8 @@ class FieldSampler {
     const near = fx < 0.5 ? (fz < 0.5 ? i00 : i01) : (fz < 0.5 ? i10 : i11);
     const r = this.road[near];
     o.road = r; o.road2 = this.road2[near]; o.ahead = this.ahead[near];
-    if (this.road[i00] === r && this.road[i10] === r && this.road[i01] === r && this.road[i11] === r) { o.u = L(this.u); o.s = L(this.s); }
+    o.same = this.road[i00] === r && this.road[i10] === r && this.road[i01] === r && this.road[i11] === r;
+    if (o.same) { o.u = L(this.u); o.s = L(this.s); }
     else { o.u = this.u[near]; o.s = this.s[near]; }
     o.s2 = this.s2[near];
   }
@@ -660,7 +678,7 @@ class Rasterizer {
       if (area === 'plaza') { out[1] = plazaTile(x, z, v); return; }
       // slab joints across the sidewalk every 1.6 m along the nearest street, one voxel wide
       const ss = ((o.s % 1.6) + 1.6) % 1.6;
-      out[1] = ss < v * 0.999 ? MAT.SIDEWALK_JOINT : MAT.SIDEWALK;
+      out[1] = (o.same && ss < v * 0.999) ? MAT.SIDEWALK_JOINT : MAT.SIDEWALK;
       return;
     }
     out[0] = hs;
@@ -754,44 +772,98 @@ class Plots {
     while (lo < hi - 1) { const m = (lo + hi) >> 1; if (c[m] <= s) lo = m; else hi = m; }
     return lo;
   }
-  // building height map (in metres, 0 = no building) and plot ids per building cell
+  // Building height map (metres, 0 = none) and plot ids per building cell.
+  //  1. frontage: every block cell belongs to a lot along a street; the higher-ranked of the two nearest streets
+  //     claims the cell when the cell lies within that street's lot depth (avenues get continuous frontage,
+  //     corner buildings sit on the main street, side streets fill in behind)
+  //  2. lots are cut square to their street (random widths per district), side gaps, setbacks, open interiors
+  //  3. each plot is opened morphologically (1 m) to remove spikes and slivers; plots under 60 m2 are dropped
+  //  4. tall buildings get a podium and a tower set back 3 m from the plot edge
   build() {
-    const n = this.nx * this.nz;
+    const n = this.nx * this.nz, nx = this.nx;
     this.height = new Float32Array(n);
     this.plot = new Int32Array(n).fill(-1);
     this.tone = new Uint8Array(n);
+    const rank = (r) => ({ arterial: 3, collector: 2, local: 1, alley: 0 })[r.P.cls];
+    const roads = this.net.roads;
     const o = {}, F = this.F;
+    const plotH = new Map();
     for (let iz = 0; iz < this.nz; ++iz)
-      for (let ix = 0; ix < this.nx; ++ix) {
+      for (let ix = 0; ix < nx; ++ix) {
         const x = this.x0 + (ix + 0.5) * this.cell, z = this.z0 + (iz + 0.5) * this.cell;
         F.sample(x, z, o);
-        if (o.road < 0 || o.car > 900) continue;
-        const area = this.Ra.areaAt(x, z, o.road, o.u);
-        if (area || this.net.kind === 'test') continue;
-        const depth0 = o.car - o.sw;                         // distance behind the sidewalk
-        if (depth0 < 0.3) continue;
-        // frontage road: nearest non-alley road (buildings face streets, back onto alleys)
-        let rid = o.road, s = o.s;
-        if (this.net.roads[rid].P.id === 'alley' && o.road2 >= 0 && this.net.roads[o.road2].P.id !== 'alley') { rid = o.road2; s = o.s2; }
-        // corner: the two nearest streets both close -> one L-shaped corner lot on the lower road id
-        if (o.road2 >= 0 && o.road2 < rid && this.net.roads[o.road2].P.id !== 'alley') {
+        if (o.road < 0 || o.car > 900 || this.net.kind === 'test') continue;
+        if (this.Ra.areaAt(x, z, o.road, o.u)) continue;
+        if (o.car - o.sw < 0.3) continue;                        // sidewalk, curb, street, alley
+        F.evalPoint(x, z, o, true);                              // frontage from the streets only (alleys ignored)
+        if (o.road < 0) continue;
+        let rid = o.road, s = o.s, d = o.car - o.sw;
+        if (o.road2 >= 0) {
+          const r2 = roads[o.road2], d2 = o.oth - o.sw;
           const i2 = this.lotInfo(o.road2, this.findLot(o.road2, o.s2));
-          const behind = o.oth - o.sw;
-          // within the frontage depth of the other street too -> part of its corner lot, unless the two streets
-          // are parallel (back-to-back lots split at the middle of the block)
-          if (behind < i2.setback + i2.depth && Math.abs(o.car - o.oth) > 2 && this.cornerish(rid, o.road2, x, z)) { rid = o.road2; s = o.s2; }
+          const better = rank(r2) > rank(roads[rid]) || (rank(r2) === rank(roads[rid]) && r2.id < rid);
+          if (better && d2 < i2.setback + i2.depth && this.cornerish(rid, o.road2, x, z)) { rid = o.road2; s = o.s2; d = d2; }
         }
+        if (rank(roads[rid]) === 0) continue;                    // nothing fronts an alley
         const lot = this.findLot(rid, s);
         const info = this.lotInfo(rid, lot);
-        const depth = (rid === o.road ? o.car : o.oth) - o.sw;
-        if (depth < info.setback || depth > info.setback + info.depth) continue;
+        if (d < info.setback || d > info.setback + info.depth) continue;
         const L = this.lots[rid];
-        if (L.gaps[lot] > 0 && s - L.cuts[lot] < L.gaps[lot]) continue;  // side gap between buildings
-        const i = iz * this.nx + ix;
-        this.height[i] = info.stories * 3.4;
-        this.plot[i] = rid * 4096 + lot;
+        if (L.gaps[lot] > 0 && s - L.cuts[lot] < L.gaps[lot]) continue;
+        const i = iz * nx + ix, id = rid * 4096 + lot;
+        this.plot[i] = id;
         this.tone[i] = info.tone;
+        plotH.set(id, info.stories);
       }
+    // morphological opening per plot (erode then dilate by r cells): no spikes, no one-cell slivers
+    const r = Math.max(1, Math.round(1.0 / this.cell));
+    const P = this.plot, E = new Int32Array(n).fill(-1);
+    for (let iz = r; iz < this.nz - r; ++iz)
+      for (let ix = r; ix < nx - r; ++ix) {
+        const id = P[iz * nx + ix];
+        if (id < 0) continue;
+        let ok = true;
+        for (let dz = -r; dz <= r && ok; ++dz) for (let dx = -r; dx <= r && ok; ++dx) if (P[(iz + dz) * nx + ix + dx] !== id) ok = false;
+        if (ok) E[iz * nx + ix] = id;
+      }
+    const O = new Int32Array(n).fill(-1);
+    for (let iz = r; iz < this.nz - r; ++iz)
+      for (let ix = r; ix < nx - r; ++ix) {
+        const id = E[iz * nx + ix];
+        if (id < 0) continue;
+        for (let dz = -r; dz <= r; ++dz) for (let dx = -r; dx <= r; ++dx) { const k = (iz + dz) * nx + ix + dx; if (P[k] === id) O[k] = id; }
+      }
+    // drop small plots
+    const area = new Map();
+    for (let i = 0; i < n; ++i) if (O[i] >= 0) area.set(O[i], (area.get(O[i]) || 0) + 1);
+    const minCells = 60 / (this.cell * this.cell);
+    for (let i = 0; i < n; ++i) if (O[i] >= 0 && area.get(O[i]) < minCells) O[i] = -1;
+    // distance (cells) to the plot edge, two-pass chamfer: towers set back from the podium edge
+    const D = new Float32Array(n);
+    for (let i = 0; i < n; ++i) D[i] = O[i] >= 0 ? 1e6 : 0;
+    const same = (a, b) => O[a] === O[b];
+    for (let iz = 1; iz < this.nz - 1; ++iz) for (let ix = 1; ix < nx - 1; ++ix) {
+      const i = iz * nx + ix; if (O[i] < 0) continue;
+      D[i] = Math.min(D[i], same(i, i - 1) ? D[i - 1] + 1 : 1, same(i, i - nx) ? D[i - nx] + 1 : 1,
+        same(i, i - nx - 1) ? D[i - nx - 1] + 1.414 : 1, same(i, i - nx + 1) ? D[i - nx + 1] + 1.414 : 1);
+    }
+    for (let iz = this.nz - 2; iz > 0; --iz) for (let ix = nx - 2; ix > 0; --ix) {
+      const i = iz * nx + ix; if (O[i] < 0) continue;
+      D[i] = Math.min(D[i], same(i, i + 1) ? D[i + 1] + 1 : 1, same(i, i + nx) ? D[i + nx] + 1 : 1,
+        same(i, i + nx + 1) ? D[i + nx + 1] + 1.414 : 1, same(i, i + nx - 1) ? D[i + nx - 1] + 1.414 : 1);
+    }
+    const setback = 3 / this.cell;
+    this.plotCount = 0;
+    const seen = new Set();
+    for (let i = 0; i < n; ++i) {
+      const id = O[i];
+      this.plot[i] = id;
+      if (id < 0) continue;
+      if (!seen.has(id)) { seen.add(id); this.plotCount++; }
+      const stories = plotH.get(id);
+      const tower = stories >= 9 && D[i] > setback;
+      this.height[i] = (stories >= 9 && !tower ? 3 + (hash2(id, 4, 9) * 2 | 0) : stories) * 3.4;
+    }
   }
 }
 
@@ -812,7 +884,7 @@ class MeshBuffer {
   // Float positions, every quad grown by EPS (voxels) within its own plane: greedy meshes have T-junctions,
   // and the overlap closes the pinhole cracks they would otherwise show (no z-fighting at this size).
   finish(eps) {
-    eps = eps === undefined ? 0.01 : eps;
+    eps = eps === undefined ? 0.03 : eps;
     const P = new Float32Array(this.pos.length);
     for (let q = 0; q < this.quads; ++q) {
       const o = q * 12;
@@ -895,7 +967,7 @@ function meshColumns(H, M, w, d, ox, oz, wallMat, mb) {
 const WALL_MAT = (m) => (m === MAT.MEDIAN_GRASS || m === MAT.MEDIAN_CURB) ? MAT.MEDIAN_CURB : MAT.CURB;
 function prepareBuild(net, voxel, opts) {
   opts = opts || {};
-  const F = new FieldSampler(net, opts.fieldCell || 0.4);
+  const F = new FieldSampler(net, opts.fieldCell || 0.5);
   F.build();
   const R = new Rasterizer(net, F, voxel, opts);
   const b = net.bounds;
@@ -931,6 +1003,7 @@ function buildBlocks(ctx) {
   const bcell = bk * voxel;
   const PL = new Plots(net, F, R, bcell, net.seed || 1);
   PL.build();
+  const plotCount = PL.plotCount;
   const w = PL.nx, d = PL.nz, W2 = w + 2, n2 = W2 * (d + 2);
   const H = new Int16Array(n2), M = new Uint8Array(n2), Hp = new Int16Array(n2).fill(-1), Mp = new Uint8Array(n2);
   const plinth = Math.ceil(R.hs / bk);
@@ -960,7 +1033,7 @@ function buildBlocks(ctx) {
   const buildings = emit(H, M, 0, plinth, true);
   const plots = emit(Hp, Mp, R.hs - bk + 1);
   let built = 0; for (let i = 0; i < PL.height.length; ++i) if (PL.height[i] > 0) built++;
-  return { buildings, plots, plotCount: plotIds.size, builtArea: built * bcell * bcell };
+  return { buildings, plots, plotCount, builtArea: built * bcell * bcell };
 }
 function* buildCity(net, voxel, opts) {
   const t0 = Date.now();
@@ -972,11 +1045,245 @@ function* buildCity(net, voxel, opts) {
   timing.roads = Date.now() - t1;
   const t2 = Date.now();
   const blocks = buildBlocks(ctx);
+  const props = placeProps(ctx);
   timing.buildings = Date.now() - t2;
   timing.total = Date.now() - t0;
-  yield { stage: 'done', result: { chunks: ctx.chunks, buildings: blocks.buildings, plots: blocks.plots, plotCount: blocks.plotCount, voxel, hs: ctx.R.hs, cells, quads, timing } };
+  yield { stage: 'done', result: { props, chunks: ctx.chunks, buildings: blocks.buildings, plots: blocks.plots, plotCount: blocks.plotCount, voxel, hs: ctx.R.hs, cells, quads, timing } };
 }
 function runSync(gen) { let r; for (const step of gen) r = step; return r.result; }
+
+
+// ------------------------------------------------------------------------------------------------ 7. street furniture
+// Voxel models at a fixed 5 cm voxel (four times finer than the zombies' 9.4 cm, twice the default road voxel),
+// built from boxes in code so the engine can rebuild them exactly. Local frame: origin at the base centre,
+// +x along the road, +z towards the carriageway (arms reach +z), y up. Placement rules live in placeProps().
+const PV = 0.05;
+const PM = {                                     // prop materials (palette indices 54..)
+  POLE: 54, POLE_DARK: 55, LAMP_HEAD: 56, LAMP_LENS: 57, HOUSING: 58, BACKPLATE: 59, LENS_R: 60, LENS_A: 61, LENS_G: 62,
+  SIGN_RED: 63, SIGN_WHITE: 64, SIGN_GREEN: 65, HYDRANT: 66, HYDRANT_CAP: 67, PED_ORANGE: 68, PED_WHITE: 69, CONCRETE: 70
+};
+const PROP_PALETTE = {
+  54: [112, 118, 116], 55: [62, 68, 70], 56: [78, 84, 86], 57: [246, 236, 206], 58: [44, 48, 50], 59: [30, 32, 34],
+  60: [150, 46, 40], 61: [176, 128, 40], 62: [52, 138, 96], 63: [176, 62, 54], 64: [236, 234, 226], 65: [58, 116, 84],
+  66: [178, 70, 56], 67: [214, 178, 84], 68: [222, 132, 58], 69: [226, 226, 218], 70: [168, 164, 156]
+};
+class VoxModel {
+  constructor(w, h, d, ox, oz) { this.w = w; this.h = h; this.d = d; this.ox = ox; this.oz = oz; this.v = new Uint8Array(w * h * d); }
+  // box in model coords (x relative to origin column, z relative to origin row), inclusive-exclusive
+  box(x0, y0, z0, x1, y1, z1, m) {
+    for (let y = Math.max(0, y0); y < Math.min(this.h, y1); ++y)
+      for (let z = z0; z < z1; ++z) for (let x = x0; x < x1; ++x) {
+        const X = x + this.ox, Z = z + this.oz;
+        if (X >= 0 && X < this.w && Z >= 0 && Z < this.d) this.v[(y * this.d + Z) * this.w + X] = m + 1;
+      }
+    return this;
+  }
+  at(x, y, z) {
+    if (x < 0 || y < 0 || z < 0 || x >= this.w || y >= this.h || z >= this.d) return 0;
+    return this.v[(y * this.d + z) * this.w + x];
+  }
+}
+// 3D greedy mesher: per face direction and slice, maximal rectangles of equal material. Normal ids 0..5:
+// +y, +x, -x, +z, -z, -y. Positions in metres, origin at the model origin.
+function meshVoxels3D(M) {
+  const mb = new MeshBuffer();
+  const dims = [M.w, M.h, M.d];
+  const get = (c) => M.at(c[0], c[1], c[2]);
+  const dirs = [[1, 1, 0], [0, 1, 1], [0, -1, 2], [2, 1, 3], [2, -1, 4], [1, -1, 5]];   // [axis, sign, normal id]
+  for (const [ax, sg, nid] of dirs) {
+    const u = (ax + 1) % 3, w = (ax + 2) % 3;
+    const nu = dims[u], nw = dims[w];
+    const mask = new Int16Array(nu * nw);
+    for (let k = 0; k < dims[ax]; ++k) {
+      for (let j = 0; j < nw; ++j) for (let i = 0; i < nu; ++i) {
+        const c = [0, 0, 0]; c[ax] = k; c[u] = i; c[w] = j;
+        const m = get(c);
+        if (!m) { mask[j * nu + i] = 0; continue; }
+        const n = [c[0], c[1], c[2]]; n[ax] += sg;
+        mask[j * nu + i] = get(n) ? 0 : m;
+      }
+      for (let j = 0; j < nw; ++j) for (let i = 0; i < nu;) {
+        const m = mask[j * nu + i];
+        if (!m) { ++i; continue; }
+        let wi = 1; while (i + wi < nu && mask[j * nu + i + wi] === m) ++wi;
+        let hj = 1;
+        outer: while (j + hj < nw) { for (let t = 0; t < wi; ++t) if (mask[(j + hj) * nu + i + t] !== m) break outer; ++hj; }
+        for (let jj = 0; jj < hj; ++jj) for (let t = 0; t < wi; ++t) mask[(j + jj) * nu + i + t] = 0;
+        const plane = sg > 0 ? k + 1 : k;
+        const P = (a, b) => { const q = [0, 0, 0]; q[ax] = plane; q[u] = a; q[w] = b; return [(q[0] - M.ox) * PV, q[1] * PV, (q[2] - M.oz) * PV]; };
+        const c0 = P(i, j), c1 = P(i + wi, j), c2 = P(i + wi, j + hj), c3 = P(i, j + hj);
+        // winding: counter-clockwise seen from outside
+        if (sg > 0) mb.quad(...c0, ...c1, ...c2, ...c3, m - 1, nid);
+        else mb.quad(...c0, ...c3, ...c2, ...c1, m - 1, nid);
+        i += wi;
+      }
+    }
+  }
+  return mb.finish(0.0002);
+}
+// --- models (dimensions in 5 cm voxels)
+function modelLamp(twin) {
+  // cobra-head street light, 8.7 m: tapered pole on a cast base, curved arm, luminaire with a glowing lens
+  const reach = 46;                                            // arm 2.3 m
+  const M = new VoxModel(9, 178, twin ? reach * 2 + 9 : reach + 9, 4, twin ? reach + 4 : 4);
+  M.box(-3, 0, -3, 4, 3, 4, PM.POLE_DARK).box(-2, 3, -2, 3, 14, 3, PM.POLE_DARK);       // footing + base
+  M.box(-2, 14, -2, 3, 90, 3, PM.POLE).box(-1, 90, -1, 2, 170, 2, PM.POLE);               // tapered shaft
+  for (const sgn of twin ? [1, -1] : [1]) {
+    const Z = (a, b) => sgn > 0 ? [a, b] : [-b + 1, -a + 1];
+    let [z0, z1] = Z(1, 10); M.box(-1, 166, z0, 2, 169, z1, PM.POLE);                   // arm rising from the pole
+    [z0, z1] = Z(10, 30); M.box(-1, 168, z0, 2, 171, z1, PM.POLE);
+    [z0, z1] = Z(30, reach - 10); M.box(-1, 170, z0, 2, 172, z1, PM.POLE);
+    [z0, z1] = Z(reach - 14, reach + 2); M.box(-3, 168, z0, 4, 174, z1, PM.LAMP_HEAD);  // luminaire
+    [z0, z1] = Z(reach - 12, reach); M.box(-2, 167, z0, 3, 168, z1, PM.LAMP_LENS);     // lens underneath
+  }
+  return M;
+}
+function signalHead(M, x, y, z, faceX) {
+  // 3-section vehicle signal (0.35 x 1.0 m) with backplate; lenses on the +x face (faceX = +1) or -x face
+  const f = faceX > 0 ? 1 : -1;
+  const hx0 = f > 0 ? x : x - 5, hx1 = hx0 + 5;
+  M.box(hx0, y, z - 4, hx1, y + 20, z + 4, PM.HOUSING);
+  const bx = f > 0 ? hx0 : hx1 - 1;
+  M.box(bx, y - 1, z - 6, bx + 1, y + 21, z + 6, PM.BACKPLATE);
+  const lx = f > 0 ? hx1 : hx0 - 1;
+  [[PM.LENS_R, 14], [PM.LENS_A, 8], [PM.LENS_G, 2]].forEach(([m, yy]) => {
+    M.box(lx, y + yy, z - 2, lx + 1, y + yy + 4, z + 2, m);
+    M.box(lx, y + yy + 4, z - 3, lx + 1, y + yy + 5, z + 3, PM.HOUSING);       // visor
+  });
+}
+function modelSignal(reach, face) {
+  face = face || 1;
+  // signal mast: 7 m pole, mast arm over the approach lanes with two heads facing traffic (+x),
+  // a pole-mounted head, a pedestrian signal facing across the road and a street-name blade on the arm
+  const L = Math.round(reach / PV);
+  const M = new VoxModel(32, 150, L + 14, 16, 5);
+  M.box(-4, 0, -4, 5, 4, 5, PM.CONCRETE).box(-3, 4, -3, 4, 12, 4, PM.POLE_DARK).box(-2, 12, -2, 3, 140, 3, PM.POLE);
+  M.box(-2, 140, -2, 3, 143, 3, PM.POLE_DARK);
+  M.box(-1, 128, 2, 2, 132, L, PM.POLE);                                      // mast arm
+  M.box(-1, 132, 2, 2, 134, Math.round(L * 0.4), PM.POLE);                    // upper chord near the pole
+  M.box(-1, 132, 2, 2, 140, 3, PM.POLE);
+  for (const t of [0.55, 0.9]) { const zz = Math.round(L * t); M.box(0, 124, zz - 1, 1, 128, zz + 1, PM.POLE); signalHead(M, face > 0 ? 1 : 0, 104, zz, face); }
+  signalHead(M, face > 0 ? 3 : -2, 56, 0, face);                                                 // pole-mounted head
+  M.box(-8, 120, 6, 6, 124, 7, PM.SIGN_GREEN);                                // street name blade on the arm
+  M.box(-7, 121, 7, 5, 123, 8, PM.SIGN_WHITE);
+  M.box(-3, 44, 3, 4, 52, 7, PM.HOUSING);                                     // pedestrian signal box facing +z
+  M.box(-2, 48, 7, 3, 51, 8, PM.PED_ORANGE); M.box(-2, 45, 7, 3, 47, 8, PM.PED_WHITE);
+  M.box(-3, 30, -6, -2, 36, -3, PM.HOUSING);                                  // push button
+  return M;
+}
+function modelStop() {
+  // stop sign (0.75 m octagon, red with white border and legend) on a 2.1 m post, street-name blades above
+  const M = new VoxModel(26, 62, 26, 13, 13);
+  M.box(-1, 0, -1, 1, 56, 1, PM.POLE);
+  const cy = 47, R = 7;
+  for (let y = -R; y <= R; ++y) for (let z = -R; z <= R; ++z) {
+    if (Math.abs(y) + Math.abs(z) > R * 1.45) continue;                     // octagon
+    const edge = Math.abs(y) + Math.abs(z) > R * 1.45 - 1.5 || Math.abs(y) === R || Math.abs(z) === R;
+    const legend = Math.abs(y) <= 1 && Math.abs(z) <= 5;
+    M.box(1, cy + y, z, 2, cy + y + 1, z + 1, edge || legend ? PM.SIGN_WHITE : PM.SIGN_RED);
+  }
+  M.box(-1, 56, -9, 1, 59, 10, PM.SIGN_GREEN).box(-9, 59, -1, 10, 62, 1, PM.SIGN_GREEN);   // name blades (crossed)
+  M.box(-2, 57, -8, 2, 58, 9, PM.SIGN_WHITE).box(-8, 60, -2, 9, 61, 2, PM.SIGN_WHITE);
+  return M;
+}
+function modelHydrant() {
+  const M = new VoxModel(12, 18, 12, 6, 6);
+  M.box(-3, 0, -3, 4, 2, 4, PM.HYDRANT).box(-2, 2, -2, 3, 12, 3, PM.HYDRANT).box(-3, 12, -3, 4, 13, 4, PM.HYDRANT_CAP);
+  M.box(-2, 13, -2, 3, 15, 3, PM.HYDRANT_CAP).box(-1, 15, -1, 2, 16, 2, PM.HYDRANT_CAP);
+  M.box(-5, 7, -1, 6, 9, 2, PM.HYDRANT).box(-1, 7, 3, 2, 10, 5, PM.HYDRANT_CAP);            // nozzles
+  return M;
+}
+const PROP_TYPES = {
+  lamp: () => modelLamp(false), lamp2: () => modelLamp(true), signal: () => modelSignal(5.2, 1), signalLong: () => modelSignal(9.2, 1),
+  stop: modelStop, hydrant: modelHydrant
+};
+function buildPropMeshes() {
+  const out = {};
+  for (const k in PROP_TYPES) out[k] = meshVoxels3D(PROP_TYPES[k]());
+  return out;
+}
+// Placement from the network: lamps along sidewalks (staggered, twin lamps in medians), a signal mast on the
+// right-hand corner of every approach to a junction between two through streets, stop signs on the approaches
+// of local streets (all-way when both are local), hydrants every ~85 m. Every spot is checked on the voxel
+// classification (must be sidewalk / median of that road, clear of crosswalks and junction boxes).
+function placeProps(ctx) {
+  const { net, F, R } = ctx;
+  const out = [];
+  const o = {}, cls = [0, 0];
+  const hsM = R.hs * ctx.voxel;
+  const okAt = (x, z, road, want) => {
+    R.classify(x, z, o, cls);
+    if (o.road !== road) return false;
+    if (want === 'median') return cls[1] === MAT.MEDIAN_GRASS;
+    return cls[1] === MAT.SIDEWALK || cls[1] === MAT.SIDEWALK_JOINT || (want === 'any' && cls[1] === MAT.PLAZA);
+  };
+  const through = (r) => r.P.cls === 'arterial' || r.P.cls === 'collector';
+  for (const r of net.roads) {
+    const P = r.P;
+    if (P.id === 'alley' || !r.len) continue;
+    const J = (r.junctions || []).filter(j => j.major);
+    const nearJunction = (s, pad) => J.some(j => s > j.a - pad && s < j.b + pad);
+    const frame = (s, u) => { const [px, pz, tx, tz] = pointAt(r, s); return [px + tz * u, pz - tx * u, tx, tz]; };
+    // yaw such that local +z points from (x,z) towards the road centre and local +x along +t
+    const yawFor = (tx, tz, side) => Math.atan2(side > 0 ? tx : -tx, side > 0 ? tz : -tz);
+    // street lights
+    const spacing = P.cls === 'arterial' ? 30 : P.cls === 'collector' ? 34 : 42;
+    for (const side of [1, -1]) {
+      for (let s = 10 + (side < 0 ? spacing / 2 : 0); s < r.len - 6; s += spacing) {
+        if (nearJunction(s, 9)) continue;
+        const u = side * (P.half + 0.55);
+        const [x, z, tx, tz] = frame(s, u);
+        if (!okAt(x, z, r.id)) continue;
+        // local +z must point back towards the road: the road centre is at -side * normal
+        out.push({ type: 'lamp', x, y: hsM, z, yaw: yawTowards(x, z, frame(s, 0)), road: r.id });
+      }
+      if (P.median === 'planted') {
+        const med = P.edges.find(e => e.type === 'median');
+        for (let s = 18; s < r.len - 10; s += 36) {
+          if (nearJunction(s, 30)) continue;
+          const [x, z, tx, tz] = frame(s, (med.left + med.right) / 2);
+          if (side > 0 && okAt(x, z, r.id, 'median')) out.push({ type: 'lamp2', x, y: hsM, z, yaw: Math.atan2(tz, -tx), road: r.id });
+        }
+      }
+      // hydrants
+      for (let s = 20 + (side < 0 ? 40 : 0); s < r.len - 6; s += 85) {
+        if (nearJunction(s, 7)) continue;
+        const [x, z] = frame(s, side * (P.half + 0.45));
+        if (okAt(x, z, r.id)) out.push({ type: 'hydrant', x, y: hsM, z, yaw: 0, road: r.id });
+      }
+    }
+    // junction approaches: traffic moving +t arrives before interval a (right side u < 0),
+    // traffic moving -t arrives after interval b (right side u > 0)
+    const hasDir = (d) => P.edges.some(e => e.type === 'lane' && e.dir === d);
+    for (const j of J) {
+      const others = [...(j.others || [])].map(id => net.roads[id]).filter(Boolean);
+      if (!others.length) continue;
+      const signalised = through(r) && others.some(through);
+      const mustStop = !through(r) && P.cls !== 'alley';
+      for (const [d, sEdge, side] of [[1, j.a, -1], [-1, j.b, 1]]) {
+        if (!hasDir(d)) continue;
+        const s = sEdge - d * (0.8 + 3.2 + 1.2);
+        if (s < 2 || s > r.len - 2) continue;
+        const [x, z, tx, tz] = frame(s, side * (P.half + 0.7));
+        if (!okAt(x, z, r.id, 'any')) continue;
+        const yaw = yawTowards(x, z, frame(s, 0));
+        // local +x must face the approaching traffic (which moves along d * t): heads face -d * t
+        const wx = -d * tx, wz = -d * tz;                                        // towards the approaching traffic
+        if (signalised) {
+          const lanesIn = P.edges.filter(e => e.type === 'lane' && e.dir === d).length;
+          const flip = facingFix(yaw, wx, wz);                                     // heads on the -x side variant
+          out.push({ type: (lanesIn >= 2 || P.half > 6 ? 'signalLong' : 'signal') + (flip ? 'L' : ''), x, y: hsM, z, yaw, road: r.id,
+                     phase: (r.id < Math.min(...others.map(q => q.id))) ? 0 : 1 });
+        } else if (mustStop) out.push({ type: 'stop', x, y: hsM, z, yaw: Math.atan2(-wz, wx), road: r.id });
+      }
+    }
+  }
+  return out;
+}
+// yaw (rotation about +y) that turns local +z towards point c from (x, z)
+function yawTowards(x, z, c) { return Math.atan2(c[0] - x, c[1] - z); }
+// after rotating by yaw, local +x maps to (cos yaw, -sin yaw); return true if that points away from the wanted direction
+function facingFix(yaw, wx, wz) { return (Math.cos(yaw) * wx - Math.sin(yaw) * wz) < 0; }
 
 // ------------------------------------------------------------------------------------------------ network analysis
 // Junction nodes for visualisation / export: crossings between different roads, and road ends on other roads.
@@ -1019,6 +1326,6 @@ function exportNetwork(net) {
   };
 }
 
-const CityCore = { PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

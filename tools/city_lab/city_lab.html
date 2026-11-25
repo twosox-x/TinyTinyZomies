@@ -135,6 +135,7 @@ kbd { font: 11px var(--font-num); background: var(--chip); border: 1px solid var
           <label><input type="checkbox" id="lyShadows" checked> Shadows</label>
           <label><input type="checkbox" id="lyFigures" checked> Zombie scale</label>
           <label><input type="checkbox" id="lyLabels" checked> Labels</label>
+          <label><input type="checkbox" id="lyProps" checked> Street furniture</label>
         </div>
         <div id="legend" hidden></div>
       </section>
@@ -168,7 +169,7 @@ const $ = (id) => document.getElementById(id);
 // ------------------------------------------------------------------------------------------------ state
 const S = {
   scene: 'city', seed: 1, voxel: 0.1, view: 'rts', light: 'day', job: 0,
-  layers: { buildings: true, plots: false, network: false, grid: false, shadows: true, figures: true, labels: true },
+  layers: { props: true, buildings: true, plots: false, network: false, grid: false, shadows: true, figures: true, labels: true },
   net: null, junctionNodes: [], stats: {}, hs: 2
 };
 
@@ -179,6 +180,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = false;           // static scene: re-render shadows only when the view moves
 const scene = new THREE.Scene();
 const persp = new THREE.PerspectiveCamera(42, 1, 0.1, 5000);
 const ortho = new THREE.OrthographicCamera(-100, 100, 100, -100, -2000, 4000);
@@ -210,21 +212,33 @@ for (let i = 0; i < 14; ++i) { const l = new THREE.PointLight(0xffc27a, 0, 32, 2
 
 // palette: materials 0..29, plot colours 30..53 (sRGB -> linear)
 const PAL = [];
-for (let i = 0; i < 64; ++i) PAL.push(new THREE.Color(0.5, 0.5, 0.5));
+for (let i = 0; i < 80; ++i) PAL.push(new THREE.Color(0.5, 0.5, 0.5));
 C.PALETTE.forEach((c, i) => PAL[i].setRGB(c[0] / 255, c[1] / 255, c[2] / 255).convertSRGBToLinear());
 const plotHues = [[205, 160, 120], [176, 196, 150], [150, 178, 204], [214, 186, 120], [196, 150, 170], [150, 190, 180], [222, 170, 140], [170, 160, 206]];
 for (let i = 0; i < 24; ++i) { const b = plotHues[i % 8], k = 0.86 + 0.14 * ((i >> 3) / 2); PAL[30 + i].setRGB(b[0] * k / 255, b[1] * k / 255, b[2] * k / 255).convertSRGBToLinear(); }
-const U = { grid: { value: 0 }, voxel: { value: 0.1 }, pal: { value: PAL } };
+for (const k in C.PROP_PALETTE) { const c = C.PROP_PALETTE[k]; PAL[+k].setRGB(c[0] / 255, c[1] / 255, c[2] / 255).convertSRGBToLinear(); }
+const U = { grid: { value: 0 }, voxel: { value: 0.1 }, pal: { value: PAL }, time: { value: 0 }, night: { value: 0 } };
 function cityMaterial() {
   const m = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 0, specular: 0x000000 });
   m.onBeforeCompile = (sh) => {
-    sh.uniforms.uPal = U.pal; sh.uniforms.uGrid = U.grid; sh.uniforms.uVoxel = U.voxel;
-    sh.vertexShader = 'attribute float mid;\nattribute float nid;\nuniform vec3 uPal[64];\nvarying vec3 vWP;\nvarying vec3 vON;\n' + sh.vertexShader
+    sh.uniforms.uPal = U.pal; sh.uniforms.uGrid = U.grid; sh.uniforms.uVoxel = U.voxel; sh.uniforms.uTime = U.time; sh.uniforms.uNight = U.night;
+    sh.vertexShader = 'attribute float mid;\nattribute float nid;\nattribute float iPhase;\nuniform vec3 uPal[80];\nuniform float uTime;\nuniform float uNight;\nvarying vec3 vWP;\nvarying vec3 vON;\nvarying vec3 vEmit;\n' + sh.vertexShader
       .replace('#include <beginnormal_vertex>',
-        'vec3 objectNormal = nid < 0.5 ? vec3(0.0, 1.0, 0.0) : nid < 1.5 ? vec3(1.0, 0.0, 0.0) : nid < 2.5 ? vec3(-1.0, 0.0, 0.0) : nid < 3.5 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 0.0, -1.0);\nvON = objectNormal;')
-      .replace('#include <color_vertex>', 'vColor = uPal[int(mid + 0.5)];')
+        'vec3 objectNormal = nid < 0.5 ? vec3(0.0, 1.0, 0.0) : nid < 1.5 ? vec3(1.0, 0.0, 0.0) : nid < 2.5 ? vec3(-1.0, 0.0, 0.0) : nid < 3.5 ? vec3(0.0, 0.0, 1.0) : nid < 4.5 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, -1.0, 0.0);\nvON = objectNormal;')
+      .replace('#include <color_vertex>', `int cmid = int(mid + 0.5);
+        vColor = uPal[cmid];
+        vEmit = vec3(0.0);
+        if (cmid == 57) vEmit = vColor * (0.15 + 2.6 * uNight);                    // street light lens
+        if (cmid >= 60 && cmid <= 62 || cmid == 68 || cmid == 69) {                           // signal cycle: 30 s, crossing roads alternate
+          float t = mod(uTime + iPhase * 15.0, 30.0);
+          int st = t < 12.0 ? 2 : (t < 15.0 ? 1 : 0);                             // 2 green, 1 amber, 0 red
+          bool lit = (cmid == 60 && st == 0) || (cmid == 61 && st == 1) || (cmid == 62 && st == 2) || (cmid == 69 && st == 2) || (cmid == 68 && st != 2);
+          vEmit = lit ? vColor * (1.4 + 1.8 * uNight) : vec3(0.0);
+          if (!lit) vColor *= 0.3;
+        }`)
       .replace('#include <project_vertex>', '#include <project_vertex>\nvWP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
-    sh.fragmentShader = 'uniform float uGrid;\nuniform float uVoxel;\nvarying vec3 vWP;\nvarying vec3 vON;\n' + sh.fragmentShader
+    sh.fragmentShader = 'uniform float uGrid;\nuniform float uVoxel;\nvarying vec3 vWP;\nvarying vec3 vON;\nvarying vec3 vEmit;\n' + sh.fragmentShader
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vEmit;')
       .replace('#include <color_fragment>', `#include <color_fragment>
         if (uGrid > 0.5) {
           vec3 q = vWP / uVoxel;
@@ -254,7 +268,7 @@ let roadMeshes = [], buildingMesh = null, plotMesh = null;
 function clearWorld() {
   for (const o of [...world.children]) { o.geometry.dispose(); world.remove(o); }
   for (const o of [...overlays.children]) { if (o.geometry) o.geometry.dispose(); overlays.remove(o); }
-  roadMeshes = []; buildingMesh = null; plotMesh = null; figureMesh = null;
+  roadMeshes = []; buildingMesh = null; plotMesh = null; figureMesh = null; propMeshes = []; lampHeads = [];
 }
 function addRoadChunk(m) {
   if (!m.idx.length) return;
@@ -274,7 +288,8 @@ function applyLighting() {
   hemi.intensity = day ? 0.62 : 1.0;
   sun.color.setRGB(...(day ? [1.0, 0.95, 0.86] : [0.55, 0.66, 0.95]));
   sun.intensity = day ? 0.95 : 0.3;
-  for (const l of lamps) l.intensity = day ? 0 : 1.7;
+  for (const l of lamps) l.intensity = day ? 0 : 1.5;
+  U.night.value = day ? 0 : 1;
   S.lampTimer = 0;
 }
 
@@ -302,25 +317,34 @@ function generate() {
   showProgress(0, 'Sampling the road network…');
   const ws = getWorkers();
   if (!ws.length) { runFallback(job); return; }
+  // dynamic scheduling: every worker builds the fields, then pulls chunks one at a time; worker 0 first builds
+  // the plots, buildings and street furniture
+  S.nextChunk = 0;
   ws.forEach((w, part) => {
-    w.onmessage = (e) => onWorker(e.data);
+    w.onmessage = (e) => onWorker(e.data, w);
     w.onerror = () => { if (job === S.job && !fallbackRunning) { ws.forEach(x => x.terminate()); workers.length = 0; clearWorld(); runFallback(job); } };
-    w.postMessage({ kind: S.scene, seed: S.seed, voxel: S.voxel, part, parts: ws.length, job });
+    w.postMessage({ cmd: 'start', kind: S.scene, seed: S.seed, voxel: S.voxel, blocks: part === 0, job });
   });
 }
-function onWorker(d) {
+function feed(w) {
+  if (S.nextChunk < S.stats.chunksTotal) w.postMessage({ cmd: 'chunk', index: S.nextChunk++, job: S.job });
+}
+function onWorker(d, w) {
   if (d.job !== S.job) return;
   const st = S.stats;
   if (d.type === 'begin') { st.chunksTotal = d.chunks; st.fieldsMs = Math.max(st.fieldsMs, d.fieldsMs); S.hs = d.hs; }
+  else if (d.type === 'ready') { for (let k = 0; k < 6; ++k) feed(w); }   // several chunks in flight per worker
   else if (d.type === 'chunk') {
-    addRoadChunk(d); st.chunksDone++; st.quads += d.quads; st.cells += d.w * d.d;
+    addRoadChunk(d); st.chunksDone++; st.quads += d.quads; st.cells += d.w * d.d; st.roadsMs += d.ms;
     showProgress(st.chunksDone / Math.max(1, st.chunksTotal), `Voxelising streets · chunk ${st.chunksDone} of ${st.chunksTotal}`);
-  } else if (d.type === 'blocks') addBlocks(d);
-  else if (d.type === 'end') {
-    st.roadsMs = Math.max(st.roadsMs, d.roadsMs); st.blocksMs = Math.max(st.blocksMs, d.blocksMs);
-    if (d.junctions) buildNetworkOverlay(d.junctions);
-    if (++st.partsDone === workers.length) finishBuild();
-  }
+    feed(w);
+    maybeFinish();
+  } else if (d.type === 'blocks') { addBlocks(d); st.blocksMs = d.blocksMs; buildNetworkOverlay(d.junctions); st.blocksDone = true; maybeFinish(); }
+  else if (d.type === 'props') addProps(d.props);
+}
+function maybeFinish() {
+  const st = S.stats;
+  if (st.blocksDone && st.chunksTotal && st.chunksDone === st.chunksTotal && !st.totalMs) finishBuild();
 }
 function runFallback(job) {                 // no workers (e.g. opened from disk): build on the main thread in slices
   fallbackRunning = true;
@@ -337,6 +361,7 @@ function runFallback(job) {                 // no workers (e.g. opened from disk
       st.cells = res.cells; st.fieldsMs = res.timing.fields; st.roadsMs = res.timing.roads; st.blocksMs = res.timing.buildings;
       S.hs = res.hs;
       addBlocks({ buildings: res.buildings, plots: res.plots, plotCount: res.plotCount });
+      if (res.props) addProps(res.props);
       buildNetworkOverlay(S.net.roads.map(r => r.junctions || []));
       fallbackRunning = false;
       finishBuild();
@@ -366,6 +391,7 @@ function addBlocks(d) {
 }
 function finishBuild() {
   const st = S.stats;
+  S.buildDone = (S.buildDone || 0) + 1;
   st.totalMs = performance.now() - st.t0;
   $('progress').hidden = true;
   applyLayers();
@@ -375,6 +401,41 @@ function showProgress(f, text) {
   $('progress').hidden = false;
   $('progressText').textContent = text;
   $('progressBar').style.width = (f * 100).toFixed(1) + '%';
+}
+
+// ------------------------------------------------------------------------------------------------ street furniture
+const PROP_GEOMS = {};
+const PROP_MAT = cityMaterial();
+for (const [k, m] of Object.entries(C.buildPropMeshes())) PROP_GEOMS[k] = geometryFrom(m);
+let propMeshes = [], lampHeads = [];
+function addProps(list) {
+  for (const pm of propMeshes) { world.remove(pm); pm.dispose && pm.dispose(); }
+  propMeshes = []; lampHeads = [];
+  const byType = {};
+  for (const p of list) (byType[p.type] = byType[p.type] || []).push(p);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+  for (const [type, items] of Object.entries(byType)) {
+    const g = PROP_GEOMS[type].clone();
+    const phase = new Float32Array(items.length);
+    const mesh = new THREE.InstancedMesh(g, PROP_MAT, items.length);
+    items.forEach((p, i) => {
+      q.setFromAxisAngle(up, p.yaw);
+      m4.compose(new THREE.Vector3(p.x, p.y, p.z), q, one);
+      mesh.setMatrixAt(i, m4);
+      phase[i] = p.phase || 0;
+      if (type === 'lamp' || type === 'lamp2') {
+        const reach = 2.3, dir = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+        lampHeads.push(new THREE.Vector3(p.x + dir.x * reach, p.y + 8.3, p.z + dir.z * reach));
+        if (type === 'lamp2') lampHeads.push(new THREE.Vector3(p.x - dir.x * reach, p.y + 8.3, p.z - dir.z * reach));
+      }
+    });
+    g.setAttribute('iPhase', new THREE.InstancedBufferAttribute(phase, 1));
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    world.add(mesh); propMeshes.push(mesh);
+    S.stats.props = (S.stats.props || 0) + items.length;
+  }
+  S.stats.propCounts = Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, v.length]));
+  applyLayers();
 }
 
 // ------------------------------------------------------------------------------------------------ overlays
@@ -531,6 +592,7 @@ function applyLayers() {
   if (plotMesh) plotMesh.visible = L.plots;
   if (networkGroup) networkGroup.visible = L.network;
   if (figureMesh) figureMesh.visible = L.figures;
+  for (const pm of propMeshes) pm.visible = L.props;
   $('legend').hidden = !L.network;
   U.grid.value = L.grid ? 1 : 0;
   renderer.shadowMap.enabled = L.shadows;
@@ -629,6 +691,7 @@ function frame(now) {
     }
   }
   controls.update();
+  U.time.value = now / 1000;
   // sun follows the view; shadow frustum sized to what is on screen
   const dist = camera.isOrthographicCamera ? 300 / camera.zoom : camera.position.distanceTo(controls.target);
   const half = Math.min(520, Math.max(25, dist * (camera.isOrthographicCamera ? 1.3 : 1.15)));
@@ -641,9 +704,12 @@ function frame(now) {
   // night: street lights at the junctions nearest to the view
   if (S.light === 'night' && (S.lampTimer -= dt) <= 0) {
     S.lampTimer = 0.4;
-    const nodes = S.junctionNodes.slice().sort((a, b) => Math.hypot(a.x - tgt.x, a.z - tgt.z) - Math.hypot(b.x - tgt.x, b.z - tgt.z));
-    lamps.forEach((l, i) => { const n = nodes[i]; if (n) { l.position.set(n.x + 6, 7, n.z + 6); l.intensity = 1.7; } else l.intensity = 0; });
+    const heads = lampHeads.length ? lampHeads.slice().sort((a, b) => Math.hypot(a.x - tgt.x, a.z - tgt.z) - Math.hypot(b.x - tgt.x, b.z - tgt.z))
+      : S.junctionNodes.map(n => new THREE.Vector3(n.x + 6, 7, n.z + 6)).sort((a, b) => Math.hypot(a.x - tgt.x, a.z - tgt.z) - Math.hypot(b.x - tgt.x, b.z - tgt.z));
+    lamps.forEach((l, i) => { const n = heads[i]; if (n) { l.position.set(n.x, n.y - 0.4, n.z); l.intensity = 1.5; } else l.intensity = 0; });
   }
+  const key = `${tx.toFixed(2)},${tz.toFixed(2)},${half.toFixed(1)},${S.buildDone || 0},${S.layers.shadows},${S.layers.figures},${S.layers.props},${S.layers.buildings}`;
+  if (key !== S.shadowKey) { S.shadowKey = key; renderer.shadowMap.needsUpdate = true; }
   renderer.render(scene, camera);
   updateLabels();
   if ((statT += dt) > 0.5) { statT = 0; updateStats(false); }
@@ -667,20 +733,21 @@ function updateStats() {
     ['Building plots', st.plotCount !== undefined ? String(st.plotCount) : '…'],
     ['Street triangles', fmt(roadTris)],
     ['Building triangles', fmt(bTris)],
+    ['Street furniture', st.propCounts ? Object.entries(st.propCounts).map(([k, v]) => `${v} ${k.replace('signalLong', 'signal')}`).reduce((a, x) => a + (a ? ', ' : '') + x, '') : '…'],
     ['Geometry memory', (gpuBytes / 1048576).toFixed(1) + ' MB'],
     ['Draw calls / frame', String(info.calls)],
     ['Triangles drawn', fmt(info.triangles)],
     ['Frame rate', fps ? fps.toFixed(0) + ' fps' : '…'],
     ['Build time', st.totalMs ? `${(st.totalMs / 1000).toFixed(1)} s (${workers.length || 1} thread${workers.length > 1 ? 's' : ''})` : '…'],
     ['· distance fields', st.fieldsMs ? (st.fieldsMs / 1000).toFixed(1) + ' s' : '…'],
-    ['· voxels + meshing', st.roadsMs ? (st.roadsMs / 1000).toFixed(1) + ' s' : '…'],
-    ['· plots + buildings', st.blocksMs ? (st.blocksMs / 1000).toFixed(1) + ' s' : '…']
+    ['· voxels + meshing (CPU)', st.roadsMs ? (st.roadsMs / 1000).toFixed(1) + ' s' : '…'],
+    ['· plots, buildings, props', st.blocksMs ? (st.blocksMs / 1000).toFixed(1) + ' s' : '…']
   ];
   $('stats').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
 }
 function bindToggle(id, key) { $(id).addEventListener('change', (e) => { S.layers[key] = e.target.checked; applyLayers(); }); }
 bindToggle('lyBuildings', 'buildings'); bindToggle('lyPlots', 'plots'); bindToggle('lyNetwork', 'network'); bindToggle('lyGrid', 'grid');
-bindToggle('lyShadows', 'shadows'); bindToggle('lyFigures', 'figures'); bindToggle('lyLabels', 'labels');
+bindToggle('lyShadows', 'shadows'); bindToggle('lyProps', 'props'); bindToggle('lyFigures', 'figures'); bindToggle('lyLabels', 'labels');
 function setScene(sc) {
   S.scene = sc;
   $('sceneCity').setAttribute('aria-pressed', String(sc === 'city'));
