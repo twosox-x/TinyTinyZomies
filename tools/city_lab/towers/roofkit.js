@@ -14,7 +14,7 @@
 //   3. a mechanical yard: packaged units on rails in a row, ducts running from them into the core or down
 //      through the deck, cooling towers on big office / industrial roofs, condenser rows on apartments;
 //   4. the street side: billboards facing the street, solar rows, roof gardens, skylights, greenhouses;
-//   5. antennas, dishes, chimneys on the side walls, and small vents / exhaust fans spread over what's left.
+//   5. antennas (no satellite dishes), chimneys on the side walls, and small vents / exhaust fans spread over what's left.
 // Every part is one cached VoxModel per variant (meshed once), items keep a gap of >= 2 voxels between them
 // and 1 m from the roof edge (chimneys and billboards may sit closer to the parapet).
 (function () {
@@ -767,7 +767,8 @@
     const dishP = { residential: 0.5, office: 0.35, historic: 0.3, industrial: 0.2 }[style];
     if (R() < dishP) {
       const n = 1 + (ia > 1500 && R() < 0.4 ? 1 : 0), dm = R() < 0.6 ? BM.TRIM : BM.METAL;
-      for (let k = 0; k < n; ++k) { const r = R() < 0.7 ? 2 : 3; placeAt(dishModel(r, dm, R() < 0.5 ? 0 : (R() < 0.5 ? 1 : 3)), nearCore(2 * r + 3, 2 * r + 3), { kind: 'dish' }, { gap: 2, jitter: 12 }); }
+      // satellite dishes removed (owner decision); the random draws are kept so every other roof item stays where it was
+      for (let k = 0; k < n; ++k) { R(); R(); R(); void dm; }
     }
     if (style !== 'residential' && ia > 1600 && R() < 0.35) placeAt(smallModel('riser', BM.METAL), (a, b) => Math.abs(b + 6 - back) + Math.abs(a - bx1) * 0.3, { kind: 'riser' });
     // ---- 7. small penetrations spread over what's left: vents, exhaust fans, cabinets
