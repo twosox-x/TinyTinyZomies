@@ -714,6 +714,28 @@ class Rasterizer {
       const c = Math.floor(key / 8), k = key % 8;
       if (v / cnt.get(c) >= 0.35 && v * F.cell * F.cell < 25000) this.blockArea.set(c, this.areas[k].kind);
     }
+    // pocket plazas: in the city (downtown / along avenues), small blocks and wedge-shaped slivers left between
+    // diagonal and grid streets are paved squares with kiosks, not building plots
+    if (this.net.kind === 'city') {
+      const st = new Map();
+      for (let iz = 0; iz < F.nz; ++iz) for (let ix = 0; ix < F.nx; ++ix) {
+        const i = iz * F.nx + ix, c = F.comp[i];
+        if (c < 0) continue;
+        let b = st.get(c);
+        if (!b) st.set(c, b = { n: 0, x0: ix, x1: ix, z0: iz, z1: iz, art: 0, dt: 0, res: 0, maxd: 0 });
+        b.n++; b.x0 = Math.min(b.x0, ix); b.x1 = Math.max(b.x1, ix); b.z0 = Math.min(b.z0, iz); b.z1 = Math.max(b.z1, iz);
+        const r = this.roads[F.road[i]];
+        if (r) { if (r.P.cls === 'arterial') b.art++; if (r.district === 'downtown') b.dt++; if (r.district === 'residential') b.res++; }
+        b.maxd = Math.max(b.maxd, F.car[i] - F.sw[i]);
+      }
+      this.pocket = 0;
+      for (const [c, b] of st) {
+        if (this.blockArea.has(c)) continue;
+        const area = b.n * F.cell * F.cell, fill = b.n / ((b.x1 - b.x0 + 1) * (b.z1 - b.z0 + 1));
+        const urban = (b.art + b.dt) > b.n * 0.3 && b.res < b.n * 0.3;
+        if (urban && (area < 900 || (fill < 0.62 && area < 3500) || (fill < 0.78 && b.maxd < 12.5) || b.maxd < 8)) { this.blockArea.set(c, 'pocket'); this.pocket++; }
+      }
+    }
   }
   areaAt(x, z, road, u) {
     if (!this.blockArea) this.blockAreas();
@@ -820,7 +842,7 @@ class Rasterizer {
       return;
     }
     out[0] = hs;
-    if (area === 'plaza' || area === 'square') { out[1] = plazaTile(x, z, v); return; }
+    if (area === 'plaza' || area === 'square' || area === 'pocket') { out[1] = plazaTile(x, z, v); return; }
     if (area === 'park') { out[1] = parkSurface(x, z, v); return; }
     if (area === 'lot') { out[1] = MAT.LOT; return; }
     out[1] = road.district === 'residential' ? MAT.YARD : MAT.PLOT;
@@ -898,7 +920,7 @@ class Plots {
       }
       s += rg[0] + R() * (rg[1] - rg[0]); cuts.push(s);
     }
-    return { cuts, gaps: cuts.map(() => (R() < (d === 'residential' ? 0.55 : 0.16) ? 4 + R() * 2 : 0)) };   // attached, or a real gap
+    return { cuts, gaps: cuts.map(() => (R() < (d === 'residential' ? 0.55 : 0.04) ? 4 + R() * 2 : 0)) };   // dense districts: attached
   }
   // per-lot parameters
   lotInfo(roadId, lot) {
@@ -908,8 +930,8 @@ class Plots {
     const d = r.district;
     let stories, depth, setback;
     const P = r.P;
-    if (d === 'downtown' || d === 'arterial') { stories = 6 + Math.floor(h * h * 10); depth = 26 + h2 * 18; setback = 0; if (P.cls === 'arterial') stories += 2; }
-    else if (d === 'oldtown') { stories = 4 + Math.floor(h * 5); depth = 18 + h2 * 10; setback = 0; }
+    if (d === 'downtown' || d === 'arterial') { stories = 6 + Math.floor(h * h * 10); depth = 70; setback = 0; if (P.cls === 'arterial') stories += 2; }
+    else if (d === 'oldtown') { stories = 4 + Math.floor(h * 5); depth = 50; setback = 0; }
     else if (d === 'test') { stories = 3 + Math.floor(h * 6); depth = 16 + h2 * 10; setback = 0; }
     else { stories = 2 + Math.floor(h * 3); depth = 14 + h2 * 6; setback = 4 + h2 * 3; }
     if (P.id === 'alley') { stories = Math.max(2, stories - 3); }
@@ -944,6 +966,7 @@ class Plots {
       if (better && d2 < i2.setback + i2.depth && this.cornerish(rid, o.road2, x, z)) { rid = o.road2; s = o.s2; d = d2; }
     }
     if (rank(roads[rid]) === 0) return -1;
+    if (roads[rid].district === 'residential' && roads[rid].P.cls === 'local') return -1;   // planned subdivisions (city_arch)
     const lot = this.findLot(rid, s);
     const info = this.lotInfo(rid, lot);
     if (d < info.setback || d > info.setback + info.depth) return -1;
@@ -1371,12 +1394,15 @@ function runSync(gen) { let r; for (const step of gen) r = step; return r.result
 const PV = 0.05;
 const PM = {                                     // prop materials (palette indices 54..)
   POLE: 54, POLE_DARK: 55, LAMP_HEAD: 56, LAMP_LENS: 57, HOUSING: 58, BACKPLATE: 59, LENS_R: 60, LENS_A: 61, LENS_G: 62,
-  SIGN_RED: 63, SIGN_WHITE: 64, SIGN_GREEN: 65, HYDRANT: 66, HYDRANT_CAP: 67, PED_ORANGE: 68, PED_WHITE: 69, CONCRETE: 70
+  SIGN_RED: 63, SIGN_WHITE: 64, SIGN_GREEN: 65, HYDRANT: 66, HYDRANT_CAP: 67, PED_ORANGE: 68, PED_WHITE: 69, CONCRETE: 70,
+  STEEL: 130, UMB_RED: 131, UMB_YELLOW: 132, LEAF: 133, LEAF_DARK: 134, TRUNK: 135, BENCH_WOOD: 136, KIOSK_GREEN: 137, PAPER: 138, UMB_BLUE: 139, SOIL: 140
 };
 const PROP_PALETTE = {
   54: [112, 118, 116], 55: [62, 68, 70], 56: [78, 84, 86], 57: [246, 236, 206], 58: [44, 48, 50], 59: [30, 32, 34],
   60: [150, 46, 40], 61: [176, 128, 40], 62: [52, 138, 96], 63: [176, 62, 54], 64: [236, 234, 226], 65: [58, 116, 84],
-  66: [178, 70, 56], 67: [214, 178, 84], 68: [222, 132, 58], 69: [226, 226, 218], 70: [168, 164, 156]
+  66: [178, 70, 56], 67: [214, 178, 84], 68: [222, 132, 58], 69: [226, 226, 218], 70: [168, 164, 156],
+  130: [176, 182, 186], 131: [190, 70, 60], 132: [226, 190, 80], 133: [118, 150, 92], 134: [92, 124, 74], 135: [104, 82, 64],
+  136: [150, 112, 76], 137: [62, 104, 82], 138: [222, 214, 196], 139: [80, 120, 168], 140: [96, 80, 66]
 };
 class VoxModel {
   constructor(w, h, d, ox, oz) { this.w = w; this.h = h; this.d = d; this.ox = ox; this.oz = oz; this.v = new Uint8Array(w * h * d); }
@@ -1511,7 +1537,57 @@ function modelHydrant() {
   M.box(-5, 7, -1, 6, 9, 2, PM.HYDRANT).box(-1, 7, 3, 2, 10, 5, PM.HYDRANT_CAP);            // nozzles
   return M;
 }
+
+function modelHotdog() {
+  // street food cart (1.6 x 0.8 m) with wheels and a striped umbrella, 2.3 m
+  const M = new VoxModel(40, 48, 40, 20, 20);
+  M.box(-16, 4, -8, 16, 18, 8, PM.STEEL).box(-16, 18, -8, 16, 19, 8, PM.POLE_DARK);
+  M.box(-14, 10, -9, 14, 16, -8, PM.UMB_RED).box(-14, 12, -9, 14, 13, -8, PM.SIGN_WHITE);
+  for (const x of [-12, 9]) M.box(x, 0, -9, x + 3, 5, -7, PM.POLE_DARK).box(x, 0, 7, x + 3, 5, 9, PM.POLE_DARK);
+  M.box(-1, 19, -1, 1, 42, 1, PM.POLE);
+  for (let r = 0; r < 4; ++r) for (let k = -18 + r * 2; k < 18 - r * 2; k += 4)
+    M.box(k, 42 + r, -18 + r * 2, k + 2, 43 + r, 18 - r * 2, PM.UMB_YELLOW).box(k + 2, 42 + r, -18 + r * 2, k + 4, 43 + r, 18 - r * 2, PM.UMB_RED);
+  return M;
+}
+function modelNewsstand() {
+  // newsstand booth 2.4 x 1.6 m, green with a service window, awning and magazine racks
+  const M = new VoxModel(52, 56, 40, 26, 20);
+  M.box(-24, 0, -14, 24, 50, 16, PM.KIOSK_GREEN).box(-26, 50, -16, 26, 53, 18, PM.POLE_DARK);
+  M.box(-18, 20, -15, 18, 38, -14, PM.HOUSING).box(-20, 18, -18, 20, 20, -14, PM.STEEL);
+  M.box(-22, 40, -20, 22, 42, -14, PM.UMB_RED);
+  for (let k = -20; k < 20; k += 5) M.box(k, 4, -16, k + 4, 16, -14, (k / 5) % 2 ? PM.PAPER : PM.SIGN_RED);
+  return M;
+}
+function modelBench() {
+  const M = new VoxModel(36, 18, 14, 18, 7);
+  for (const x of [-16, 13]) M.box(x, 0, -5, x + 3, 9, 5, PM.POLE_DARK);
+  M.box(-18, 8, -5, 18, 9, 4, PM.BENCH_WOOD).box(-18, 10, 4, 18, 17, 5, PM.BENCH_WOOD);
+  return M;
+}
+function modelTree() {
+  // street tree in a square planter: 1.2 m planter, trunk, layered voxel canopy (~6 m)
+  const M = new VoxModel(80, 124, 80, 40, 40);
+  M.box(-12, 0, -12, 12, 6, 12, PM.CONCRETE).box(-11, 6, -11, 11, 7, 11, PM.SOIL);
+  M.box(-2, 7, -2, 2, 60, 2, PM.TRUNK);
+  const R = mulberry32(17);
+  for (let k = 0; k < 18; ++k) {
+    const cx = Math.round((R() - 0.5) * 36), cz = Math.round((R() - 0.5) * 36), cy = 64 + Math.round(R() * 40);
+    const r = 8 + Math.round(R() * 8);
+    M.box(cx - r, cy - r * 0.7 | 0, cz - r, cx + r, cy + r * 0.7 | 0, cz + r, k % 3 ? PM.LEAF : PM.LEAF_DARK);
+  }
+  return M;
+}
+function modelCafe() {
+  // cafe table with two chairs and a market umbrella
+  const M = new VoxModel(60, 50, 60, 30, 30);
+  M.box(-1, 0, -1, 1, 14, 1, PM.POLE_DARK).box(-8, 14, -8, 8, 15, 8, PM.STEEL);
+  for (const z of [-14, 12]) M.box(-4, 0, z, 4, 9, z + 2, PM.POLE_DARK).box(-4, 9, z - 2, 4, 10, z + 4, PM.STEEL);
+  M.box(-1, 15, -1, 1, 42, 1, PM.POLE);
+  for (let r = 0; r < 4; ++r) M.box(-26 + r * 4, 42 + r, -26 + r * 4, 26 - r * 4, 43 + r, 26 - r * 4, r % 2 ? PM.SIGN_WHITE : PM.UMB_BLUE);
+  return M;
+}
 const PROP_TYPES = {
+  hotdog: modelHotdog, newsstand: modelNewsstand, bench: modelBench, tree: modelTree, cafe: modelCafe,
   lamp: () => modelLamp(false), lamp2: () => modelLamp(true), signal: () => modelSignal(5.2, 1), signalLong: () => modelSignal(9.2, 1),
   stop: modelStop, hydrant: modelHydrant
 };
@@ -1536,6 +1612,28 @@ function placeProps(ctx) {
     return cls[1] === MAT.SIDEWALK || cls[1] === MAT.SIDEWALK_JOINT || (want === 'any' && cls[1] === MAT.PLAZA);
   };
   const through = (r) => r.P.cls === 'arterial' || r.P.cls === 'collector';
+  // plazas, squares and pocket plazas: kiosks, food carts, cafe tables, benches and trees on a jittered grid
+  if (R.blockArea === undefined) R.blockAreas();
+  {
+    const b = net.bounds, step = 6.5;
+    for (let gz = b.z0; gz < b.z1; gz += step) for (let gx = b.x0; gx < b.x1; gx += step) {
+      const h = hash2(Math.round(gx * 3), Math.round(gz * 3), 71), h2 = hash2(Math.round(gx * 5), Math.round(gz * 7), 29);
+      const x = gx + (h - 0.5) * 3, z = gz + (h2 - 0.5) * 3;
+      const c = F.blockAt(x, z), kind = c >= 0 ? R.blockArea.get(c) : undefined;
+      if (kind !== 'pocket' && kind !== 'plaza' && kind !== 'square') continue;
+      R.classify(x, z, o, cls);
+      if (!(cls[1] === MAT.PLAZA || cls[1] === MAT.PLAZA_JOINT) || o.car < o.sw + 1.6) continue;
+      const r = net.roads[o.road];
+      const [px, pz] = pointAt(r, Math.max(0, Math.min(r.len, o.s)));
+      const yaw = yawTowards(x, z, [px, pz]);
+      const nearEdge = o.car < o.sw + 6;
+      const t = hash2(Math.round(gx), Math.round(gz), 5);
+      let type;
+      if (nearEdge) type = t < 0.3 ? 'tree' : t < 0.5 ? 'bench' : t < 0.68 ? 'hotdog' : t < 0.8 ? 'newsstand' : 'cafe';
+      else type = t < 0.35 ? 'tree' : t < 0.55 ? 'cafe' : t < 0.75 ? 'bench' : t < 0.88 ? 'hotdog' : null;
+      if (type) out.push({ type, x, y: hsM, z, yaw, road: o.road });
+    }
+  }
   for (const r of net.roads) {
     const P = r.P;
     if (P.id === 'alley' || !r.len) continue;

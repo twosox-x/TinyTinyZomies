@@ -63,14 +63,30 @@ class Emitter {
     this.quad([x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], m, [1, 0, 0]);
   }
   // relief / height map meshed by the column mesher, then mapped: map(rx, ry, rz) -> local (x, y, z)
-  relief(H, M, w, d, map, wallMat, C) {
+  relief(H, M, w, d, map, wallMat, C, clampDepth) {
     const t = new C.MeshBuffer();
     C.meshColumns(H, M, w, d, 0, 0, wallMat, t);
+    if (clampDepth) {
+      // facade reliefs extend BASE voxels into the building; their outer boundary faces there (tops under the
+      // roof, bottoms on podiums, ends at the corners) would be coplanar with the roof / neighbouring walls:
+      // pull them out to the wall plane. Window reveals (depth 1..2) are untouched.
+      const P = t.pos;
+      for (let q = 0; q < t.quads; ++q) {
+        if (t.nrm[q * 4] === 0) continue;
+        const k = q * 12;
+        let mn = 1e9; for (let c = 1; c < 12; c += 3) mn = Math.min(mn, P[k + c]);
+        if (mn > 0) continue;
+        let mx = -1e9;
+        for (let c = 1; c < 12; c += 3) { if (P[k + c] < clampDepth) P[k + c] = clampDepth; mx = Math.max(mx, P[k + c]); }
+        if (mx <= clampDepth) t.mat[q * 4] = 255;                         // degenerate: drop
+      }
+    }
     const o = map(0, 0, 0);
     const dir = (dx, dy, dz) => { const p = map(dx, dy, dz); return [p[0] - o[0], p[1] - o[1], p[2] - o[2]]; };
     const NR = [dir(0, 1, 0), dir(1, 0, 0), dir(-1, 0, 0), dir(0, 0, 1), dir(0, 0, -1)];
     for (let q = 0; q < t.quads; ++q) {
       const k = q * 12, P = t.pos;
+      if (t.mat[q * 4] === 255) continue;
       this.quad(map(P[k], P[k + 1], P[k + 2]), map(P[k + 3], P[k + 4], P[k + 5]), map(P[k + 6], P[k + 7], P[k + 8]),
         map(P[k + 9], P[k + 10], P[k + 11]), t.mat[q * 4], NR[t.nrm[q * 4]]);
     }
@@ -247,22 +263,42 @@ function facadeGlass(W, floors, fh, S) {
 
 // ------------------------------------------------------------------------------------------------ building parts
 // four facades of a box [x0,x1] x [z0,z1] (voxels) starting at height y0; facade(len, side, front) -> Relief
-function facades(E, x0, z0, x1, z1, y0, facadeFn, C, frontSides) {
+function facades(E, x0, z0, x1, z1, y0, facadeFn, C, frontSides, party) {
+  // party: { l, r } - an attached neighbour at the x0 (l) / x1 (r) end. Those ends get a plain flush party wall
+  // and no corner returns, so neighbouring cornices / bands never overlap (no coplanar faces between buildings).
+  party = party || {};
   const W = x1 - x0, D = z1 - z0;
   const wall = (m) => m;
   const sides = [
-    { len: W, map: (F) => (rx, ry, rz) => [x0 + rx - F.ext, y0 + rz, z0 + BASE - ry], side: false, front: true },
-    { len: W, map: (F) => (rx, ry, rz) => [x1 - (rx - F.ext), y0 + rz, z1 + (ry - BASE)], side: false, front: false },
-    { len: D, map: (F) => (rx, ry, rz) => [x0 + BASE - ry, y0 + rz, z1 - (rx - F.ext)], side: true, front: false },
-    { len: D, map: (F) => (rx, ry, rz) => [x1 + (ry - BASE), y0 + rz, z0 + (rx - F.ext)], side: true, front: false }
+    { len: W, map: (F) => (rx, ry, rz) => [x0 + rx - F.ext, y0 + rz, z0 + BASE - ry], side: false, front: true, lo: 'l', hi: 'r' },
+    { len: W, map: (F) => (rx, ry, rz) => [x1 - (rx - F.ext), y0 + rz, z1 + (ry - BASE)], side: false, front: false, lo: 'r', hi: 'l' },
+    { len: D, map: (F) => (rx, ry, rz) => [x0 + BASE - ry, y0 + rz, z1 - (rx - F.ext)], side: true, front: false, at: 'l' },
+    { len: D, map: (F) => (rx, ry, rz) => [x1 + (ry - BASE), y0 + rz, z0 + (rx - F.ext)], side: true, front: false, at: 'r' }
   ];
   for (const sd of sides) {
-    const F = facadeFn(sd.len, sd.side && !(frontSides || false), sd.front);
+    let F = facadeFn(sd.len, sd.side && !(frontSides || false), sd.front);
+    if (sd.side && party[sd.at]) {                                // plain party wall, same height
+      const P = new Relief(sd.len, F.h, 0, F.M[F.idx(0, 0)]);
+      F = P;
+    }
     if (sd.side) {                                                // side facades: no corner returns (front/back carry them)
       for (let v = 0; v < F.h; ++v) for (let e = 1; e <= F.ext; ++e) { F.set(-e, v, -1, 0); F.set(sd.len - 1 + e, v, -1, 0); }
+    } else {
+      for (let v = 0; v < F.h; ++v) for (let e = 1; e <= F.ext; ++e) {
+        if (party[sd.lo]) F.set(-e, v, -1, 0);
+        if (party[sd.hi]) F.set(sd.len - 1 + e, v, -1, 0);
+      }
     }
-    E.relief(F.H, F.M, F.w, F.h, sd.map(F), wall, C);
+    E.relief(F.H, F.M, F.w, F.h, sd.map(F), wall, C, BASE);
   }
+}
+// an emitter for a part rotated by th about building-local voxel point (cx, cz); the part's local origin is at
+// the rotated offset (ox, oz) from that point. Rigid rotation of the mesh: no carving, no grid rotation.
+function rotated(E, cx, cz, th, ox, oz) {
+  const c = Math.cos(th), s = Math.sin(th);
+  const e1 = [c * E.e1[0] + s * E.e2[0], c * E.e1[1] + s * E.e2[1]], e2 = [-s * E.e1[0] + c * E.e2[0], -s * E.e1[1] + c * E.e2[1]];
+  const C0 = [E.O[0] + cx * BV * E.e1[0] + cz * BV * E.e2[0], E.O[1] + cx * BV * E.e1[1] + cz * BV * E.e2[1]];
+  return new Emitter(E.mb, [C0[0] + ox * BV * e1[0] + oz * BV * e2[0], C0[1] + ox * BV * e1[1] + oz * BV * e2[1]], e1, e2, E.y0, E.v);
 }
 // flat roof: parapet, tar, optional penthouse and rooftop units
 function flatRoof(E, x0, z0, x1, z1, yTop, S, C, opts) {
@@ -312,7 +348,7 @@ function gableRoof(E, x0, z0, x1, z1, yTop, S, C) {
   // chimney
   const cx = S.chimneyLeft ? ov + 3 : W - ov - 6, cz = Math.floor(D * 0.35);
   for (let z = cz; z < cz + 3; ++z) for (let x = cx; x < cx + 3; ++x) { const i = (z + 1) * W2 + x + 1; H[i] += 6; M[i] = BM.BRICK_RED; }
-  E.relief(H, M, W, D, (rx, ry, rz) => [x0 - ov + rx, yTop + ry, z0 - ov + rz], (m) => (m === S.roof ? BM.TRIM : m), C);
+  E.relief(H, M, W, D, (rx, ry, rz) => [x0 - ov + rx, yTop + ry, z0 - ov + rz], (m) => m, C);
 }
 
 // ------------------------------------------------------------------------------------------------ building types
@@ -332,9 +368,22 @@ function buildHouse(E, W, D, spec, C) {
   // front porch: deck, posts, roof, steps
   const pw = Math.min(W - 4, 24), px0 = Math.floor((W - pw) / 2);
   E.box(px0, 0, -8, px0 + pw, 2, 0, BM.WOOD);
-  for (const x of [px0, px0 + pw - 1]) E.box(x, 2, -8, x + 1, 11, -7, BM.TRIM, true);
-  E.box(px0 - 1, 11, -9, px0 + pw + 1, 12, 0, S.roof);
+  for (const x of [px0, px0 + pw - 1]) E.box(x, 2, -8, x + 1, 13, -7, BM.TRIM, true);
+  E.box(px0 - 1, 13, -9, px0 + pw + 1, 14, 0, S.roof);
   E.box(px0 + (pw >> 1) - 3, 0, -10, px0 + (pw >> 1) + 3, 1, -8, BM.CONCRETE);
+  if (spec.setback) {
+    const sb = Math.round(spec.setback);
+    const flat = (x0, z0, x1, z1) => E.quad([x0, 0.25, z0], [x1, 0.25, z0], [x1, 0.25, z1], [x0, 0.25, z1], BM.CONCRETE, [0, 1, 0]);
+    flat(px0 + (pw >> 1) - 2, -sb, px0 + (pw >> 1) + 2, -10);                    // front walk to the sidewalk
+    if (spec.garage) {                                                           // attached garage + driveway
+      const gw = 14, gd = Math.min(D - 4, 22);
+      E.box(W, 0, 2, W + gw, 11, 2 + gd, S.wall);
+      E.box(W - 1, 11, 1, W + gw + 1, 12, 3 + gd, S.roof);
+      E.box(W + 2, 0, 1, W + gw - 2, 9, 2, BM.TRIM);                             // garage door
+      for (let v = 2; v < 9; v += 2) E.box(W + 2, v, 0.8, W + gw - 2, v + 0.3, 1, S.wallShade);
+      flat(W + 1, -sb, W + gw - 1, 1);
+    } else flat(W + 1, -sb, W + 12, Math.floor(D * 0.6));                         // driveway along the side
+  }
 }
 function buildRows(E, W, D, spec, C) {
   // a terrace of attached rowhouses along the frontage, each 5.5-7 m wide with its own colour and detail
@@ -350,11 +399,12 @@ function buildRows(E, W, D, spec, C) {
     };
     S.wallShadeOr = shadeOf(S.wall);
     const floors = spec.floors + (R() < 0.25 ? 1 : 0), fh = 13;
-    facades(E, x, 0, x + w, D, 0, (len, side, front) => facadeRow(len, floors, fh, S, side, front), C);
+    facades(E, x, 0, x + w, D, 0, (len, side, front) => facadeRow(len, floors, fh, S, side, front), C, false,
+      { l: x > 0 || !!(spec.party && spec.party.l), r: x + w < W || !!(spec.party && spec.party.r) });
     flatRoof(E, x, 0, x + w, D, floors * fh + 4, S, C, { parapet: 1, parapetMat: S.corniceMat, units: 1 });
     // stoop: limestone steps up to the door
     const dc = bays(w, 8, 2); const c = x + dc[dc.length - 1];
-    for (let s = 0; s < 4; ++s) E.box(c - 3, 0, -4 - (3 - s) * 2, c + 3, 1 + s, -4 - (3 - s) * 2 + 2, BM.LIMESTONE);
+    for (let s = 0; s < 3; ++s) E.box(c - 3, 0, -4 - (3 - s) * 2, c + 3, 1 + s, -4 - (3 - s) * 2 + 2, BM.LIMESTONE);
     E.box(c - 3, 0, -4, c + 3, 4, 0, BM.LIMESTONE);
     if (R() < 0.3 && w > 24 && D > 30) waterTank(E, x + (w >> 1), Math.floor(D * 0.6), floors * fh + 4);
     x += w; ++k;
@@ -369,7 +419,7 @@ function buildMid(E, W, D, spec, C) {
     shops: spec.shops, bayW: pick(R, [9, 10, 11]), lintels: R() < 0.6, trim: BM.TRIM
   };
   const floors = spec.floors, fh = 14;
-  facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, floors, fh, S, side), C, true);
+  facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, floors, fh, S, side), C, true, spec.party);
   flatRoof(E, 0, 0, W, D, floors * fh + 5, S, C, { parapet: 2, parapetMat: BM.LIMESTONE_DARK, penthouse: floors >= 7 });
   if (R() < 0.45 && W > 30 && D > 30) waterTank(E, Math.floor(W * (0.2 + R() * 0.5)), Math.floor(D * 0.6), floors * fh + 5);
 }
@@ -399,17 +449,97 @@ function buildTower(E, W, D, spec, C) {
     for (let k = 0; k < 4; ++k) E.box(cx - 8 + 2 * k, yt + k * 6, cz - 8 + 2 * k, cx + 8 - 2 * k, yt + (k + 1) * 6, cz + 8 - 2 * k, k % 2 ? S.wall : BM.TRIM);
     E.box(cx - 1, yt + 24, cz - 1, cx + 1, yt + 64, cz + 1, BM.METAL);                           // spire
   } else {
-    // glass tower on a stone podium
-    const SP = { seed: spec.seed, wall: pick(R, [BM.LIMESTONE, BM.LIMESTONE_DARK]), base: BM.LIMESTONE_DARK, awning: BM.AWNING_BLUE, shops: true, bayW: 10, lintels: false, trim: BM.TRIM };
-    const podF = 4;
-    facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, podF, fh, SP, side), C, true);
-    flatRoof(E, 0, 0, W, D, podF * fh + 5, SP, C, { parapet: 2, parapetMat: SP.wall, units: 2 });
-    const ix = Math.max(6, Math.round(W * 0.16)), iz = Math.max(6, Math.round(D * 0.16));
-    const S = { seed: spec.seed + 7 };
-    const n = spec.floors - podF, y0 = podF * fh + 5;
-    facades(E, ix, iz, W - ix, D - iz, y0, (len) => facadeGlass(len, n, fh, S), C, true);
-    flatRoof(E, ix, iz, W - ix, D - iz, y0 + n * fh + 2, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 6, parapetMat: BM.MULLION, units: 3, penthouse: true });
+    const v = R();
+    if (v < 0.3) modernTwist(E, W, D, spec, C, R);
+    else if (v < 0.6) modernStack(E, W, D, spec, C, R);
+    else if (v < 0.8) modernSlant(E, W, D, spec, C, R);
+    else modernPodium(E, W, D, spec, C, R);
   }
+}
+// one storey of curtain wall: spandrel band at the floor line, glass, projecting mullions (from row 1 up, so a
+// floor slab can sit under it without coplanar faces)
+function facadeGlassFloor(W, fh, S, k, fin) {
+  const F = new Relief(W, fh, 0, BM.CURTAIN);
+  for (let u = 0; u < W; u += 5) F.rect(u, 2, u + 5, fh, BASE, H2(S.seed, u, k) < 0.33 ? BM.CURTAIN_LIT : BM.CURTAIN);
+  F.rect(0, 0, W, 2, BASE, BM.SPANDREL);
+  for (let u = 0; u < W; u += 5) F.rect(u, 1, u + 1, fh, fin ? 4 : 3, BM.MULLION);
+  return F;
+}
+function glassBlock(E, x0, z0, x1, z1, y0, n, fh, S, C, opts) {
+  opts = opts || {};
+  for (let k = 0; k < n; ++k) {
+    facades(E, x0, z0, x1, z1, y0 + k * fh, (len) => facadeGlassFloor(len, fh, S, k, opts.fins), C, true);
+    if (opts.slabs) E.box(x0 - 1, y0 + k * fh, z0 - 1, x1 + 1, y0 + k * fh + 1, z1 + 1, BM.TRIM, k > 0);   // balcony / floor slab edge
+  }
+}
+// Twisting tower: square floor plates, each rotated a little further (total 45-90 degrees), slab edges
+// expressing every floor - the silhouette spirals as the camera moves around it
+function modernTwist(E, W, D, spec, C, R) {
+  const fh = 14, n = spec.floors, S = { seed: spec.seed };
+  const side = Math.floor(Math.min(W, D) * 0.68), cx = W / 2, cz = D / 2;
+  const total = (0.8 + R() * 0.8) * (R() < 0.5 ? 1 : -1);
+  // stone plinth (lobby) under the twist
+  facades(E, 2, 2, W - 2, D - 2, 0, (len) => { const F = new Relief(len, 16, 0, BM.LIMESTONE_DARK); F.rect(2, 2, len - 2, 14, 1, BM.STOREFRONT); return F; }, C, true);
+  flatRoof(E, 2, 2, W - 2, D - 2, 16, { seed: spec.seed, trim: BM.LIMESTONE }, C, { parapet: 1, parapetMat: BM.LIMESTONE, units: 0 });
+  for (let k = 0; k < n; ++k) {
+    const th = total * k / Math.max(1, n - 1);
+    const Ek = rotated(E, cx, cz, th, -side / 2, -side / 2);
+    Ek.y0 = E.y0 + 16 * BV + 1 * BV;
+    facades(Ek, 0, 0, side, side, k * fh + 1, (len) => facadeGlassFloor(len, fh - 1, S, k), C, true);
+    Ek.box(-1, k * fh, -1, side + 1, k * fh + 1, side + 1, BM.TRIM, k > 0);
+    if (k === n - 1) {
+      flatRoof(Ek, 0, 0, side, side, k * fh + fh, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 3, parapetMat: BM.MULLION, units: 2 });
+      Ek.box((side >> 1) - 1, k * fh + fh, (side >> 1) - 1, (side >> 1) + 1, k * fh + fh + 30, (side >> 1) + 1, BM.METAL, true);   // mast
+    }
+  }
+}
+// Stacked cantilevers: 3-4 glass volumes of different sizes, each shifted so it overhangs the one below
+function modernStack(E, W, D, spec, C, R) {
+  const fh = 14, S = { seed: spec.seed };
+  const nb = 3 + (R() < 0.5 ? 1 : 0);
+  let y = 0, left = spec.floors;
+  for (let b = 0; b < nb; ++b) {
+    const n = b === nb - 1 ? left : Math.max(3, Math.round(spec.floors / nb + (R() - 0.5) * 4));
+    left -= n; if (n <= 0) break;
+    const bw = Math.floor(W * (0.55 + R() * 0.3)), bd = Math.floor(D * (0.55 + R() * 0.3));
+    const x0 = b === 0 ? Math.floor((W - bw) / 2) : (b % 2 ? 0 : W - bw), z0 = b === 0 ? Math.floor((D - bd) / 2) : (b % 2 ? D - bd : 0);
+    glassBlock(E, x0, z0, x0 + bw, z0 + bd, y, n, fh, { seed: spec.seed + b }, C, { fins: b % 2 === 1 });
+    E.quad([x0, y, z0], [x0 + bw, y, z0], [x0 + bw, y, z0 + bd], [x0, y, z0 + bd], BM.SPANDREL, [0, -1, 0]);   // soffit
+    y += n * fh;
+    flatRoof(E, x0, z0, x0 + bw, z0 + bd, y, { seed: spec.seed + b, trim: BM.MULLION }, C, { parapet: 2, parapetMat: BM.MULLION, units: b === nb - 1 ? 3 : 0 });
+    y += 0;
+  }
+}
+// Slanted crown: a glass shaft with vertical fins whose top slopes in voxel steps across the roof
+function modernSlant(E, W, D, spec, C, R) {
+  const fh = 14, S = { seed: spec.seed };
+  const n = spec.floors;
+  glassBlock(E, 0, 0, W, D, 0, n, fh, S, C, { fins: true });
+  const rise = Math.round(Math.min(W, D) * (0.5 + R() * 0.4)), W2 = W + 2;
+  const H = new Int16Array(W2 * (D + 2)).fill(-1), M = new Uint8Array(W2 * (D + 2));
+  const alongX = R() < 0.5;
+  for (let z = 0; z < D; ++z) for (let x = 0; x < W; ++x) {
+    const t = alongX ? x / (W - 1) : z / (D - 1);
+    const i = (z + 1) * W2 + x + 1;
+    H[i] = 1 + Math.round(t * rise);
+    M[i] = (alongX ? x : z) % 5 === 0 ? BM.MULLION : (H2(spec.seed, x, z) < 0.25 ? BM.CURTAIN_LIT : BM.CURTAIN);
+  }
+  E.relief(H, M, W, D, (rx, ry, rz) => [rx, n * fh + ry, rz], (m) => m, C);
+}
+// Glass tower on a limestone podium with a setback and a glazed lantern on top
+function modernPodium(E, W, D, spec, C, R) {
+  const fh = 14;
+  const SP = { seed: spec.seed, wall: pick(R, [BM.LIMESTONE, BM.LIMESTONE_DARK]), base: BM.LIMESTONE_DARK, awning: BM.AWNING_BLUE, shops: true, bayW: 10, lintels: false, trim: BM.TRIM };
+  const podF = 4;
+  facades(E, 0, 0, W, D, 0, (len, side) => facadeMid(len, podF, fh, SP, side), C, true);
+  flatRoof(E, 0, 0, W, D, podF * fh + 5, SP, C, { parapet: 2, parapetMat: SP.wall, units: 2 });
+  const ix = Math.max(6, Math.round(W * 0.16)), iz = Math.max(6, Math.round(D * 0.16));
+  const n = spec.floors - podF, y0 = podF * fh + 5;
+  glassBlock(E, ix, iz, W - ix, D - iz, y0, n, fh, { seed: spec.seed + 7 }, C, { slabs: false });
+  const lx = Math.round((W - 2 * ix) * 0.25), lz = Math.round((D - 2 * iz) * 0.25);
+  glassBlock(E, ix + lx, iz + lz, W - ix - lx, D - iz - lz, y0 + n * fh, 2, fh, { seed: spec.seed + 9 }, C, { fins: true });
+  flatRoof(E, ix, iz, W - ix, D - iz, y0 + n * fh, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 3, parapetMat: BM.MULLION, units: 0 });
+  flatRoof(E, ix + lx, iz + lz, W - ix - lx, D - iz - lz, y0 + (n + 2) * fh, { seed: spec.seed, trim: BM.MULLION }, C, { parapet: 2, parapetMat: BM.MULLION, units: 1 });
 }
 function shadeOf(m) {
   // a slightly darker companion colour for siding courses / belt courses (registered in the palette below)
@@ -422,6 +552,92 @@ for (const m of [BM.SIDING_WHITE, BM.SIDING_YELLOW, BM.SIDING_BLUE, BM.SIDING_SA
   const c = ARCH_PALETTE[m];
   ARCH_PALETTE[nextShade] = c.map(v => Math.round(v * 0.9));
   SHADES[m] = nextShade++;
+}
+
+
+// ------------------------------------------------------------------------------------------------ occupancy
+class Occupancy {
+  constructor(b) { this.c = 0.5; this.x0 = b.x0 - 10; this.z0 = b.z0 - 10; this.nx = Math.ceil((b.x1 - b.x0 + 20) / this.c); this.nz = Math.ceil((b.z1 - b.z0 + 20) / this.c); this.g = new Uint8Array(this.nx * this.nz); }
+  // oriented rectangle: origin O, axes e1/e2, extents [a0,a1] x [b0,b1] (metres); mode 'test' returns covered fraction
+  rect(O, e1, e2, a0, a1, b0, b1, mark) {
+    const pts = [[a0, b0], [a1, b0], [a0, b1], [a1, b1]].map(([a, b]) => [O[0] + a * e1[0] + b * e2[0], O[1] + a * e1[1] + b * e2[1]]);
+    const xs = pts.map(p => p[0]), zs = pts.map(p => p[1]);
+    const i0 = Math.max(0, Math.floor((Math.min(...xs) - this.x0) / this.c)), i1 = Math.min(this.nx - 1, Math.ceil((Math.max(...xs) - this.x0) / this.c));
+    const j0 = Math.max(0, Math.floor((Math.min(...zs) - this.z0) / this.c)), j1 = Math.min(this.nz - 1, Math.ceil((Math.max(...zs) - this.z0) / this.c));
+    let inside = 0, hit = 0;
+    for (let j = j0; j <= j1; ++j) for (let i = i0; i <= i1; ++i) {
+      const x = this.x0 + (i + 0.5) * this.c - O[0], z = this.z0 + (j + 0.5) * this.c - O[1];
+      const a = x * e1[0] + z * e1[1], b = x * e2[0] + z * e2[1];
+      if (a < a0 || a > a1 || b < b0 || b > b1) continue;
+      ++inside;
+      const k = j * this.nx + i;
+      if (this.g[k]) ++hit;
+      if (mark) this.g[k] = 1;
+    }
+    return inside ? hit / inside : 0;
+  }
+}
+
+// ------------------------------------------------------------------------------------------------ suburban subdivision
+// Planned subdivisions along every local residential street: lots at a fixed pitch on both sides, houses at a
+// common setback facing the street (following curves), pie-shaped lots radiating around cul-de-sac bulbs.
+// Every house gets a driveway (with an attached garage on wide lots) and a front walk. The footprint must lie
+// on yard (not road, sidewalk, park or plaza) and clear of everything already placed.
+function subdivide(net, Ra, C, occ, emitHouse) {
+  const o = {}, cls = [0, 0];
+  const MAT = C.MAT;
+  const okGround = (x, z) => { Ra.classify(x, z, o, cls); return cls[1] === MAT.YARD || cls[1] === MAT.PLOT; };
+  let n = 0;
+  const tryHouse = (cx, cz, e1, e2, w, d, seed, garage) => {
+    // footprint + garage + driveway envelope in the house frame (centre at cx, cz)
+    const gw = garage ? 3.6 : 0, dw = 3.2;
+    const a0 = -w / 2, a1 = w / 2 + Math.max(gw, dw) + 0.3;
+    const O = [cx, cz];
+    const pts = [];
+    for (const a of [a0, 0, a1]) for (const b of [-d / 2, 0, d / 2]) pts.push([cx + a * e1[0] + b * e2[0], cz + a * e1[1] + b * e2[1]]);
+    if (!pts.every(([x, z]) => okGround(x, z))) return false;
+    if (occ.rect(O, e1, e2, a0 - 1.2, a1 + 1.2, -d / 2 - 1, d / 2 + 1, false) > 0) return false;
+    occ.rect(O, e1, e2, a0, a1, -d / 2, d / 2, true);
+    emitHouse(O, e1, e2, w, d, seed, garage);
+    ++n;
+    return true;
+  };
+  for (const r of net.roads) {
+    if (r.district !== 'residential' || r.P.cls !== 'local' || !r.len) continue;
+    const P = r.P, pitch = r.P.id === 'lane' ? 15 : 16.5;
+    const J = (r.junctions || []).filter(j => j.major);
+    const front = P.half + P.sidewalk + 5.5;                    // centreline -> house front
+    for (const side of [1, -1]) {
+      let k = 0;
+      for (let s = 8; s < r.len - (r.bulbEnd ? 4 : 8); s += pitch, ++k) {
+        if (J.some(j => s > j.a - 12 && s < j.b + 12)) continue;
+        const [px, pz, tx, tz] = C.pointAt(r, s);
+        const nx = tz * side, nz = -tx * side;                     // away from the street on this side
+        let e1 = [tx, tz], e2 = [-tz, tx];
+        if (e2[0] * nx + e2[1] * nz < 0) { e1 = [-tx, -tz]; e2 = [tz, -tx]; }
+        const seed = (r.id * 7919 + k * 104729 + (side > 0 ? 1 : 2) * 31337) >>> 0;
+        const Rn = C.mulberry32(seed);
+        const w = 8.5 + Rn() * 2.5, d = 8 + Rn() * 2.5;
+        const dc = front + d / 2;
+        tryHouse(px + nx * dc, pz + nz * dc, e1, e2, w, d, seed, Rn() < 0.55);
+      }
+    }
+    if (r.bulbEnd) {                                               // pie lots around the turning circle
+      const [ex, ez] = r.pts[r.pts.length - 1], [qx, qz] = r.pts[r.pts.length - 2];
+      const back = Math.atan2(qz - ez, qx - ex);
+      const rb = r.bulbEnd + P.sidewalk + 5;
+      for (let k = 0; k < 9; ++k) {
+        const ang = back + 0.75 + k * 0.6;
+        if (ang > back + 2 * Math.PI - 0.75) break;
+        const dir = [Math.cos(ang), Math.sin(ang)];
+        const e2 = dir, e1 = [dir[1], -dir[0]];
+        const seed = (r.id * 7919 + 977 * k + 5) >>> 0, Rn = C.mulberry32(seed);
+        const w = 8.5 + Rn() * 2, d = 8 + Rn() * 2;
+        tryHouse(ex + dir[0] * (rb + d / 2), ez + dir[1] * (rb + d / 2), e1, e2, w, d, seed, Rn() < 0.5);
+      }
+    }
+  }
+  return n;
 }
 
 // ------------------------------------------------------------------------------------------------ placement
@@ -510,18 +726,41 @@ function buildAll(PL, R, voxel, C) {
   const lots = lotRectangles(PL, C);
   const hs = R.hs * voxel;
   const counts = {};
+  counts.house = 0;
+  const occ = new Occupancy(PL.net.bounds);
+  counts.house = subdivide(PL.net, R, C, occ, (Oc, e1, e2, w, d, seed, garage) => {
+    const W = Math.floor(w / BV), D = Math.floor(d / BV);
+    const O = [Oc[0] - (W * BV / 2) * e1[0] - (D * BV / 2) * e2[0], Oc[1] - (W * BV / 2) * e1[1] - (D * BV / 2) * e2[1]];
+    const E = new Emitter(mb, O, e1, e2, hs, voxel);
+    buildHouse(E, W, D, { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage, setback: 5.5 / BV + 0 }, C);
+  });
   const place = (L, a0, a1, b0, b1, kind, floors, seed) => {
     const W = Math.floor((a1 - a0) / BV), D = Math.floor((b1 - b0) / BV);
     if (W < 16 || D < 16) return;
-    const O = [L.mx + a0 * L.e1[0] + b0 * L.e2[0], L.mz + a0 * L.e1[1] + b0 * L.e2[1]];
-    const E = new Emitter(mb, O, L.e1, L.e2, hs, voxel);
-    const spec = { seed, floors, shops: L.road.P.cls !== 'local' && L.part === 0 };
-    if (kind === 'house') buildHouse(E, W, D, spec, C);
-    else if (kind === 'row') buildRows(E, W, D, spec, C);
-    else if (kind === 'mid') buildMid(E, W, D, spec, C);
-    else buildTower(E, W, D, spec, C);
-    counts[kind] = (counts[kind] || 0) + 1;
+    const Oc = [L.mx, L.mz];
+    if (occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, false) > 0.02) return;
+    occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, true);
+    jobs.push({ L, a0, a1, b0, b1, W, D, kind, floors, seed });
   };
+  const jobs = [];
+  const emitJobs = () => {
+    // second pass: with every footprint known, attached neighbours at either end become party walls
+    for (const J of jobs) {
+      const { L, a0, a1, b0, b1, W, D, kind, floors, seed } = J;
+      const Oc = [L.mx, L.mz], bi0 = b0 + Math.min(1, (b1 - b0) / 4), bi1 = b1 - Math.min(1, (b1 - b0) / 4);
+      const party = { l: occ.rect(Oc, L.e1, L.e2, a0 - 0.75, a0 - 0.25, bi0, bi1, false) > 0.5,
+                      r: occ.rect(Oc, L.e1, L.e2, a1 + 0.25, a1 + 0.75, bi0, bi1, false) > 0.5 };
+      const O = [L.mx + a0 * L.e1[0] + b0 * L.e2[0], L.mz + a0 * L.e1[1] + b0 * L.e2[1]];
+      const E = new Emitter(mb, O, L.e1, L.e2, hs, voxel);
+      const spec = { seed, floors, party, shops: L.road.P.cls !== 'local' && L.part === 0 };
+      if (kind === 'house') buildHouse(E, W, D, spec, C);
+      else if (kind === 'row') buildRows(E, W, D, spec, C);
+      else if (kind === 'mid') buildMid(E, W, D, spec, C);
+      else buildTower(E, W, D, spec, C);
+      counts[kind] = (counts[kind] || 0) + 1;
+    }
+  };
+  const housesBefore = counts.house;
   for (const L of lots) {
     const zone = zoneOf(PL.net, L.road, L.mx, L.mz);
     const seed0 = ((L.id * 2654435761) ^ (L.part * 40503)) >>> 0;
@@ -543,7 +782,9 @@ function buildAll(PL, R, voxel, C) {
     }
     if (zone === 'row') {
       if (lw < 5.5) continue;
-      place(L, L.a0, L.a1, L.b0, Math.min(L.b1, L.b0 + 12 + Rn() * 4), 'row', 3 + (Rn() < 0.4 ? 1 : 0), seed0);
+      const rd = Math.min(ld, 26);
+      place(L, L.a0, L.a1, L.b0, L.b0 + rd, 'row', 3 + (Rn() < 0.4 ? 1 : 0), seed0);
+      if (ld - rd >= 8) place(L, L.a0, L.a1, L.b0 + rd, L.b1, lw >= 10 ? 'mid' : 'row', 4, (seed0 ^ 0x5bd1e995) >>> 0);
       continue;
     }
     // mid-rise / tower zones: split long frontages into separate buildings of different heights and styles
@@ -554,14 +795,21 @@ function buildAll(PL, R, voxel, C) {
       if (L.a1 - a - pw < 10) pw = L.a1 - a;
       const seed = (seed0 + k * 104729) >>> 0;
       const Rk = C.mulberry32(seed);
-      if (tower && pw >= 18) place(L, a, a + pw, L.b0, Math.min(L.b1, L.b0 + 40), 'tower', 18 + Math.floor(Rk() * Rk() * 26), seed);
+      if (tower && pw >= 18) {
+        const td = Math.min(ld, 46);
+        place(L, a, a + pw, L.b0, L.b0 + td, 'tower', 18 + Math.floor(Rk() * Rk() * 26), seed);
+        if (ld - td >= 8) place(L, a, a + pw, L.b0 + td, L.b1, 'mid', 5, (seed ^ 0x27d4eb2f) >>> 0);
+      }
       else if (pw >= 10 && ld >= 9) {
         const core = zone === 'tower';
-        place(L, a, a + pw, L.b0, Math.min(L.b1, L.b0 + 18 + Rk() * 10), 'mid', core ? 8 + Math.floor(Rk() * 7) : 4 + Math.floor(Rk() * 6), seed);
+        const md = Math.min(ld, 34);
+        place(L, a, a + pw, L.b0, L.b0 + md, 'mid', core ? 8 + Math.floor(Rk() * 7) : 4 + Math.floor(Rk() * 6), seed);
+        if (ld - md >= 8) place(L, a, a + pw, L.b0 + md, L.b1, 'mid', 3 + Math.floor(Rk() * 4), (seed ^ 0x27d4eb2f) >>> 0);   // rear building
       } else place(L, a, a + pw, L.b0, Math.min(L.b1, L.b0 + 14), 'row', 4, seed);
       a += pw; ++k;
     }
   }
+  emitJobs();
   const res = mb.finish(0.002);
   res.counts = counts;
   return res;

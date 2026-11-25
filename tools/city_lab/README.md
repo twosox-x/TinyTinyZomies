@@ -64,3 +64,21 @@ cd tools/city_lab && python3 -m http.server 8765
   - mid-rise: limestone or brick, rusticated base or storefronts with awnings, pilasters, cornice, penthouse, rooftop units;
   - towers within about 160 m of the core: Art Deco with three setback tiers, piers, a crown and a spire, or glass curtain wall on a limestone podium.
 - **Construction.** Facades are relief maps (depth per 25 cm cell) meshed by the street mesher. Roofs are height maps. Small parts (porches, stoops, tanks, spires) are voxel boxes. Windows have lit variants that glow at night.
+
+### Phase 5B, second pass
+
+- **No coplanar faces.**
+  - A facade relief's boundary faces that reach inside the building are pulled out to the wall plane, so roofs, podiums and corners no longer flicker.
+  - Attached neighbours (found from the shared occupancy map after all footprints are placed) get plain party walls and no corner returns, so cornices never overlap.
+  - Stoop and porch overlaps removed.
+- **Planned suburbs.**
+  - Houses at a fixed lot pitch on both sides of every local residential street, with a common setback, facing the street and following curves.
+  - Pie lots around cul-de-sac bulbs.
+  - Driveways, attached garages and front walks.
+- **Density.** Dense districts use deep back-to-back lots, buildings fill the lot depth with a rear building where needed, and there are no side gaps downtown.
+- **Pocket plazas.** Small blocks and wedge slivers along the avenues become paved squares with food carts, newsstands, café tables, benches and trees (also in Union Square and Six Corners).
+- **Modern towers.**
+  - Twisting floor plates (each storey a rigidly rotated slab).
+  - Stacked cantilevered glass volumes.
+  - Slanted voxel-stepped crowns with fins.
+  - Glass on a limestone podium with a lantern.
