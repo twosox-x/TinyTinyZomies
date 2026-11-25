@@ -55,7 +55,23 @@ int main(int argc, char** argv) {
         } else if (!std::strcmp(a, "--blast")) {
             float f = (float)std::atof(next()), x = (float)std::atof(next()), z = (float)std::atof(next());
             o.scriptedBlasts.push_back({f, x, z});
-        } else if (!std::strcmp(a, "--bench")) bench = true;
+        } else if (!std::strcmp(a, "--chars")) o.characterModel = std::strcmp(next(), "placeholder") ? 1 : 0;
+        else if (!std::strcmp(a, "--geom")) { const char* g = next(); o.charSettings.geometryLevel = !std::strcmp(g, "naive") ? 0 : !std::strcmp(g, "culled") ? 1 : 2; }
+        else if (!std::strcmp(a, "--classes")) o.charSettings.classMode = std::strcmp(next(), "family") ? 1 : 0;
+        else if (!std::strcmp(a, "--no-cull")) o.charSettings.frustumCull = false;
+        else if (!std::strcmp(a, "--pose-vs")) o.charSettings.poseInVertexShader = true;
+        else if (!std::strcmp(a, "--anim")) {
+            const char* n = next();
+            const char* names[] = {"auto", "idle", "walk", "reach", "climb", "flail", "dying", "corpse"};
+            for (uint32_t k = 0; k < 8; ++k) if (!std::strcmp(n, names[k])) o.charSettings.forcedAnim = k;
+        }
+        else if (!std::strcmp(a, "--studio")) o.studio = true;
+        else if (!std::strcmp(a, "--no-ground")) o.noGround = true;
+        else if (!std::strcmp(a, "--free-cam")) o.freeCam = true;
+        else if (!std::strcmp(a, "--cam-y")) o.camY = (float)std::atof(next());
+        else if (!std::strcmp(a, "--fov")) o.fovDeg = (float)std::atof(next());
+        else if (!std::strcmp(a, "--showcase")) o.showcase = std::atoi(next());
+        else if (!std::strcmp(a, "--bench")) bench = true;
         else if (!std::strcmp(a, "--bench-counts")) b.counts = parseInts(next());
         else if (!std::strcmp(a, "--bench-scenarios")) b.scenarios = parseStrs(next());
         else if (!std::strcmp(a, "--bench-csv")) b.csv = next();

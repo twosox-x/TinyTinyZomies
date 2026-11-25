@@ -1,6 +1,8 @@
 // Headless validation of the GPU crowd simulation. Uses synchronous readbacks (test-only).
 #include "app/SelfTest.h"
 
+#include "render/CharacterRenderer.h"
+#include "render/Math.h"
 #include "sim/CrowdSim.h"
 #include "sim/Sandbox.h"
 
@@ -10,7 +12,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <array>
+#include <set>
 #include <unordered_map>
+#include <cstring>
 #include <vector>
 
 namespace ttz {
@@ -58,6 +63,38 @@ struct World {
         return (feet >= s - p.stepUp ? s : 0.f) + corpseAt(x, z);
     }
 };
+
+
+// ------------------------------------------------------------------ character helpers (look layout, see common.glsl)
+struct Look { uint32_t m[10]; uint32_t tier, decay, pal[8]; };
+Look decodeLook(uint32_t x, uint32_t y) {
+    Look l{};
+    auto b = [](uint32_t w, int lo, int n) { return (w >> lo) & ((1u << n) - 1u); };
+    // slot order: head, torso, uaL, faL, uaR, faR, thL, shL, thR, shR
+    l.m[0] = b(x, 8, 3); l.m[1] = b(x, 11, 3); l.m[2] = b(x, 14, 3); l.m[4] = b(x, 17, 3); l.m[3] = b(x, 20, 3); l.m[5] = b(x, 23, 3);
+    l.m[6] = b(x, 26, 3); l.m[8] = b(x, 29, 3); l.m[7] = b(y, 0, 3); l.m[9] = b(y, 3, 3);
+    l.tier = b(y, 6, 2); l.decay = b(y, 8, 2);
+    const int lo[8] = {10, 13, 17, 19, 22, 25, 27, 30}, n[8] = {3, 4, 2, 3, 3, 2, 3, 2};
+    for (int i = 0; i < 8; ++i) l.pal[i] = b(y, lo[i], n[i]);
+    return l;
+}
+// family module counts and decay levels (assets/characters/zombie_parts.json)
+const uint32_t kFamCount[6] = {8, 7, 5, 6, 5, 6};
+const uint32_t kSlotFam[10] = {0, 1, 2, 3, 2, 3, 4, 5, 4, 5};
+const uint32_t kPalCount[8] = {8, 9, 4, 6, 6, 3, 5, 3};
+const uint32_t kDecay[6][8] = {{0, 0, 0, 0, 1, 1, 2, 2}, {0, 0, 0, 0, 1, 2, 2}, {0, 0, 1, 1, 2}, {0, 0, 1, 1, 2, 2}, {0, 0, 1, 1, 2}, {0, 0, 1, 1, 1, 2}};
+const float kPivot[10][3] = {{0, 14, 0}, {0, 8, 0}, {3, 13.5f, 0}, {3, 10, 0}, {-3, 13.5f, 0}, {-3, 10, 0}, {1.5f, 8, 0}, {1.5f, 4, 0}, {-1.5f, 8, 0}, {-1.5f, 4, 0}};
+const int kParent[10] = {1, -1, 1, 2, 1, 4, -1, 6, -1, 8};
+float halfToFloat(uint16_t h) {
+    uint32_t s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
+    float v = e == 0 ? std::ldexp((float)m, -24) : e == 31 ? INFINITY : std::ldexp((float)(m | 1024), (int)e - 25);
+    return s ? -v : v;
+}
+V3 qrotCpu(const float q[4], V3 v) {
+    V3 u{q[0], q[1], q[2]};
+    V3 t = cross(u, v) * 2.0f;
+    return v + t * q[3] + cross(u, t);
+}
 
 int g_fail = 0;
 void check(bool ok, const char* what, const std::string& detail) {
@@ -334,6 +371,139 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     check(onCorpses > 20, "living zombies walk on top of corpse piles", fmt("on corpses=%.0f", onCorpses));
     check(totalMm >= 0, "corpse field non-negative in total", fmt("total=%.0f mm", (double)totalMm));
     check(m.nan == 0, "no NaN positions", fmt("nan=%.0f", m.nan));
+
+
+    // ---------------------------------------------------------------- 6. modular appearance generation
+    std::printf("[6] modular appearance generation (5000 zombies, default weights)\n");
+    w.sim.reset(w.sb);
+    w.sim.setGoals({});
+    w.sim.requestSpawn(Rect{-90.f, -90.f, -10.f, 90.f}, 5000);
+    w.run(2);
+    w.read();
+    {
+        int bad = 0, garment = 0, sleeveless = 0, anyDecomposed = 0, missing = 0, clothed = 0;
+        std::set<uint64_t> unique;
+        for (auto& a : w.agents) {
+            Look l = decodeLook(a.info.x & 0xFFFFFF00u, a.info.y);
+            unique.insert(((uint64_t)(a.info.x >> 8) << 32) | a.info.y);
+            bool dec = false, miss = false, cloth = l.m[2] == 0 && l.m[3] == 0 && l.m[4] == 0 && l.m[5] == 0 && l.m[6] == 0 && l.m[7] == 0 && l.m[8] == 0 && l.m[9] == 0;
+            for (int s2 = 0; s2 < 10; ++s2) {
+                if (l.m[s2] >= kFamCount[kSlotFam[s2]]) ++bad;
+                else if (kDecay[kSlotFam[s2]][l.m[s2]] == 2) dec = true;
+            }
+            for (int i = 0; i < 8; ++i) if (l.pal[i] >= kPalCount[i]) ++bad;
+            if (l.tier > 2) ++bad;
+            for (int sd = 0; sd < 2; ++sd) {
+                uint32_t th = l.m[6 + sd * 2], sh = l.m[7 + sd * 2];
+                if ((th == 1 && sh == 0) || (th == 0 && sh == 1)) ++garment;   // shorts->trousered shin, trousers->bare shin
+            }
+            if ((l.m[1] == 4 || l.m[1] == 5) && (l.m[2] == 0 || l.m[3] == 0 || l.m[4] == 0 || l.m[5] == 0)) ++sleeveless;
+            miss = l.m[3] == 5 || l.m[5] == 5;
+            anyDecomposed += dec; missing += miss; clothed += cloth;
+        }
+        double n = (double)w.agents.size();
+        check(bad == 0, "module / palette / tier indices in range", fmt("bad=%.0f", bad));
+        check(garment == 0 && sleeveless == 0, "garment consistency rules hold", fmt("garment=%.0f sleeveless=%.0f", garment, sleeveless));
+        check(unique.size() > n * 0.97, "zombies look unique", fmt("%.0f distinct of %.0f", (double)unique.size(), n));
+        check(missing / n > 0.04 && missing / n < 0.12, "missing forearms follow the configured weight (7%%)", fmt("%.1f%%", 100.0 * missing / n));
+        check(anyDecomposed / n > 0.12 && anyDecomposed / n < 0.45, "decomposed parts are a minority (not every zombie extreme)",
+              fmt("%.1f%% with a decomposed part", 100.0 * anyDecomposed / n));
+        check(clothed / n > 0.25, "plenty of fully clothed zombies", fmt("%.1f%%", 100.0 * clothed / n));
+    }
+
+    // ---------------------------------------------------------------- 7. character rendering: culling + segments
+    std::printf("[7] GPU character pipeline: culling, compaction, joint integrity\n");
+    CharacterRenderer chars;
+    bool charsOk = chars.init(gpu, params, std::string(TTZ_SOURCE_DIR) + "/assets/characters/zombie_parts.ttzc", 16384);
+    check(charsOk, "character asset and pipelines load", "");
+    if (charsOk) {
+        auto prepare = [&](V3 eye, V3 target, uint32_t anim, int level, int classMode) {
+            M4 vp = mul(perspective(0.9f, 16.f / 9.f, 0.5f, 600.f), lookAt(eye, target, {0, 1, 0}));
+            CharacterSettings cs;
+            cs.forcedAnim = anim; cs.geometryLevel = level; cs.classMode = classMode;
+            SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(gpu.device());
+            chars.prepare(cmd, w.sim, vp.m, 1.234, cs);
+            SDL_GPUFence* f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+            SDL_WaitForGPUFences(gpu.device(), true, &f, 1);
+            SDL_ReleaseGPUFence(gpu.device(), f);
+            CharacterStats st;
+            chars.readStatsNow(st);
+            return st;
+        };
+        uint32_t expectSegs = 0;
+        for (auto& a : w.agents) { Look l = decodeLook(a.info.x & 0xFFFFFF00u, a.info.y); expectSegs += 10 - (l.m[3] == 5) - (l.m[5] == 5); }
+        CharacterStats all = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 2, 1);
+        check(all.visible == w.agents.size() && all.overflow == 0, "camera over the crowd sees every zombie",
+              fmt("visible=%.0f of %.0f", all.visible, (double)w.agents.size()));
+        check(all.segments == expectSegs, "one segment instance per present body part (missing forearms skipped)",
+              fmt("segments=%.0f expected=%.0f", all.segments, expectSegs));
+        CharacterStats away = prepare({-50, 5, 95}, {-50, 5, 300}, 0, 2, 1);
+        check(away.visible == 0, "camera looking away culls everything", fmt("visible=%.0f", away.visible));
+        CharacterStats fam = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 2, 0);
+        check(fam.segments == all.segments && fam.triangles == all.triangles, "family batches draw the same geometry as size classes",
+              fmt("tris %.0f vs %.0f", fam.triangles, all.triangles));
+        check(all.vsInvocations <= fam.vsInvocations, "size classes reduce vertex-shader padding",
+              fmt("invocations size-class %.0f vs family %.0f (useful %.0f)", all.vsInvocations, fam.vsInvocations, all.triangles * 3.0));
+        CharacterStats naive = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 0, 1), culled = prepare({-50, 260, 1}, {-50, 0, 0}, 0, 1, 1);
+        std::printf("  triangles for 5000 zombies: naive %u, culled %u, greedy %u\n", naive.triangles, culled.triangles, all.triangles);
+
+        const char* animNames[8] = {"auto", "idle", "walk", "reach", "climb", "flail", "dying", "corpse"};
+        for (uint32_t anim = 0; anim < 8; ++anim) {
+            CharacterStats st = prepare({-50, 260, 1}, {-50, 0, 0}, anim, 2, 1);
+            std::vector<uint32_t> raw((size_t)st.segments * 8);
+            gpu.downloadNow(chars.segmentInstances(), raw.data(), (uint32_t)(raw.size() * 4));
+            std::unordered_map<uint32_t, std::array<int, 10>> bySlot;
+            for (uint32_t i = 0; i < st.segments; ++i) {
+                uint32_t ref; std::memcpy(&ref, &raw[i * 8 + 7], 4);
+                auto& e = bySlot.try_emplace(ref, std::array<int, 10>{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1}).first->second;
+                e[(raw[i * 8 + 2] >> 12) & 0xF] = (int)i;
+            }
+            float worst = 0; int checked = 0;
+            const float sc = chars.metresPerVoxel();
+            for (auto& [ref, idx] : bySlot)
+                for (int c = 0; c < 10; ++c) {
+                    int p = kParent[c];
+                    if (p < 0 || idx[c] < 0 || idx[p] < 0) continue;
+                    auto quat = [&](int i, float q[4]) {
+                        uint32_t a0 = raw[i * 8], a1 = raw[i * 8 + 1];
+                        q[0] = halfToFloat(a0 & 0xFFFF); q[1] = halfToFloat(a0 >> 16); q[2] = halfToFloat(a1 & 0xFFFF); q[3] = halfToFloat(a1 >> 16);
+                        float l = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+                        for (int k = 0; k < 4; ++k) q[k] /= l;
+                    };
+                    auto pos = [&](int i) { float f[3]; std::memcpy(f, &raw[i * 8 + 4], 12); return V3{f[0], f[1], f[2]}; };
+                    float qp[4]; quat(idx[p], qp);
+                    V3 rel{(kPivot[c][0] - kPivot[p][0]) * sc, (kPivot[c][1] - kPivot[p][1]) * sc, (kPivot[c][2] - kPivot[p][2]) * sc};
+                    V3 expect = pos(idx[p]) + qrotCpu(qp, rel);
+                    V3 d = expect - pos(idx[c]);
+                    worst = std::max(worst, std::sqrt(dot(d, d)));
+                    ++checked;
+                }
+            check(checked > 1000 && worst < 0.006f, (std::string("joints stay attached: ") + animNames[anim]).c_str(),
+                  fmt("%.0f joints, max gap %.2f mm", checked, worst * 1000.0));
+        }
+    }
+
+    // ---------------------------------------------------------------- 8. corpses keep their zombie's appearance
+    std::printf("[8] corpses keep the exact appearance of the zombie that died\n");
+    {
+        std::set<uint64_t> looks;
+        for (auto& a : w.agents) looks.insert(((uint64_t)(a.info.x & 0xFFFFFF00u) << 32) | a.info.y);
+        for (int k = 0; k < 24; ++k) {   // blasts centred on zombies, several per step
+            const GpuAgent& t = w.agents[(size_t)(k * 2654435761u) % w.agents.size()];
+            w.sim.requestExplosion(t.pos.x, 0.3f, t.pos.z);
+            if (k % 6 == 5) w.run(60);
+        }
+        w.run(60 * 6);
+        w.read();
+        uint32_t nc = std::min<uint32_t>(w.counters[C_CORPSES], params.corpseCapacity);
+        std::vector<GpuCorpse> cs(nc);
+        if (nc) gpu.downloadNow(w.sim.corpses(), cs.data(), nc * sizeof(GpuCorpse));
+        int unknown = 0;
+        for (auto& c : cs) if (!looks.count(((uint64_t)c.info.x << 32) | c.info.y)) ++unknown;
+        check(nc > 20, "explosions produced corpses", fmt("corpses=%.0f", nc));
+        check(unknown == 0, "every corpse has the look of a zombie that existed", fmt("unknown=%.0f of %.0f", unknown, nc));
+    }
+    chars.shutdown();
 
     w.sim.shutdown();
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

@@ -5,6 +5,7 @@
 #include "assets/Model.h"
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
+#include "render/CharacterRenderer.h"
 #include "sim/CrowdSim.h"
 #include "sim/GpuTypes.h"
 #include "sim/Sandbox.h"
@@ -30,8 +31,11 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
 
 struct RenderSettings {
     uint32_t debugFlags = 0;      // DBG_* bits (see frame.glsl)
-    bool drawZombies = true, drawCorpses = true, drawBoxes = true;
+    bool drawZombies = true, drawCorpses = true, drawBoxes = true, drawGround = true;
     float fogDensity = 0.0045f;
+    int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
+    CharacterSettings chars;
+    bool studioLighting = false;     // neutral sage studio (Zombie Lab comparison), no fog
 };
 
 class Renderer {
@@ -45,7 +49,11 @@ public:
 
     // Renders the scene into the internal target, then blits into `target` (swapchain) if given.
     void render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
-                const CrowdSim& sim, double time, const RenderSettings& rs);
+                const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars = nullptr);
+    // Split variant for profiling: record the character compute passes only / the scene pass only.
+    void prepareCharacters(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const Camera& cam, const CrowdSim& sim,
+                           double time, const RenderSettings& rs, CharacterRenderer* chars);
+    uint32_t drawCalls(const RenderSettings& rs, const CharacterRenderer* chars) const;
     uint32_t zombieIndexCount() const { return zombieIndexCount_; }
     // Synchronous screenshot of the last rendered frame (PNG).
     bool saveScreenshot(const std::string& path);
@@ -69,6 +77,8 @@ private:
     Sandbox sandbox_;
     struct Blast { float x, y, z, age; };
     std::vector<Blast> blasts_;
+public:
+    bool skipCharacterPrepare_ = false;   // benchmark: prepare recorded separately for timing
 };
 
 } // namespace ttz

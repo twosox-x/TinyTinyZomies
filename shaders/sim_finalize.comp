@@ -35,9 +35,8 @@ void main() {
     float sp = length(v);
     if (sp > vmax) v *= vmax / sp;
 
-    uint variant = agentVariant(a);
     float timer = a.dirs.w;
-    float vary = hash01(a.info.y);
+    float vary = agentVary(a);
     vec4 aux = contactAux[i];
     float ground = groundHeight(x.xz, x.y);
     float elev = x.y - ground;
@@ -93,7 +92,8 @@ void main() {
                 float h = corpseP.y;
                 Corpse cp;
                 cp.pos = vec4(x.x, ground, x.z, yaw);
-                cp.info = vec4(vary, float(variant), 1.0, h);
+                // the corpse keeps the zombie's complete modular appearance; pose = static library entry
+                cp.info = uvec4(agentLookX(a), a.info.y, 1u | ((pcgHash(a.info.y ^ idx * 747796405u) % CORPSE_POSES) << 8), floatBitsToUint(h));
                 if (idx < uint(corpseP.w)) corpses[idx] = cp;
                 else atomicAdd(counters[C_CORPSE_OVERFLOW], 1u);   // height still accumulates; instance not stored
                 splatCorpse(x.xz + fwd * 0.45, h);
@@ -127,7 +127,7 @@ void main() {
     a.prev.w = blocked;
     a.dirs.z = heading;
     a.dirs.w = timer;
-    a.info.x = st | (variant << 8);
+    a.info.x = st | agentLookX(a);
     a.info.w = floatBitsToUint(climbTarget);
     agentsA[i] = a;
 }

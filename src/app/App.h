@@ -25,10 +25,15 @@ struct AppOptions {
     bool vsync = true;
     bool gpuDebug = false;
     float camYaw = 0.75f, camPitch = 0.75f, camDist = 70.f;
-    float camX = -40.f, camZ = 0.f;
+    float camX = -40.f, camZ = 0.f, camY = 0.f;
     bool camSet = false;
     std::vector<std::array<float, 3>> scriptedBlasts;   // (frame, x, z)
     uint32_t debugFlags = 0;
+    int characterModel = 1;        // --chars placeholder|modular
+    CharacterSettings charSettings;
+    bool studio = false, noGround = false, freeCam = false;
+    float fovDeg = 0.f;
+    int showcase = -1;             // --showcase N: character validation scenes (see App::loadShowcase)
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };
@@ -41,6 +46,7 @@ struct AppState {
     SimParams params;
     CrowdSim sim;
     Renderer renderer;
+    CharacterRenderer chars;
     Camera camera;
     Model zombieModel;
     RenderSettings renderSettings;
@@ -70,6 +76,7 @@ private:
     bool init();
     void shutdown();
     void loadScenario(int index, int count);
+    void loadShowcase(int which);
     void handleEvent(const SDL_Event& e);
     void frame(double dt);
     AppState s_;

@@ -1,11 +1,50 @@
 #pragma clang diagnostic ignored "-Wunused-variable"
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
 
 #include <metal_stdlib>
 #include <simd/simd.h>
 #include <metal_atomic>
 
 using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
 
 struct SimUniforms
 {
@@ -26,6 +65,9 @@ struct SimUniforms
     float4 spawnRect;
     uint4 misc;
     float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
 };
 
 struct StaticH
@@ -63,6 +105,26 @@ struct Agents
 
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 
+constant spvUnsafeArray<uint, 6> _197 = spvUnsafeArray<uint, 6>({ 0u, 8u, 15u, 20u, 26u, 31u });
+constant spvUnsafeArray<uint, 6> _206 = spvUnsafeArray<uint, 6>({ 8u, 7u, 5u, 6u, 5u, 6u });
+constant spvUnsafeArray<uint, 37> _232 = spvUnsafeArray<uint, 37>({ 0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 0u, 0u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 1u, 2u });
+constant spvUnsafeArray<uint, 7> _594 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });
+constant spvUnsafeArray<int, 10> _1142 = spvUnsafeArray<int, 10>({ 0, 1, 2, 3, 2, 3, 4, 5, 4, 5 });
+constant spvUnsafeArray<int, 10> _1144 = spvUnsafeArray<int, 10>({ 1, -1, 1, 2, 1, 4, -1, 6, -1, 8 });
+constant spvUnsafeArray<float3, 10> _1162 = spvUnsafeArray<float3, 10>({ float3(0.0, 14.0, 0.0), float3(0.0, 8.0, 0.0), float3(3.0, 13.5, 0.0), float3(3.0, 10.0, 0.0), float3(-3.0, 13.5, 0.0), float3(-3.0, 10.0, 0.0), float3(1.5, 8.0, 0.0), float3(1.5, 4.0, 0.0), float3(-1.5, 8.0, 0.0), float3(-1.5, 4.0, 0.0) });
+constant spvUnsafeArray<uint, 10> _1172 = spvUnsafeArray<uint, 10>({ 0u, 264u, 495u, 825u, 1023u, 1353u, 1551u, 1716u, 1914u, 2079u });
+constant spvUnsafeArray<uint, 10> _1173 = spvUnsafeArray<uint, 10>({ 1u, 1u, 2u, 1u, 2u, 1u, 1u, 1u, 1u, 1u });
+constant spvUnsafeArray<float3, 8> _1206 = spvUnsafeArray<float3, 8>({ float3(0.623529016971588134765625, 0.68235301971435546875, 0.3333329856395721435546875), float3(0.541176021099090576171875, 0.607842981815338134765625, 0.2980389893054962158203125), float3(0.698038995265960693359375, 0.705882012844085693359375, 0.41568601131439208984375), float3(0.4980390071868896484375, 0.57647097110748291015625, 0.3450979888439178466796875), float3(0.639216005802154541015625, 0.658824026584625244140625, 0.41960799694061279296875), float3(0.58039200305938720703125, 0.654901981353759765625, 0.4784309864044189453125), float3(0.721569001674652099609375, 0.690195977687835693359375, 0.4784309864044189453125), float3(0.43137300014495849609375, 0.5215690135955810546875, 0.313724994659423828125) });
+constant spvUnsafeArray<float3, 9> _1234 = spvUnsafeArray<float3, 9>({ float3(0.3333329856395721435546875, 0.41960799694061279296875, 0.2274509966373443603515625), float3(0.4784309864044189453125, 0.41568601131439208984375, 0.2274509966373443603515625), float3(0.43137300014495849609375, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.2980389893054962158203125, 0.3333329856395721435546875, 0.3764710128307342529296875), float3(0.360783994197845458984375, 0.1921570003032684326171875, 0.21960799396038055419921875), float3(0.372548997402191162109375, 0.372548997402191162109375, 0.3450979888439178466796875), float3(0.24705900251865386962890625, 0.3529410064220428466796875, 0.3294120132923126220703125), float3(0.21176500618457794189453125, 0.22352899610996246337890625, 0.290196001529693603515625), float3(0.4901959896087646484375, 0.450980007648468017578125, 0.3764710128307342529296875) });
+constant spvUnsafeArray<float3, 4> _1246 = spvUnsafeArray<float3, 4>({ float3(0.72548997402191162109375, 0.71372497081756591796875, 0.627451002597808837890625), float3(0.654901981353759765625, 0.662744998931884765625, 0.60392200946807861328125), float3(0.760783970355987548828125, 0.72548997402191162109375, 0.627451002597808837890625), float3(0.623529016971588134765625, 0.662744998931884765625, 0.658824026584625244140625) });
+constant spvUnsafeArray<float3, 6> _1261 = spvUnsafeArray<float3, 6>({ float3(0.23137299716472625732421875, 0.2745099961757659912109375, 0.337255001068115234375), float3(0.18431399762630462646484375, 0.1921570003032684326171875, 0.21176500618457794189453125), float3(0.42745101451873779296875, 0.4000000059604644775390625, 0.313724994659423828125), float3(0.290196001529693603515625, 0.23529399931430816650390625, 0.18431399762630462646484375), float3(0.23529399931430816650390625, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.3333329856395721435546875, 0.313724994659423828125, 0.290196001529693603515625) });
+constant spvUnsafeArray<float3, 6> _1276 = spvUnsafeArray<float3, 6>({ float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.117646999657154083251953125), float3(0.3529410064220428466796875, 0.2745099961757659912109375, 0.18823499977588653564453125), float3(0.117646999657154083251953125, 0.117646999657154083251953125, 0.1333329975605010986328125), float3(0.549019992351531982421875, 0.4784309864044189453125, 0.360783994197845458984375), float3(0.41568601131439208984375, 0.23137299716472625732421875, 0.13725499808788299560546875), float3(0.23137299716472625732421875, 0.20000000298023223876953125, 0.18823499977588653564453125) });
+constant spvUnsafeArray<float3, 3> _1285 = spvUnsafeArray<float3, 3>({ float3(0.41960799694061279296875, 0.121569000184535980224609375, 0.14902000129222869873046875), float3(0.17254899442195892333984375, 0.2274509966373443603515625, 0.360783994197845458984375), float3(0.24705900251865386962890625, 0.290196001529693603515625, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 5> _1293 = spvUnsafeArray<float3, 5>({ float3(0.41960799694061279296875, 0.16470600664615631103515625, 0.16470600664615631103515625), float3(0.21960799396038055419921875, 0.290196001529693603515625, 0.3529410064220428466796875), float3(0.3529410064220428466796875, 0.3529410064220428466796875, 0.1803919970989227294921875), float3(0.18431399762630462646484375, 0.18431399762630462646484375, 0.20000000298023223876953125), float3(0.4784309864044189453125, 0.3529410064220428466796875, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 3> _1299 = spvUnsafeArray<float3, 3>({ float3(0.16470600664615631103515625, 0.14117600023746490478515625, 0.12548999488353729248046875), float3(0.2274509966373443603515625, 0.20000000298023223876953125, 0.17254899442195892333984375), float3(0.121569000184535980224609375, 0.113724999129772186279296875, 0.113724999129772186279296875) });
+constant spvUnsafeArray<float3, 9> _1322 = spvUnsafeArray<float3, 9>({ float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875), float3(0.24705900251865386962890625, 0.0392160005867481231689453125, 0.04313699901103973388671875), float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.8392159938812255859375, 0.800000011920928955078125, 0.670588016510009765625), float3(0.662744998931884765625, 0.615685999393463134765625, 0.4862749874591827392578125), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), float3(0.337255001068115234375, 0.070588000118732452392578125, 0.08627499639987945556640625), float3(0.10196100175380706787109375, 0.047058999538421630859375, 0.0549019984900951385498046875), float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.121569000184535980224609375) });
+constant spvUnsafeArray<uint, 4> _1328 = spvUnsafeArray<uint, 4>({ 101u, 202u, 303u, 404u });
+
 static inline __attribute__((always_inline))
 uint pcgHash(thread const uint& v)
 {
@@ -80,72 +142,530 @@ float rand01(thread uint& s)
 }
 
 static inline __attribute__((always_inline))
-int2 cellCoord(thread const float2& xz, constant SimUniforms& _76)
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _100)
 {
-    float2 g = (xz - _76.world.xy) * _76.world.w;
-    return clamp(int2(floor(g)), int2(0), int2(int(_76.grid.x) - 1, int(_76.grid.y) - 1));
+    float2 g = (xz - _100.world.xy) * _100.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_100.grid.x) - 1, int(_100.grid.y) - 1));
 }
 
 static inline __attribute__((always_inline))
-uint cellIndex(thread const int2& c, constant SimUniforms& _76)
+uint cellIndex(thread const int2& c, constant SimUniforms& _100)
 {
-    return (uint(c.y) * _76.grid.x) + uint(c.x);
+    return (uint(c.y) * _100.grid.x) + uint(c.x);
 }
 
-kernel void main0(constant SimUniforms& _76 [[buffer(0)]], device StaticH& _192 [[buffer(1)]], device Agents& _287 [[buffer(2)]], device Counters& _212 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+static inline __attribute__((always_inline))
+float2 catLevels(thread const uint& cat, thread const bool& limb)
+{
+    if (cat == 0u)
+    {
+        return float2(1.0, 0.0);
+    }
+    if (cat == 1u)
+    {
+        return float2(1.0, 0.0);
+    }
+    if (cat == 2u)
+    {
+        return float2(0.64999997615814208984375, 0.3499999940395355224609375);
+    }
+    if (cat == 3u)
+    {
+        return float2(0.25, 0.449999988079071044921875);
+    }
+    if (cat == 4u)
+    {
+        return select(float2(0.25), float2(0.07999999821186065673828125, 0.17000000178813934326171875), bool2(limb));
+    }
+    return float2(0.25, 0.449999988079071044921875);
+}
+
+static inline __attribute__((always_inline))
+uint pickLevel(thread const uint& cat, thread const bool& limb, thread uint& rng)
+{
+    uint param = cat;
+    bool param_1 = limb;
+    float2 p = catLevels(param, param_1);
+    uint param_2 = rng;
+    float _329 = rand01(param_2);
+    rng = param_2;
+    float r = _329;
+    uint _335;
+    if (r < p.x)
+    {
+        _335 = 0u;
+    }
+    else
+    {
+        _335 = (r < (p.x + p.y)) ? 1u : 2u;
+    }
+    return _335;
+}
+
+static inline __attribute__((always_inline))
+uint pickModule(thread const uint& family, thread uint& level0, thread uint& rng)
+{
+    uint first = _197[family];
+    uint count = _206[family];
+    for (int attempt = 0; attempt < 3; attempt++)
+    {
+        uint n = 0u;
+        for (uint m = 0u; m < count; m++)
+        {
+            bool _241 = _232[first + m] == level0;
+            bool _250;
+            if (_241)
+            {
+                _250 = !((family == 3u) && (m == 5u));
+            }
+            else
+            {
+                _250 = _241;
+            }
+            if (_250)
+            {
+                n++;
+            }
+        }
+        if (n > 0u)
+        {
+            uint param = rng;
+            float _264 = rand01(param);
+            rng = param;
+            uint k = uint(_264 * float(n));
+            for (uint m_1 = 0u; m_1 < count; m_1++)
+            {
+                bool _286 = _232[first + m_1] == level0;
+                bool _295;
+                if (_286)
+                {
+                    _295 = !((family == 3u) && (m_1 == 5u));
+                }
+                else
+                {
+                    _295 = _286;
+                }
+                if (_295)
+                {
+                    if (k == 0u)
+                    {
+                        return m_1;
+                    }
+                    k--;
+                }
+            }
+        }
+        if (level0 == 0u)
+        {
+            break;
+        }
+        level0--;
+    }
+    return 0u;
+}
+
+static inline __attribute__((always_inline))
+uint2 generateLook(thread uint& rng, constant SimUniforms& _100)
+{
+    if (_100.forcedLook.z != 0u)
+    {
+        return _100.forcedLook.xy;
+    }
+    spvUnsafeArray<float, 6> _378 = spvUnsafeArray<float, 6>({ _100.lookA.x, _100.lookA.y, _100.lookA.z, _100.lookA.w, _100.lookB.x, _100.lookB.y });
+    spvUnsafeArray<float, 6> w = _378;
+    float total = 0.0;
+    for (int i = 0; i < 6; i++)
+    {
+        total += fast::max(w[i], 0.0);
+    }
+    uint param = rng;
+    float _400 = rand01(param);
+    rng = param;
+    float r = _400 * fast::max(total, 9.9999999747524270787835121154785e-07);
+    uint cat = 0u;
+    for (uint i_1 = 0u; i_1 < 6u; i_1++)
+    {
+        r -= fast::max(w[i_1], 0.0);
+        if (r <= 0.0)
+        {
+            cat = i_1;
+            break;
+        }
+    }
+    uint param_1 = cat;
+    bool param_2 = false;
+    uint param_3 = rng;
+    uint _439 = pickLevel(param_1, param_2, param_3);
+    rng = param_3;
+    uint param_4 = 0u;
+    uint param_5 = _439;
+    uint param_6 = rng;
+    uint _445 = pickModule(param_4, param_5, param_6);
+    rng = param_6;
+    spvUnsafeArray<uint, 10> m;
+    m[0] = _445;
+    uint param_7 = cat;
+    bool param_8 = false;
+    uint param_9 = rng;
+    uint _453 = pickLevel(param_7, param_8, param_9);
+    rng = param_9;
+    uint param_10 = 1u;
+    uint param_11 = _453;
+    uint param_12 = rng;
+    uint _459 = pickModule(param_10, param_11, param_12);
+    rng = param_12;
+    m[1] = _459;
+    uint param_13 = cat;
+    bool param_14 = true;
+    uint param_15 = rng;
+    uint _469 = pickLevel(param_13, param_14, param_15);
+    rng = param_15;
+    uint param_16 = 2u;
+    uint param_17 = _469;
+    uint param_18 = rng;
+    uint _475 = pickModule(param_16, param_17, param_18);
+    rng = param_18;
+    m[2] = _475;
+    uint param_19 = cat;
+    bool param_20 = true;
+    uint param_21 = rng;
+    uint _483 = pickLevel(param_19, param_20, param_21);
+    rng = param_21;
+    uint param_22 = 2u;
+    uint param_23 = _483;
+    uint param_24 = rng;
+    uint _489 = pickModule(param_22, param_23, param_24);
+    rng = param_24;
+    m[3] = _489;
+    uint param_25 = cat;
+    bool param_26 = true;
+    uint param_27 = rng;
+    uint _498 = pickLevel(param_25, param_26, param_27);
+    rng = param_27;
+    uint param_28 = 3u;
+    uint param_29 = _498;
+    uint param_30 = rng;
+    uint _504 = pickModule(param_28, param_29, param_30);
+    rng = param_30;
+    m[4] = _504;
+    uint param_31 = cat;
+    bool param_32 = true;
+    uint param_33 = rng;
+    uint _513 = pickLevel(param_31, param_32, param_33);
+    rng = param_33;
+    uint param_34 = 3u;
+    uint param_35 = _513;
+    uint param_36 = rng;
+    uint _519 = pickModule(param_34, param_35, param_36);
+    rng = param_36;
+    m[5] = _519;
+    uint param_37 = cat;
+    bool param_38 = true;
+    uint param_39 = rng;
+    uint _527 = pickLevel(param_37, param_38, param_39);
+    rng = param_39;
+    uint param_40 = 4u;
+    uint param_41 = _527;
+    uint param_42 = rng;
+    uint _533 = pickModule(param_40, param_41, param_42);
+    rng = param_42;
+    m[6] = _533;
+    uint param_43 = cat;
+    bool param_44 = true;
+    uint param_45 = rng;
+    uint _542 = pickLevel(param_43, param_44, param_45);
+    rng = param_45;
+    uint param_46 = 4u;
+    uint param_47 = _542;
+    uint param_48 = rng;
+    uint _548 = pickModule(param_46, param_47, param_48);
+    rng = param_48;
+    m[7] = _548;
+    uint param_49 = cat;
+    bool param_50 = true;
+    uint param_51 = rng;
+    uint _557 = pickLevel(param_49, param_50, param_51);
+    rng = param_51;
+    uint param_52 = 5u;
+    uint param_53 = _557;
+    uint param_54 = rng;
+    uint _563 = pickModule(param_52, param_53, param_54);
+    rng = param_54;
+    m[8] = _563;
+    uint param_55 = cat;
+    bool param_56 = true;
+    uint param_57 = rng;
+    uint _572 = pickLevel(param_55, param_56, param_57);
+    rng = param_57;
+    uint param_58 = 5u;
+    uint param_59 = _572;
+    uint param_60 = rng;
+    uint _578 = pickModule(param_58, param_59, param_60);
+    rng = param_60;
+    m[9] = _578;
+    if (cat == 1u)
+    {
+        m[5] = 0u;
+        m[4] = 0u;
+        m[3] = 0u;
+        m[2] = 0u;
+        m[7] = 0u;
+        m[6] = 0u;
+        m[9] = 0u;
+        m[8] = 0u;
+        if (_594[m[1]] == 2u)
+        {
+            m[1] = 0u;
+        }
+    }
+    uint param_61 = rng;
+    float _607 = rand01(param_61);
+    rng = param_61;
+    if (_607 < 0.550000011920928955078125)
+    {
+        m[3] = m[2];
+    }
+    uint param_62 = rng;
+    float _618 = rand01(param_62);
+    rng = param_62;
+    if (_618 < 0.550000011920928955078125)
+    {
+        m[5] = m[4];
+    }
+    uint param_63 = rng;
+    float _628 = rand01(param_63);
+    rng = param_63;
+    if (_628 < 0.550000011920928955078125)
+    {
+        m[7] = m[6];
+    }
+    uint param_64 = rng;
+    float _638 = rand01(param_64);
+    rng = param_64;
+    if (_638 < 0.550000011920928955078125)
+    {
+        m[9] = m[8];
+    }
+    if (cat == 5u)
+    {
+        uint param_65 = rng;
+        float _653 = rand01(param_65);
+        rng = param_65;
+        float q = _653;
+        if ((q < 0.449999988079071044921875) || (q >= 0.800000011920928955078125))
+        {
+            m[4] = 5u;
+        }
+        if (q >= 0.449999988079071044921875)
+        {
+            m[5] = 5u;
+        }
+    }
+    for (int sd = 0; sd < 2; sd++)
+    {
+        bool _681 = m[6 + sd] == 1u;
+        bool _689;
+        if (_681)
+        {
+            _689 = m[8 + sd] == 0u;
+        }
+        else
+        {
+            _689 = _681;
+        }
+        if (_689)
+        {
+            m[8 + sd] = 1u;
+        }
+        bool _699 = m[6 + sd] == 0u;
+        bool _707;
+        if (_699)
+        {
+            _707 = m[8 + sd] == 1u;
+        }
+        else
+        {
+            _707 = _699;
+        }
+        if (_707)
+        {
+            m[8 + sd] = 0u;
+        }
+    }
+    if (_594[m[1]] == 2u)
+    {
+        if (m[2] == 0u)
+        {
+            m[2] = 1u;
+        }
+        if (m[3] == 0u)
+        {
+            m[3] = 1u;
+        }
+        if (m[4] == 0u)
+        {
+            m[4] = 1u;
+        }
+        if (m[5] == 0u)
+        {
+            m[5] = 1u;
+        }
+    }
+    uint param_66 = rng;
+    float _750 = rand01(param_66);
+    rng = param_66;
+    float t = _750;
+    uint tier;
+    uint decay;
+    if (cat == 0u)
+    {
+        tier = (t < 0.699999988079071044921875) ? 0u : 1u;
+        decay = 0u;
+    }
+    else
+    {
+        if (cat == 1u)
+        {
+            tier = (t < 0.5) ? 0u : 1u;
+            uint param_67 = rng;
+            float _773 = rand01(param_67);
+            rng = param_67;
+            decay = uint(_773 * 2.0);
+        }
+        else
+        {
+            if (cat == 2u)
+            {
+                tier = (t < 0.699999988079071044921875) ? 1u : 2u;
+                uint param_68 = rng;
+                float _788 = rand01(param_68);
+                rng = param_68;
+                decay = 1u + uint(_788 * 2.0);
+            }
+            else
+            {
+                if (cat == 4u)
+                {
+                    tier = 2u;
+                    decay = 3u;
+                }
+                else
+                {
+                    tier = (t < 0.300000011920928955078125) ? 1u : 2u;
+                    uint param_69 = rng;
+                    float _805 = rand01(param_69);
+                    rng = param_69;
+                    decay = 2u + uint(_805 * 2.0);
+                }
+            }
+        }
+    }
+    decay = min(decay, 3u);
+    uint x = (((((((m[0] << uint(8)) | (m[1] << uint(11))) | (m[2] << uint(14))) | (m[3] << uint(17))) | (m[4] << uint(20))) | (m[5] << uint(23))) | (m[6] << uint(26))) | (m[7] << uint(29));
+    uint y = ((m[8] | (m[9] << uint(3))) | (tier << uint(6))) | (decay << uint(8));
+    uint param_70 = rng;
+    float _865 = rand01(param_70);
+    rng = param_70;
+    y |= (uint(_865 * 8.0) << uint(10));
+    uint param_71 = rng;
+    float _876 = rand01(param_71);
+    rng = param_71;
+    y |= (min(uint(_876 * 9.0), 8u) << uint(13));
+    uint param_72 = rng;
+    float _888 = rand01(param_72);
+    rng = param_72;
+    y |= (uint(_888 * 4.0) << uint(17));
+    uint param_73 = rng;
+    float _898 = rand01(param_73);
+    rng = param_73;
+    y |= (min(uint(_898 * 6.0), 5u) << uint(19));
+    uint param_74 = rng;
+    float _909 = rand01(param_74);
+    rng = param_74;
+    y |= (min(uint(_909 * 6.0), 5u) << uint(22));
+    uint param_75 = rng;
+    float _920 = rand01(param_75);
+    rng = param_75;
+    y |= (min(uint(_920 * 3.0), 2u) << uint(25));
+    uint param_76 = rng;
+    float _932 = rand01(param_76);
+    rng = param_76;
+    y |= (min(uint(_932 * 5.0), 4u) << uint(27));
+    uint param_77 = rng;
+    float _944 = rand01(param_77);
+    rng = param_77;
+    y |= (min(uint(_944 * 3.0), 2u) << uint(30));
+    return uint2(x, y);
+}
+
+kernel void main0(constant SimUniforms& _100 [[buffer(0)]], device StaticH& _1022 [[buffer(1)]], device Agents& _1126 [[buffer(2)]], device Counters& _1042 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint i = gl_GlobalInvocationID.x;
-    if (i >= _76.counts.z)
+    if (i >= _100.counts.z)
     {
         return;
     }
-    uint param = ((i * 9781u) + (_76.counts.w * 6271u)) + 17u;
+    uint param = ((i * 9781u) + (_100.counts.w * 6271u)) + 17u;
     uint rng = pcgHash(param);
     float2 p = float2(0.0);
     bool found = false;
     for (int t = 0; (t < 32) && (!found); t++)
     {
         uint param_1 = rng;
-        float _176 = rand01(param_1);
+        float _1006 = rand01(param_1);
         rng = param_1;
         uint param_2 = rng;
-        float _185 = rand01(param_2);
+        float _1015 = rand01(param_2);
         rng = param_2;
-        p = float2(mix(_76.spawnRect.x, _76.spawnRect.z, _176), mix(_76.spawnRect.y, _76.spawnRect.w, _185));
+        p = float2(mix(_100.spawnRect.x, _100.spawnRect.z, _1006), mix(_100.spawnRect.y, _100.spawnRect.w, _1015));
         float2 param_3 = p;
-        int2 param_4 = cellCoord(param_3, _76);
-        found = _192.staticH[cellIndex(param_4, _76)] <= 0.0;
+        int2 param_4 = cellCoord(param_3, _100);
+        found = _1022.staticH[cellIndex(param_4, _100)] <= 0.0;
     }
     if (!found)
     {
         return;
     }
-    uint _214 = _212.counters[0];
-    uint _216 = atomic_fetch_add_explicit((device atomic_uint*)&_212.counters[1], 1u, memory_order_relaxed);
-    uint slot = _214 + _216;
-    if (slot >= _76.grid.w)
+    uint _1044 = _1042.counters[0];
+    uint _1046 = atomic_fetch_add_explicit((device atomic_uint*)&_1042.counters[1], 1u, memory_order_relaxed);
+    uint slot = _1044 + _1046;
+    if (slot >= _100.grid.w)
     {
         return;
     }
     Agent a;
     a.pos = float4(p.x, 0.0, p.y, 0.0);
     uint param_5 = rng;
-    float _238 = rand01(param_5);
+    float _1067 = rand01(param_5);
     rng = param_5;
-    a.vel = float4(0.0, 0.0, 0.0, _238 * 6.283100128173828125);
+    a.vel = float4(0.0, 0.0, 0.0, _1067 * 6.283100128173828125);
     a.prev = float4(a.pos.xyz, 0.0);
     uint param_6 = rng;
-    float _257 = rand01(param_6);
+    float _1084 = rand01(param_6);
     rng = param_6;
-    a.dirs = float4(0.0, 0.0, _257 * 6.283100128173828125, 0.0);
+    a.dirs = float4(0.0, 0.0, _1084 * 6.283100128173828125, 0.0);
     uint param_7 = rng;
-    uint variant = pcgHash(param_7) & 255u;
-    uint param_8 = rng + 1u;
-    a.info = uint4(0u | (variant << uint(8)), pcgHash(param_8), as_type<uint>(1.0), as_type<uint>(0.0));
-    _287.agents[slot].pos = a.pos;
-    _287.agents[slot].vel = a.vel;
-    _287.agents[slot].prev = a.prev;
-    _287.agents[slot].dirs = a.dirs;
-    _287.agents[slot].info = a.info;
+    uint2 _1093 = generateLook(param_7, _100);
+    rng = param_7;
+    uint2 look = _1093;
+    uint state = 0u;
+    float timer = 0.0;
+    if (_100.lookB.z > 0.5)
+    {
+        state = 3u;
+        timer = 9.0;
+        a.pos.w = 1.0;
+    }
+    a.dirs.w = timer;
+    if (_100.forcedLook.z != 0u)
+    {
+        a.dirs.z = 0.0;
+    }
+    a.info = uint4(state | look.x, look.y, as_type<uint>(1.0), as_type<uint>(0.0));
+    _1126.agents[slot].pos = a.pos;
+    _1126.agents[slot].vel = a.vel;
+    _1126.agents[slot].prev = a.prev;
+    _1126.agents[slot].dirs = a.dirs;
+    _1126.agents[slot].info = a.info;
 }
 

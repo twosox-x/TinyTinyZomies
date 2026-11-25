@@ -1,0 +1,18 @@
+{
+  "width": 900, "height": 700,
+  "note": "Shared by tools/capture_lab.mjs (Zombie Lab) and tools/compare_views.py (native engine). Angles in radians, distance in voxels (Zombie Lab units), targetY in voxels.",
+  "views": [
+    {"name": "drone_front",  "design": "drone",  "yaw": 0.0,    "pitch": 0.12, "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "drone_side",   "design": "drone",  "yaw": 1.5708, "pitch": 0.12, "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "drone_34",     "design": "drone",  "yaw": 0.6,    "pitch": 0.3,  "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "walker_front", "design": "walker", "yaw": 0.0,    "pitch": 0.12, "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "walker_side",  "design": "walker", "yaw": -1.5708,"pitch": 0.12, "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "walker_34",    "design": "walker", "yaw": -0.6,   "pitch": 0.3,  "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "rotter_front", "design": "rotter", "yaw": 0.0,    "pitch": 0.12, "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "rotter_side",  "design": "rotter", "yaw": 1.5708, "pitch": 0.12, "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "rotter_34",    "design": "rotter", "yaw": 0.6,    "pitch": 0.3,  "distVoxels": 52, "targetY": 9.5, "anim": "idle"},
+    {"name": "lineup_idle",  "design": "lineup", "yaw": 0.4,    "pitch": 0.17, "distVoxels": 80, "targetY": 9.0, "anim": "idle"},
+    {"name": "lineup_walk",  "design": "lineup", "yaw": 0.4,    "pitch": 0.17, "distVoxels": 80, "targetY": 9.0, "anim": "walk"},
+    {"name": "lineup_reach", "design": "lineup", "yaw": 0.4,    "pitch": 0.17, "distVoxels": 80, "targetY": 9.0, "anim": "reach"}
+  ]
+}

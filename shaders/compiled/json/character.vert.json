@@ -1,0 +1,1 @@
+{ "samplers": 0, "storage_textures": 0, "storage_buffers": 7, "uniform_buffers": 2, "inputs": [], "outputs": [{ "name": "vWorld", "type": "float3", "location": 0 }, { "name": "vNormal", "type": "float3", "location": 1 }, { "name": "vRest", "type": "float3", "location": 2 }, { "name": "vAO", "type": "float", "location": 3 }, { "name": "vInfo", "type": "uint4", "location": 4 }] }

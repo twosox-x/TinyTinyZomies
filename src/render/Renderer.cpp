@@ -218,9 +218,25 @@ void Renderer::update(float dt) {
     blasts_.erase(std::remove_if(blasts_.begin(), blasts_.end(), [](const Blast& b) { return b.age > 20.f; }), blasts_.end());
 }
 
+void Renderer::prepareCharacters(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const Camera& cam, const CrowdSim& sim,
+                                 double time, const RenderSettings& rs, CharacterRenderer* chars) {
+    if (!chars || rs.characterModel != 1) return;
+    M4 vp = mul(cam.proj((float)w / (float)h), cam.view());
+    chars->prepare(cmd, sim, vp.m, time, rs.chars);
+}
+
+uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* chars) const {
+    uint32_t n = (rs.drawGround ? 1u : 0u) + (rs.drawBoxes && boxCount_ ? 1u : 0u);
+    if (rs.characterModel == 1 && chars) n += chars->drawCalls(rs.chars);
+    else n += (rs.drawZombies ? 1u : 0u) + (rs.drawCorpses ? 1u : 0u);
+    return n;
+}
+
 void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
-                      const CrowdSim& sim, double time, const RenderSettings& rs) {
+                      const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars) {
     ensureTargets(w, h);
+    const bool modular = chars && rs.characterModel == 1;
+    if (modular && !skipCharacterPrepare_) prepareCharacters(cmd, w, h, cam, sim, time, rs, chars);
     FrameUniforms fu{};
     M4 vp = mul(cam.proj((float)w / (float)h), cam.view());
     std::memcpy(fu.viewProj, vp.m, sizeof(fu.viewProj));
@@ -232,8 +248,16 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     fu.skyColor = {0.13f, 0.11f, 0.24f, 0};      // purple night sky (see docs/reference)
     fu.groundColor = {0.05f, 0.04f, 0.06f, 0};
     fu.fogColor = {0.10f, 0.085f, 0.17f, rs.fogDensity};
+    if (rs.studioLighting) {   // neutral studio close to Zombie Lab's "Neutral" mode (sage backdrop, warm key)
+        V3 key = normalize(V3{0.47f, 0.76f, 0.40f});
+        fu.sunDir = {key.x, key.y, key.z, 0};
+        fu.sunColor = {0.62f, 0.58f, 0.50f, 0};
+        fu.skyColor = {0.42f, 0.45f, 0.38f, 0};
+        fu.groundColor = {0.16f, 0.17f, 0.12f, 0};
+        fu.fogColor = {0.424f, 0.463f, 0.322f, 0.0f};
+    }
     fu.gridP = {sandbox_.originX, sandbox_.originZ, params_.cellSize, 1.0f / params_.cellSize};
-    uint32_t nl = (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
+    uint32_t nl = rs.studioLighting ? 0u : (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
     fu.gridDim = {(uint32_t)params_.gridW, (uint32_t)params_.gridH, nl, rs.debugFlags};
     fu.modelP = {(float)variantRows_, modelHeight_, params_.standHeight, params_.proneHeight};
     const auto& g = sim.goals();
@@ -269,10 +293,12 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmd, &ct, 1, &dt);
 
     // ground + debug overlays
-    SDL_BindGPUGraphicsPipeline(pass, pGround_);
-    SDL_GPUBuffer* gb[5] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist()};
-    SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 5);
-    SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
+    if (rs.drawGround) {
+        SDL_BindGPUGraphicsPipeline(pass, pGround_);
+        SDL_GPUBuffer* gb[5] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist()};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 5);
+        SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
+    }
 
     if (rs.drawBoxes && boxCount_) {
         SDL_BindGPUGraphicsPipeline(pass, pBox_);
@@ -287,7 +313,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_GPUBufferBinding zvb{zombieVB_, 0};
     SDL_GPUBufferBinding zib{zombieIB_, 0};
     SDL_GPUTextureSamplerBinding pal{palette_, nearest_};
-    if (rs.drawCorpses) {
+    if (modular) chars->draw(cmd, pass, sim, time, rs.chars);
+    if (!modular && rs.drawCorpses) {
         SDL_BindGPUGraphicsPipeline(pass, pCorpse_);
         SDL_BindGPUVertexBuffers(pass, 0, &zvb, 1);
         SDL_BindGPUIndexBuffer(pass, &zib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
@@ -296,7 +323,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_BindGPUFragmentSamplers(pass, 0, &pal, 1);
         SDL_DrawGPUIndexedPrimitivesIndirect(pass, sim.indirect(), I_CORPSE_DRAW * 4, 1);
     }
-    if (rs.drawZombies) {
+    if (!modular && rs.drawZombies) {
         // one draw call for every living zombie; the instance count comes from the GPU
         SDL_BindGPUGraphicsPipeline(pass, pZombie_);
         SDL_BindGPUVertexBuffers(pass, 0, &zvb, 1);

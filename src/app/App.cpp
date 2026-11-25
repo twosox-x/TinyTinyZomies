@@ -4,6 +4,7 @@
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
+#include "sim/Look.h"
 
 #include <algorithm>
 #include <cmath>
@@ -57,7 +58,16 @@ bool App::init() {
     SDL_GPUTextureFormat swapFmt = s_.window ? SDL_GetGPUSwapchainTextureFormat(s_.gpu.device(), s_.window)
                                              : SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
     if (!s_.renderer.init(s_.gpu, s_.zombieModel, s_.sandbox, s_.params, swapFmt)) return false;
+    if (!s_.chars.init(s_.gpu, s_.params, dataPath("assets/characters/zombie_parts.ttzc"), (uint32_t)s_.params.visibleCharacterCapacity)) return false;
+    s_.sim.setExtraReadback(s_.chars.counters(), 48 * 4);
     s_.renderSettings.debugFlags = o.debugFlags;
+    s_.renderSettings.characterModel = o.characterModel;
+    s_.renderSettings.chars = o.charSettings;
+    s_.renderSettings.studioLighting = o.studio;
+    s_.renderSettings.drawGround = !o.noGround;
+    if (o.studio) { s_.renderSettings.drawBoxes = !o.noGround; s_.renderSettings.fogDensity = 0.f; }
+    if (o.freeCam) { s_.camera.settings.minDistance = 1.0f; s_.camera.settings.minPitch = -0.3f; }
+    if (o.fovDeg > 0) s_.camera.settings.fovY = o.fovDeg * 3.14159265f / 180.f;
 
     if (s_.window) {
         IMGUI_CHECKVERSION();
@@ -75,8 +85,9 @@ bool App::init() {
         ImGui_ImplSDLGPU3_Init(&ii);
     }
     s_.scenario = std::clamp(o.scenario, 0, (int)s_.sandbox.scenarios.size() - 1);
-    loadScenario(s_.scenario, o.count);
-    if (o.camSet) s_.camera.setImmediate({o.camX, 0, o.camZ}, o.camYaw, o.camPitch, o.camDist);
+    if (o.showcase >= 0) loadShowcase(o.showcase);
+    else loadScenario(s_.scenario, o.count);
+    if (o.camSet) s_.camera.setImmediate({o.camX, o.camY, o.camZ}, o.camYaw, o.camPitch, o.camDist);
     return true;
 }
 
@@ -98,6 +109,44 @@ void App::loadScenario(int index, int count) {
     s_.camera.setImmediate({(r.minX + r.maxX) * 0.5f + 15.f, 0, (r.minZ + r.maxZ) * 0.5f}, 0.9f, 0.8f, 75.f);
     (void)r;
     s_.simAccumulator = 0;
+}
+
+// Character validation scenes (open arena, no destination: zombies stand where they are placed).
+//  0: Zombie Lab lineup (Office Drone, Street Walker, Rotter; Lab spacing of 14 voxels)
+//  1: the same three as settled corpses
+//  2: 8 x 6 grid of randomly generated zombies
+//  3: large randomised crowd (2000) for gameplay-distance views
+void App::loadShowcase(int which) {
+    AppState& s = s_;
+    if (s.sandbox.map != MapKind::Arena) {
+        SDL_WaitForGPUIdle(s.gpu.device());
+        s.sandbox.build(s.params.cellSize, s.params.gridW, s.params.gridH, MapKind::Arena);
+        s.renderer.setSandbox(s.sandbox);
+    }
+    s.staticHeights = s.sandbox.rasterize();
+    s.sim.reset(s.sandbox);
+    s.sim.setGoals({});
+    const float cx = -60.f, cz = 0.f, spacing = 14.f * s.chars.metresPerVoxel();
+    if (which >= 10 && which <= 12) {                   // single Lab design at the origin of the scene
+        LookSpec l = which == 10 ? labOfficeDrone() : which == 11 ? labStreetWalker() : labRotter();
+        uint32_t x, y;
+        encodeLook(l, x, y);
+        s.sim.requestSpawnLook({cx - 0.001f, cz - 0.001f, cx + 0.001f, cz + 0.001f}, 1, x, y);
+    } else if (which == 0 || which == 1) {
+        LookSpec looks[3] = {labOfficeDrone(), labStreetWalker(), labRotter()};
+        for (int i = 0; i < 3; ++i) {
+            uint32_t x, y;
+            encodeLook(looks[i], x, y);
+            float px = cx + (i - 1) * spacing;
+            s.sim.requestSpawnLook({px - 0.001f, cz - 0.001f, px + 0.001f, cz + 0.001f}, 1, x, y, which == 1);
+        }
+    } else if (which == 2) {
+        for (int r = 0; r < 6; ++r) s.sim.requestSpawn({cx - 7.f, cz - 5.f + r * 2.f, cx + 7.f, cz - 4.9f + r * 2.f}, 8);
+    } else {
+        s.sim.requestSpawn({cx - 30.f, cz - 30.f, cx + 30.f, cz + 30.f}, 2000);
+    }
+    s.camera.setImmediate({cx, 0.85f, cz}, 0.55f, 0.35f, 6.f);
+    s.simAccumulator = 0;
 }
 
 void App::handleEvent(const SDL_Event& e) {
@@ -232,7 +281,7 @@ void App::frame(double dt) {
     if (s.window && !SDL_WaitAndAcquireGPUSwapchainTexture(cmd, s.window, &swap, &w, &h)) swap = nullptr;
     if (!s.window || swap) {
         s.renderTime += dt;
-        s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings);
+        s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings, &s.chars);
     }
     s.cpuRender.add(nowMs() - t2);
 
@@ -303,6 +352,7 @@ void App::shutdown() {
         ImGui::DestroyContext();
     }
     s_.renderer.shutdown();
+    s_.chars.shutdown();
     s_.sim.shutdown();
     s_.gpu.shutdown();
     if (s_.window) SDL_DestroyWindow(s_.window);

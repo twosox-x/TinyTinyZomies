@@ -66,6 +66,7 @@ add_executable(ttz
   src/gpu/GpuContext.cpp
   src/render/Camera.cpp
   src/render/Renderer.cpp
+  src/render/CharacterRenderer.cpp
   src/assets/Model.cpp
   src/assets/ThirdPartyImpl.cpp
   src/sim/CrowdSim.cpp
@@ -105,6 +106,7 @@ add_executable(ttz_selftest
   src/app/SelfTestMain.cpp
   src/app/SelfTest.cpp
   src/gpu/GpuContext.cpp
+  src/render/CharacterRenderer.cpp
   src/sim/CrowdSim.cpp
   src/sim/Sandbox.cpp
   src/sim/SimParams.cpp)

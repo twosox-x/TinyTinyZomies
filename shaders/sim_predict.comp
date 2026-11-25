@@ -33,7 +33,6 @@ void main() {
     if (i >= counters[C_LIVE]) return;
     Agent a = agents[i];
     uint st = agentState(a);
-    uint variant = agentVariant(a);
     uint rng = pcgHash(a.info.y ^ (uint(timeP.z) * 2654435761u));  // per-step stream; info.y stays a stable seed
     float dt = timeP.x;
 
@@ -46,7 +45,7 @@ void main() {
     vec3 v = a.vel.xyz;
     float timer = a.dirs.w;
     float health = uintBitsToFloat(a.info.z);
-    float vary = hash01(a.info.y);  // stable per-agent [0,1)
+    float vary = agentVary(a);  // stable per-agent [0,1)
 
     // ---- explosions (only agents inside a radius do extra work) ------------
     for (uint e = 0u; e < counts.y; ++e) {
@@ -101,7 +100,7 @@ void main() {
     a.vel.xyz = v;
     a.dirs.xy = desired;
     a.dirs.w = timer;
-    a.info.x = st | (variant << 8);
+    a.info.x = st | agentLookX(a);
     a.info.z = floatBitsToUint(health);
     agents[i] = a;
 

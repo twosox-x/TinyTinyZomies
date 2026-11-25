@@ -2,6 +2,8 @@
 #extension GL_GOOGLE_include_directive : require
 // Appends spawnCount new agents at random positions inside spawnRect.
 #include "common.glsl"
+#include "zombie_parts.glsl"
+#include "zombie_look.glsl"
 layout(local_size_x = 256) in;
 layout(std430, set = 0, binding = 0) readonly buffer StaticH { float staticH[]; };
 layout(std430, set = 1, binding = 0) buffer Agents { Agent agents[]; };
@@ -25,7 +27,12 @@ void main() {
     a.vel = vec4(0.0, 0.0, 0.0, rand01(rng) * 6.2831);
     a.prev = vec4(a.pos.xyz, 0.0);
     a.dirs = vec4(0.0, 0.0, rand01(rng) * 6.2831, 0.0);
-    uint variant = pcgHash(rng) & 0xFFu;
-    a.info = uvec4(ST_WALK | (variant << 8), pcgHash(rng + 1u), floatBitsToUint(1.0), floatBitsToUint(0.0));
+    uvec2 look = generateLook(rng);                  // modular appearance, fixed for the zombie's lifetime
+    uint state = ST_WALK;
+    float timer = 0.0;
+    if (lookB.z > 0.5) { state = ST_DYING; timer = 9.0; a.pos.w = 1.0; }   // bench/test: spawn as a settling corpse
+    a.dirs.w = timer;
+    if (forcedLook.z != 0u) a.dirs.z = 0.0;          // showcase characters face +Z like Zombie Lab
+    a.info = uvec4(state | look.x, look.y, floatBitsToUint(1.0), floatBitsToUint(0.0));
     agents[slot] = a;
 }

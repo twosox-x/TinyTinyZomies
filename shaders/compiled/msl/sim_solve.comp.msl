@@ -24,6 +24,9 @@ struct SimUniforms
     float4 spawnRect;
     uint4 misc;
     float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
 };
 
 struct CorpseH

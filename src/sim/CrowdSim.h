@@ -28,6 +28,9 @@ public:
     void reset(const Sandbox& sb);          // clears agents, corpses, nav; re-uploads static geometry
 
     void requestSpawn(const Rect& r, uint32_t count);
+    // spawn with a fixed appearance (showcase / validation) or as settling corpses (benchmarks / tests)
+    void requestSpawnLook(const Rect& r, uint32_t count, uint32_t lookX, uint32_t lookY, bool asCorpse = false);
+    void requestSpawnCorpses(const Rect& r, uint32_t count);
     void requestExplosion(float x, float y, float z);
     void setGoals(const std::vector<float>& xz);
     const std::vector<float>& goals() const { return goals_; }
@@ -41,6 +44,9 @@ public:
     void recordStatsReadback(SDL_GPUCommandBuffer* cmd);
     void onFrameSubmitted(SDL_GPUFence* fence);   // takes ownership of the fence
     const SimStats& stats() const { return stats_; }
+    // Another GPU buffer to download in the same async readback (e.g. character render counters).
+    void setExtraReadback(SDL_GPUBuffer* buf, uint32_t bytes) { extraBuf_ = buf; extraBytes_ = bytes; extra_.assign(bytes / 4, 0); }
+    const std::vector<uint32_t>& extraReadback() const { return extra_; }
 
     SimParams& params() { return p_; }
     double simTime() const { return simTime_; }
@@ -80,7 +86,7 @@ private:
                   *indirect_ = nullptr;
 
     std::vector<float> goals_;
-    struct SpawnRequest { Rect rect; uint32_t count; };
+    struct SpawnRequest { Rect rect; uint32_t count; uint32_t lookX = 0, lookY = 0; bool forced = false, corpse = false; };
     std::vector<SpawnRequest> pendingSpawns_;   // one request is consumed per step
     std::vector<std::array<float, 3>> pendingExplosions_;
     double simTime_ = 0.0;
@@ -92,6 +98,9 @@ private:
     int rbRecordSlot_ = -1;
     uint64_t frameCounter_ = 0;
     SimStats stats_;
+    SDL_GPUBuffer* extraBuf_ = nullptr;
+    uint32_t extraBytes_ = 0;
+    std::vector<uint32_t> extra_;
 };
 
 } // namespace ttz

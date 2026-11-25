@@ -18,8 +18,9 @@ struct GpuAgent {           // 80 bytes, std430
 };
 static_assert(sizeof(GpuAgent) == 80);
 
-struct GpuCorpse {          // 32 bytes
-    Vec4 pos, info;
+struct GpuCorpse {          // 32 bytes: pos(xyz, yaw), info(lookX, lookY, alive|pose<<8, height bits)
+    Vec4 pos;
+    UVec4 info;
 };
 static_assert(sizeof(GpuCorpse) == 32);
 
@@ -41,6 +42,9 @@ struct SimUniforms {        // std140, all vec4 members
     Vec4 spawnRect;
     UVec4 misc;
     Vec4 extraP;
+    Vec4 lookA;       // appearance category weights: recent, clothed, light damage, heavy damage
+    Vec4 lookB;       // x skeletal, y missing limb, z spawn as corpse
+    UVec4 forcedLook; // x/y look bits, z = 1 to force
 };
 
 // counters buffer indices

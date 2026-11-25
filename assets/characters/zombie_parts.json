@@ -1,0 +1,500 @@
+{
+ "format": "TTZC",
+ "version": 1,
+ "source": "assets/characters/source/zombie_lab_v3.html",
+ "voxel": {
+  "heightVoxels": 18,
+  "note": "feet at y=0, facing +Z, character's left = +X; positions in voxel units"
+ },
+ "slots": [
+  {
+   "id": 0,
+   "name": "head",
+   "family": "head",
+   "side": 0,
+   "pivot": [
+    0,
+    14,
+    0
+   ],
+   "parent": "torso"
+  },
+  {
+   "id": 1,
+   "name": "torso",
+   "family": "torso",
+   "side": 0,
+   "pivot": [
+    0,
+    8,
+    0
+   ],
+   "parent": null
+  },
+  {
+   "id": 2,
+   "name": "upperArmL",
+   "family": "upperArm",
+   "side": 1,
+   "pivot": [
+    3,
+    13.5,
+    0
+   ],
+   "parent": "torso"
+  },
+  {
+   "id": 3,
+   "name": "forearmL",
+   "family": "forearm",
+   "side": 1,
+   "pivot": [
+    3,
+    10,
+    0
+   ],
+   "parent": "upperArmL"
+  },
+  {
+   "id": 4,
+   "name": "upperArmR",
+   "family": "upperArm",
+   "side": -1,
+   "pivot": [
+    -3,
+    13.5,
+    0
+   ],
+   "parent": "torso"
+  },
+  {
+   "id": 5,
+   "name": "forearmR",
+   "family": "forearm",
+   "side": -1,
+   "pivot": [
+    -3,
+    10,
+    0
+   ],
+   "parent": "upperArmR"
+  },
+  {
+   "id": 6,
+   "name": "thighL",
+   "family": "thigh",
+   "side": 1,
+   "pivot": [
+    1.5,
+    8,
+    0
+   ],
+   "parent": null
+  },
+  {
+   "id": 7,
+   "name": "shinL",
+   "family": "shin",
+   "side": 1,
+   "pivot": [
+    1.5,
+    4,
+    0
+   ],
+   "parent": "thighL"
+  },
+  {
+   "id": 8,
+   "name": "thighR",
+   "family": "thigh",
+   "side": -1,
+   "pivot": [
+    -1.5,
+    8,
+    0
+   ],
+   "parent": null
+  },
+  {
+   "id": 9,
+   "name": "shinR",
+   "family": "shin",
+   "side": -1,
+   "pivot": [
+    -1.5,
+    4,
+    0
+   ],
+   "parent": "thighR"
+  }
+ ],
+ "families": {
+  "head": [
+   {
+    "index": 0,
+    "id": "bald",
+    "name": "Bald",
+    "decay": 0
+   },
+   {
+    "index": 1,
+    "id": "short_hair",
+    "name": "Short hair",
+    "decay": 0
+   },
+   {
+    "index": 2,
+    "id": "long_hair",
+    "name": "Long hair",
+    "decay": 0
+   },
+   {
+    "index": 3,
+    "id": "beanie",
+    "name": "Beanie",
+    "decay": 0
+   },
+   {
+    "index": 4,
+    "id": "scalp_wound",
+    "name": "Scalp wound",
+    "decay": 1
+   },
+   {
+    "index": 5,
+    "id": "one_eye",
+    "name": "Lost eye",
+    "decay": 1
+   },
+   {
+    "index": 6,
+    "id": "jawless",
+    "name": "Missing jaw",
+    "decay": 2
+   },
+   {
+    "index": 7,
+    "id": "skull",
+    "name": "Half skull",
+    "decay": 2
+   }
+  ],
+  "torso": [
+   {
+    "index": 0,
+    "id": "tshirt",
+    "name": "T-shirt",
+    "decay": 0,
+    "sleeve": "cloth"
+   },
+   {
+    "index": 1,
+    "id": "shirt_tie",
+    "name": "Shirt and tie",
+    "decay": 0,
+    "sleeve": "top2"
+   },
+   {
+    "index": 2,
+    "id": "hoodie",
+    "name": "Hoodie",
+    "decay": 0,
+    "sleeve": "cloth"
+   },
+   {
+    "index": 3,
+    "id": "jacket",
+    "name": "Open jacket",
+    "decay": 0,
+    "sleeve": "cloth"
+   },
+   {
+    "index": 4,
+    "id": "tank",
+    "name": "Tank top",
+    "decay": 1,
+    "sleeve": "skin"
+   },
+   {
+    "index": 5,
+    "id": "ribcage",
+    "name": "Open ribcage",
+    "decay": 2,
+    "sleeve": "skin"
+   },
+   {
+    "index": 6,
+    "id": "gutted",
+    "name": "Gutted",
+    "decay": 2,
+    "sleeve": "cloth"
+   }
+  ],
+  "upperArm": [
+   {
+    "index": 0,
+    "id": "sleeve",
+    "name": "Sleeve",
+    "decay": 0
+   },
+   {
+    "index": 1,
+    "id": "bare",
+    "name": "Bare",
+    "decay": 0
+   },
+   {
+    "index": 2,
+    "id": "torn_sleeve",
+    "name": "Torn sleeve",
+    "decay": 1
+   },
+   {
+    "index": 3,
+    "id": "meat",
+    "name": "Exposed muscle",
+    "decay": 1
+   },
+   {
+    "index": 4,
+    "id": "bone",
+    "name": "Bone",
+    "decay": 2
+   }
+  ],
+  "forearm": [
+   {
+    "index": 0,
+    "id": "sleeve",
+    "name": "Sleeve + hand",
+    "decay": 0
+   },
+   {
+    "index": 1,
+    "id": "bare",
+    "name": "Bare + hand",
+    "decay": 0
+   },
+   {
+    "index": 2,
+    "id": "bloody",
+    "name": "Bloody",
+    "decay": 1
+   },
+   {
+    "index": 3,
+    "id": "meat",
+    "name": "Skinned",
+    "decay": 1
+   },
+   {
+    "index": 4,
+    "id": "bone",
+    "name": "Bone + bony hand",
+    "decay": 2
+   },
+   {
+    "index": 5,
+    "id": "missing",
+    "name": "Missing (stump)",
+    "decay": 2
+   }
+  ],
+  "thigh": [
+   {
+    "index": 0,
+    "id": "pants",
+    "name": "Trousers",
+    "decay": 0
+   },
+   {
+    "index": 1,
+    "id": "shorts",
+    "name": "Shorts",
+    "decay": 0
+   },
+   {
+    "index": 2,
+    "id": "torn",
+    "name": "Torn trousers",
+    "decay": 1
+   },
+   {
+    "index": 3,
+    "id": "meat",
+    "name": "Exposed muscle",
+    "decay": 1
+   },
+   {
+    "index": 4,
+    "id": "bone",
+    "name": "Bare femur",
+    "decay": 2
+   }
+  ],
+  "shin": [
+   {
+    "index": 0,
+    "id": "pants",
+    "name": "Trousers + shoe",
+    "decay": 0
+   },
+   {
+    "index": 1,
+    "id": "skin",
+    "name": "Bare shin + shoe",
+    "decay": 0
+   },
+   {
+    "index": 2,
+    "id": "barefoot",
+    "name": "Barefoot",
+    "decay": 1
+   },
+   {
+    "index": 3,
+    "id": "torn",
+    "name": "Torn + bloody",
+    "decay": 1
+   },
+   {
+    "index": 4,
+    "id": "meat",
+    "name": "Skinned",
+    "decay": 1
+   },
+   {
+    "index": 5,
+    "id": "bone",
+    "name": "Bone + bony foot",
+    "decay": 2
+   }
+  ]
+ },
+ "tags": [
+  "skin",
+  "skinDark",
+  "cloth",
+  "clothDark",
+  "top2",
+  "top2Dark",
+  "pants",
+  "pantsDark",
+  "pantsLight",
+  "hair",
+  "tie",
+  "hat",
+  "hatDark",
+  "shoe",
+  "sleeve",
+  "sleeveDark",
+  "blood",
+  "bloodDark",
+  "gore",
+  "bone",
+  "boneDark",
+  "meat",
+  "meatDark",
+  "mouth",
+  "belt",
+  "eye"
+ ],
+ "decayBuckets": [
+  0.25,
+  0.55,
+  0.75,
+  0.9
+ ],
+ "seeds": [
+  101,
+  202,
+  303,
+  404
+ ],
+ "decorationVariants": 33,
+ "stats": {
+  "meshes": 2277,
+  "levels": {
+   "naive": {
+    "vertices": 1569060,
+    "triangles": 523020,
+    "bytes": 6276240,
+    "familyMaxVertices": {
+     "head": 1332,
+     "torso": 3492,
+     "upperArm": 144,
+     "forearm": 144,
+     "thigh": 576,
+     "shin": 648
+    },
+    "familyAvgVertices": {
+     "head": 1062,
+     "torso": 3263.4,
+     "upperArm": 142.2,
+     "forearm": 119.4,
+     "thigh": 512.6,
+     "shin": 567.1
+    }
+   },
+   "culled": {
+    "vertices": 558996,
+    "triangles": 186332,
+    "bytes": 2235984,
+    "familyMaxVertices": {
+     "head": 420,
+     "torso": 840,
+     "upperArm": 108,
+     "forearm": 108,
+     "thigh": 240,
+     "shin": 276
+    },
+    "familyAvgVertices": {
+     "head": 366,
+     "torso": 785,
+     "upperArm": 106.9,
+     "forearm": 89.7,
+     "thigh": 227.8,
+     "shin": 251.9
+    }
+   },
+   "greedy": {
+    "vertices": 331824,
+    "triangles": 110608,
+    "bytes": 1327296,
+    "familyMaxVertices": {
+     "head": 336,
+     "torso": 546,
+     "upperArm": 108,
+     "forearm": 108,
+     "thigh": 210,
+     "shin": 240
+    },
+    "familyAvgVertices": {
+     "head": 247.4,
+     "torso": 308.6,
+     "upperArm": 88.3,
+     "forearm": 72.2,
+     "thigh": 138.5,
+     "shin": 158.2
+    }
+   }
+  },
+  "designs": {
+   "drone": {
+    "naive": 2424,
+    "culled": 856,
+    "greedy": 280
+   },
+   "walker": {
+    "naive": 2616,
+    "culled": 904,
+    "greedy": 496
+   },
+   "rotter": {
+    "naive": 2076,
+    "culled": 780,
+    "greedy": 572
+   }
+  }
+ }
+}

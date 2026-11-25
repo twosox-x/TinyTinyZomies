@@ -1,0 +1,52 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Pass 1: frustum-cull zombies (mode 0) or corpses (mode 1), append visible characters and count
+// their segments per size class. Exact compaction: the local index per segment is kept for pass 3.
+#include "common.glsl"
+#include "zombie_parts.glsl"
+#include "char_common.glsl"
+#include "char_uniforms.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer Agents    { Agent agents[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Corpses   { Corpse corpses[]; };
+layout(std430, set = 0, binding = 2) readonly buffer SimCount  { uint simCounters[]; };
+layout(std430, set = 0, binding = 3) readonly buffer MeshInfo  { uvec4 meshInfo[]; };
+layout(std430, set = 1, binding = 0) buffer CharCounters { uint cc[]; };
+layout(std430, set = 1, binding = 1) buffer VisList      { uint visList[]; };
+layout(std430, set = 1, binding = 2) buffer SegLocal     { uint segLocal[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    bool corpse = ccfg.x == 1u;
+    vec3 pos; uint lx, ly;
+    if (!corpse) {
+        if (i >= simCounters[C_LIVE]) return;
+        Agent a = agents[i];
+        if ((a.info.x & 0xFFu) == ST_DEAD) return;
+        pos = a.pos.xyz; lx = a.info.x & 0xFFFFFF00u; ly = a.info.y;
+    } else {
+        if (i >= min(simCounters[C_CORPSES], ccfg2.y)) return;
+        Corpse c = corpses[i];
+        if ((c.info.z & 1u) == 0u) return;
+        pos = c.pos.xyz; lx = c.info.x; ly = c.info.y;
+    }
+    if ((ccfg.w & CF_CULL) != 0u) {
+        // conservative sphere: covers reaching, climbing, flailing, lying bodies and individual segments
+        vec3 ctr = pos + vec3(0.0, cparams.w, 0.0);
+        for (int k = 0; k < 6; ++k) if (dot(planes[k].xyz, ctr) + planes[k].w < -cparams.z) return;
+    }
+    uint vis = atomicAdd(cc[CC_VISIBLE], 1u);
+    if (vis >= ccfg.y) { atomicAdd(cc[CC_OVERFLOW], 1u); return; }
+    visList[vis] = corpse ? (i | REF_CORPSE) : i;
+    atomicAdd(cc[corpse ? CC_VIS_CORPSES : CC_VIS_AGENTS], 1u);
+    uint tris = 0u, segs = 0u, invoc = 0u;
+    for (uint s = 0u; s < 10u; ++s) {
+        uvec4 mi = meshInfo[meshIdFor(lx, ly, s)];
+        if (mi.y == 0u) { segLocal[vis * 10u + s] = SEG_SKIP; continue; }   // missing forearm
+        uint local = atomicAdd(cc[CC_CLASS_COUNT + mi.z], 1u);
+        segLocal[vis * 10u + s] = (mi.z << 24) | local;
+        tris += mi.y / 3u; segs += 1u; invoc += mi.w;
+    }
+    atomicAdd(cc[CC_TRIANGLES], tris);
+    atomicAdd(cc[CC_SEGMENTS], segs);
+    atomicAdd(cc[CC_VS_INVOC], invoc);
+}

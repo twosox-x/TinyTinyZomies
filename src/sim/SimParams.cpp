@@ -22,7 +22,7 @@ std::map<std::string, Field>& fields() {
                                [](const SimParams& p) { std::ostringstream o; o << p.name; return o.str(); }}
 #define B(name) f[#name] = Field{[](SimParams& p, const std::string& v) { p.name = (v == "1" || v == "true"); }, \
                                [](const SimParams& p) { return std::string(p.name ? "true" : "false"); }}
-    F(cellSize); F(gridW); F(gridH); F(agentCapacity); F(corpseCapacity);
+    F(cellSize); F(gridW); F(gridH); F(agentCapacity); F(corpseCapacity); F(visibleCharacterCapacity);
     F(fixedDt); F(solverIterations); F(maxStepsPerFrame);
     F(radius); F(standHeight); F(proneHeight); F(baseSpeed); F(crawlSpeed); F(maxSpeed); F(accel); F(gravity);
     F(stepUp); F(wander); F(proneRate);
@@ -32,6 +32,7 @@ std::map<std::string, Field>& fields() {
     B(corpsesEnabled); F(corpseSplatHeight); F(corpseSettleSpeed);
     F(navDensityWeight); F(navClimbWeight); F(navClimbLimit); F(goalRadius); F(navIterationsPerStep);
     F(explosionRadius); F(explosionStrength); F(explosionLethality); F(explosionUpBias);
+    F(lookRecent); F(lookClothed); F(lookLight); F(lookHeavy); F(lookSkeletal); F(lookMissing);
 #undef F
 #undef B
     return f;

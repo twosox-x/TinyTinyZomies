@@ -58,7 +58,7 @@ bool CrowdSim::init(GpuContext& gpu, const SimParams& p, const Sandbox& sb) {
                                        SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE,
                                    I_COUNT * 4, "indirect");
     for (auto& r : rb_) {
-        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4, 0};
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4 + 256, 0};
         r.tb = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
     }
     if (!agentsA_ || !corpses_ || !indirect_) return false;
@@ -117,6 +117,14 @@ void CrowdSim::requestSpawn(const Rect& r, uint32_t count) {
     if (count > 0) pendingSpawns_.push_back({r, count});
 }
 
+void CrowdSim::requestSpawnLook(const Rect& r, uint32_t count, uint32_t lookX, uint32_t lookY, bool asCorpse) {
+    if (count > 0) pendingSpawns_.push_back({r, count, lookX, lookY, true, asCorpse});
+}
+
+void CrowdSim::requestSpawnCorpses(const Rect& r, uint32_t count) {
+    if (count > 0) pendingSpawns_.push_back({r, count, 0, 0, false, true});
+}
+
 void CrowdSim::requestExplosion(float x, float y, float z) {
     if (pendingExplosions_.size() < (size_t)kMaxExplosions) pendingExplosions_.push_back({x, y, z});
 }
@@ -145,6 +153,8 @@ SimUniforms CrowdSim::baseUniforms() const {
     u.misc = {(uint32_t)p_.maxNeighbors, 0, 0,
               (p_.verticalEnabled ? FLAG_VERTICAL : 0u) | (p_.corpsesEnabled ? FLAG_CORPSES : 0u)};
     u.extraP = {p_.maxSpeed, p_.wander, p_.proneRate, p_.crawlSpeed};
+    u.lookA = {p_.lookRecent, p_.lookClothed, p_.lookLight, p_.lookHeavy};
+    u.lookB = {p_.lookSkeletal, p_.lookMissing, 0.f, 0.f};
     return u;
 }
 
@@ -173,8 +183,12 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
         u.counts.z = req.count;
         u.spawnRect = {req.rect.minX, req.rect.minZ, req.rect.maxX, req.rect.maxZ};
         u.counts.w = spawnSeed_++;
+        u.forcedLook = {req.lookX, req.lookY, req.forced ? 1u : 0u, 0};
+        u.lookB.z = req.corpse ? 1.f : 0.f;
         dispatch(D(pSpawn_, {staticH_}, {agentsA_, counters_}), groups(req.count, 256));
         u.counts.z = 0;
+        u.forcedLook = {};
+        u.lookB.z = 0.f;
     }
     if (ne > 0 && p_.corpsesEnabled)
         dispatchIndirect(D(pCorpseBlast_, {staticH_}, {corpses_, agentsA_, corpseH_, counters_}), indirect_,
@@ -243,6 +257,7 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
             uint32_t c[C_COUNT];
             void* p = SDL_MapGPUTransferBuffer(d, r.tb, false);
             std::memcpy(c, p, sizeof(c));
+            if (extraBytes_ && r.frame >= stats_.frameOfData) std::memcpy(extra_.data(), (uint8_t*)p + C_COUNT * 4, std::min<uint32_t>(extraBytes_, 256));
             SDL_UnmapGPUTransferBuffer(d, r.tb);
             if (r.frame >= stats_.frameOfData) {
                 stats_.live = c[C_LIVE];
@@ -271,6 +286,11 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUBufferRegion src{counters_, 0, C_COUNT * 4};
     SDL_GPUTransferBufferLocation dst{r.tb, 0};
     SDL_DownloadFromGPUBuffer(cp, &src, &dst);
+    if (extraBuf_) {
+        SDL_GPUBufferRegion src2{extraBuf_, 0, std::min<uint32_t>(extraBytes_, 256)};
+        SDL_GPUTransferBufferLocation dst2{r.tb, C_COUNT * 4};
+        SDL_DownloadFromGPUBuffer(cp, &src2, &dst2);
+    }
     SDL_EndGPUCopyPass(cp);
     r.recorded = true;
     r.frame = frameCounter_;

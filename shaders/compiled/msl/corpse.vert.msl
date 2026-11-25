@@ -38,13 +38,13 @@ struct Frame
 struct Corpse
 {
     float4 pos;
-    float4 info;
+    uint4 info;
 };
 
 struct Corpse_1
 {
     float4 pos;
-    float4 info;
+    uint4 info;
 };
 
 struct Corpses
@@ -71,6 +71,9 @@ struct SimUniforms
     float4 spawnRect;
     uint4 misc;
     float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
 };
 
 struct main0_out
@@ -92,6 +95,21 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
 float3x3 rotX(thread const float& a)
 {
     float c = cos(a);
@@ -108,7 +126,7 @@ float3x3 rotZ(thread const float& a)
 }
 
 static inline __attribute__((always_inline))
-float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _362)
+float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _405)
 {
     float sw = sin(s.phase);
     float gait = fast::clamp(s.speed / 1.60000002384185791015625, 0.0, 1.0);
@@ -153,7 +171,7 @@ float3 animateVertex(thread const float3& p, thread const float3& pivot, thread 
     float param_6 = ((0.119999997317790985107421875 * gait) * (1.0 - s.prone)) + (s.prone * 1.4500000476837158203125);
     float param_7 = s.roll;
     float3x3 B = rotX(param_6) * rotZ(param_7);
-    float3 c = float3(0.0, _362.modelP.y * 0.5, 0.0);
+    float3 c = float3(0.0, _405.modelP.y * 0.5, 0.0);
     q = (B * (q - c)) + mix(c, float3(0.0, 0.17000000178813934326171875, 0.0), float3(s.prone));
     n = B * n;
     return q;
@@ -167,14 +185,14 @@ float3x3 rotY(thread const float& a)
     return float3x3(float3(c, 0.0, -s), float3(0.0, 1.0, 0.0), float3(s, 0.0, c));
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _362 [[buffer(0)]], const device Corpses& _395 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0)]], const device Corpses& _438 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
 {
     main0_out out = {};
     Corpse c;
-    c.pos = _395.corpses[int(gl_InstanceIndex)].pos;
-    c.info = _395.corpses[int(gl_InstanceIndex)].info;
+    c.pos = _438.corpses[int(gl_InstanceIndex)].pos;
+    c.info = _438.corpses[int(gl_InstanceIndex)].info;
     float3 n = in.inNormal;
-    if (c.info.z < 0.5)
+    if ((c.info.z & 1u) == 0u)
     {
         out.gl_Position = float4(0.0, 0.0, -2.0, 1.0);
         out.vWorld = float3(0.0);
@@ -183,7 +201,8 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _362 [[buffer(0
         out.vAo = 0.0;
         return out;
     }
-    float vary = c.info.x;
+    uint param = c.info.y ^ ((c.info.x >> uint(8)) * 2654435761u);
+    float vary = hash01(param);
     Pose s;
     s.phase = vary * 20.0;
     s.speed = 0.0;
@@ -194,25 +213,25 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _362 [[buffer(0
     s.roll += ((fract(vary * 13.69999980926513671875) - 0.5) * 0.5);
     s.vary = vary;
     s.dead = 1.0;
-    float3 param = in.inPos;
-    float3 param_1 = in.inPivot;
-    int param_2 = int(in.inPart + 0.5);
-    Pose param_3 = s;
-    float3 param_4 = n;
-    float3 _486 = animateVertex(param, param_1, param_2, param_3, param_4, _362);
-    n = param_4;
-    float3 q = _486;
+    float3 param_1 = in.inPos;
+    float3 param_2 = in.inPivot;
+    int param_3 = int(in.inPart + 0.5);
+    Pose param_4 = s;
+    float3 param_5 = n;
+    float3 _540 = animateVertex(param_1, param_2, param_3, param_4, param_5, _405);
+    n = param_5;
+    float3 q = _540;
     if (s.roll > 1.5)
     {
         q.y += 0.2599999904632568359375;
     }
-    float param_5 = c.pos.w;
-    float3x3 Y = rotY(param_5);
+    float param_6 = c.pos.w;
+    float3x3 Y = rotY(param_6);
     out.vWorld = c.pos.xyz + (Y * q);
     out.vNormal = Y * n;
-    out.vUv = in.inUv + float2(0.0, float(uint(c.info.y) % uint(_362.modelP.x)) / _362.modelP.x);
+    out.vUv = in.inUv + float2(0.0, float(((c.info.x >> uint(8)) & 255u) % uint(_405.modelP.x)) / _405.modelP.x);
     out.vAo = 0.550000011920928955078125;
-    out.gl_Position = _362.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _405.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

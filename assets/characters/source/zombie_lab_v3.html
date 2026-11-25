@@ -1,0 +1,1006 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Zombie Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: full-bleed 3D stage with a floating control column (bottom sheet on phones). Single committed dark studio look. */
+:root {
+  --bg: #14170f;
+  --panel: rgba(18, 21, 14, 0.88);
+  --raised: #1f2518;
+  --line: #313a27;
+  --fg: #e7ead9;
+  --muted: #98a184;
+  --accent: #8dff6e;      /* the zombies' eye glow */
+  --accent-ink: #10200a;
+  --blood: #b02a2a;
+  --ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--ui); overflow: hidden; }
+.app { position: relative; height: 100%; }
+#stage { position: absolute; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+
+.panel {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  width: 304px;
+  max-height: calc(100% - 32px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px;
+  scrollbar-width: thin;
+}
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.brand h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: 0.02em; text-wrap: balance; }
+.brand h1 b { color: var(--accent); font-weight: 800; }
+.brand span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.sec { display: flex; flex-direction: column; gap: 7px; }
+.label { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.label em { font-style: normal; font-family: var(--mono); letter-spacing: 0; text-transform: none; color: var(--fg); }
+
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 2px; gap: 2px; }
+.seg button, .btn {
+  font: 500 12px/1 var(--ui); color: var(--fg); background: transparent; border: 0; border-radius: 5px;
+  padding: 8px 6px; cursor: pointer; white-space: nowrap;
+}
+.seg button:hover { background: #2a3221; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn { background: var(--raised); border: 1px solid var(--line); padding: 8px 10px; }
+.btn:hover { border-color: #4a5638; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.row > .btn { flex: 1 1 auto; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.designs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.design {
+  background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 8px 6px; cursor: pointer; color: var(--fg);
+  display: flex; flex-direction: column; gap: 3px; text-align: left; font-family: var(--ui);
+}
+.design b { font-size: 12px; font-weight: 600; }
+.design small { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.design[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+.swatches { display: flex; gap: 5px; flex-wrap: wrap; }
+.sw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid rgba(0,0,0,.4); cursor: pointer; padding: 0; }
+.sw[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.swlabel { font-size: 11px; color: var(--muted); width: 38px; flex: none; align-self: center; }
+.swrow { display: flex; gap: 6px; }
+
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.card { border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--raised); display: flex; flex-direction: column; gap: 8px; }
+.card .empty { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { font: 500 11px/1 var(--ui); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 99px; padding: 5px 8px; cursor: pointer; }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 11px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.partname { font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.badge { font: 600 10px/1 var(--mono); padding: 4px 6px; border-radius: 4px; background: #2a3221; color: var(--muted); }
+.badge.d1 { background: #3a2a1c; color: #e0a96d; }
+.badge.d2 { background: #3e1a1a; color: #ff8b8b; }
+
+.stats { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; font-variant-numeric: tabular-nums; }
+.stats b { color: var(--fg); font-weight: 600; }
+.hint {
+  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 9px; pointer-events: none;
+}
+.tag {
+  position: absolute; transform: translate(-50%, 0); pointer-events: none; text-align: center;
+  font-family: var(--ui); font-size: 12px; font-weight: 600; color: var(--fg); white-space: nowrap;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px;
+}
+.tag small { display: block; font-family: var(--mono); font-weight: 400; font-size: 10px; color: var(--muted); margin-top: 2px; }
+.err { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); font-size: 14px; }
+.only-crowd[hidden], .only-inspect[hidden] { display: none !important; }
+
+@media (max-width: 720px) {
+  .panel {
+    top: auto; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    left: max(8px, env(safe-area-inset-left, 0px)); right: max(8px, env(safe-area-inset-right, 0px));
+    width: auto; max-height: 48%;
+  }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="app">
+  <div id="stage" aria-label="3D preview: drag to rotate, scroll to zoom, click a body part to select it"></div>
+  <div id="tags"></div>
+
+  <aside class="panel" aria-label="Zombie design controls">
+    <div class="brand"><h1>Tiny Tiny <b>Zombie</b> Lab</h1><span>18-voxel template · 10 segments</span></div>
+
+    <div class="sec">
+      <div class="label">View</div>
+      <div class="seg" data-group="view">
+        <button id="v-inspect" data-v="inspect" aria-pressed="true">Inspect</button>
+        <button id="v-lineup" data-v="lineup" aria-pressed="false">Lineup</button>
+        <button id="v-crowd" data-v="crowd" aria-pressed="false">Crowd</button>
+      </div>
+    </div>
+
+    <div class="sec only-inspect">
+      <div class="label">Base design</div>
+      <div class="designs">
+        <button class="design" id="d-drone" data-d="drone" aria-pressed="true"><b>Office Drone</b><small>low detail</small></button>
+        <button class="design" id="d-walker" data-d="walker" aria-pressed="false"><b>Street Walker</b><small>medium</small></button>
+        <button class="design" id="d-rotter" data-d="rotter" aria-pressed="false"><b>Rotter</b><small>high detail</small></button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="label">Editing <em id="editing">Office Drone</em></div>
+      <div class="row">
+        <button class="btn primary" id="randomize">Randomize character</button>
+        <button class="btn" id="recolor">New colors</button>
+      </div>
+      <button class="btn only-crowd" id="reroll" hidden>Reroll whole crowd</button>
+    </div>
+
+    <div class="sec">
+      <div class="label">Voxel detail</div>
+      <div class="seg" data-group="detail">
+        <button id="t-0" data-t="0" aria-pressed="true">Low</button>
+        <button id="t-1" data-t="1" aria-pressed="false">Medium</button>
+        <button id="t-2" data-t="2" aria-pressed="false">High</button>
+      </div>
+      <div class="label" style="margin-top:4px">Decomposition <em id="decayval">30%</em></div>
+      <input type="range" id="decay" min="0" max="100" value="30" aria-label="Decomposition">
+    </div>
+
+    <div class="sec">
+      <div class="label">Colors</div>
+      <div class="swrow"><span class="swlabel">Skin</span><div class="swatches" id="sw-skin"></div></div>
+      <div class="swrow"><span class="swlabel">Top</span><div class="swatches" id="sw-top"></div></div>
+      <div class="swrow"><span class="swlabel">Pants</span><div class="swatches" id="sw-pants"></div></div>
+    </div>
+
+    <div class="sec">
+      <div class="label">Modular view</div>
+      <div class="seg" data-group="explode">
+        <button id="e-0" data-e="0" aria-pressed="true">Assembled</button>
+        <button id="e-1" data-e="1" aria-pressed="false">Exploded</button>
+      </div>
+      <label class="check"><input type="checkbox" id="joints"> Show joints and attachment points</label>
+    </div>
+
+    <div class="sec">
+      <div class="label">Animation</div>
+      <div class="seg" data-group="anim">
+        <button id="a-idle" data-a="idle" aria-pressed="false">Idle</button>
+        <button id="a-walk" data-a="walk" aria-pressed="true">Walk</button>
+        <button id="a-reach" data-a="reach" aria-pressed="false">Reach</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="label">Lighting</div>
+      <div class="seg" data-group="light">
+        <button id="l-neutral" data-l="neutral" aria-pressed="true">Neutral</button>
+        <button id="l-night" data-l="night" aria-pressed="false">Night</button>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="label">Body part</div>
+      <div class="card">
+        <div class="chips" id="slotchips"></div>
+        <div id="partinfo"></div>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+  </aside>
+  <div class="hint">drag rotate · scroll zoom · click a part</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script>
+(function () {
+"use strict";
+const stageEl = document.getElementById("stage");
+let selected = null;   // { zombie, slot } — the selected body part
+if (!window.THREE) {
+  stageEl.innerHTML = '<div class="err">The 3D library could not be loaded. Check the network connection and reload.</div>';
+  return;
+}
+
+/* =====================================================================================
+   UNIVERSAL BODY TEMPLATE (voxel units, feet at y = 0, facing +Z, character's left = +X)
+   18 voxels tall: legs 8, torso 6, neck 1, head 3. Every module of a slot shares these
+   pivots, so any head / torso / arm / leg attaches to any other.
+   ===================================================================================== */
+const SLOTS = ["head", "torso", "upperArmL", "forearmL", "upperArmR", "forearmR", "thighL", "shinL", "thighR", "shinR"];
+const SLOT_NAME = { head: "Head", torso: "Torso", upperArmL: "L upper arm", forearmL: "L forearm", upperArmR: "R upper arm", forearmR: "R forearm",
+                    thighL: "L thigh", shinL: "L shin", thighR: "R thigh", shinR: "R shin" };
+const FAMILY = { head: "head", torso: "torso", upperArmL: "upperArm", forearmL: "forearm", upperArmR: "upperArm", forearmR: "forearm",
+                 thighL: "thigh", shinL: "shin", thighR: "thigh", shinR: "shin" };
+const SIDE = { head: 0, torso: 0, upperArmL: 1, forearmL: 1, upperArmR: -1, forearmR: -1, thighL: 1, shinL: 1, thighR: -1, shinR: -1 };
+// joints: neck, shoulders, elbows, hips, knees (voxel units)
+const PIVOT = { head: [0, 14, 0], torso: [0, 8, 0], upperArmL: [3, 13.5, 0], forearmL: [3, 10, 0], upperArmR: [-3, 13.5, 0], forearmR: [-3, 10, 0],
+                thighL: [1.5, 8, 0], shinL: [1.5, 4, 0], thighR: [-1.5, 8, 0], shinR: [-1.5, 4, 0] };
+// exploded offsets, relative to each segment's parent (legs come apart but stay on the ground)
+const EXPLODE = { head: [0, 4, 0], torso: [0, 4.5, 0], upperArmL: [3.5, 0.5, 0], forearmL: [0, -1.6, 0], upperArmR: [-3.5, 0.5, 0], forearmR: [0, -1.6, 0],
+                  thighL: [1.6, 2.2, 0], shinL: [0, -2.2, 0], thighR: [-1.6, 2.2, 0], shinR: [0, -2.2, 0] };
+const PARENT = { head: "torso", torso: null, upperArmL: "torso", forearmL: "upperArmL", upperArmR: "torso", forearmR: "upperArmR",
+                 thighL: null, shinL: "thighL", thighR: null, shinR: "thighR" };
+
+/* ---------------- deterministic randomness ---------------- */
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function hash3(x, y, z, s) { let h = Math.imul(Math.round(x * 2) + 1000, 73856093) ^ Math.imul(Math.round(y * 2) + 1000, 19349663) ^ Math.imul(Math.round(z * 2) + 1000, 83492791) ^ s; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+const pick = (rng, arr) => arr[Math.floor(rng() * arr.length)];
+let seedCounter = (Date.now() & 0xffff) * 7;
+const newSeed = () => (seedCounter = (seedCounter * 1103515245 + 12345) >>> 0);
+
+/* ---------------- palettes (muted clothing, greenish skin) ---------------- */
+const SKINS = ["#9fae55", "#8a9b4c", "#b2b46a", "#7f9358", "#a3a86b", "#94a77a", "#b8b07a", "#6e8550"];
+const TOPS = ["#556b3a", "#7a6a3a", "#6e4434", "#4c5560", "#5c3138", "#5f5f58", "#3f5a54", "#36394a", "#7d7360"];
+const PANTS = ["#3b4656", "#2f3136", "#6d6650", "#4a3c2f", "#3c4434", "#55504a"];
+const SHIRTS = ["#b9b6a0", "#a7a99a", "#c2b9a0", "#9fa9a8"];
+const HAIRS = ["#2b241e", "#5a4630", "#1e1e22", "#8c7a5c", "#6a3b23", "#3b3330"];
+const TIES = ["#6b1f26", "#2c3a5c", "#3f4a2a"];
+const HATS = ["#6b2a2a", "#384a5a", "#5a5a2e", "#2f2f33", "#7a5a2a"];
+const SHOES = ["#2a2420", "#3a332c", "#1f1d1d"];
+const FIXED = { blood: "#6e1414", bloodDark: "#3f0a0b", gore: "#5a0d14", bone: "#d6ccab", boneDark: "#a99d7c", meat: "#8a2424", meatDark: "#561216", mouth: "#1a0c0e", belt: "#2b241f" };
+
+function randomPalette(rng) {
+  return { skin: pick(rng, SKINS), top: pick(rng, TOPS), top2: pick(rng, SHIRTS), pants: pick(rng, PANTS), hair: pick(rng, HAIRS),
+           tie: pick(rng, TIES), hat: pick(rng, HATS), shoe: pick(rng, SHOES) };
+}
+
+/* ---------------- voxel module library ----------------
+   build(v, s, ctx): v.box(x0,x1,y0,y1,z0,z1,tag) / v.set / v.del use voxel CENTRES in body space.
+   s = +1 for the left side (+X), -1 for the right side.  decay: 0 intact, 1 damaged, 2 decomposed. */
+/* Limb segments, one voxel per row. A column helper takes the tags from top to bottom.
+   Arms: 1x1 thick, x = 3s. Upper arm rows y 13.5..10.5, forearm rows 9.5..7.5 + one-block hand at 6.5.
+   Legs: 2x2 thick, x = s*{1,2}. Thigh rows 7.5..4.5, shin rows 3.5..1.5 + one-block foot at 0.5 (with a toe). */
+function armCol(v, s, yTop, tags) { tags.forEach((t, i) => { if (t) v.set(3 * s, yTop - i, 0, t); }); }
+function legRow(v, s, y, tag, only) {   // only: "inner" | "front" | "innerFront" limits which of the 4 cells get the tag
+  const inner = s, outer = 2 * s;
+  for (const x of [inner, outer]) for (const z of [-0.5, 0.5]) {
+    if (only === "inner" && x !== inner) continue;
+    if (only === "front" && z < 0) continue;
+    if (only === "innerFront" && (x !== inner || z < 0)) continue;
+    v.set(x, y, z, tag);
+  }
+}
+function legRows(v, s, yTop, tags) { tags.forEach((t, i) => { if (t) legRow(v, s, yTop - i, t); }); }
+function shoe(v, s, tag) { legRow(v, s, 0.5, tag); v.set(s, 0.5, 1.5, tag); v.set(2 * s, 0.5, 1.5, tag); }
+const forearmMissing = (ctx, s) => ctx.spec && ctx.spec.modules[s > 0 ? "forearmL" : "forearmR"] === "missing";
+
+const MODULES = {
+  head: [
+    { id: "bald", name: "Bald", decay: 0, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 1, "skinDark"); v.box(-1, 1, 17.5, 17.5, -1, 0, "skin"); } },
+    { id: "short_hair", name: "Short hair", decay: 0, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 1, "hair"); v.box(-1, 1, 16.5, 16.5, -1, -1, "hair"); } },
+    { id: "long_hair", name: "Long hair", decay: 0, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 1, "hair"); v.box(-1, 1, 15.5, 16.5, -1, -1, "hair"); v.box(-1, 1, 14.5, 14.5, -1, -1, "hair"); v.set(-1, 16.5, 0, "hair"); v.set(1, 16.5, 0, "hair"); } },
+    { id: "beanie", name: "Beanie", decay: 0, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 1, "hatDark"); v.box(-1, 1, 18.5, 18.5, -1, 1, "hat"); } },
+    { id: "scalp_wound", name: "Scalp wound", decay: 1, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 1, "hair"); v.box(-1, 0, 17.5, 17.5, 0, 1, "gore"); v.set(-1, 17.5, -1, "blood"); v.set(0, 16.5, 1, "blood"); v.set(0, 15.5, 1, "bloodDark"); } },
+    { id: "one_eye", name: "Lost eye", decay: 1, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 0, "hair"); v.set(1, 16.5, 1, "mouth"); v.set(1, 15.5, 1, "blood"); v.set(1, 17.5, 1, "bloodDark"); } },
+    { id: "jawless", name: "Missing jaw", decay: 2, build(v) { headBase(v); v.box(-1, 1, 17.5, 17.5, -1, 1, "skinDark"); v.del(0, 15.5, 1); v.set(-1, 15.5, 1, "bone"); v.set(1, 15.5, 1, "bone"); v.set(0, 15.5, 0, "gore"); v.set(0, 14.5, 0, "blood"); v.set(0, 14.5, 1, "gore"); } },
+    { id: "skull", name: "Half skull", decay: 2, build(v) { headBase(v); v.box(-1, -1, 15.5, 17.5, 0, 1, "bone"); v.box(-1, 0, 17.5, 17.5, -1, 1, "bone"); v.set(-1, 16.5, 1, "eye"); v.set(0, 17.5, 1, "gore"); v.set(0, 15.5, 1, "bone"); v.box(1, 1, 17.5, 17.5, -1, 1, "hair"); } },
+  ],
+  torso: [
+    { id: "tshirt", name: "T-shirt", decay: 0, sleeve: "cloth", build(v) { v.box(-2, 2, 8.5, 13.5, -1, 1, "cloth"); v.box(-2, 2, 8.5, 8.5, -1, 1, "clothDark"); v.set(0, 13.5, 1, "skin"); } },
+    { id: "shirt_tie", name: "Shirt and tie", decay: 0, sleeve: "top2", build(v) { v.box(-2, 2, 8.5, 13.5, -1, 1, "top2"); v.box(0, 0, 9.5, 12.5, 1, 1, "tie"); v.set(-1, 13.5, 1, "top2Dark"); v.set(1, 13.5, 1, "top2Dark"); v.set(0, 13.5, 1, "tie"); v.box(-2, 2, 8.5, 8.5, -1, 1, "belt"); } },
+    { id: "hoodie", name: "Hoodie", decay: 0, sleeve: "cloth", build(v) { v.box(-2, 2, 8.5, 13.5, -1, 1, "cloth"); v.box(-1, 1, 9.5, 10.5, 1, 1, "clothDark"); v.box(-1, 1, 12.5, 13.5, -2, -2, "cloth"); v.set(0, 11.5, -2, "clothDark"); v.box(-1, 1, 13.5, 13.5, 1, 1, "clothDark"); } },
+    { id: "jacket", name: "Open jacket", decay: 0, sleeve: "cloth", build(v) { v.box(-2, 2, 8.5, 13.5, -1, 1, "cloth"); v.box(-1, 1, 8.5, 13.5, 1, 1, "top2"); v.set(-1, 12.5, 1, "clothDark"); v.set(1, 12.5, 1, "clothDark"); v.set(-1, 13.5, 1, "clothDark"); v.set(1, 13.5, 1, "clothDark"); } },
+    { id: "tank", name: "Tank top", decay: 1, sleeve: "skin", build(v) { v.box(-2, 2, 8.5, 13.5, -1, 1, "skin"); v.box(-2, 2, 8.5, 12.5, -1, 1, "cloth"); v.box(-2, -2, 11.5, 12.5, -1, 1, "skin"); v.box(2, 2, 11.5, 12.5, -1, 1, "skin"); v.set(-1, 13.5, 1, "cloth"); v.set(1, 13.5, 1, "cloth"); v.set(-1, 13.5, -1, "cloth"); v.set(1, 13.5, -1, "cloth"); v.set(1, 10.5, 1, "blood"); } },
+    { id: "ribcage", name: "Open ribcage", decay: 2, sleeve: "skin", build(v) {
+        v.box(-2, 2, 8.5, 13.5, -1, 1, "skin"); v.box(-2, 2, 8.5, 10.5, -1, 1, "cloth"); v.box(-2, 2, 8.5, 8.5, -1, 1, "clothDark");
+        v.box(-1, 1, 10.5, 12.5, 0, 0, "gore"); v.box(-1, 1, 12.5, 12.5, 1, 1, "bone"); v.box(-1, 1, 10.5, 10.5, 1, 1, "bone");
+        v.del(-1, 11.5, 1); v.del(0, 11.5, 1); v.del(1, 11.5, 1); v.set(0, 11.5, 1, "bone");
+        v.set(-2, 11.5, 1, "blood"); v.set(2, 12.5, 1, "bloodDark"); v.set(2, 10.5, 1, "blood"); v.set(-2, 9.5, 1, "bloodDark"); } },
+    { id: "gutted", name: "Gutted", decay: 2, sleeve: "cloth", build(v) {
+        v.box(-2, 2, 8.5, 13.5, -1, 1, "cloth"); v.box(-1, 1, 8.5, 10.5, 1, 1, "gore"); v.del(0, 9.5, 1); v.set(0, 9.5, 0, "bloodDark");
+        v.set(-1, 8.5, 2, "gore"); v.set(0, 8.5, 2, "blood"); v.set(-1, 7.5, 2, "gore"); v.set(-2, 10.5, 1, "blood"); v.set(1, 11.5, 1, "blood"); v.set(2, 9.5, 1, "bloodDark"); } },
+  ],
+  upperArm: [
+    { id: "sleeve", name: "Sleeve", decay: 0, build(v, s, ctx) { armCol(v, s, 13.5, ["sleeve", "sleeve", "sleeve", forearmMissing(ctx, s) ? "gore" : "sleeve"]); } },
+    { id: "bare", name: "Bare", decay: 0, build(v, s, ctx) { armCol(v, s, 13.5, ["skin", "skin", "skin", forearmMissing(ctx, s) ? "gore" : "skinDark"]); } },
+    { id: "torn_sleeve", name: "Torn sleeve", decay: 1, build(v, s, ctx) { armCol(v, s, 13.5, ["sleeve", "blood", "skin", forearmMissing(ctx, s) ? "gore" : "sleeveDark"]); } },
+    { id: "meat", name: "Exposed muscle", decay: 1, build(v, s, ctx) { armCol(v, s, 13.5, ["sleeve", "meat", "meatDark", forearmMissing(ctx, s) ? "gore" : "meat"]); } },
+    { id: "bone", name: "Bone", decay: 2, build(v, s, ctx) { armCol(v, s, 13.5, ["meatDark", "bone", "bone", forearmMissing(ctx, s) ? "gore" : "boneDark"]); } },
+  ],
+  forearm: [  // three rows + one-block hand
+    { id: "sleeve", name: "Sleeve + hand", decay: 0, build(v, s) { armCol(v, s, 9.5, ["sleeve", "sleeve", "sleeveDark", "skin"]); } },
+    { id: "bare", name: "Bare + hand", decay: 0, build(v, s) { armCol(v, s, 9.5, ["skin", "skin", "skin", "skin"]); } },
+    { id: "bloody", name: "Bloody", decay: 1, build(v, s) { armCol(v, s, 9.5, ["sleeve", "blood", "bloodDark", "blood"]); } },
+    { id: "meat", name: "Skinned", decay: 1, build(v, s) { armCol(v, s, 9.5, ["meat", "meatDark", "meat", "skinDark"]); } },
+    { id: "bone", name: "Bone + bony hand", decay: 2, build(v, s) { armCol(v, s, 9.5, ["boneDark", "bone", "bone", "bone"]); } },
+    { id: "missing", name: "Missing (stump)", decay: 2, build() {} },
+  ],
+  thigh: [  // 2x2, four rows
+    { id: "pants", name: "Trousers", decay: 0, build(v, s) { legRows(v, s, 7.5, ["pants", "pants", "pants", "pants"]); } },
+    { id: "shorts", name: "Shorts", decay: 0, build(v, s) { legRows(v, s, 7.5, ["pants", "pantsDark", "skin", "skin"]); } },
+    { id: "torn", name: "Torn trousers", decay: 1, build(v, s) { legRows(v, s, 7.5, ["pants", "pants", "pants", "pants"]); legRow(v, s, 5.5, "skin", "front"); legRow(v, s, 4.5, "blood", "innerFront"); } },
+    { id: "meat", name: "Exposed muscle", decay: 1, build(v, s) { legRows(v, s, 7.5, ["pants", "meat", "meatDark", "meat"]); legRow(v, s, 5.5, "bone", "innerFront"); } },
+    { id: "bone", name: "Bare femur", decay: 2, build(v, s) { legRow(v, s, 7.5, "pantsDark"); legRow(v, s, 6.5, "meatDark", "inner"); legRow(v, s, 5.5, "bone", "innerFront"); legRow(v, s, 4.5, "boneDark", "innerFront"); } },
+  ],
+  shin: [  // 2x2, three rows + one-block foot
+    { id: "pants", name: "Trousers + shoe", decay: 0, build(v, s) { legRows(v, s, 3.5, ["pants", "pants", "pantsDark"]); shoe(v, s, "shoe"); } },
+    { id: "skin", name: "Bare shin + shoe", decay: 0, build(v, s) { legRows(v, s, 3.5, ["skin", "skin", "skinDark"]); shoe(v, s, "shoe"); } },
+    { id: "barefoot", name: "Barefoot", decay: 1, build(v, s) { legRows(v, s, 3.5, ["pants", "skin", "skin"]); shoe(v, s, "skin"); } },
+    { id: "torn", name: "Torn + bloody", decay: 1, build(v, s) { legRows(v, s, 3.5, ["pants", "pants", "pants"]); legRow(v, s, 2.5, "skin", "front"); legRow(v, s, 1.5, "blood", "front"); shoe(v, s, "shoe"); } },
+    { id: "meat", name: "Skinned", decay: 1, build(v, s) { legRows(v, s, 3.5, ["meat", "meatDark", "meat"]); legRow(v, s, 2.5, "bone", "innerFront"); shoe(v, s, "skinDark"); } },
+    { id: "bone", name: "Bone + bony foot", decay: 2, build(v, s) { legRow(v, s, 3.5, "boneDark", "innerFront"); legRow(v, s, 2.5, "bone", "innerFront"); legRow(v, s, 1.5, "bone", "innerFront"); v.set(s, 0.5, 0.5, "boneDark"); v.set(s, 0.5, 1.5, "bone"); } },
+  ],
+};
+function headBase(v) {
+  v.set(0, 14.5, 0, "skin");                  // neck
+  v.box(-1, 1, 15.5, 17.5, -1, 1, "skin");    // 3x3x3 head
+  v.set(-1, 16.5, 1, "eye"); v.set(1, 16.5, 1, "eye");
+  v.set(0, 15.5, 1, "mouth");
+}
+const MOD = {};
+for (const fam in MODULES) { MOD[fam] = {}; for (const m of MODULES[fam]) MOD[fam][m.id] = m; }
+
+/* ---------------- base designs ---------------- */
+const DESIGNS = {
+  drone: { name: "Office Drone", detail: 0, decay: 0.3, modules: { head: "short_hair", torso: "shirt_tie", upperArmL: "sleeve", forearmL: "sleeve", upperArmR: "sleeve", forearmR: "sleeve", thighL: "pants", shinL: "pants", thighR: "pants", shinR: "pants" },
+           palette: { skin: "#a3a86b", top: "#4c5560", top2: "#b9b6a0", pants: "#2f3136", hair: "#2b241e", tie: "#6b1f26", hat: "#384a5a", shoe: "#1f1d1d" } },
+  walker: { name: "Street Walker", detail: 1, decay: 0.55, modules: { head: "beanie", torso: "hoodie", upperArmL: "torn_sleeve", forearmL: "bloody", upperArmR: "sleeve", forearmR: "meat", thighL: "pants", shinL: "pants", thighR: "torn", shinR: "torn" },
+           palette: { skin: "#8a9b4c", top: "#556b3a", top2: "#a7a99a", pants: "#3b4656", hair: "#5a4630", tie: "#2c3a5c", hat: "#6b2a2a", shoe: "#2a2420" } },
+  rotter: { name: "Rotter", detail: 2, decay: 0.9, modules: { head: "jawless", torso: "ribcage", upperArmL: "meat", forearmL: "bone", upperArmR: "bone", forearmR: "missing", thighL: "meat", shinL: "meat", thighR: "bone", shinR: "bone" },
+           palette: { skin: "#7f9358", top: "#6e4434", top2: "#9fa9a8", pants: "#4a3c2f", hair: "#3b3330", tie: "#3f4a2a", hat: "#2f2f33", shoe: "#3a332c" } },
+};
+const DETAIL_NAME = ["Low", "Medium", "High"];
+
+function designSpec(id) {
+  const d = DESIGNS[id];
+  return { name: d.name, design: id, seed: newSeed(), detail: d.detail, decay: d.decay, modules: Object.assign({}, d.modules), palette: Object.assign({}, d.palette) };
+}
+function randomSpec(rng, detail) {
+  const decay = Math.pow(rng(), 0.8);
+  const modules = {};
+  for (const slot of SLOTS) {
+    const list = MODULES[FAMILY[slot]];
+    const w = list.map(m => m.decay === 0 ? 1.2 - decay * 0.7 : m.decay === 1 ? 0.35 + decay * 0.5 : Math.pow(decay, 1.6) * 1.1);
+    let r = rng() * w.reduce((a, b) => a + b, 0), i = 0;
+    while (r > w[i] && i < w.length - 1) { r -= w[i]; i++; }
+    modules[slot] = list[i].id;
+  }
+  for (const [l, r] of [["upperArmL", "upperArmR"], ["forearmL", "forearmR"], ["thighL", "thighR"], ["shinL", "shinR"]])
+    if (rng() < 0.55) modules[r] = modules[l];             // most zombies are mostly symmetric
+  // keep garments consistent: an intact thigh means the trousers go all the way down, shorts mean bare shins
+  for (const sd of ["L", "R"]) {
+    if (modules["thigh" + sd] === "shorts" && modules["shin" + sd] === "pants") modules["shin" + sd] = "skin";
+    if (modules["thigh" + sd] === "pants" && modules["shin" + sd] === "skin") modules["shin" + sd] = "pants";
+  }
+  const torso = MOD.torso[modules.torso];
+  if (torso.sleeve === "skin") for (const a of ["upperArmL", "upperArmR", "forearmL", "forearmR"]) if (modules[a] === "sleeve") modules[a] = "bare";
+  return { name: "Random #" + Math.floor(rng() * 9000 + 1000), design: null, seed: Math.floor(rng() * 4294967295), detail: detail ?? Math.floor(rng() * 3), decay, modules, palette: randomPalette(rng) };
+}
+
+/* ---------------- colour resolution ---------------- */
+const colorCache = new Map();
+function lin(hex, mul = 1) {
+  const k = hex + "*" + mul;
+  if (!colorCache.has(k)) colorCache.set(k, new THREE.Color(hex).multiplyScalar(mul).convertSRGBToLinear());
+  return colorCache.get(k);
+}
+function tagColor(tag, spec) {
+  const p = spec.palette;
+  if (tag === "sleeve" || tag === "sleeveDark") {
+    const base = MOD.torso[spec.modules.torso].sleeve;
+    tag = tag === "sleeve" ? base : (base === "cloth" ? "clothDark" : base + "Dark");
+  }
+  switch (tag) {
+    case "skin": return lin(p.skin);
+    case "skinDark": return lin(p.skin, 0.74);
+    case "cloth": return lin(p.top);
+    case "clothDark": return lin(p.top, 0.7);
+    case "top2": return lin(p.top2);
+    case "top2Dark": return lin(p.top2, 0.75);
+    case "pants": return lin(p.pants);
+    case "pantsDark": return lin(p.pants, 0.72);
+    case "pantsLight": return lin(p.pants, 1.22);
+    case "hair": return lin(p.hair);
+    case "tie": return lin(p.tie);
+    case "hat": return lin(p.hat);
+    case "hatDark": return lin(p.hat, 0.72);
+    case "shoe": return lin(p.shoe);
+    default: return lin(FIXED[tag] || "#ff00ff");
+  }
+}
+const DECORABLE = new Set(["skin", "skinDark", "cloth", "clothDark", "top2", "top2Dark", "pants", "pantsDark", "pantsLight", "sleeve", "sleeveDark", "hair", "hat", "hatDark", "shoe"]);
+const CLOTHY = new Set(["cloth", "clothDark", "top2", "pants", "pantsDark", "pantsLight", "sleeve", "sleeveDark"]);
+
+/* ---------------- voxel container ---------------- */
+const vkey = (x, y, z) => Math.round(x * 2) + "," + Math.round(y * 2) + "," + Math.round(z * 2);
+function makeVox() {
+  const map = new Map();
+  return {
+    map,
+    set(x, y, z, tag) { map.set(vkey(x, y, z), { x, y, z, tag }); },
+    del(x, y, z) { map.delete(vkey(x, y, z)); },
+    has(x, y, z) { return map.has(vkey(x, y, z)); },
+    get(x, y, z) { return map.get(vkey(x, y, z)); },
+    box(x0, x1, y0, y1, z0, z1, tag) { for (let x = x0; x <= x1 + 1e-6; x++) for (let y = y0; y <= y1 + 1e-6; y++) for (let z = z0; z <= z1 + 1e-6; z++) this.set(x, y, z, tag); },
+  };
+}
+const N6 = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+function openSides(v, c) { let n = 0; for (const d of N6) if (!v.has(c.x + d[0], c.y + d[1], c.z + d[2])) n++; return n; }
+
+/* Detail tiers: Low = flat module colours. Medium = tonal noise, blood speckles and drips.
+   High = stronger noise, mottled skin, longer drips, ragged clothing edges. Decomposition scales the damage. */
+function decorate(v, spec, rng, slot) {
+  const tier = spec.detail, decay = spec.decay;
+  if (tier === 0) return;
+  const cells = [...v.map.values()];
+  const exterior = cells.filter(c => openSides(v, c) > 0);
+  const speck = [0, 0.03, 0.065][tier] * (0.25 + decay * 1.5);
+  for (const c of exterior) if (DECORABLE.has(c.tag) && c.tag !== "hair" && rng() < speck) c.tag = rng() < 0.6 ? "blood" : "bloodDark";
+  if (tier === 2) {
+    for (const c of cells) if (c.tag === "skin" && rng() < 0.2 + decay * 0.15) c.tag = "skinDark";
+    for (const c of exterior) if (CLOTHY.has(c.tag) && openSides(v, c) >= 3 && c.y > 1 && rng() < 0.14 * decay) v.del(c.x, c.y, c.z);
+  }
+  const drips = Math.round(decay * [0, 1.4, 3.2][tier] * (slot === "torso" ? 1.6 : 1) + rng() * 0.6);
+  const pool = exterior.filter(c => DECORABLE.has(c.tag) && v.has(c.x, c.y, c.z));
+  for (let i = 0; i < drips && pool.length; i++) {
+    const s = pick(rng, pool);
+    const len = 1 + Math.floor(rng() * (tier === 2 ? 4 : 2.5));
+    for (let k = 0; k < len; k++) {
+      const c = v.get(s.x, s.y - k, s.z);
+      if (!c || !DECORABLE.has(c.tag) && c.tag !== "blood") break;
+      c.tag = k === 0 && rng() < 0.5 ? "bloodDark" : "blood";
+    }
+  }
+}
+
+/* ---------------- greedy-free voxel mesher with per-vertex ambient occlusion ---------------- */
+const DIRS = [
+  { n: [1, 0, 0], u: [0, 1, 0], v: [0, 0, 1] }, { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
+  { n: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0] }, { n: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
+  { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] }, { n: [0, 0, -1], u: [0, 1, 0], v: [1, 0, 0] },
+];
+const CORN = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+const AO = [0.5, 0.67, 0.84, 1.0];
+function meshVoxels(v, origin, filter, colorFn) {
+  const pos = [], nor = [], col = [];
+  let faces = 0;
+  for (const c of v.map.values()) {
+    if (!filter(c)) continue;
+    const base = colorFn(c);
+    for (const d of DIRS) {
+      const nx = c.x + d.n[0], ny = c.y + d.n[1], nz = c.z + d.n[2];
+      if (v.has(nx, ny, nz)) continue;
+      const ao = [], P = [];
+      for (const [su, sv] of CORN) {
+        const s1 = v.has(nx + su * d.u[0], ny + su * d.u[1], nz + su * d.u[2]) ? 1 : 0;
+        const s2 = v.has(nx + sv * d.v[0], ny + sv * d.v[1], nz + sv * d.v[2]) ? 1 : 0;
+        const cr = v.has(nx + su * d.u[0] + sv * d.v[0], ny + su * d.u[1] + sv * d.v[1], nz + su * d.u[2] + sv * d.v[2]) ? 1 : 0;
+        ao.push(s1 && s2 ? 0 : 3 - (s1 + s2 + cr));
+        P.push([c.x + 0.5 * (d.n[0] + su * d.u[0] + sv * d.v[0]) - origin[0],
+                c.y + 0.5 * (d.n[1] + su * d.u[1] + sv * d.v[1]) - origin[1],
+                c.z + 0.5 * (d.n[2] + su * d.u[2] + sv * d.v[2]) - origin[2]]);
+      }
+      const order = (ao[0] + ao[2] < ao[1] + ao[3]) ? [1, 2, 3, 1, 3, 0] : [0, 1, 2, 0, 2, 3];
+      for (const i of order) {
+        pos.push(P[i][0], P[i][1], P[i][2]); nor.push(d.n[0], d.n[1], d.n[2]);
+        const a = AO[ao[i]]; col.push(base.r * a, base.g * a, base.b * a);
+      }
+      faces++;
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.computeBoundingSphere();
+  return { geo: g, faces };
+}
+
+/* ---------------- materials ---------------- */
+const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, flatShading: true });
+const selectMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, flatShading: true, emissive: new THREE.Color("#8dff6e"), emissiveIntensity: 0.22 });
+const eyeMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.55, 2.2, 0.45), toneMapped: false });
+const socketMat = new THREE.MeshBasicMaterial({ color: new THREE.Color("#8dff6e"), depthTest: false, transparent: true, opacity: 0.95 });
+const plugMat = new THREE.MeshBasicMaterial({ color: new THREE.Color("#ffd166"), depthTest: false, transparent: true, opacity: 0.95 });
+const lineMat = new THREE.LineBasicMaterial({ color: new THREE.Color("#8dff6e"), depthTest: false, transparent: true, opacity: 0.6 });
+const jointGeo = new THREE.OctahedronGeometry(0.42, 0);
+
+/* ---------------- Zombie ---------------- */
+class Zombie {
+  constructor(spec) {
+    this.spec = spec;
+    this.root = new THREE.Group();
+    this.parts = {};
+    this.phase = Math.random() * 20;
+    this.speed = 0.85 + Math.random() * 0.3;
+    this.explode = 0;
+    for (const slot of SLOTS) {
+      const g = new THREE.Group();
+      this.parts[slot] = { group: g, mesh: null, eyes: null, voxels: 0, size: [0, 0, 0] };
+    }
+    for (const slot of SLOTS) {
+      const parent = PARENT[slot] ? this.parts[PARENT[slot]].group : this.root;
+      parent.add(this.parts[slot].group);
+    }
+    // joints: sockets live in the parent's space, plugs at each part's origin
+    this.jointGroup = new THREE.Group();
+    this.sockets = {};
+    for (const slot of SLOTS) {
+      const parentSlot = PARENT[slot];
+      const s = new THREE.Mesh(jointGeo, socketMat); s.renderOrder = 10;
+      const rel = parentSlot ? sub(PIVOT[slot], PIVOT[parentSlot]) : PIVOT[slot];
+      s.position.set(rel[0], rel[1], rel[2]);
+      (parentSlot ? this.parts[parentSlot].group : this.root).add(s);
+      const p = new THREE.Mesh(jointGeo, plugMat); p.scale.setScalar(0.7); p.renderOrder = 11;
+      this.parts[slot].group.add(p);
+      this.sockets[slot] = { socket: s, plug: p };
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(SLOTS.length * 6), 3));
+    this.lines = new THREE.LineSegments(lg, lineMat); this.lines.renderOrder = 9; this.lines.frustumCulled = false;
+    this.root.add(this.lines);
+    this.setJoints(false);
+    this.rebuild();
+  }
+  setJoints(on) { for (const slot of SLOTS) { this.sockets[slot].socket.visible = on; this.sockets[slot].plug.visible = on; } this.lines.visible = on; this.jointsOn = on; }
+  rebuild() { for (const slot of SLOTS) this.buildSlot(slot); }
+  buildSlot(slot) {
+    const part = this.parts[slot];
+    if (part.mesh) { part.group.remove(part.mesh); part.mesh.geometry.dispose(); }
+    if (part.eyes) { part.group.remove(part.eyes); part.eyes.geometry.dispose(); part.eyes = null; }
+    const spec = this.spec;
+    const mod = MOD[FAMILY[slot]][spec.modules[slot]];
+    const rng = mulberry32(hashStr(spec.seed + ":" + slot + ":" + mod.id + ":" + spec.detail + ":" + Math.round(spec.decay * 20)));
+    const v = makeVox();
+    mod.build(v, SIDE[slot], { rng, spec });
+    decorate(v, spec, rng, slot);
+    const pv = PIVOT[slot];
+    const amp = [0, 0.07, 0.13][spec.detail];
+    const seedN = spec.seed | 0;
+    const tmp = new THREE.Color();
+    const colorFn = c => {
+      const b = tagColor(c.tag, spec);
+      const f = 1 + (hash3(c.x, c.y, c.z, seedN) - 0.5) * 2 * amp;
+      return tmp.setRGB(b.r * f, b.g * f, b.b * f);
+    };
+    const body = meshVoxels(v, pv, c => c.tag !== "eye", colorFn);
+    part.mesh = new THREE.Mesh(body.geo, bodyMat);
+    part.mesh.castShadow = true; part.mesh.receiveShadow = true;
+    part.mesh.userData = { zombie: this, slot };
+    part.group.add(part.mesh);
+    const eyes = meshVoxels(v, pv, c => c.tag === "eye", () => tmp.setRGB(1, 1, 1));
+    if (eyes.faces) { part.eyes = new THREE.Mesh(eyes.geo, eyeMat); part.eyes.userData = { zombie: this, slot }; part.group.add(part.eyes); }
+    else eyes.geo.dispose();
+    let minY = 1e9, maxY = -1e9, minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+    for (const c of v.map.values()) { minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x); minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y); minZ = Math.min(minZ, c.z); maxZ = Math.max(maxZ, c.z); }
+    part.voxels = v.map.size;
+    part.size = [maxX - minX + 1, maxY - minY + 1, maxZ - minZ + 1];
+    part.top = maxY + 0.5;
+    part.tris = body.faces * 2 + eyes.faces * 2;
+    if (selected && selected.zombie === this && selected.slot === slot) part.mesh.material = selectMat;
+  }
+  get voxels() { let n = 0; for (const s of SLOTS) n += this.parts[s].voxels; return n; }
+  get tris() { let n = 0; for (const s of SLOTS) n += this.parts[s].tris; return n; }
+  get height() { return Math.max(this.parts.head.top, this.parts.torso.top); }
+  update(dt, t, mode, explodeTarget) {
+    this.explode += (explodeTarget - this.explode) * Math.min(1, dt * 6);
+    const e = this.explode, amp = 1 - e;
+    // part placement: pivot + exploded offset (children positioned relative to the torso pivot)
+    for (const slot of SLOTS) {
+      const parent = PARENT[slot];
+      const base = parent ? sub(PIVOT[slot], PIVOT[parent]) : PIVOT[slot];
+      const ex = EXPLODE[slot];
+      this.parts[slot].group.position.set(base[0] + ex[0] * e, base[1] + ex[1] * e, base[2] + ex[2] * e);
+    }
+    const P = this.parts, T = {};
+    for (const s of SLOTS) T[s] = [0, 0, 0];
+    let bob = 0;
+    if (mode === "walk") {
+      const ph = this.phase + t * this.speed * 4.6;
+      // hips swing, knees bend on the forward swing (positive x-rotation bends the shin backwards)
+      T.thighL[0] = Math.sin(ph) * 0.5; T.thighR[0] = -Math.sin(ph) * 0.5;
+      T.shinL[0] = Math.max(0, Math.cos(ph)) * 0.75; T.shinR[0] = Math.max(0, -Math.cos(ph)) * 0.75;
+      // zombie reach: upper arms forward, forearms droop slightly at the elbow
+      T.upperArmL[0] = -1.3 + 0.12 * Math.sin(ph * 0.5 + 1.1); T.upperArmR[0] = -1.22 + 0.12 * Math.sin(ph * 0.5);
+      T.forearmL[0] = 0.18 + 0.12 * Math.sin(ph * 0.5 + 2); T.forearmR[0] = 0.25 + 0.12 * Math.sin(ph * 0.5 + 0.4);
+      T.upperArmL[2] = 0.07; T.upperArmR[2] = -0.07;
+      T.torso[0] = 0.14; T.torso[1] = Math.sin(ph) * 0.07;
+      T.head[0] = 0.12; T.head[2] = Math.sin(ph * 0.5) * 0.14;
+      bob = Math.abs(Math.sin(ph)) * 0.3;
+    } else if (mode === "reach") {
+      const ph = this.phase + t * 2.3 * this.speed;
+      T.upperArmL[0] = -1.75 + 0.3 * Math.sin(ph); T.upperArmR[0] = -1.75 + 0.3 * Math.sin(ph + Math.PI);
+      T.forearmL[0] = -0.15 - 0.35 * Math.max(0, Math.sin(ph + 0.6)); T.forearmR[0] = -0.15 - 0.35 * Math.max(0, Math.sin(ph + Math.PI + 0.6));   // grasping
+      T.upperArmL[2] = 0.14 + 0.1 * Math.sin(ph * 1.3); T.upperArmR[2] = -(0.14 + 0.1 * Math.sin(ph * 1.3 + 1));
+      T.torso[0] = 0.3 + 0.06 * Math.sin(ph * 0.5); T.torso[2] = 0.07 * Math.sin(ph * 0.4);
+      T.head[0] = -0.22; T.head[1] = 0.25 * Math.sin(ph * 0.3);
+      T.thighL[0] = -0.25; T.shinL[0] = 0.35; T.thighR[0] = 0.2; T.shinR[0] = 0.15;          // braced stance
+      bob = 0.1 * Math.sin(ph);
+    } else {
+      const ph = this.phase + t * 1.1;
+      T.upperArmL[0] = -0.15 + 0.05 * Math.sin(ph); T.upperArmR[0] = -0.1 + 0.05 * Math.sin(ph + 2);
+      T.forearmL[0] = -0.3; T.forearmR[0] = -0.2;                                                 // limp bend at the elbows
+      T.upperArmL[2] = 0.05; T.upperArmR[2] = -0.05;
+      T.thighR[0] = -0.12; T.shinR[0] = 0.22;                                                     // weight on one leg
+      T.torso[0] = 0.08; T.torso[2] = 0.05 * Math.sin(ph * 0.7);
+      T.head[2] = 0.2 + 0.06 * Math.sin(ph); T.head[0] = 0.14;
+    }
+    const k = Math.min(1, dt * 9);
+    for (const s of SLOTS) {
+      const r = P[s].group.rotation;
+      r.x += (T[s][0] * amp - r.x) * k; r.y += (T[s][1] * amp - r.y) * k; r.z += (T[s][2] * amp - r.z) * k;
+    }
+    P.torso.group.position.y += bob * amp;
+    if (this.jointsOn) this.updateLines();
+  }
+  updateLines() {
+    const arr = this.lines.geometry.attributes.position.array;
+    const a = new THREE.Vector3(), b = new THREE.Vector3();
+    this.root.updateMatrixWorld(true);
+    SLOTS.forEach((slot, i) => {
+      this.sockets[slot].socket.getWorldPosition(a); this.root.worldToLocal(a);
+      this.sockets[slot].plug.getWorldPosition(b); this.root.worldToLocal(b);
+      arr.set([a.x, a.y, a.z, b.x, b.y, b.z], i * 6);
+    });
+    this.lines.geometry.attributes.position.needsUpdate = true;
+  }
+  dispose() { for (const s of SLOTS) { const p = this.parts[s]; if (p.mesh) p.mesh.geometry.dispose(); if (p.eyes) p.eyes.geometry.dispose(); } this.lines.geometry.dispose(); }
+}
+function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+
+/* =====================================================================================
+   SCENE
+   ===================================================================================== */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+stageEl.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 0.5, 2000);
+camera.position.set(28, 22, 46);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = 14; controls.maxDistance = 260;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.target.set(0, 9, 0);
+
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x6c7652, roughness: 1, metalness: 0 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), groundMat);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+scene.add(ground);
+
+const hemi = new THREE.HemisphereLight(0xe8f0d8, 0x4d5638, 0.9);
+const key = new THREE.DirectionalLight(0xfff2dc, 1.35);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+key.shadow.radius = 4;
+const fill = new THREE.DirectionalLight(0xc7d8ff, 0.3);
+const lamp = new THREE.PointLight(0xffa860, 0, 95, 1.6);
+lamp.position.set(20, 26, 16);
+scene.add(hemi, key, key.target, fill, lamp);
+
+let composer = null, bloom = null, gammaPass = null;
+try {
+  if (THREE.EffectComposer && THREE.UnrealBloomPass && THREE.GammaCorrectionShader) {
+    composer = new THREE.EffectComposer(renderer);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+    bloom = new THREE.UnrealBloomPass(new THREE.Vector2(256, 256), 0.4, 0.45, 0.95);
+    composer.addPass(bloom);
+    gammaPass = new THREE.ShaderPass(THREE.GammaCorrectionShader);
+    composer.addPass(gammaPass);
+  }
+} catch (e) { composer = null; }
+
+const LIGHTING = {
+  neutral: { bg: "#6c7652", ground: "#6c7652", fog: [140, 420], hemi: ["#e8f0d8", "#4d5638", 0.95], key: ["#fff2dc", 1.1, [26, 42, 22]],
+             fill: ["#c7d8ff", 0.3, [-24, 16, -12]], lamp: 0, bloom: [0.4, 1.15], groundRough: 1 },
+  night:   { bg: "#1d1830", ground: "#221c33", fog: [90, 300], hemi: ["#6a5aa0", "#160f22", 0.42], key: ["#9fb2ff", 0.75, [-22, 44, 18]],
+             fill: ["#5b3d7a", 0.2, [24, 10, -16]], lamp: 2.2, bloom: [1.15, 0.72], groundRough: 0.62 },
+};
+let lighting = "neutral";
+function applyLighting(name) {
+  lighting = name;
+  const L = LIGHTING[name];
+  const bg = new THREE.Color(L.bg).convertSRGBToLinear();
+  scene.background = bg;
+  scene.fog = new THREE.Fog(bg, L.fog[0], L.fog[1]);
+  groundMat.color.set(L.ground).convertSRGBToLinear(); groundMat.roughness = L.groundRough;
+  hemi.color.set(L.hemi[0]); hemi.groundColor.set(L.hemi[1]); hemi.intensity = L.hemi[2];
+  key.color.set(L.key[0]); key.intensity = L.key[1];
+  keyDir = L.key[2];
+  fill.color.set(L.fill[0]); fill.intensity = L.fill[1]; fill.position.set(...L.fill[2]);
+  lamp.intensity = L.lamp;
+  if (bloom) { bloom.strength = L.bloom[0]; bloom.threshold = L.bloom[1]; }
+  placeShadowCamera();
+}
+let keyDir = [26, 42, 22];
+let shadowExtent = 20, shadowCenter = new THREE.Vector3();
+function placeShadowCamera() {
+  const d = new THREE.Vector3(...keyDir).normalize().multiplyScalar(90);
+  key.position.copy(shadowCenter).add(d);
+  key.target.position.copy(shadowCenter);
+  const c = key.shadow.camera;
+  c.left = -shadowExtent; c.right = shadowExtent; c.top = shadowExtent; c.bottom = -shadowExtent;
+  c.near = 10; c.far = 220; c.updateProjectionMatrix();
+}
+
+/* =====================================================================================
+   VIEWS
+   ===================================================================================== */
+const state = { view: "inspect", anim: matchMedia("(prefers-reduced-motion: reduce)").matches ? "idle" : "walk", explode: 0, joints: false, design: "drone" };
+let zombies = [];      // zombies currently in the scene
+let hero = new Zombie(designSpec("drone"));
+let lineup = null;
+let crowd = null;
+const tagsEl = document.getElementById("tags");
+let tagEls = [];
+
+function clearScene() { for (const z of zombies) scene.remove(z.root); zombies = []; tagsEl.innerHTML = ""; tagEls = []; }
+function addZombie(z, x, zpos, yaw) { z.root.position.set(x, 0, zpos); z.root.rotation.y = yaw || 0; z.setJoints(state.joints); scene.add(z.root); zombies.push(z); }
+
+function buildLineup() {
+  if (!lineup) lineup = ["drone", "walker", "rotter"].map(id => new Zombie(designSpec(id)));
+  return lineup;
+}
+function buildCrowd() {
+  if (crowd) return crowd;
+  const rng = mulberry32(newSeed());
+  const tier = activeTierForCrowd;
+  const pts = [];
+  for (let i = 0; i < 600 && pts.length < 18; i++) {
+    const r = Math.sqrt(rng()) * 30, a = rng() * Math.PI * 2;
+    const p = [Math.cos(a) * r * 1.25, Math.sin(a) * r * 0.85];
+    if (pts.every(q => Math.hypot(q[0] - p[0], q[1] - p[1]) > 6.8)) pts.push(p);
+  }
+  crowd = pts.map(p => { const z = new Zombie(randomSpec(rng, tier)); z.pos = p; z.yaw = (rng() - 0.5) * 1.3; return z; });
+  return crowd;
+}
+let activeTierForCrowd = null;
+
+let camGoal = null;
+function setView(v, instant) {
+  state.view = v;
+  clearScene();
+  if (selected && !zombieVisibleAfter(v, selected.zombie)) select(null);
+  if (v === "inspect") {
+    addZombie(hero, 0, 0, 0);
+    shadowExtent = 16; shadowCenter.set(0, 0, 0);
+    camGoal = { target: [0, 9.5, 0], pos: [26, 20, 44] };
+  } else if (v === "lineup") {
+    buildLineup().forEach((z, i) => addZombie(z, (i - 1) * 14, 0, 0));
+    shadowExtent = 30; shadowCenter.set(0, 0, 0);
+    camGoal = { target: [0, 9, 0], pos: [30, 22, 70] };
+    tagEls = lineup.map(z => { const d = document.createElement("div"); d.className = "tag"; tagsEl.appendChild(d); return d; });
+  } else {
+    if (state.joints) { state.joints = false; $("joints").checked = false; }   // markers clutter a crowd
+    buildCrowd().forEach(z => addZombie(z, z.pos[0], z.pos[1], z.yaw));
+    shadowExtent = 52; shadowCenter.set(0, 0, 0);
+    camGoal = { target: [0, 8, 0], pos: [46, 38, 96] };
+  }
+  placeShadowCamera();
+  if (instant) { controls.target.set(...camGoal.target); camera.position.set(...camGoal.pos); camGoal = null; }
+  else camGoal.t = 0;
+  syncUI();
+}
+function zombieVisibleAfter(v, z) { return v === "inspect" ? z === hero : v === "lineup" ? (lineup || []).includes(z) : (crowd || []).includes(z); }
+function activeZombie() { return selected ? selected.zombie : (state.view === "inspect" ? hero : state.view === "lineup" ? lineup[1] : crowd[0]); }
+
+/* =====================================================================================
+   SELECTION
+   ===================================================================================== */
+function select(sel) {
+  if (selected) { const p = selected.zombie.parts[selected.slot]; if (p.mesh) p.mesh.material = bodyMat; }
+  selected = sel;
+  if (selected) { const p = selected.zombie.parts[selected.slot]; if (p.mesh) p.mesh.material = selectMat; }
+  syncUI();
+}
+const ray = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let downAt = null;
+renderer.domElement.addEventListener("pointerdown", e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("pointerup", e => {
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const meshes = [];
+  for (const z of zombies) for (const s of SLOTS) { const p = z.parts[s]; if (p.mesh) meshes.push(p.mesh); if (p.eyes) meshes.push(p.eyes); }
+  const hit = ray.intersectObjects(meshes, false)[0];
+  select(hit ? { zombie: hit.object.userData.zombie, slot: hit.object.userData.slot } : null);
+});
+
+/* =====================================================================================
+   UI
+   ===================================================================================== */
+const $ = id => document.getElementById(id);
+function setPressed(groupSel, attr, value) { document.querySelectorAll(groupSel + " [data-" + attr + "]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset[attr] === String(value)))); }
+
+function swatchRow(el, list, field) {
+  el.innerHTML = "";
+  for (const c of list) {
+    const b = document.createElement("button");
+    b.className = "sw"; b.style.background = c; b.setAttribute("aria-label", field + " colour " + c); b.dataset.color = c;
+    b.addEventListener("click", () => { const z = activeZombie(); z.spec.palette[field] = c; z.rebuild(); syncUI(); });
+    el.appendChild(b);
+  }
+}
+swatchRow($("sw-skin"), SKINS, "skin");
+swatchRow($("sw-top"), TOPS.concat(SHIRTS), "top");
+swatchRow($("sw-pants"), PANTS, "pants");
+
+document.querySelectorAll("[data-group=view] button").forEach(b => b.addEventListener("click", () => setView(b.dataset.v)));
+document.querySelectorAll(".design").forEach(b => b.addEventListener("click", () => {
+  state.design = b.dataset.d;
+  const old = hero; hero = new Zombie(designSpec(b.dataset.d));
+  if (selected && selected.zombie === old) selected = null;
+  old.dispose();
+  setView("inspect", true);
+}));
+document.querySelectorAll("[data-group=detail] button").forEach(b => b.addEventListener("click", () => {
+  const z = activeZombie(); z.spec.detail = +b.dataset.t; z.rebuild(); syncUI();
+}));
+$("decay").addEventListener("input", e => {
+  const z = activeZombie(); z.spec.decay = e.target.value / 100; $("decayval").textContent = e.target.value + "%"; z.rebuild(); updateStats();
+});
+document.querySelectorAll("[data-group=explode] button").forEach(b => b.addEventListener("click", () => {
+  state.explode = +b.dataset.e;
+  if (state.explode && !state.joints) { state.joints = true; $("joints").checked = true; for (const z of zombies) z.setJoints(true); }
+  syncUI();
+}));
+$("joints").addEventListener("change", e => { state.joints = e.target.checked; for (const z of zombies) z.setJoints(state.joints); });
+document.querySelectorAll("[data-group=anim] button").forEach(b => b.addEventListener("click", () => { state.anim = b.dataset.a; syncUI(); }));
+document.querySelectorAll("[data-group=light] button").forEach(b => b.addEventListener("click", () => { applyLighting(b.dataset.l); syncUI(); }));
+
+$("randomize").addEventListener("click", randomizeActive);
+$("recolor").addEventListener("click", () => { const z = activeZombie(); z.spec.palette = randomPalette(mulberry32(newSeed())); z.rebuild(); syncUI(); });
+$("reroll").addEventListener("click", () => { clearScene(); crowd.forEach(z => z.dispose()); crowd = null; selected = null; setView("crowd", true); });
+function randomizeActive() {
+  const z = activeZombie();
+  const rng = mulberry32(newSeed());
+  const spec = randomSpec(rng, z.spec.detail);
+  z.spec = spec; z.rebuild();
+  if (z === hero) state.design = null;
+  syncUI();
+}
+window.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "r" || e.key === "R") randomizeActive();
+  if (e.key === "Escape") select(null);
+});
+
+function slotChips() {
+  const el = $("slotchips"); el.innerHTML = "";
+  const z = activeZombie();
+  for (const s of SLOTS) {
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = SLOT_NAME[s];
+    b.setAttribute("aria-pressed", String(!!selected && selected.zombie === z && selected.slot === s));
+    b.addEventListener("click", () => select(selected && selected.zombie === z && selected.slot === s ? null : { zombie: z, slot: s }));
+    el.appendChild(b);
+  }
+}
+function cycle(dir) {
+  const { zombie: z, slot } = selected;
+  const list = MODULES[FAMILY[slot]];
+  let i = list.findIndex(m => m.id === z.spec.modules[slot]);
+  i = (i + dir + list.length) % list.length;
+  z.spec.modules[slot] = list[i].id;
+  if (slot === "torso") for (const a of ["upperArmL", "forearmL", "upperArmR", "forearmR"]) z.buildSlot(a);   // sleeves follow the torso garment
+  if (slot === "forearmL") z.buildSlot("upperArmL");   // a missing forearm leaves a wound on the upper arm
+  if (slot === "forearmR") z.buildSlot("upperArmR");
+  z.buildSlot(slot);
+  syncUI();
+}
+function partInfo() {
+  const el = $("partinfo");
+  if (!selected) {
+    el.innerHTML = '<div class="empty">Click a body part in the preview, or pick a slot above. Every module of a slot shares the same joint and attachment point, so you can swap it on any character. Limbs are split at the elbows and knees.</div>';
+    return;
+  }
+  const { zombie: z, slot } = selected;
+  const p = z.parts[slot];
+  const mod = MOD[FAMILY[slot]][z.spec.modules[slot]];
+  const pv = PIVOT[slot];
+  const fmt = n => (Number.isInteger(n) ? n : n.toFixed(1));
+  el.innerHTML =
+    '<div class="partname"><span>' + mod.name + '</span><span class="badge d' + mod.decay + '">' + ["intact", "damaged", "decomposed"][mod.decay] + "</span></div>" +
+    '<dl class="kv"><dt>Slot</dt><dd>' + SLOT_NAME[slot] + "</dd><dt>Voxels</dt><dd>" + p.voxels + "</dd><dt>Size (w × h × d)</dt><dd>" + p.size.join(" × ") +
+    "</dd><dt>Joint pivot</dt><dd>" + pv.map(fmt).join(", ") + "</dd><dt>Variant</dt><dd>" + (MODULES[FAMILY[slot]].indexOf(mod) + 1) + " / " + MODULES[FAMILY[slot]].length + "</dd></dl>" +
+    '<div class="row"><button class="btn" id="prevmod">◀ Previous</button><button class="btn" id="nextmod">Next ▶</button></div>';
+  $("prevmod").addEventListener("click", () => cycle(-1));
+  $("nextmod").addEventListener("click", () => cycle(1));
+}
+function updateStats() {
+  const z = activeZombie();
+  let total = 0; for (const q of zombies) total += q.tris;
+  $("stats").innerHTML = "<span>height <b>" + z.height + "</b> vox</span><span>voxels <b>" + z.voxels + "</b></span><span>scene tris <b>" + total.toLocaleString() + "</b></span>";
+}
+function syncUI() {
+  setPressed("[data-group=view]", "v", state.view);
+  setPressed(".designs", "d", state.design);
+  setPressed("[data-group=explode]", "e", state.explode);
+  setPressed("[data-group=anim]", "a", state.anim);
+  setPressed("[data-group=light]", "l", lighting);
+  document.querySelectorAll(".only-inspect").forEach(el => el.hidden = state.view !== "inspect");
+  document.querySelectorAll(".only-crowd").forEach(el => el.hidden = state.view !== "crowd");
+  const z = activeZombie();
+  setPressed("[data-group=detail]", "t", z.spec.detail);
+  $("editing").textContent = z.spec.name + " · " + DETAIL_NAME[z.spec.detail];
+  $("decay").value = Math.round(z.spec.decay * 100); $("decayval").textContent = Math.round(z.spec.decay * 100) + "%";
+  for (const [id, f] of [["sw-skin", "skin"], ["sw-top", "top"], ["sw-pants", "pants"]])
+    document.querySelectorAll("#" + id + " .sw").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.color === z.spec.palette[f])));
+  slotChips(); partInfo(); updateStats();
+}
+
+/* =====================================================================================
+   LOOP
+   ===================================================================================== */
+function resize() {
+  const w = stageEl.clientWidth || 1, h = stageEl.clientHeight || 1;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  if (composer) { composer.setSize(w, h); composer.setPixelRatio && composer.setPixelRatio(renderer.getPixelRatio()); }
+  if (bloom) bloom.setSize(w * renderer.getPixelRatio(), h * renderer.getPixelRatio());
+}
+window.addEventListener("resize", resize);
+
+const clock = new THREE.Clock();
+const v3 = new THREE.Vector3();
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  if (camGoal) {
+    camGoal.t += dt / 0.7;
+    const k = Math.min(1, camGoal.t), s = k * k * (3 - 2 * k);
+    controls.target.lerp(v3.set(...camGoal.target), s * 0.25 + 0.02);
+    camera.position.lerp(v3.set(...camGoal.pos), s * 0.25 + 0.02);
+    if (k >= 1 && camera.position.distanceTo(v3.set(...camGoal.pos)) < 0.5) camGoal = null;
+  }
+  controls.update();
+  for (const z of zombies) z.update(dt, t, state.anim, state.explode);
+  if (state.view === "lineup" && lineup) {
+    const r = renderer.domElement.getBoundingClientRect();
+    lineup.forEach((z, i) => {
+      const el = tagEls[i]; if (!el) return;
+      v3.set(z.root.position.x, -1.2, z.root.position.z + 2).project(camera);
+      el.style.left = ((v3.x + 1) / 2 * r.width) + "px"; el.style.top = ((1 - v3.y) / 2 * r.height) + "px";
+      el.style.visibility = v3.z < 1 ? "visible" : "hidden";
+      el.innerHTML = z.spec.name + "<small>" + DETAIL_NAME[z.spec.detail] + " detail · " + z.voxels + " voxels</small>";
+    });
+  }
+  if (composer) composer.render(); else renderer.render(scene, camera);
+}
+if (composer) renderer.outputEncoding = THREE.LinearEncoding;   // gamma applied by the final pass
+applyLighting("neutral");
+resize();
+setView("inspect", true);
+frame();
+})();
+</script>
+
+</body></html>

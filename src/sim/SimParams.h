@@ -11,6 +11,7 @@ struct SimParams {
     int gridW = 256, gridH = 256;
     int agentCapacity = 65536;
     int corpseCapacity = 262144;
+    int visibleCharacterCapacity = 131072;   // zombies + corpses rendered per frame (segment buffers sized x10)
 
     // time
     float fixedDt = 1.0f / 60.0f;
@@ -67,6 +68,14 @@ struct SimParams {
     float explosionStrength = 14.0f; // m/s impulse at the centre
     float explosionLethality = 2.2f;
     float explosionUpBias = 0.8f;
+
+    // modular appearance generation (relative weights, visual only; applies to newly spawned zombies)
+    float lookRecent = 0.20f;      // recently infected: intact, little or no decoration
+    float lookClothed = 0.30f;     // fully clothed: sleeves and trousers
+    float lookLight = 0.25f;       // lightly damaged
+    float lookHeavy = 0.13f;       // heavily damaged
+    float lookSkeletal = 0.05f;    // mostly bone limbs
+    float lookMissing = 0.07f;     // missing one or both forearms
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

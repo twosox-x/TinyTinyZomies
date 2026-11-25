@@ -1,0 +1,19 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Start-up: bake CORPSE_POSES static corpse poses (10 segment transforms each) with the shared pose code.
+#include "common.glsl"
+#include "zombie_parts.glsl"
+#include "zombie_pose.glsl"
+#include "char_common.glsl"
+#include "char_uniforms.glsl"
+layout(local_size_x = 64) in;
+layout(std430, set = 1, binding = 0) buffer PoseLib { vec4 poseLib[]; };
+void main() {
+    uint k = gl_GlobalInvocationID.x;
+    if (k >= CORPSE_POSES) return;
+    vec3 E[10]; float tilt, roll, lift;
+    corpseTargets(k, E, tilt, roll, lift);
+    vec4 q[10]; vec3 t[10];
+    evaluatePose(E, 0.0, tilt, roll, 1.0, lift, cparams.x, q, t);
+    for (uint s = 0u; s < 10u; ++s) { poseLib[(k * 10u + s) * 2u] = q[s]; poseLib[(k * 10u + s) * 2u + 1u] = vec4(t[s], 0.0); }
+}

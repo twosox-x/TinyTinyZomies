@@ -1,0 +1,271 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct CharUniforms
+{
+    float4 planes[6];
+    float4 cparams;
+    uint4 ccfg;
+    uint4 ccfg2;
+};
+
+struct PoseLib
+{
+    float4 poseLib[1];
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
+
+constant spvUnsafeArray<int, 10> _377 = spvUnsafeArray<int, 10>({ 1, 0, 2, 3, 4, 5, 6, 7, 8, 9 });
+constant spvUnsafeArray<int, 10> _385 = spvUnsafeArray<int, 10>({ 1, -1, 1, 2, 1, 4, -1, 6, -1, 8 });
+constant spvUnsafeArray<float3, 10> _415 = spvUnsafeArray<float3, 10>({ float3(0.0, 14.0, 0.0), float3(0.0, 8.0, 0.0), float3(3.0, 13.5, 0.0), float3(3.0, 10.0, 0.0), float3(-3.0, 13.5, 0.0), float3(-3.0, 10.0, 0.0), float3(1.5, 8.0, 0.0), float3(1.5, 4.0, 0.0), float3(-1.5, 8.0, 0.0), float3(-1.5, 4.0, 0.0) });
+constant spvUnsafeArray<int, 10> _594 = spvUnsafeArray<int, 10>({ 0, 1, 2, 3, 2, 3, 4, 5, 4, 5 });
+constant spvUnsafeArray<uint, 10> _605 = spvUnsafeArray<uint, 10>({ 0u, 264u, 495u, 825u, 1023u, 1353u, 1551u, 1716u, 1914u, 2079u });
+constant spvUnsafeArray<uint, 10> _606 = spvUnsafeArray<uint, 10>({ 1u, 1u, 2u, 1u, 2u, 1u, 1u, 1u, 1u, 1u });
+constant spvUnsafeArray<uint, 6> _610 = spvUnsafeArray<uint, 6>({ 8u, 7u, 5u, 6u, 5u, 6u });
+constant spvUnsafeArray<uint, 6> _615 = spvUnsafeArray<uint, 6>({ 0u, 8u, 15u, 20u, 26u, 31u });
+constant spvUnsafeArray<uint, 37> _618 = spvUnsafeArray<uint, 37>({ 0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 0u, 0u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 1u, 2u });
+constant spvUnsafeArray<uint, 7> _620 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });
+constant spvUnsafeArray<float3, 8> _653 = spvUnsafeArray<float3, 8>({ float3(0.623529016971588134765625, 0.68235301971435546875, 0.3333329856395721435546875), float3(0.541176021099090576171875, 0.607842981815338134765625, 0.2980389893054962158203125), float3(0.698038995265960693359375, 0.705882012844085693359375, 0.41568601131439208984375), float3(0.4980390071868896484375, 0.57647097110748291015625, 0.3450979888439178466796875), float3(0.639216005802154541015625, 0.658824026584625244140625, 0.41960799694061279296875), float3(0.58039200305938720703125, 0.654901981353759765625, 0.4784309864044189453125), float3(0.721569001674652099609375, 0.690195977687835693359375, 0.4784309864044189453125), float3(0.43137300014495849609375, 0.5215690135955810546875, 0.313724994659423828125) });
+constant spvUnsafeArray<float3, 9> _681 = spvUnsafeArray<float3, 9>({ float3(0.3333329856395721435546875, 0.41960799694061279296875, 0.2274509966373443603515625), float3(0.4784309864044189453125, 0.41568601131439208984375, 0.2274509966373443603515625), float3(0.43137300014495849609375, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.2980389893054962158203125, 0.3333329856395721435546875, 0.3764710128307342529296875), float3(0.360783994197845458984375, 0.1921570003032684326171875, 0.21960799396038055419921875), float3(0.372548997402191162109375, 0.372548997402191162109375, 0.3450979888439178466796875), float3(0.24705900251865386962890625, 0.3529410064220428466796875, 0.3294120132923126220703125), float3(0.21176500618457794189453125, 0.22352899610996246337890625, 0.290196001529693603515625), float3(0.4901959896087646484375, 0.450980007648468017578125, 0.3764710128307342529296875) });
+constant spvUnsafeArray<float3, 4> _693 = spvUnsafeArray<float3, 4>({ float3(0.72548997402191162109375, 0.71372497081756591796875, 0.627451002597808837890625), float3(0.654901981353759765625, 0.662744998931884765625, 0.60392200946807861328125), float3(0.760783970355987548828125, 0.72548997402191162109375, 0.627451002597808837890625), float3(0.623529016971588134765625, 0.662744998931884765625, 0.658824026584625244140625) });
+constant spvUnsafeArray<float3, 6> _707 = spvUnsafeArray<float3, 6>({ float3(0.23137299716472625732421875, 0.2745099961757659912109375, 0.337255001068115234375), float3(0.18431399762630462646484375, 0.1921570003032684326171875, 0.21176500618457794189453125), float3(0.42745101451873779296875, 0.4000000059604644775390625, 0.313724994659423828125), float3(0.290196001529693603515625, 0.23529399931430816650390625, 0.18431399762630462646484375), float3(0.23529399931430816650390625, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.3333329856395721435546875, 0.313724994659423828125, 0.290196001529693603515625) });
+constant spvUnsafeArray<float3, 6> _721 = spvUnsafeArray<float3, 6>({ float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.117646999657154083251953125), float3(0.3529410064220428466796875, 0.2745099961757659912109375, 0.18823499977588653564453125), float3(0.117646999657154083251953125, 0.117646999657154083251953125, 0.1333329975605010986328125), float3(0.549019992351531982421875, 0.4784309864044189453125, 0.360783994197845458984375), float3(0.41568601131439208984375, 0.23137299716472625732421875, 0.13725499808788299560546875), float3(0.23137299716472625732421875, 0.20000000298023223876953125, 0.18823499977588653564453125) });
+constant spvUnsafeArray<float3, 3> _730 = spvUnsafeArray<float3, 3>({ float3(0.41960799694061279296875, 0.121569000184535980224609375, 0.14902000129222869873046875), float3(0.17254899442195892333984375, 0.2274509966373443603515625, 0.360783994197845458984375), float3(0.24705900251865386962890625, 0.290196001529693603515625, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 5> _738 = spvUnsafeArray<float3, 5>({ float3(0.41960799694061279296875, 0.16470600664615631103515625, 0.16470600664615631103515625), float3(0.21960799396038055419921875, 0.290196001529693603515625, 0.3529410064220428466796875), float3(0.3529410064220428466796875, 0.3529410064220428466796875, 0.1803919970989227294921875), float3(0.18431399762630462646484375, 0.18431399762630462646484375, 0.20000000298023223876953125), float3(0.4784309864044189453125, 0.3529410064220428466796875, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 3> _744 = spvUnsafeArray<float3, 3>({ float3(0.16470600664615631103515625, 0.14117600023746490478515625, 0.12548999488353729248046875), float3(0.2274509966373443603515625, 0.20000000298023223876953125, 0.17254899442195892333984375), float3(0.121569000184535980224609375, 0.113724999129772186279296875, 0.113724999129772186279296875) });
+constant spvUnsafeArray<float3, 9> _767 = spvUnsafeArray<float3, 9>({ float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875), float3(0.24705900251865386962890625, 0.0392160005867481231689453125, 0.04313699901103973388671875), float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.8392159938812255859375, 0.800000011920928955078125, 0.670588016510009765625), float3(0.662744998931884765625, 0.615685999393463134765625, 0.4862749874591827392578125), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), float3(0.337255001068115234375, 0.070588000118732452392578125, 0.08627499639987945556640625), float3(0.10196100175380706787109375, 0.047058999538421630859375, 0.0549019984900951385498046875), float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.121569000184535980224609375) });
+constant spvUnsafeArray<uint, 4> _773 = spvUnsafeArray<uint, 4>({ 101u, 202u, 303u, 404u });
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+void corpseTargets(thread const uint& k, thread spvUnsafeArray<float3, 10>& E, thread float& tilt, thread float& roll, thread float& lift)
+{
+    spvUnsafeArray<float, 8> v;
+    for (int i = 0; i < 8; i++)
+    {
+        uint param = ((k * 8u) + uint(i)) + 9137u;
+        v[i] = hash01(param);
+    }
+    roll = ((v[0] > 0.5) ? 3.1415927410125732421875 : 0.0) + ((v[1] - 0.5) * 0.5);
+    tilt = 1.4500000476837158203125;
+    lift = (v[0] > 0.5) ? 0.2599999904632568359375 : 0.0;
+    E[0] = float3(0.300000011920928955078125, 0.0, (v[2] - 0.5) * 0.800000011920928955078125);
+    E[1] = float3(0.0);
+    E[2] = float3((-2.7999999523162841796875) + (0.4000000059604644775390625 * v[3]), 0.0, 0.20000000298023223876953125 + (0.5 * v[4]));
+    E[3] = float3((-0.5) * v[5], 0.0, 0.0);
+    E[4] = float3((-2.7999999523162841796875) + (0.4000000059604644775390625 * v[6]), 0.0, -(0.20000000298023223876953125 + (0.5 * v[7])));
+    E[5] = float3((-0.5) * v[2], 0.0, 0.0);
+    E[6] = float3((-0.20000000298023223876953125) * v[4], 0.0, 0.25 + (0.20000000298023223876953125 * v[3]));
+    E[7] = float3(0.4000000059604644775390625 * v[5], 0.0, 0.0);
+    E[8] = float3((-0.20000000298023223876953125) * v[1], 0.0, -(0.25 + (0.20000000298023223876953125 * v[6])));
+    E[9] = float3(0.4000000059604644775390625 * v[7], 0.0, 0.0);
+}
+
+static inline __attribute__((always_inline))
+float4 qaxis(thread const float3& axis, thread const float& a)
+{
+    return float4(axis * sin(0.5 * a), cos(0.5 * a));
+}
+
+static inline __attribute__((always_inline))
+float4 qmul(thread const float4& a, thread const float4& b)
+{
+    return float4(((b.xyz * a.w) + (a.xyz * b.w)) + cross(a.xyz, b.xyz), (a.w * b.w) - dot(a.xyz, b.xyz));
+}
+
+static inline __attribute__((always_inline))
+float3 qrot(thread const float4& q, thread const float3& v)
+{
+    float3 t = cross(q.xyz, v) * 2.0;
+    return (v + (t * q.w)) + cross(q.xyz, t);
+}
+
+static inline __attribute__((always_inline))
+float4 qeulerXYZ(thread const float3& e)
+{
+    float3 param = float3(1.0, 0.0, 0.0);
+    float param_1 = e.x;
+    float3 param_2 = float3(0.0, 1.0, 0.0);
+    float param_3 = e.y;
+    float4 param_4 = qaxis(param, param_1);
+    float4 param_5 = qaxis(param_2, param_3);
+    float3 param_6 = float3(0.0, 0.0, 1.0);
+    float param_7 = e.z;
+    float4 param_8 = qmul(param_4, param_5);
+    float4 param_9 = qaxis(param_6, param_7);
+    return qmul(param_8, param_9);
+}
+
+static inline __attribute__((always_inline))
+void evaluatePose(thread const spvUnsafeArray<float3, 10>& E, thread const float& bob, thread const float& tilt, thread const float& roll, thread const float& prone, thread const float& lift, thread const float& scale, thread spvUnsafeArray<float4, 10>& q, thread spvUnsafeArray<float3, 10>& t)
+{
+    float3 c = float3(0.0, 9.0, 0.0);
+    float3 param = float3(1.0, 0.0, 0.0);
+    float param_1 = tilt;
+    float3 param_2 = float3(0.0, 0.0, 1.0);
+    float param_3 = roll;
+    float4 param_4 = qaxis(param, param_1);
+    float4 param_5 = qaxis(param_2, param_3);
+    float4 qb = qmul(param_4, param_5);
+    float4 param_6 = qb;
+    float3 param_7 = c;
+    float3 tb = (((-qrot(param_6, param_7)) + mix(c, float3(0.0, 1.7999999523162841796875, 0.0), float3(prone))) * scale) + float3(0.0, lift, 0.0);
+    float3 _393;
+    for (int n = 0; n < 10; n++)
+    {
+        int i = _377[n];
+        int par = _385[i];
+        if (par < 0)
+        {
+            _393 = _415[i];
+        }
+        else
+        {
+            _393 = _415[i] - _415[par];
+        }
+        float3 local = _393;
+        if (i == 1)
+        {
+            local.y += bob;
+        }
+        float3 param_8 = E[i];
+        float4 ql = qeulerXYZ(param_8);
+        if (par < 0)
+        {
+            float4 param_9 = qb;
+            float4 param_10 = ql;
+            q[i] = qmul(param_9, param_10);
+            float4 param_11 = qb;
+            float3 param_12 = local * scale;
+            t[i] = tb + qrot(param_11, param_12);
+        }
+        else
+        {
+            float4 param_13 = q[par];
+            float4 param_14 = ql;
+            q[i] = qmul(param_13, param_14);
+            float4 param_15 = q[par];
+            float3 param_16 = local * scale;
+            t[i] = t[par] + qrot(param_15, param_16);
+        }
+    }
+}
+
+kernel void main0(constant CharUniforms& _528 [[buffer(0)]], device PoseLib& _561 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint k = gl_GlobalInvocationID.x;
+    if (k >= 64u)
+    {
+        return;
+    }
+    uint param = k;
+    spvUnsafeArray<float3, 10> param_1;
+    float param_2;
+    float param_3;
+    float param_4;
+    corpseTargets(param, param_1, param_2, param_3, param_4);
+    spvUnsafeArray<float3, 10> E = param_1;
+    float tilt = param_2;
+    float roll = param_3;
+    float lift = param_4;
+    spvUnsafeArray<float3, 10> param_5 = E;
+    float param_6 = 0.0;
+    float param_7 = tilt;
+    float param_8 = roll;
+    float param_9 = 1.0;
+    float param_10 = lift;
+    float param_11 = _528.cparams.x;
+    spvUnsafeArray<float4, 10> param_12;
+    spvUnsafeArray<float3, 10> param_13;
+    evaluatePose(param_5, param_6, param_7, param_8, param_9, param_10, param_11, param_12, param_13);
+    spvUnsafeArray<float4, 10> q = param_12;
+    spvUnsafeArray<float3, 10> t = param_13;
+    for (uint s = 0u; s < 10u; s++)
+    {
+        _561.poseLib[((k * 10u) + s) * 2u] = q[s];
+        _561.poseLib[(((k * 10u) + s) * 2u) + 1u] = float4(t[s], 0.0);
+    }
+}
+

@@ -1,0 +1,27 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Pass 2 (one thread): class offsets, indirect draw arguments, pose-pass dispatch size.
+#include "common.glsl"
+#include "zombie_parts.glsl"
+#include "char_common.glsl"
+#include "char_uniforms.glsl"
+layout(local_size_x = 1) in;
+layout(std430, set = 0, binding = 0) readonly buffer ClassInfo { uint classMaxVerts[]; };
+layout(std430, set = 1, binding = 0) buffer CharCounters { uint cc[]; };
+layout(std430, set = 1, binding = 1) buffer CharArgs     { uint args[]; };
+void main() {
+    uint base = 0u;
+    for (uint c = 0u; c < CHAR_MAX_CLASSES; ++c) {
+        uint n = c < ccfg.z ? cc[CC_CLASS_COUNT + c] : 0u;
+        cc[CC_CLASS_BASE + c] = base;
+        base += n;
+        args[c * 4u + 0u] = c < ccfg.z ? classMaxVerts[c] : 0u;
+        args[c * 4u + 1u] = n;
+        args[c * 4u + 2u] = 0u;
+        args[c * 4u + 3u] = 0u;
+    }
+    uint vis = min(cc[CC_VISIBLE], ccfg.y);
+    args[CA_POSE_DISPATCH + 0u] = max((vis + 63u) / 64u, 1u);
+    args[CA_POSE_DISPATCH + 1u] = 1u;
+    args[CA_POSE_DISPATCH + 2u] = 1u;
+}

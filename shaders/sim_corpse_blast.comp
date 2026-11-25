@@ -15,7 +15,7 @@ void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= min(counters[C_CORPSES], uint(corpseP.w))) return;
     Corpse cp = corpses[i];
-    if (cp.info.z < 0.5) return;
+    if ((cp.info.z & 1u) == 0u) return;
     bool hit = false;
     for (uint e = 0u; e < counts.y; ++e) {
         if (distance(cp.pos.xyz, explo[e].xyz) < explo[e].w * 0.7) { hit = true; break; }
@@ -23,18 +23,17 @@ void main() {
     if (!hit) return;
     uint slot = counters[C_LIVE] + atomicAdd(counters[C_APPEND], 1u);
     if (slot >= grid.w) return;     // agent pool full: corpse stays
-    cp.info.z = 0.0;
+    cp.info.z &= ~1u;
     corpses[i] = cp;
     vec2 fwd = vec2(sin(cp.pos.w), cos(cp.pos.w));
-    splatCorpse(cp.pos.xz + fwd * 0.45, -cp.info.w);
-    splatCorpse(cp.pos.xz - fwd * 0.45, -cp.info.w);
+    splatCorpse(cp.pos.xz + fwd * 0.45, -uintBitsToFloat(cp.info.w));
+    splatCorpse(cp.pos.xz - fwd * 0.45, -uintBitsToFloat(cp.info.w));
     atomicAdd(counters[C_REACTIVATED], 1u);
     Agent a;
     a.pos = vec4(cp.pos.xyz + vec3(0.0, 0.15, 0.0), 1.0);
     a.vel = vec4(0.0);
     a.prev = vec4(a.pos.xyz, 0.0);
     a.dirs = vec4(0.0, 0.0, cp.pos.w, 0.0);
-    uint seed = pcgHash(i * 31u + 7u);
-    a.info = uvec4(ST_DYING | (uint(cp.info.y) << 8), seed, floatBitsToUint(0.0), 0u);
+    a.info = uvec4(ST_DYING | (cp.info.x & 0xFFFFFF00u), cp.info.y, floatBitsToUint(0.0), 0u);   // same zombie, same look
     agents[slot] = a;
 }

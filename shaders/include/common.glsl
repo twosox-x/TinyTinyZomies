@@ -22,13 +22,22 @@ struct Agent {
     vec4 vel;   // xyz velocity, w = animation phase
     vec4 prev;  // xyz position at start of step, w = "blocked" pressure EMA 0..1
     vec4 dirs;  // xy desired horizontal dir, z = heading (rad), w = state timer (s)
-    uvec4 info; // x = state | variant<<8, y = rng state, z = health (float bits), w = climb target (float bits)
+    uvec4 info; // x = state(8) | look bits 8..31, y = look bits (see LOOK LAYOUT), z = health (float bits), w = climb target (float bits)
 };
 
 struct Corpse {
     vec4 pos;   // xyz resting position (feet), w = yaw
-    vec4 info;  // x = pose seed, y = variant, z = alive flag (1/0), w = height contribution per splat point (m)
+    uvec4 info; // x = look bits (same as Agent.info.x, state bits = 0), y = look bits (Agent.info.y),
+                // z = alive (bit 0) | pose library index << 8, w = height contribution per splat point (float bits)
 };
+#define CORPSE_POSES 64u
+
+/* LOOK LAYOUT — every zombie's modular appearance, generated once at spawn, kept by its corpse.
+   info.x: 8..10 head, 11..13 torso, 14..16 upperArmL, 17..19 upperArmR, 20..22 forearmL, 23..25 forearmR,
+           26..28 thighL, 29..31 thighR
+   info.y: 0..2 shinL, 3..5 shinR, 6..7 detail tier, 8..9 decomposition bucket, 10..12 skin, 13..16 top,
+           17..18 shirt, 19..21 pants, 22..24 hair, 25..26 tie, 27..29 hat, 30..31 shoe            */
+uint lookBits(uint w, uint lo, uint n) { return (w >> lo) & ((1u << n) - 1u); }
 
 // Indirect / counters layout (uint indices into the counters buffer)
 #define C_LIVE          0u
@@ -71,6 +80,9 @@ layout(std140, set = 2, binding = 0) uniform SimUniforms {
     vec4  spawnRect; // minX, minZ, maxX, maxZ
     uvec4 misc;      // x maxNeighbors, y pass param, z indexCount (zombie mesh), w flags
     vec4  extraP;    // x maxSpeed, y wanderStrength, z proneRate, w crawlSpeed
+    vec4  lookA;     // appearance category weights: recently infected, fully clothed, lightly damaged, heavily damaged
+    vec4  lookB;     // x skeletal, y missing-limb, z spawnAsCorpse (bench/test), w unused
+    uvec4 forcedLook;// x info.x look bits, y info.y look bits, z = 1 to force (showcase / validation)
 };
 
 #define FLAG_VERTICAL 1u
@@ -78,7 +90,8 @@ layout(std140, set = 2, binding = 0) uniform SimUniforms {
 
 // ---- helpers ------------------------------------------------------------
 uint agentState(Agent a)   { return a.info.x & 0xFFu; }
-uint agentVariant(Agent a) { return (a.info.x >> 8) & 0xFFu; }
+uint agentVariant(Agent a) { return (a.info.x >> 8) & 0xFFu; }   // legacy placeholder palette row
+uint agentLookX(Agent a)   { return a.info.x & 0xFFFFFF00u; }
 
 uint pcgHash(uint v) {
     uint state = v * 747796405u + 2891336453u;
@@ -87,6 +100,9 @@ uint pcgHash(uint v) {
 }
 float rand01(inout uint s) { s = pcgHash(s); return float(s & 0x00FFFFFFu) / 16777216.0; }
 float hash01(uint v) { return float(pcgHash(v) & 0x00FFFFFFu) / 16777216.0; }
+// stable per-agent random value (look bits double as the agent's identity seed)
+float agentVary(Agent a)   { return hash01(a.info.y ^ (a.info.x >> 8) * 2654435761u); }
+
 
 ivec2 cellCoord(vec2 xz) {
     vec2 g = (xz - world.xy) * world.w;
