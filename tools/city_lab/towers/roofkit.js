@@ -703,7 +703,7 @@
       if (ia > 2500 && R() < 0.5) units(clamp(Math.round(ia / 2500), 1, 3), () => condRowModel(2 + Math.floor(R() * 2), unitMat, yardRot), D * (0.3 + R() * 0.2), bx0 + R() * iw * 0.4);
     } else {
       if (R() < 0.7) {
-        const n = clamp(Math.round(ia / 500 + R()), 1, Math.floor((iw - 1) / 6) * 3);
+        const n = clamp(Math.round(ia / 750 + R()), 1, Math.floor((iw - 1) / 6) * 3);
         if (n >= 1) units(Math.max(1, Math.ceil(n / 3)), () => condRowModel(clamp(n, 1, Math.min(3, Math.floor((iw - 1) / 6))), unitMat, yardRot));
       }
     }
