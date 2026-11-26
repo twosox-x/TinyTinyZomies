@@ -45,6 +45,7 @@ const faceYaw = (fx, fz) => Math.atan2(-fx, fz);        // yaw turning a model's
 const SLOTS = [];                                         // copy offsets (m), see sink() in parkKit
 for (let s = 0; s < 30; ++s) { const mm = 3 + 4 * s, ph = ((mm % 15.625) + 15.625) % 15.625; if (Math.abs(ph - 7.8125) > 1.6) SLOTS.push(mm / 1000); }
 const CACHE = new Map();
+L.debugParkCache = CACHE;                                  // dev/overlap.js names placed models
 const cached = (key, make) => { let v = CACHE.get(key); if (!v) { v = make(); CACHE.set(key, v); } return v; };
 
 // ------------------------------------------------------------------------------------------ model helpers
@@ -325,6 +326,7 @@ function parkKit(K0) {
   const seed0 = (PL.seed || 1) >>> 0;
   const stats = { regions: 0, park: 0, grove: 0, wedge: 0, plaza: 0, buffer: 0, trees: 0, bushes: 0, items: 0, quads: 0, ms: 0, area: 0 };
   const regionsOut = [];
+  const allTrees = [], allBushes = [];             // every component's trees / bushes (beds on a wedge nose reach past their component)
 
   // ---- emission: mesh m (meshVoxels3D, PV units) at world (x, y above yard level, z), yaw, voxel sizes sh / sv (m)
   const quadW = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, Nx, Ny, Nz) => {
@@ -338,6 +340,8 @@ function parkKit(K0) {
   };
   const put = (m, x, y, z, yaw, sh, sv) => {
     const c = Math.cos(yaw), s = Math.sin(yaw), P = m.pos, fh = sh / PV, fv = (sv || sh) / PV;
+    // dev hook (dev/overlap.js): every placed copy with its model-local -> world (m) map
+    if (L.debugPlace) L.debugPlace({ kit: 'park', mesh: m, map: (u, yy, v) => [x + (u * c - v * s) * fh, hs + y + yy * fv, z + (u * s + v * c) * fh] });
     const X = new Float64Array(4), Y = new Float64Array(4), Z = new Float64Array(4);
     for (let q = 0; q < m.quads; ++q) {
       const n = m.nrm[q * 4], o = q * 12;
@@ -351,8 +355,9 @@ function parkKit(K0) {
     }
   };
   // flat pad (box without bottom): centre (x, z), yaw, half sizes (along / across), y0..y1 (m above yard)
-  const pad = (x, z, yaw, hu, hv, y0, y1, m) => {
+  const pad = (x, z, yaw, hu, hv, y0, y1, m, tag) => {
     const c = Math.cos(yaw), s = Math.sin(yaw);
+    if (L.debugPlace) L.debugPlace({ kit: 'park', pad: tag || 'pad', x, z, yaw, hu, hv, y1: hs + y1 });
     const W = (u, v) => [x + u * c - v * s, z + u * s + v * c];
     const p = [W(-hu, -hv), W(hu, -hv), W(hu, hv), W(-hu, hv)];
     quadW(p[0][0], y1, p[0][1], p[1][0], y1, p[1][1], p[2][0], y1, p[2][1], p[3][0], y1, p[3][1], m, 0, 1, 0);
@@ -566,9 +571,10 @@ function parkKit(K0) {
       for (const [du, dv] of [[0, 0], [clr, 0], [-clr, 0], [0, clr], [0, -clr]]) { const kk = S.kAt(x + du, z + dv); if (kk < 0 || S.used[kk]) { ok = false; break; } }
       if (!ok) continue;
       if (S.trees.some(t => Math.hypot(t.x - x, t.z - z) < dens * (t.rc + rc) || Math.hypot(t.x - x, t.z - z) < 1.4)) continue;
+      if (allBushes.some(o => Math.hypot(o[0] - x, o[1] - z) < o[2] + 0.45)) continue;    // trunk clear of earlier bushes (dev/overlap.js)
       if (S.tall.some(t => Math.hypot(t[0] - x, t[1] - z) < t[2] + rc)) continue;
       const tr = { x, z, rc, base: T.base, sp };
-      S.trees.push(tr);
+      S.trees.push(tr); allTrees.push(tr);
       put(T.mesh, x, sink(S, x, z, rc), z, S.R() * 6.283, BV, BV);
       S.info.trees++;
       return tr;
@@ -586,7 +592,8 @@ function parkKit(K0) {
     if (S.trees.some(t => Math.hypot(t.x - x, t.z - z) < 0.45 + r)) return false;
     if (S.bushes.some(o => Math.hypot(o[0] - x, o[1] - z) < (opts.dens || 0.85) * (o[2] + r))) return false;
     if (S.tall.some(t => Math.hypot(t[0] - x, t[1] - z) < t[2] + r)) return false;
-    S.bushes.push([x, z, r]);
+    if (allTrees.some(t => Math.hypot(t.x - x, t.z - z) < 0.45 + r)) return false;
+    S.bushes.push([x, z, r]); allBushes.push([x, z, r]);
     put(Bm.mesh, x, sink(S, x, z, r), z, S.R() * 6.283, 0.125, 0.125);
     S.info.bushes++;
     return true;
@@ -667,7 +674,7 @@ function parkKit(K0) {
     const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz);
     if (l < 0.05) return;
     const yaw = Math.atan2(dz, dx), e0 = flushA ? 0 : w * 0.15, e1 = w * 0.15, c = (e1 - e0) / 2;
-    pad((a[0] + b[0]) / 2 + dx / l * c, (a[1] + b[1]) / 2 + dz / l * c, yaw, l / 2 + (e0 + e1) / 2, w / 2, -0.02, h || 0.045, m);
+    pad((a[0] + b[0]) / 2 + dx / l * c, (a[1] + b[1]) / 2 + dz / l * c, yaw, l / 2 + (e0 + e1) / 2, w / 2, -0.02, h || 0.045, m, 'path');
     markRect(S, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, yaw, -l / 2 - 0.3, -w / 2 - 0.25, l / 2 + 0.3, w / 2 + 0.25);
   }
   function segClear(S, a, b, w) {                    // a straight path inside the component (or its street band)
@@ -920,7 +927,8 @@ function parkKit(K0) {
             const k = S.kAt(x, z);
             if (k >= 0 && (S.used[k] || (S.inR[k] && S.dLot[k] <= r + 0.3))) continue;
             if (S.bushes.some(q => Math.hypot(q[0] - x, q[1] - z) < 0.9 * (q[2] + r)) || S.trees.some(q => Math.hypot(q.x - x, q.z - z) < q.rc * 0.6)) continue;
-            S.bushes.push([x, z, r]);
+            if (allTrees.some(q => Math.hypot(q.x - x, q.z - z) < Math.max(q.rc * 0.6, r + 0.45))) continue;   // other components' trunks too
+            S.bushes.push([x, z, r]); allBushes.push([x, z, r]);
             put(Bm.mesh, x, sink(S, x, z, r), z, S.R() * 6.283, 0.125, 0.125);
             S.info.bushes++;
           }
@@ -962,11 +970,11 @@ function parkKit(K0) {
       const { ex, ez, tx, tz, nx0, nz0, hw, dp } = best;
       const cx = ex + nx0 * dp / 2, cz = ez + nz0 * dp / 2, yaw = Math.atan2(tz, tx);
       const pm = pick(R, [K.PLAZA, K.PLAZA, K.CONC, BM.BRICK_RED]), em = pm === K.CONC ? K.PLAZA : K.CONC;
-      pad(cx, cz, yaw, hw, dp / 2, -0.02, 0.05, em);
+      pad(cx, cz, yaw, hw, dp / 2, -0.02, 0.05, em, 'plaza');
       // the field stands 3.5 cm proud of its edge band: stacked surfaces closer than ~2 cm fight in the depth buffer
       // at RTS distance (dev/groundfight.js --self)
       const PT = 0.085;
-      pad(cx, cz, yaw, hw - 0.35, dp / 2 - 0.35, -0.02, PT, pm);
+      pad(cx, cz, yaw, hw - 0.35, dp / 2 - 0.35, -0.02, PT, pm, 'plaza');
       markRect(S, cx, cz, yaw, -hw - 0.3, -dp / 2 - 0.3, hw + 0.3, dp / 2 + 0.3);
       // undo the mark so items can stand on the pad: items check their own free cells via a pad-local list
       const U = (u, v) => [ex + tx * u + nx0 * v, ez + tz * u + nz0 * v];
@@ -982,7 +990,7 @@ function parkKit(K0) {
         const scl = Math.min(cap, room / T.rc);
         if (scl < 0.4) return;
         put(T.mesh, p[0], y0 + sink(S, p[0], p[1], T.rc * scl), p[1], R() * 6.28, BV * scl, BV * scl);
-        S.trees.push({ x: p[0], z: p[1], rc: T.rc * scl, base: T.base * scl + y0, sp: T.sp }); info.trees++;
+        const tr = { x: p[0], z: p[1], rc: T.rc * scl, base: T.base * scl + y0, sp: T.sp }; S.trees.push(tr); allTrees.push(tr); info.trees++;
       };
       const n = Math.max(2, Math.round(hw * 2 / (style === 'grates' ? 4 : 5)));
       for (let i = 0; i < n; ++i) {
@@ -990,7 +998,7 @@ function parkKit(K0) {
         if (style === 'fountain' && i > 0 && i < n - 1) continue;
         if (style === 'grates') {
           const p = U(u, v);
-          pad(p[0], p[1], yaw, 0.6, 0.6, -0.02, PT + 0.025, K.POLE_D); pad(p[0], p[1], yaw, 0.45, 0.45, -0.02, PT + 0.05, K.SOIL);
+          pad(p[0], p[1], yaw, 0.6, 0.6, -0.02, PT + 0.025, K.POLE_D, 'grate'); pad(p[0], p[1], yaw, 0.45, 0.45, -0.02, PT + 0.05, K.SOIL);
           treeAt(p, PT + 0.05, 0.85);
         } else treeAt(put2('planter', u, v, yaw), PT + 0.75, 0.75);
         if (i < n - 1 && dp >= 5 && style !== 'fountain') put2('bench', u + (2 * hw - 2.6) / Math.max(1, n - 1) / 2, dp - 1.9, faceYaw(-nx0, -nz0));

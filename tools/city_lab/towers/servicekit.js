@@ -30,7 +30,7 @@ function serviceKit(K) {
   // ------------------------------------------------------------------------------------------ models (5 cm voxels)
   // Local frame: +x along the wall, +z away from the wall (z = 0 is the wall plane / the back of the item), y up.
   const cache = new Map();
-  const mesh = (key, fn) => { let m = cache.get(key); if (!m) { m = C.meshVoxels3D(fn()); cache.set(key, m); } return m; };
+  const mesh = (key, fn) => { let m = cache.get(key); if (!m) { m = C.meshVoxels3D(fn()); m._sk = String(key).split(/[:_]/)[0]; cache.set(key, m); } return m; };
   const rnd = (s) => { let a = s >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
 
   // front-load dumpster: w x d x h voxels, sloped front, black plastic lids (one may be flipped open against the
@@ -190,6 +190,7 @@ function serviceKit(K) {
   const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]];
   function put(m, ox, oz, ax, az, bx, bz, y0) {
     const P = m.pos, iv = 1 / voxel;
+    if (L.debugPlace) L.debugPlace({ kit: 'service', mesh: m, name: m._sk, map: (u, y, v) => [ox + u * ax + v * bx, y0 + y, oz + u * az + v * bz] });   // dev/overlap.js
     const W = (k) => [(ox + P[k] * ax + P[k + 2] * bx) * iv, (y0 + P[k + 1]) * iv, (oz + P[k] * az + P[k + 2] * bz) * iv];
     for (let q = 0; q < m.quads; ++q) {
       const k = q * 12, n = NV[m.nrm[q * 4]], N = [n[0] * ax + n[2] * bx, n[1], n[0] * az + n[2] * bz];

@@ -55,6 +55,7 @@
   const HU = 0.05;                                 // ground height unit (voxels)
   const LAWN = 9, EDGE = 6, DRIVE = 7, WALK = 8, BED = 11, PATIO = 13, DECK = 19, COPING = 15, WATER = 3, STONE = 10;
   const CACHE = new Map();
+  L.debugYardCache = CACHE;                        // dev/overlap.js names placed models
   const cached = (key, make) => { let M = CACHE.get(key); if (!M) { M = make(); CACHE.set(key, M); } return M; };
   const pick = (R, a) => a[Math.floor(R() * a.length) % a.length];
   const wpick = (R, pairs) => { let t = R() * pairs.reduce((s, p) => s + p[1], 0); for (const p of pairs) { t -= p[1]; if (t <= 0) return p[0]; } return pairs[0][0]; };
@@ -71,6 +72,11 @@
   // place model M (origin at its (ox, oz) column) at lot point (x, y, z), voxel size sc, orientation k / matrix
   function put(S, M, x, y, z, sc, k, mir) {
     const C = S.C, m = M._yk || (M._yk = C.meshVoxels3D(M)), P = m.pos, f = sc / C.PV, r = xf(k || 0, mir);
+    if (L.debugPlace) {                                // dev hook (dev/overlap.js): model-local -> world (m)
+      const E = S.E;
+      L.debugPlace({ kit: 'yard', mesh: m, model: M, map: (u, yy, v) => { const a = (x + (r[0] * u + r[1] * v) * f) * L.BV, b = (z + (r[2] * u + r[3] * v) * f) * L.BV;
+        return [E.O[0] + a * E.e1[0] + b * E.e2[0], E.y0 + (y + yy * f) * L.BV, E.O[1] + a * E.e1[1] + b * E.e2[1]]; } });
+    }
     for (let q = 0; q < m.quads; ++q) {
       const n = m.nrm[q * 4], o = q * 12;
       if (n === 5 && P[o + 1] === 0 && P[o + 4] === 0 && P[o + 7] === 0 && P[o + 10] === 0) continue;   // rests on the ground
@@ -584,6 +590,7 @@
     const w = Math.floor(lot.w), d = Math.floor(lot.d);
     const S = { E, C, quads: 0, trees: 0, items: [], by: {}, tag: 'misc' };
     if (!(w >= 12 && d >= 12)) return S;
+    if (L.debugPlace && lot.house) L.debugPlace({ kit: 'yard', house: lot.house, E });
     const Hs = lot.house ? { x0: Math.max(0, lot.house.x0), z0: Math.max(0, lot.house.z0), x1: Math.min(w, lot.house.x1), z1: Math.min(d, lot.house.z1) } : null;
     const H = Hs || { x0: w >> 1, z0: d >> 1, x1: (w >> 1), z1: (d >> 1) };
     const hasHouse = !!Hs && H.x1 > H.x0 && H.z1 > H.z0;
@@ -938,13 +945,14 @@
         const x = Math.round(x0 + u * (x1 - x0)) + 0.5, z = Math.round(z0 + v * (z1 - z0)) + 0.5;
         if (!crownOK(x, z, T.rc)) continue;
         if (!ofree(x - 1.5, z - 1.5, x + 1.5, z + 1.5, false)) continue;
-        if (T.low && !ofree(x - T.rc, z - T.rc, x + T.rc, z + T.rc, true)) continue;
+        // a low crown (conifer skirt, cherry) reaches past T.rc: 1 voxel more clear of fences and items (dev/overlap.js)
+        if (T.low && !ofree(x - T.rc - 1, z - T.rc - 1, x + T.rc + 1, z + T.rc + 1, true)) continue;
         if (tall.some(q => q[0] < x + T.rc && q[2] > x - T.rc && q[1] < z + T.rc && q[3] > z - T.rc)) continue;
         const k = Math.floor(R() * 4), mir = R() < 0.5;
         put(S, T.M, x + J, -0.5 + J, z + J, S1, k, mir);
         trees.push({ x, z, rc: T.rc });
         omark(x - 1.5, z - 1.5, x + 1.5, z + 1.5, 1);
-        omark(x - T.rc, z - T.rc, x + T.rc, z + T.rc, T.low ? 1 : 2);
+        if (T.low) omark(x - T.rc - 1, z - T.rc - 1, x + T.rc + 1, z + T.rc + 1, 1); else omark(x - T.rc, z - T.rc, x + T.rc, z + T.rc, 2);
         if (R() < 0.55) paintDisc(x, z, T.sp === 'oak' ? 3 : 2.2, BED, mulch, isLawn);
         S.trees++;
         return true;
@@ -1083,8 +1091,11 @@
     if (dr && !commercial && driveEnd >= 24 && dr.x1 - dr.x0 >= 10 && R() < 0.45) {
       const Mc = carModel(C, wpick(R, [['sedan', 50], ['suv', 35], ['pickup', 15]]), Math.floor(R() * 99991)), half = Mc.half;
       const nose = R() < 0.75;
-      const zmin = half + 2 + fT, cz = clamp(driveEnd - half - 1.5 - R() * 3, zmin, driveEnd - half - 1), cx = (dr.x0 + dr.x1) / 2;
-      if (driveEnd - half - 1 >= zmin) { put(S, Mc.M, cx + J, DRIVE * HU - J, cz + J, Mc.sc, nose ? 1 : 3); S.items.push('car'); }
+      // a car on a garage drive stops short of the house front (the paving runs on under it to a recessed door,
+      // the car would end inside the house: dev/overlap.js)
+      const cEnd = garageDrive ? Math.min(driveEnd, H.z0) : driveEnd;
+      const zmin = half + 2 + fT, cz = clamp(cEnd - half - 1.5 - R() * 3, zmin, cEnd - half - 1), cx = (dr.x0 + dr.x1) / 2;
+      if (cEnd - half - 1 >= zmin) { put(S, Mc.M, cx + J, DRIVE * HU - J, cz + J, Mc.sc, nose ? 1 : 3); S.items.push('car'); }
     }
 
     // ---- plants, then the ground (house footprint cut out)

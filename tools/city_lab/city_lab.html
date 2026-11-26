@@ -457,6 +457,7 @@ function runFallback(job) {                 // no workers (e.g. opened from disk
       S.hs = res.hs;
       addBlocks({ buildings: res.buildings, plots: res.plots, plotCount: res.plotCount });
       if (res.props) addProps(res.props);
+      if (res.buildings && res.buildings.traffic) addTraffic(res.buildings.traffic);
       buildNetworkOverlay(S.net.roads.map(r => r.junctions || []));
       fallbackRunning = false;
       finishBuild();

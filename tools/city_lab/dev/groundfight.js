@@ -1,5 +1,5 @@
 // Ground z-fighting check: flat overlays (park paving, paths, plaza floors, pads, lawns, yard surfaces, driveways,
-// lot slabs, building / plug-in up-facing faces, street furniture tops) against the road / ground raster mesh
+// lot slabs, building / plug-in up-facing faces, street furniture (placeProps) up faces) against the road / ground raster mesh
 // (city_core buildChunk: greedy-meshed columns, the roads, sidewalks, plots and park ground) and against each other.
 // zfight.js only compares quads inside the building mesh (+ props): the raster is a separate mesh, so an overlay
 // lying (almost) on the ground plane was invisible to it.
@@ -21,7 +21,7 @@ const SELF = args.includes('--self');
 const C = MC.C;
 
 function run(seed) {
-  const B = MC.build(seed, {});
+  const B = MC.build(seed, { props: true });
   const ctx = B.ctx, v = ctx.voxel, tolV = TOL / v;
   // raster top faces (after cuts, like the page)
   const ground = [];
@@ -45,6 +45,19 @@ function run(seed) {
     if (Math.max(...ys) - Math.min(...ys) > 0.01) continue;
     const poly = [[P[o], P[o + 2]], [P[o + 3], P[o + 5]], [P[o + 6], P[o + 8]], [P[o + 9], P[o + 11]]];
     over.push({ y: ys[0], mat: mb.mat[q * 4], poly, ...ext(poly), q });
+  }
+  // street furniture (placeProps): up faces of every placed prop model, world space (as zfight.js --props)
+  const meshes = C.buildPropMeshes();
+  for (const p of B.props || []) {
+    const m = meshes[p.type]; if (!m) continue;
+    const c = Math.cos(p.yaw), s = Math.sin(p.yaw);
+    for (let q = 0; q < m.pos.length / 12; ++q) {
+      const up = m.nvec ? m.nvec[q * 12 + 1] > 0.99 : m.nrm[q * 4] === 0;
+      if (!up) continue;
+      const o = q * 12, poly = [];
+      for (let k = 0; k < 4; ++k) { const x = m.pos[o + k * 3], z = m.pos[o + k * 3 + 2]; poly.push([(p.x + c * x + s * z) / v, (p.z - s * x + c * z) / v]); }
+      over.push({ y: (p.y + m.pos[o + 1]) / v, mat: 1000 + m.mat[q * 4], poly, ...ext(poly), q: -1, prop: p.type });
+    }
   }
   // spatial hash of the ground tops (4 m cells)
   const CS = 4 / v, G = new Map();
@@ -79,10 +92,10 @@ function run(seed) {
       for (const k of cand) { const b = over[k]; if (Math.abs(a.y - b.y) * v > 0.001) test(a, b, 'overlay'); }
     }
   }
-  const segName = (q) => { const s = MC.segOf(list, q); return s ? (s.info.type || s.info.kind || s.id) : '?'; };
+  const segName = (q, o) => { if (q < 0) return 'street furniture ' + ((o && o.prop) || ''); const s = MC.segOf(list, q); return s ? (s.info.type || s.info.kind || s.id) : '?'; };
   const by = {};
   for (const h of hits) {
-    h.k = h.kind === 'ground' ? `${segName(h.a.q)} | ground` : [segName(h.a.q), segName(h.b.q)].sort().join(' | ');
+    h.k = h.kind === 'ground' ? `${segName(h.a.q, h.a)} | ground` : [segName(h.a.q, h.a), segName(h.b.q, h.b)].sort().join(' | ');
     h.k += h.kind === 'ground' ? ` mat ${h.a.mat}/g${h.b.mat}` : '';
     by[h.k] = (by[h.k] || 0) + 1;
   }
