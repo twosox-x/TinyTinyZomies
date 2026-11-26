@@ -1935,6 +1935,7 @@ const Vehicles = (function () {
   // wheel at axle x, radius r, outer face at |z| = zo, tread tw; dual: a second tyre inside; arch: cut first
   function wheel(M, ax, r, zo, tw, hub, dual) {
     const c = Math.max(1, Math.round(r * 0.35)), zi = zo - tw * (dual ? 2 : 1) - (dual ? 1 : 0);
+    (M._wheels || (M._wheels = [])).push({ ax, r, zo, zi });
     sym(M, ax - r, c, zi, ax + r, 2 * r - c, zo, VM.TYRE); sym(M, ax - r + c, 0, zi, ax + r - c, 2 * r, zo, VM.TYRE);
     const h = Math.max(2, Math.round(r * 0.4));
     sym(M, ax - h, r - h, zo - 1, ax + h, r + h, zo, hub || HUB);
@@ -2380,49 +2381,85 @@ const Vehicles = (function () {
     forEach(M, (x, y, z) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; });
     return { x0, x1: x1 + 1, y0, y1: y1 + 1, z0, z1: z1 + 1 };
   }
+  // smooth 3D value noise in [0,1), lattice cell s voxels (low frequency: coherent patches, no per-voxel speckle)
+  function vnoise(x, y, z, s, seed) {
+    const fx = x / s, fy = y / s, fz = z / s, ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+    const sm = (t) => t * t * (3 - 2 * t), tx = sm(fx - ix), ty = sm(fy - iy), tz = sm(fz - iz);
+    const h = (a, b2, c2) => hash2(ix + a, (iy + b2) * 7919 + iz + c2, seed);
+    const l = (a, b2, t) => a + (b2 - a) * t;
+    return l(l(l(h(0, 0, 0), h(1, 0, 0), tx), l(h(0, 1, 0), h(1, 1, 0), tx), ty), l(l(h(0, 0, 1), h(1, 0, 1), tx), l(h(0, 1, 1), h(1, 1, 1), tx), ty), tz);
+  }
   function damage(M, o, seed) {
-    const R = mulberry32(seed * 977 + 13), b = bounds(M);
-    const glassTo = [];
+    const R = mulberry32(seed * 977 + 13), b = bounds(M), mid = M.d >> 1;
+    const paintAt = (i) => M.v[i] && isPaintish(M.v[i] - 1);
     if (o.state === 'damaged') {
-      // dents, scrapes, one or two broken windows, a smashed headlight
-      for (let k = 0; k < 7; ++k) {
-        const x = b.x0 + 6 + Math.floor(R() * (b.x1 - b.x0 - 12)), y = b.y0 + 4 + Math.floor(R() * (b.y1 - b.y0) * 0.5), side = R() < 0.5;
-        const z = side ? b.z1 - 1 : b.z0;
-        for (let dx = 0; dx < 3; ++dx) for (let dy = 0; dy < 2; ++dy) { const i = ((y + dy) * M.d + z) * M.w + x + dx; if (M.v[i] && isPaintish(M.v[i] - 1)) M.v[i] = 0; }
-        for (let dx = -2; dx < 6; ++dx) { const zz = side ? z - 1 : z + 1, i = ((y - 1) * M.d + zz) * M.w + x + dx; if (M.v[i] && isPaintish(M.v[i] - 1) && R() < 0.6) M.v[i] = 187 + 1; }
-      }
-      const xg = b.x0 + Math.floor((b.x1 - b.x0) * (0.3 + R() * 0.3));
-      forEach(M, (x, y, z, i, m) => { if (m === GLASS && Math.abs(x - xg) < 10 && z > (M.d >> 1)) M.v[i] = VM.INTERIOR + 1; if ((m === VM.HEAD || m === LENS) && z < (M.d >> 1)) M.v[i] = VM.PLASTIC + 1; });
-    } else {
-      // crashed / rolled / burnt: crumple the front (jagged), buckle the hood, shatter the glass
-      const crush = o.state === 'burnt' ? 0 : Math.round((b.x1 - b.x0) * (o.state === 'rolled' ? 0.04 : 0.09));
-      if (crush) {
-        for (let y = 0; y < M.h; ++y) for (let z = 0; z < M.d; ++z) {
-          const dz = Math.abs(z - (M.d >> 1)) / (M.d >> 1), cut = crush + Math.floor(hash2(y >> 2, z >> 2, seed) * 4) + (dz > 0.6 ? 3 : 0) - (y < 10 ? 2 : 0);
-          for (let x = b.x1 - cut; x < b.x1; ++x) { const i = (y * M.d + z) * M.w + x; if (M.v[i]) { const m = M.v[i] - 1; if (m === VM.TYRE || m === HUB) continue; M.v[i] = 0; } }
+      // a few coherent dents (pushed-in panels) and long scrapes, one broken side window, a smashed headlight
+      for (let k = 0; k < 3; ++k) {
+        const w = 8 + Math.floor(R() * 8), hh = 4 + Math.floor(R() * 3), x = b.x0 + 8 + Math.floor(R() * (b.x1 - b.x0 - 16 - w)), y = b.y0 + 5 + Math.floor(R() * Math.max(1, (b.y1 - b.y0) * 0.35)), side = k % 2 === 0;
+        for (let dx = 0; dx < w; ++dx) for (let dy = 0; dy < hh; ++dy) {
+          if ((dx === 0 || dx === w - 1) && (dy === 0 || dy === hh - 1)) continue;           // rounded corners
+          for (let zz = side ? b.z1 - 1 : b.z0, n = 0; n < 4; ++n, zz += side ? -1 : 1) { const i = ((y + dy) * M.d + zz) * M.w + x + dx; if (M.v[i]) { if (paintAt(i)) M.v[i] = 0; break; } }
         }
-        // buckled hood: a ridge across behind the crumple zone; the exposed front shows engine bay (dark)
-        let yTop = 0; const xr = b.x1 - crush - 10;
-        for (let y = M.h - 1; y > 0 && !yTop; --y) if (M.at(xr, y, M.d >> 1)) yTop = y;
-        if (yTop && yTop < b.y1 - 6) for (let z = b.z0 + 3; z < b.z1 - 3; ++z) if (hash2(z, 3, seed) < 0.8) { const i = ((yTop + 1) * M.d + z) * M.w + xr; M.v[i] = M.v[(yTop * M.d + z) * M.w + xr]; M.v[i + 1] = M.v[i]; }
-        forEach(M, (x, y, z, i, m) => { if (x >= b.x1 - crush - 4 && m !== VM.TYRE && m !== HUB && M.at(x + 1, y, z) === 0 && hash2(y >> 2, z >> 2, seed + 3) < 0.7) M.v[i] = VM.INTERIOR + 1; });
       }
-      forEach(M, (x, y, z, i, m) => { if (m === GLASS) M.v[i] = (hash2(x >> 2, y >> 2, (z >> 2) + seed) < 0.4 ? VM.CRACK : VM.INTERIOR) + 1; if (m === LENS || m === VM.TAIL_LIT || m === VM.BAR_RED || m === VM.BAR_BLUE || m === VM.BAR_AMBER) M.v[i] = VM.PLASTIC + 1; });
+      { const w = 18 + Math.floor(R() * 14), x = b.x0 + 6 + Math.floor(R() * (b.x1 - b.x0 - 12 - w)), y = b.y0 + 7 + Math.floor(R() * 4);
+        for (let dx = 0; dx < w; ++dx) { const yy = y + Math.round(dx * 0.08); for (let zz = b.z1 - 1, n = 0; n < 4; ++n, --zz) { const i = (yy * M.d + zz) * M.w + x + dx; if (M.v[i]) { if (paintAt(i)) M.v[i] = VM.ASH + 1; break; } } } }
+      const xg = b.x0 + Math.floor((b.x1 - b.x0) * (0.3 + R() * 0.3));
+      forEach(M, (x, y, z, i, m) => { if (m === GLASS && Math.abs(x - xg) < 10 && z > mid) M.v[i] = VM.INTERIOR + 1; if ((m === VM.HEAD || m === LENS) && z < mid) M.v[i] = VM.PLASTIC + 1; });
+      return;
     }
-    if (o.state === 'burnt') {
-      // charred body with ash and rust blotches; window glass gone (outer layer erased, black cabin behind)
-      const g = [];
-      forEach(M, (x, y, z, i, m) => { if (m === VM.CRACK || m === VM.INTERIOR || m === GLASS) g.push(i); });
+    if (o.state !== 'burnt') {
+      // crashed / rolled: crumpled front (smooth, irregular depth), buckled hood, dark engine bay, glass
+      // windscreen crazed white, side windows broken out in coherent areas
+      const crush = Math.round((b.x1 - b.x0) * (o.state === 'rolled' ? 0.04 : 0.09));
+      for (let y = 0; y < M.h; ++y) for (let z = 0; z < M.d; ++z) {
+        const dz = Math.abs(z - mid) / mid, cut = crush + Math.round(vnoise(0, y, z, 7, seed) * 5) + Math.round(dz * dz * 4) - (y < 10 ? 2 : 0);
+        for (let x = b.x1 - cut; x < b.x1; ++x) { const i = (y * M.d + z) * M.w + x; if (M.v[i]) { const m = M.v[i] - 1; if (m === VM.TYRE || m === HUB) continue; M.v[i] = 0; } }
+      }
+      let yTop = 0; const xr = b.x1 - crush - 10;
+      for (let y = M.h - 1; y > 0 && !yTop; --y) if (M.at(xr, y, mid)) yTop = y;
+      if (yTop && yTop < b.y1 - 6) for (let z = b.z0 + 4; z < b.z1 - 4; ++z) { const i = ((yTop + 1) * M.d + z) * M.w + xr; M.v[i] = M.v[(yTop * M.d + z) * M.w + xr]; M.v[i + 1] = M.v[i]; }
+      forEach(M, (x, y, z, i, m) => { if (x >= b.x1 - crush - 8 && m !== VM.TYRE && m !== HUB && m !== GLASS && M.at(x + 1, y, z) === 0) M.v[i] = VM.INTERIOR + 1; });
       forEach(M, (x, y, z, i, m) => {
-        if (m === VM.CRACK || m === VM.INTERIOR || m === GLASS) return;
-        // upper body ash grey, lower body charred, big rust patches (where the paint burnt off)
-        const t = hash2(x >> 4, (y >> 4) * 13 + (z >> 4), seed + 5), hi = y > b.y0 + (b.y1 - b.y0) * 0.45;
-        M.v[i] = 1 + (m === VM.TYRE ? VM.CHAR : m === HUB || m === VM.CHROME ? VM.RUST_DARK : t < 0.3 ? VM.RUST : t < 0.38 ? VM.RUST_DARK : hi ? VM.ASH : VM.CHAR);
+        if (m === GLASS) {
+          const front = M.at(x + 1, y, z) === 0 && x > (b.x0 + b.x1) / 2;
+          if (front) M.v[i] = VM.CRACK + 1; else if (vnoise(x, y, z, 12, seed + 7) > 0.5) M.v[i] = VM.INTERIOR + 1;
+        }
+        if (m === LENS || m === VM.TAIL_LIT || m === VM.BAR_RED || m === VM.BAR_BLUE || m === VM.BAR_AMBER) M.v[i] = VM.PLASTIC + 1;
       });
-      const kill = g.filter(i => { const x = i % M.w, z = Math.floor(i / M.w) % M.d, y = Math.floor(i / (M.w * M.d)); return exposed(M, x, y, z); });
-      for (const i of g) M.v[i] = VM.CHAR + 1;
-      for (const i of kill) M.v[i] = 0;
+      return;
     }
+    // burnt: tyres burnt away (the car sits on its rims), charcoal body, soft grey ash on the upper surfaces, a few
+    // large rust-brown patches where the paint burnt off, no glass (black, recessed window openings)
+    let drop = 0;
+    if (M._wheels) {
+      drop = 99;
+      for (const w of M._wheels) {
+        const rim = Math.max(2, Math.round(w.r * 0.4)) + 1;
+        for (const s of [1, -1]) {
+          const z0 = s > 0 ? w.zi : -w.zo, z1 = s > 0 ? w.zo : -w.zi;
+          M.box(w.ax - w.r, 0, z0, w.ax + w.r, 2 * w.r, z1, -1);
+          M.box(w.ax - rim, w.r - rim, z0, w.ax + rim, w.r + rim, z1, VM.RUST_DARK);
+          M.box(w.ax - rim + 1, w.r - rim - 1, z0, w.ax + rim - 1, w.r + rim + 1, z1, VM.RUST_DARK);
+        }
+        drop = Math.min(drop, w.r - rim - 1);
+      }
+    }
+    const g = [];
+    forEach(M, (x, y, z, i, m) => { if (m === GLASS || m === VM.CRACK || m === VM.INTERIOR || m === VM.GLASS_TINT) g.push(i); });
+    const yAsh = b.y0 + (b.y1 - b.y0) * 0.35;
+    forEach(M, (x, y, z, i, m) => {
+      if (m === GLASS || m === VM.CRACK || m === VM.INTERIOR || m === VM.GLASS_TINT) return;
+      if (m === VM.RUST_DARK || m === VM.TYRE) { M.v[i] = (m === VM.TYRE ? VM.CHAR : VM.RUST_DARK) + 1; return; }
+      const r = vnoise(x, y, z, 16, seed + 5);
+      let c = VM.CHAR;
+      if (y > yAsh && !M.at(x, y + 1, z) && vnoise(x, y, z, 10, seed + 9) > 0.3) c = VM.ASH;
+      if (r > 0.7) c = VM.RUST; else if (r > 0.64) c = VM.RUST_DARK;
+      M.v[i] = c + 1;
+    });
+    const kill = g.filter(i => { const x = i % M.w, z = Math.floor(i / M.w) % M.d, y = Math.floor(i / (M.w * M.d)); return exposed(M, x, y, z); });
+    for (const i of g) M.v[i] = VM.TYRE + 1;
+    for (const i of kill) M.v[i] = 0;
+    if (drop > 0) { const s = drop * M.d * M.w; M.v.copyWithin(0, s); M.v.fill(0, M.v.length - s); }
   }
   // open doors: cars swing the front doors out (stepped at ~50 degrees); vans / ambulances open the rear doors flat
   function openDoors(M, dr, P) {
