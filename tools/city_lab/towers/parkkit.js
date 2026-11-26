@@ -151,9 +151,10 @@ function treeModel(C, sp, vr) {
       M = VM(2 * rc + 4, ht + 2, 2 * rc + 4, rc + 2, rc + 2);
       base = 8;
       M.box(0, 0, 0, 1, ht - 6, 1, K.TRUNK);
-      const flower = R() < 0.25 ? pick(R, [K.PWHITE, K.SALMON]) : null;
+      const flower = R() < 0.25 ? pick(R, [K.CREAM, K.SALMON]) : null;                    // blossom: cream or pink, never paint white
       blob2(M, 0, ht - rc + 1, 0, rc, Math.round(rc * 0.6), lo, flower || mid);
-      blob2(M, Math.round((R() - 0.5) * 4), ht - 3, Math.round((R() - 0.5) * 4), Math.round(rc * 0.6), 2, flower || mid, flower || hi);
+      blob2(M, Math.round((R() - 0.5) * 4), ht - 3, Math.round((R() - 0.5) * 4), Math.round(rc * 0.6), 2, mid, flower || hi);
+      if (flower) L.dappleTop(M, rc + 2, mid, 4, 1);
     }
     return { mesh: C.meshVoxels3D(M), rc: rc * BV + 0.25, base: base * BV, h: ht * BV, sp };
   });

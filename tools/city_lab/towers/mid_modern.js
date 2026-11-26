@@ -44,26 +44,15 @@
   }
 
   // ---- shared voxel parts
-  const CAR_COL = [BM.TRIM, BM.METAL, BM.STEEL_DARK, BM.SHUTTER_BLACK, BM.DOOR_RED, BM.DOOR_NAVY, BM.AWNING_BLUE, BM.METAL,
-    BM.TRIM, BM.PAINT_YELLOW, BM.SHUTTER_GREEN, BM.AWNING_RED, BM.PAINT_CREAM, BM.SIDING_GRAY, BM.SHUTTER_BLACK, BM.METAL];
-  // a parked car, 7 voxels wide; dir 0/1: length along z, nose to -z / +z; dir 2/3: along x, nose to -x / +x
+  // a parked car in a 7 x len voxel slot; dir 0/1: length along z, nose to -z / +z; dir 2/3: along x, nose to -x / +x.
+  // A CityCore.Vehicles model recorded on M and emitted with it (Emitter.vox), centred on the slot (<= 0.3 m over each end).
+  const CAR_KIND = ['sedan', 'suv', 'hatchback', 'sedan', 'minivan'];
   function car(M, x, y, z, dir, h) {
-    const col = CAR_COL[Math.floor(h * 9973) % CAR_COL.length], kind = Math.floor(h * 7919) % 5;   // 0,3 sedan 1 suv 2 hatch 4 wagon
-    const len = kind === 2 ? 15 : kind === 1 ? 17 : 18;
-    const put = (a0, y0, b0, a1, y1, b1, m) => {
-      if (dir === 0) M.box(x + b0, y + y0, z + a0, x + b1, y + y1, z + a1, m);
-      else if (dir === 1) M.box(x + b0, y + y0, z + len - a1, x + b1, y + y1, z + len - a0, m);
-      else if (dir === 2) M.box(x + a0, y + y0, z + b0, x + a1, y + y1, z + b1, m);
-      else M.box(x + len - a1, y + y0, z + b0, x + len - a0, y + y1, z + b1, m);
-    };
-    const bh = kind === 1 ? 5 : 4;
-    put(0, 1, 0, len, bh, 7, col);
-    put(2, 0, 0, 5, 2, 7, BM.SHUTTER_BLACK); put(len - 5, 0, 0, len - 2, 2, 7, BM.SHUTTER_BLACK);
-    put(0, 2, 0, 1, 3, 2, BM.TRIM); put(0, 2, 5, 1, 3, 7, BM.TRIM);                              // headlamps
-    put(len - 1, 2, 0, len, 3, 2, BM.DOOR_RED); put(len - 1, 2, 5, len, 3, 7, BM.DOOR_RED);      // tail lamps
-    const c0 = kind === 2 ? 4 : 5, c1 = kind === 0 || kind === 3 ? len - 5 : len - 2;
-    put(c0, bh, 1, c1, bh + 2, 6, BM.GLASS_DARK);
-    put(c0 + 1, bh + 2, 1, c1 - (kind === 0 || kind === 3 ? 1 : 0), bh + 3, 6, col);
+    const kind = Math.floor(h * 7919) % 5, len = kind === 2 ? 15 : kind === 1 ? 17 : 18, sd = Math.floor(h * 99991) % 997;
+    let k = CAR_KIND[kind];
+    if (k === 'sedan' && sd % 11 === 0) k = 'coupe';
+    const cx = dir < 2 ? x + 3.5 : x + len / 2, cz = dir < 2 ? z + len / 2 : z + 3.5;
+    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.6, 2.0] });
   }
   function tree(M, x, y, z, R, big) {
     const th = big ? 8 + Math.floor(R() * 3) : 5 + Math.floor(R() * 3), r = big ? 3.6 + R() : 2.4 + R() * 0.8;

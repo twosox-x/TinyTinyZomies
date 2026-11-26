@@ -84,6 +84,9 @@ class Emitter {
       const k = q * 12, c = (i) => [P[k + i] * s + x, P[k + i + 1] * s + y, P[k + i + 2] * s + z];
       this.quad(c(0), c(3), c(6), c(9), m.mat[q * 4], NV[m.nrm[q * 4]]);
     }
+    // vehicles parked on this part (M.vehicles, from the plug-ins' car() helpers): CityCore.Vehicles models,
+    // placed at their footprint centre in the part's voxel frame (1 / BV voxels per metre)
+    if (M.vehicles) for (const v of M.vehicles) C.Vehicles.emit(this, v.kind, v.opts, x + v.x, y + v.y, z + v.z, v.dir, 1 / BV, v.fit);
   }
   // relief / height map meshed by the column mesher, then mapped: map(rx, ry, rz) -> local (x, y, z)
   relief(H, M, w, d, map, wallMat, C, clampDepth) {
@@ -3273,6 +3276,8 @@ function buildAll(PL, R, voxel, C) {
   if (R && R.setCuts) R.setCuts(cuts);
   if (LIB.onCuts) LIB.onCuts(cuts);
   counts.cuts = cuts.length; counts.cutRefused = CUT_WHY;
+  // abandoned traffic on the roads (towers/traffickit.js): emitted last (freely rotated parts), with the final cuts
+  if (LIB.trafficKit && blocks) { const tt = Date.now(); counts.traffic = LIB.trafficKit({ PL, C, R, jobs, mb, hs, voxel }); counts.trafficMs = Date.now() - tt; }
   cullPass();
   const res = mb.finish(0.002);
   res.counts = counts;
@@ -3432,6 +3437,16 @@ const LIB = {
   facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
   skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,
   planterRowModel, VoxModel: () => C_VoxModel, cullHidden, coplanarPairs, planeOf, planSuburbs, roadAt, roadProject
+};
+// Blossom / flowering crowns: recolour the topmost voxel of a regular scatter of columns within r of the model's
+// origin column to m (green showing through), so a flowering crown never reads as one flat pale slab. Every
+// `every`-th column on a diagonal lattice (offset k); no new geometry.
+LIB.dappleTop = function (M, r, m, every, k) {
+  for (let x = -r; x <= r; ++x) for (let z = -r; z <= r; ++z) {
+    if (x * x + z * z > r * r || ((x * 2 + z * 3 + k) % every + every) % every) continue;
+    const X = x + M.ox, Z = z + M.oz;
+    for (let y = M.h - 1; y >= 0; --y) if (M.at(X, y, Z)) { M.v[(y * M.d + Z) * M.w + X] = m + 1; break; }
+  }
 };
 // Preview one tower type on an empty lot (tools / review): lot Wm x Dm metres, origin at the lot's front-left corner
 function previewTower(name, Wm, Dm, floors, seed, C) {

@@ -242,6 +242,7 @@ function generateCity(seed) {
   // the wedge between Division and Broadway: streets hitting Broadway at an acute angle, a short N-S street,
   // two cul-de-sacs and a curved lane along the edge
   const wedgeZ = [];
+  let vine = null;
   for (let k = 0; k < 3; ++k) {
     const z = zG + 72 + k * (60 + J(6));
     const xe = crossZ(broadway.pts, z, xD);
@@ -251,14 +252,26 @@ function generateCity(seed) {
   }
   if (wedgeZ.length >= 2) {
     const vx = xD + 95 + J(8);
-    if (vx < wedgeZ[0][1] - 30) add('residential', line([vx, wedgeZ[0][0]], [vx, Z1 - 30]), 'Vine Street', 'residential');
+    if (vx < wedgeZ[0][1] - 30) vine = add('residential', line([vx, wedgeZ[0][0]], [vx, Z1 - 30]), 'Vine Street', 'residential');
     const pz = wedgeZ[1][0];
     cul([xD + 45, pz], Math.PI * 0.5, 40, 'Linden Court', 0.1);
     if (wedgeZ.length > 2) cul([vx + 50, wedgeZ[2][0]], Math.PI * 0.5 + 0.25, 38, 'Birch Court', -0.12);
   }
   const ridge0 = [xD, Z1 - 30 + J(5)];
   const tR = (Z1 - 2 - bs[1]) / bd[1];
-  add('lane', bezier(ridge0, [xD + 40, ridge0[1] - 25], [xD + 80, Z1 - 5], [Math.min(bs[0] + bd[0] * tR, X1), Z1 + 12], 3), 'Ridge Lane', 'residential');
+  const ridge = add('lane', bezier(ridge0, [xD + 40, ridge0[1] - 25], [xD + 80, Z1 - 5], [Math.min(bs[0] + bd[0] * tR, X1), Z1 + 12], 3), 'Ridge Lane', 'residential');
+  // Vine Street runs on to Ridge Lane (a T junction) instead of stopping a few metres short of it behind a
+  // sidewalk cap
+  if (vine) {
+    const vx = vine.pts[0][0], P = ridge.pts;
+    for (let i = 0; i + 1 < P.length; ++i) {
+      const [a, b] = [P[i], P[i + 1]];
+      if ((a[0] - vx) * (b[0] - vx) > 0 || a[0] === b[0]) continue;
+      const zr = a[1] + (b[1] - a[1]) * (vx - a[0]) / (b[0] - a[0]);
+      if (zr > vine.pts[1][1] && zr - vine.pts[1][1] < 30) vine.pts[1] = [vx, zr];
+      break;
+    }
+  }
 
   // open spaces ----------------------------------------------------------------------------------------------
   const areas = [];
@@ -1825,51 +1838,7 @@ function modelBusSign() {
   M.box(-2, 26, -2, 2, 36, 2, PM.HOUSING);
   return M;
 }
-// --- vehicles parked at the curb / in loading bays (also used by the service kit): +x is the front, z centred
-function modelVan(col, band) {
-  // panel van 5.6 x 2.0 x 2.3 m: sloped windscreen, cab side windows, bumpers, lights, rear door seam
-  const M = new VoxModel(116, 48, 44, 58, 22);
-  M.box(-56, 5, -20, 40, 44, 20, col).box(40, 5, -20, 56, 22, 20, col);
-  for (let y = 22; y < 42; ++y) { const x1 = 40 + Math.round((42 - y) * 0.6); M.box(36, y, -19, x1, y + 1, 19, PM.HOUSING); }
-  M.box(28, 26, -21, 38, 38, 21, PM.HOUSING);
-  M.box(-54, 44, -18, 34, 46, 18, col);
-  M.box(56, 5, -20, 57, 11, 20, PM.POLE_DARK).box(-57, 5, -20, -56, 11, 20, PM.POLE_DARK);
-  M.box(56, 14, -18, 57, 18, -12, PM.PAPER).box(56, 14, 12, 57, 18, 18, PM.PAPER);
-  M.box(-57, 22, -19, -56, 28, -16, PM.SIGN_RED).box(-57, 22, 16, -56, 28, 19, PM.SIGN_RED);
-  M.box(-57, 12, -1, -56, 40, 1, PM.POLE_DARK);
-  for (const x of [-44, 30]) for (const z of [-21, 16]) M.box(x, 0, z, x + 14, 13, z + 5, PM.HOUSING);
-  for (const x of [-40, 34]) for (const z of [-22, 21]) M.box(x, 4, z, x + 6, 9, z + 1, PM.STEEL);
-  if (band) M.box(-40, 26, -21, 20, 33, 21, band);                                    // livery band
-  return M;
-}
-function modelBoxTruck(col, band) {
-  // box truck 7.5 x 2.4 x 3.4 m: cab, white box with a livery stripe, ribbed roll door at the back, dual rear wheels
-  const M = new VoxModel(152, 70, 54, 76, 27);
-  M.box(-74, 10, -24, 36, 68, 24, PM.SIGN_WHITE);
-  M.box(-75, 12, -22, -74, 66, 22, PM.STEEL);
-  for (let y = 14; y < 66; y += 4) M.box(-75, y, -22, -74, y + 1, 22, PM.POLE);
-  M.box(-72, 6, -22, 70, 10, 22, PM.POLE_DARK);
-  M.box(38, 10, -22, 74, 30, 22, col).box(38, 30, -22, 62, 52, 22, col);
-  for (let y = 30; y < 50; ++y) M.box(62, y, -21, 62 + Math.round((50 - y) * 0.5), y + 1, 21, PM.HOUSING);
-  M.box(44, 34, -23, 58, 46, 23, PM.HOUSING);
-  M.box(74, 10, -22, 75, 16, 22, PM.POLE_DARK).box(74, 18, -21, 75, 22, -15, PM.PAPER).box(74, 18, 15, 75, 22, 21, PM.PAPER);
-  M.box(-60, 54, -25, 30, 60, 25, band);
-  for (const [x, w] of [[50, 16], [-58, 26]]) for (const z of [-25, 19]) M.box(x, 0, z, x + w, 16, z + 6, PM.HOUSING);
-  return M;
-}
-function modelRolloff(col) {
-  // roll-off container in a parking lane (6 x 2.3 x 1.4 m): ribbed steel sides, rails, construction debris
-  const M = new VoxModel(124, 34, 50, 62, 25);
-  M.box(-58, 0, -20, 58, 2, -16, PM.POLE_DARK).box(-58, 0, 16, 58, 2, 20, PM.POLE_DARK);
-  M.box(-60, 2, -23, 60, 28, 23, col);
-  for (let x = -52; x < 56; x += 9) M.box(x, 4, -24, x + 2, 28, 24, col === PM.RUST ? PM.POLE_DARK : PM.RUST);
-  M.box(-57, 24, -20, 57, 28, 20, -1);                                                // open top
-  M.box(-57, 23, -20, 57, 24, 20, PM.CONCRETE);
-  for (const [x, z, w, h, m] of [[-50, -14, 20, 4, PM.CARDBOARD], [-20, 2, 16, 3, PM.BENCH_WOOD], [5, -12, 14, 5, PM.CONCRETE], [30, 4, 18, 4, PM.CARDBOARD], [-34, 6, 10, 2, PM.HOUSING]])
-    M.box(x, 24, z, x + w, 24 + h, z + 10, m);
-  M.box(60, 6, -6, 61, 22, 6, PM.UMB_YELLOW).box(-61, 6, -6, -60, 22, 6, PM.UMB_YELLOW);
-  return M;
-}
+// --- vehicles parked at the curb / in loading bays: see the vehicle library (Vehicles, section 7b) and PROP_TYPES
 function modelBagPile(seed) {
   // trash bags out at the curb for collection (pickup day): black, white and the odd green or blue recycling bag
   const R = mulberry32(seed), M = new VoxModel(64, 22, 28, 32, 14);
@@ -1883,6 +1852,673 @@ function modelBagPile(seed) {
   if (seed % 3 === 0) M.box(10, 0, -12, 24, 10, -2, PM.CARDBOARD).box(10, 10, -12, 24, 11, -2, PM.BENCH_WOOD);
   return M;
 }
+// ------------------------------------------------------------------------------------------------ 7b. vehicles
+// ONE vehicle library for the whole city (curb vans / trucks, service yards, parking lots, driveways, traffic).
+// Renderer-free voxel models at the street-furniture scale (5 cm, PV). API (stable, see dev/VEHICLES_API.md):
+//   Vehicles.KINDS                      list of kind names (sedan, hatchback, coupe, suv, pickup, minivan, taxi, police,
+//                                       ambulance, fire_engine, city_bus, school_bus, panel_van, delivery_van, box_truck,
+//                                       garbage_truck, fuel_tanker, tanker_cab, tanker_trailer, semi, semi_cab,
+//                                       semi_trailer, rolloff_truck, rolloff)
+//   Vehicles.INFO[kind]                 { len, wid, h (m, nominal), cls: 'car'|'van'|'truck'|'bus'|'trailer'|'prop' }
+//   Vehicles.model(kind, opts)          -> { M: VoxModel, len, wid, h (m, actual bounds), x0, x1, z0, z1 (m) }
+//                                       +x is the front, z centred (+z = right side), y = 0 on the ground.
+//                                       opts: { paint (material id, default from seed), seed (int: trim / detail
+//                                       variant), state: 'ok'|'damaged'|'crashed'|'burnt'|'rolled', doors (bool: front
+//                                       doors / rear doors open), lights (bool: head / tail lights and light bars on) }
+//                                       Cached by key: identical variants share one model (do not mutate M).
+//   Vehicles.mesh(kind, opts)           -> same plus `mesh` (meshVoxels3D, metres), cached.
+//   Vehicles.paints                     { car: [[mat, weight], ...] (US colour mix), pick(seed) -> mat, liveries }
+//   Vehicles.emit(E, kind, opts, x, y, z, dir, scale) place a vehicle into an emitter with quad(p, q, r, s, m, n)
+//                                       (city_arch Emitter, yardkit): dir 0..3 = nose to -z, +z, -x, +x; (x, z) the
+//                                       centre of the footprint, y the ground, all in the emitter's units; scale =
+//                                       emitter units per metre (4 for building voxels). Faces resting on y = 0 skipped.
+const VM = {                                    // vehicle materials (palette 160..199)
+  WHITE: 160, SILVER: 161, GREY: 162, BLACK: 163, RED: 164, BLUE: 165, NAVY: 166, GREEN: 167, BEIGE: 168, BROWN: 169,
+  ORANGE: 170, TAXI: 171, BUS_YELLOW: 172, FIRE_RED: 173, MAROON: 174, SKY: 175,
+  TYRE: 176, PLASTIC: 177, CHROME: 178, HEAD: 179, TAIL: 180, TAIL_LIT: 181, AMBER: 182, SEAM: 183, INTERIOR: 184,
+  CHAR: 185, ASH: 186, RUST: 187, RUST_DARK: 188, BAR_RED: 189, BAR_BLUE: 190, TANK: 191, CRACK: 192, GARB_GREEN: 193,
+  METRO_BLUE: 194, TEAL: 195, GOLD: 196, DARK_GREY: 197, CREAM: 198, BAR_AMBER: 199, GLASS: 200, GLASS_TINT: 201
+};
+const VEH_PALETTE = {
+  160: [226, 226, 222], 161: [170, 174, 178], 162: [112, 116, 120], 163: [36, 38, 42], 164: [158, 34, 32], 165: [44, 74, 128],
+  166: [32, 42, 70], 167: [46, 80, 60], 168: [188, 174, 146], 169: [98, 72, 54], 170: [206, 108, 40], 171: [236, 186, 40],
+  172: [242, 172, 22], 173: [184, 30, 28], 174: [104, 32, 38], 175: [126, 156, 186],
+  176: [30, 30, 32], 177: [44, 45, 48], 178: [208, 210, 212], 179: [236, 236, 226], 180: [150, 26, 26], 181: [235, 40, 30],
+  182: [226, 140, 34], 183: [70, 72, 76], 184: [52, 50, 48], 185: [34, 31, 30], 186: [92, 88, 84], 187: [128, 72, 44],
+  188: [82, 52, 38], 200: [44, 54, 66], 201: [30, 34, 40], 189: [230, 40, 36], 190: [40, 90, 240], 191: [200, 204, 208], 192: [168, 176, 182], 193: [50, 104, 66],
+  194: [38, 92, 156], 195: [40, 112, 120], 196: [176, 150, 92], 197: [74, 78, 82], 198: [226, 214, 182], 199: [240, 160, 30]
+};
+const Vehicles = (function () {
+  const GLASS = VM.GLASS, LENS = 57, HUB = 130, PLATE = 64;   // shared ids: GLASS_DARK (glossy), street-lamp lens (lit), steel, sign white
+  const KINDS = ['sedan', 'hatchback', 'coupe', 'suv', 'pickup', 'minivan', 'taxi', 'police', 'ambulance', 'fire_engine',
+    'city_bus', 'school_bus', 'panel_van', 'delivery_van', 'box_truck', 'garbage_truck', 'fuel_tanker', 'tanker_cab', 'tanker_trailer',
+    'semi', 'semi_cab', 'semi_trailer', 'rolloff_truck', 'rolloff'];
+  const CAR_MIX = [[VM.WHITE, 24], [VM.BLACK, 19], [VM.GREY, 17], [VM.SILVER, 13], [VM.BLUE, 7], [VM.NAVY, 3], [VM.RED, 8],
+    [VM.MAROON, 2], [VM.BEIGE, 2], [VM.BROWN, 1], [VM.GREEN, 1], [VM.SKY, 1], [VM.ORANGE, 1], [VM.GOLD, 1]];
+  const FLEET_MIX = [[VM.WHITE, 60], [VM.SILVER, 10], [VM.GREY, 6], [VM.BLUE, 6], [VM.RED, 5], [VM.GREEN, 4], [VM.BLACK, 4], [VM.METRO_BLUE, 3], [VM.ORANGE, 2]];
+  const wpick = (mix, h) => { let t = h * mix.reduce((s, p) => s + p[1], 0); for (const p of mix) { t -= p[1]; if (t < 0) return p[0]; } return mix[0][0]; };
+  const hs = (seed, k) => hash2(seed | 0, k | 0, 9137);
+  const paints = {
+    car: CAR_MIX, fleet: FLEET_MIX,
+    pick: (seed) => wpick(CAR_MIX, hs(seed, 1)),
+    pickFleet: (seed) => wpick(FLEET_MIX, hs(seed, 2)),
+    // liveries (fictional operators): body / accent / stripe materials
+    liveries: {
+      taxi: { body: VM.TAXI, accent: VM.BLACK, name: 'Sunbelt Cab Co.' },
+      police: { body: VM.BLACK, accent: VM.WHITE, name: 'City PD (black-and-white)' },
+      ambulance: { body: VM.WHITE, accent: VM.RED, stripe: VM.ORANGE, name: 'County EMS' },
+      fire_engine: { body: VM.FIRE_RED, accent: VM.WHITE, name: 'Fire Dept. Engine Co.' },
+      school_bus: { body: VM.BUS_YELLOW, accent: VM.BLACK, name: 'Unified School District' },
+      city_bus: { body: VM.WHITE, accent: VM.METRO_BLUE, stripe: VM.TEAL, name: 'Metro Transit' },
+      garbage_truck: { body: VM.WHITE, accent: VM.GARB_GREEN, name: 'Green Valley Sanitation' },
+      fuel_tanker: { body: VM.TANK, accent: VM.RED, stripe: VM.NAVY, name: 'Prairie Star Fuels' }
+    }
+  };
+  const INFO = {
+    sedan: { len: 4.8, wid: 1.84, h: 1.45, cls: 'car' }, hatchback: { len: 4.2, wid: 1.8, h: 1.5, cls: 'car' },
+    coupe: { len: 4.8, wid: 1.9, h: 1.32, cls: 'car' }, suv: { len: 4.9, wid: 1.95, h: 1.8, cls: 'car' },
+    pickup: { len: 5.8, wid: 2.0, h: 1.9, cls: 'car' }, minivan: { len: 5.1, wid: 1.95, h: 1.75, cls: 'car' },
+    taxi: { len: 4.8, wid: 1.84, h: 1.75, cls: 'car' }, police: { len: 4.9, wid: 1.84, h: 1.62, cls: 'car' },
+    ambulance: { len: 6.6, wid: 2.3, h: 2.85, cls: 'van' }, fire_engine: { len: 10.2, wid: 2.5, h: 3.3, cls: 'truck' },
+    city_bus: { len: 12.0, wid: 2.55, h: 3.2, cls: 'bus' }, school_bus: { len: 11.0, wid: 2.45, h: 3.2, cls: 'bus' },
+    panel_van: { len: 5.6, wid: 2.1, h: 2.35, cls: 'van' }, delivery_van: { len: 5.8, wid: 2.2, h: 2.8, cls: 'van' },
+    box_truck: { len: 7.5, wid: 2.5, h: 3.4, cls: 'truck' }, garbage_truck: { len: 9.4, wid: 2.5, h: 3.5, cls: 'truck' },
+    fuel_tanker: { len: 17.0, wid: 2.5, h: 3.4, cls: 'truck' }, tanker_cab: { len: 6.2, wid: 2.5, h: 3.4, cls: 'truck' },
+    tanker_trailer: { len: 12.0, wid: 2.5, h: 3.2, cls: 'trailer' }, semi: { len: 17.4, wid: 2.6, h: 4.0, cls: 'truck' },
+    semi_cab: { len: 6.2, wid: 2.5, h: 3.4, cls: 'truck' }, semi_trailer: { len: 13.0, wid: 2.6, h: 4.0, cls: 'trailer' },
+    rolloff_truck: { len: 8.8, wid: 2.5, h: 3.1, cls: 'truck' }, rolloff: { len: 6.0, wid: 2.35, h: 1.4, cls: 'prop' }
+  };
+
+  // ---------------------------------------------------------------------------------------------- parts
+  // symmetric box: z range given for the +z side, mirrored to -z ([-z1, -z0))
+  const sym = (M, x0, y0, z0, x1, y1, z1, m) => { M.box(x0, y0, z0, x1, y1, z1, m); M.box(x0, y0, -z1, x1, y1, -z0, m); };
+  // wheel at axle x, radius r, outer face at |z| = zo, tread tw; dual: a second tyre inside; arch: cut first
+  function wheel(M, ax, r, zo, tw, hub, dual) {
+    const c = Math.max(1, Math.round(r * 0.35)), zi = zo - tw * (dual ? 2 : 1) - (dual ? 1 : 0);
+    sym(M, ax - r, c, zi, ax + r, 2 * r - c, zo, VM.TYRE); sym(M, ax - r + c, 0, zi, ax + r - c, 2 * r, zo, VM.TYRE);
+    const h = Math.max(2, Math.round(r * 0.45));
+    sym(M, ax - h, r - h, zo - 1, ax + h, r + h, zo, hub || HUB);
+    if (r >= 9) sym(M, ax - 1, r - 1, zo - 1, ax + 1, r + 1, zo, VM.DARK_GREY);          // hub nut cap on big wheels
+  }
+  function arch(M, ax, r, zo, depth, top) {        // wheel opening in the body sides (outer band only)
+    const t = top || 2 * r + 2;
+    sym(M, ax - r - 1, 0, zo - depth, ax + r + 1, t - 1, zo + 2, -1);
+    sym(M, ax - r + 1, t - 1, zo - depth, ax + r - 1, t, zo + 2, -1);
+  }
+  // paint the outer layer of a side rectangle (both sides): x0..x1, y0..y1 on |z| = zs-1
+  const sideMark = (M, x0, y0, x1, y1, zs, m) => sym(M, x0, y0, zs - 1, x1, y1, zs, m);
+  // recessed window on both sides: erase outer layer, glass one voxel in
+  function sideWin(M, x0, y0, x1, y1, zs, g) { sym(M, x0, y0, zs - 1, x1, y1, zs, -1); sym(M, x0, y0, zs - 2, x1, y1, zs - 1, g || GLASS); }
+
+  // ---------------------------------------------------------------------------------------------- cars
+  // body spec in voxels: L, W, H, r (wheel), axF, axR, sill, belt, ws0 / ws1 (windscreen base / top x),
+  // rr0 / rr1 (rear glass base / top x), bp (B pillar x), doors (2 | 4), rear: 'notch' | 'hatch' | 'fast'
+  const CAR = {
+    sedan: { L: 96, W: 36, H: 29, r: 7, axF: 30, axR: -29, sill: 6, belt: 17, ws0: 20, ws1: 6, rr1: -17, rr0: -29, bp: -3, doors: 4, rear: 'notch' },
+    hatchback: { L: 84, W: 35, H: 30, r: 7, axF: 27, axR: -27, sill: 6, belt: 17, ws0: 18, ws1: 5, rr1: -32, rr0: -39, bp: -6, doors: 4, rear: 'hatch' },
+    coupe: { L: 96, W: 37, H: 26, r: 8, axF: 30, axR: -29, sill: 6, belt: 16, ws0: 10, ws1: -2, rr1: -14, rr0: -36, bp: -14, doors: 2, rear: 'fast' },
+    suv: { L: 98, W: 38, H: 35, r: 8, axF: 32, axR: -30, sill: 8, belt: 21, ws0: 22, ws1: 10, rr1: -44, rr0: -46, bp: -4, doors: 4, rear: 'hatch' },
+    minivan: { L: 102, W: 38, H: 34, r: 7, axF: 35, axR: -30, sill: 7, belt: 19, ws0: 30, ws1: 12, rr1: -47, rr0: -49, bp: 4, doors: 4, rear: 'hatch', slider: true },
+    pickup: { L: 116, W: 39, H: 37, r: 8, axF: 38, axR: -36, sill: 9, belt: 23, ws0: 24, ws1: 13, rr1: -11, rr0: -11, bp: 2, doors: 4, rear: 'bed' }
+  };
+  CAR.taxi = CAR.sedan; CAR.police = Object.assign({}, CAR.sedan, { L: 98, axF: 31, ws0: 21 });
+
+  function car(kind, o) {
+    const S = CAR[kind], hl = S.L >> 1, hw = S.W >> 1, H = S.H, seed = o.seed | 0;
+    const M = new VoxModel(S.L + 4, H + 8, S.W + 8, hl + 2, hw + 4);
+    const lv = paints.liveries[kind];
+    const P = o.paint !== undefined && o.paint !== null ? o.paint : lv ? lv.body : paints.pick(seed);
+    const glass = GLASS, cw = hw - 2;                                  // cabin half width (tumblehome)
+    const crushed = o.state === 'rolled';
+    // lower body
+    M.box(-hl, S.sill, -hw, hl, S.belt, hw, P);
+    M.box(-hl + 6, 2, -hw + 7, hl - 6, S.sill, hw - 7, VM.PLASTIC);                           // underbody
+    sym(M, -hl, 0, hw - 1, -hl + 1, H, hw, -1); sym(M, hl - 1, 0, hw - 1, hl, H, hw, -1);        // corner chamfers
+    M.box(hl - 2, S.belt - 1, -hw, hl, S.belt, hw, -1); M.box(-hl, S.belt - 1, -hw, -hl + 1, S.belt, hw, -1);   // rounded nose / tail
+    // greenhouse
+    const H1 = crushed ? H - 4 : H;
+    if (S.rear === 'bed') {
+      const top = H1;
+      for (let y = S.belt; y < top; ++y) {
+        const t = (y - S.belt) / Math.max(1, top - S.belt - 1), xf = Math.round(S.ws0 + (S.ws1 - S.ws0) * Math.min(1, Math.floor(t * 4) / 4 + 0.12));
+        M.box(S.rr0, y, -cw, xf, y + 1, cw, glass);
+      }
+      M.box(S.rr0, H1 - 2, -cw, S.ws1 - 1, H1, cw, P);
+      M.box(S.rr0, S.belt, -cw, S.rr0 + 2, H1, cw, P);                                     // cab back wall
+      // bed: walls with an open tub, tailgate
+      M.box(-hl, S.belt - 1, -hw + 2, S.rr0 - 2, S.belt + 2, hw - 2, -1);
+      M.box(-hl + 1, S.sill + 4, -hw + 2, S.rr0 - 2, S.sill + 5, hw - 2, VM.PLASTIC);         // bed liner floor
+      M.box(-hl, S.sill + 5, -hw + 2, S.rr0 - 2, S.belt + 2, hw - 2, -1);
+      sym(M, -hl, S.sill, hw - 2, S.rr0 - 1, S.belt + 2, hw, P);
+      M.box(-hl, S.sill, -hw, -hl + 2, S.belt + 2, hw, P);
+      M.box(S.rr0 - 2, S.sill, -hw, S.rr0, S.belt + 2, hw, P);
+      sym(M, -hl + 1, S.belt + 1, hw - 1, S.rr0 - 2, S.belt + 2, hw, VM.PLASTIC);              // bed rail caps
+      if (hs(seed, 5) < 0.4) sym(M, S.rr0 - 2, S.belt + 2, hw - 3, S.rr0 - 1, H1 - 4, hw - 1, VM.PLASTIC);   // headache rack posts
+    } else {
+      for (let y = S.belt; y < H1; y += 2) {
+        const t = Math.min(1, (y - S.belt + 1) / Math.max(1, H1 - S.belt - 2));
+        const xf = Math.round(S.ws0 + (S.ws1 - S.ws0) * t), xr = Math.round(S.rr0 + (S.rr1 - S.rr0) * t);
+        M.box(xr, y, -cw, xf, Math.min(H1, y + 2), cw, glass);
+        sym(M, xf - 2, y, cw - 1, xf, Math.min(H1, y + 2), cw, P);                            // A pillars
+        if (S.rear !== 'hatch') sym(M, xr, y, cw - 1, xr + (S.rear === 'fast' ? 5 : 3), Math.min(H1, y + 2), cw, P);   // C pillars
+        else sym(M, xr, y, cw - 1, xr + 2, Math.min(H1, y + 2), cw, P);
+      }
+      const t1 = 1, xf1 = Math.round(S.ws1), xr1 = Math.round(S.rr1);
+      M.box(xr1 - (S.rear === 'hatch' ? 1 : 0), H1 - 2, -cw, xf1, H1, cw, P);                 // roof
+      sym(M, S.bp - 1, S.belt, cw - 1, S.bp + 2, H1, cw, P);                                  // B pillar
+      if (kind === 'suv' || kind === 'minivan') sym(M, Math.round(S.rr1) + 9, S.belt, cw - 1, Math.round(S.rr1) + 11, H1, cw, P);   // D pillar
+      if (S.rear === 'notch') M.box(-hl + 1, S.belt, -hw + 2, S.rr0, S.belt + 1, hw - 2, P);   // trunk lid lip
+      if (S.rear === 'fast' && kind === 'coupe') M.box(-hl + 1, S.belt, -hw + 3, -hl + 4, S.belt + 2, hw - 3, hs(seed, 6) < 0.5 ? VM.PLASTIC : P);   // ducktail
+      void t1;
+    }
+    // bumpers, grille, lights, plate
+    M.box(hl - 1, S.sill - 1, -hw + 1, hl, S.sill + 3, hw - 1, VM.PLASTIC);
+    M.box(-hl, S.sill - 1, -hw + 1, -hl + 1, S.sill + 3, hw - 1, VM.PLASTIC);
+    const big = kind === 'pickup' || kind === 'suv';
+    M.box(hl - 1, S.sill + 3, -hw + 8, hl, S.belt - (big ? 2 : 3), hw - 8, big ? VM.CHROME : VM.PLASTIC);    // grille
+    sym(M, hl - 1, S.belt - 4, hw - 8, hl, S.belt - 2, hw - 2, o.lights ? LENS : VM.HEAD);
+    sym(M, -hl, S.belt - 5, hw - 7, -hl + 1, S.belt - 2, hw - 2, o.lights ? VM.TAIL_LIT : VM.TAIL);
+    sym(M, -hl, S.belt - 6, hw - 4, -hl + 1, S.belt - 5, hw - 2, VM.AMBER);
+    M.box(-hl, S.sill + 3, -3, -hl + 1, S.sill + 6, 3, PLATE);
+    sym(M, hl - 2, S.sill + 1, hw - 1, hl - 1, S.sill + 3, hw, VM.AMBER);                    // side markers
+    // mirrors
+    if (!crushed) sym(M, S.ws0 - 4, S.belt + 1, hw, S.ws0 - 1, S.belt + 4, hw + 2, P);
+    // door seams + handles
+    const seams = S.doors === 4 ? [S.ws0 - 1, S.bp, S.rr0 + (S.rear === 'bed' ? 1 : 3)] : [S.ws0 - 1, S.bp - 4];
+    if (S.rear === 'bed') seams[2] = S.rr0 + 1;
+    for (const x of seams) sideMark(M, x, S.sill + 1, x + 1, S.belt, hw, VM.SEAM);
+    sideMark(M, S.bp - 6, S.belt - 3, S.bp - 4, S.belt - 2, hw, VM.SEAM);
+    if (S.doors === 4) sideMark(M, seams[2] - 6, S.belt - 3, seams[2] - 4, S.belt - 2, hw, VM.SEAM);
+    sideMark(M, -hl + 2, S.sill, hl - 2, S.sill + 1, hw, VM.PLASTIC);                       // rocker trim
+    // wheels
+    for (const ax of [S.axF, S.axR]) { arch(M, ax, S.r, hw, 7); wheel(M, ax, S.r, hw - 1, 5, kind === 'coupe' ? VM.CHROME : HUB); }
+    // kind extras
+    if (kind === 'suv' && hs(seed, 3) < 0.7) { sym(M, S.rr1 + 2, H1, cw - 2, S.ws1 - 3, H1 + 1, cw - 1, VM.PLASTIC); sym(M, S.rr1 + 4, H1 + 1, cw - 2, S.ws1 - 5, H1 + 2, cw - 1, VM.PLASTIC); }
+    if (kind === 'coupe') {                                                                   // racing stripes on hood / roof
+      if (hs(seed, 4) < 0.6) { const sc = P === VM.WHITE || P === VM.SILVER ? VM.BLACK : VM.WHITE; M.box(S.ws0 - 2, S.belt - 1, -3, hl - 1, S.belt, -1, sc); M.box(S.ws0 - 2, S.belt - 1, 1, hl - 1, S.belt, 3, sc); M.box(S.ws0, S.belt - 2, -3, hl - 2, S.belt - 1, 3, -1); M.box(S.ws0 - 2, S.belt - 1, -1, hl - 2, S.belt, 1, P); }
+      M.box(S.ws0 - 10, S.belt, -4, S.ws0 - 2, S.belt + 1, 4, VM.PLASTIC);                    // hood scoop
+    }
+    if (kind === 'taxi') {
+      sideMark(M, -hl + 3, S.belt - 4, hl - 3, S.belt - 3, hw, VM.BLACK);                       // checker band
+      for (let x = -hl + 6; x < hl - 6; x += 6) sideMark(M, x, S.belt - 3, x + 3, S.belt - 2, hw, VM.BLACK);
+      if (!crushed) { M.box(-8, H1, -5, 4, H1 + 5, 5, VM.WHITE); M.box(-7, H1 + 1, -6, 3, H1 + 4, 6, o.lights ? LENS : VM.CREAM); M.box(-9, H1 + 4, -5, 5, H1 + 5, 5, VM.TAXI); }
+    }
+    if (kind === 'police') {
+      // black-and-white: white doors and roof
+      sym(M, S.rr0 + 3, S.sill + 1, hw - 3, S.ws0 - 1, S.belt, hw, VM.WHITE);
+      M.box(Math.round(S.rr1), H1 - 2, -cw, S.ws1, H1, cw, VM.WHITE);
+      sideMark(M, S.bp - 6, S.belt - 3, S.bp - 4, S.belt - 2, hw, VM.SEAM);
+      sideMark(M, S.bp - 12, S.sill + 3, S.bp + 8, S.sill + 6, hw, VM.GOLD);                      // door star
+      M.box(hl - 1, S.sill + 1, -hw + 6, hl + 2, S.sill + 9, hw - 6, VM.PLASTIC);              // push bar
+      M.box(hl + 1, S.sill + 9, -hw + 7, hl + 2, S.belt + 1, -hw + 9, VM.PLASTIC); M.box(hl + 1, S.sill + 9, hw - 9, hl + 2, S.belt + 1, hw - 7, VM.PLASTIC);
+      if (!crushed) {
+        M.box(-6, H1, -cw + 1, 2, H1 + 1, cw - 1, VM.PLASTIC);
+        M.box(-6, H1 + 1, -cw + 1, 2, H1 + 3, 0, o.lights ? VM.BAR_RED : VM.RED);
+        M.box(-6, H1 + 1, 0, 2, H1 + 3, cw - 1, o.lights ? VM.BAR_BLUE : VM.BLUE);
+        M.box(-6, H1 + 1, -1, 2, H1 + 3, 1, VM.CHROME);
+      }
+      M.box(S.ws0 - 4, S.belt + 2, -cw - 1, S.ws0 - 3, S.belt + 4, -cw, VM.CHROME);              // spotlight
+    }
+    if (kind === 'minivan') sideMark(M, S.bp + 2, S.belt + 1, -18, S.belt + 2, hw - 1, VM.PLASTIC);   // slider rail
+    return { M, hl, hw, H: H1, spec: S, doorsAt: { front: [S.bp + 2, S.ws0 - 1], y0: S.sill + 1, y1: H1 - 3, side: hw } };
+  }
+
+  // ---------------------------------------------------------------------------------------------- trucks, vans, buses
+  // a cab with a sloped windscreen: x0..x1 (front at x1), floor y0, roof y1, half width hw; slope run, windscreen bottom yw
+  function cab(M, x0, x1, y0, y1, hw, P, yw, run, o) {
+    M.box(x0, y0, -hw, x1, y1, hw, P);
+    for (let y = yw; y < y1; ++y) { const k = Math.round((y - yw) * run / Math.max(1, y1 - yw)); M.box(x1 - k, y, -hw, x1, y + 1, hw, -1); }
+    for (let y = yw; y < y1 - 1; y += 1) { const k = Math.round((y - yw) * run / Math.max(1, y1 - yw)); M.box(x1 - k - 1, y, -hw + 2, x1 - k, y + 1, hw - 2, GLASS); }
+    sideWin(M, x1 - run - 14, yw + 1, x1 - Math.round(run * 0.4) - 2, y1 - 2, hw);
+    sym(M, x1 - 2, y0 + 2, hw - 6, x1, y0 + 5, hw - 1, o.lights ? LENS : VM.HEAD);
+    M.box(x1 - 1, y0 - 2, -hw, x1 + 1, y0 + 1, hw, VM.PLASTIC);                                 // bumper
+    sym(M, x1 - run - 12, yw, hw, x1 - run - 10, yw + 6, hw + 2, VM.PLASTIC);                   // mirrors
+  }
+  // conventional US truck tractor / bus front: long hood, chrome grille, sleeper or day cab
+  function tractor(M, xf, hw, P, o, sleeper) {
+    const r = 10, axF = xf - 22;
+    const hoodL = 34, cabL = 30 + (sleeper ? 28 : 0);
+    const cab0 = xf - hoodL - cabL;
+    M.box(xf - hoodL, 12, -hw + 6, xf - 1, 40, hw - 6, P);                                     // hood
+    M.box(xf - hoodL, 40, -hw + 7, xf - 6, 42, hw - 7, P);
+    M.box(xf - 2, 12, -hw + 9, xf, 40, hw - 9, VM.CHROME); for (let y = 15; y < 39; y += 3) M.box(xf - 1, y, -hw + 10, xf, y + 1, hw - 10, VM.DARK_GREY);
+    M.box(xf - 1, 8, -hw + 2, xf + 2, 14, hw - 2, VM.CHROME);                                   // bumper
+    sym(M, xf - 4, 26, hw - 9, xf - 1, 32, hw - 6, o.lights ? LENS : VM.HEAD);
+    sym(M, xf - 30, 20, hw - 6, xf - 8, 34, hw - 2, P);                                        // fenders
+    M.box(cab0, 12, -hw + 1, xf - hoodL, 64, hw - 1, P);                                       // cab
+    for (let y = 42; y < 62; ++y) { const x = xf - hoodL - Math.round((y - 42) * 0.3); M.box(x, y, -hw + 1, xf - hoodL, y + 1, hw - 1, -1); if (y < 61) M.box(x - 1, y, -hw + 3, x, y + 1, hw - 3, GLASS); }
+    sideWin(M, xf - hoodL - 20, 42, xf - hoodL - 3, 61, hw - 1);
+    if (sleeper) { M.box(cab0, 64, -hw + 2, cab0 + 34, 76, hw - 2, P); sideWin(M, cab0 + 8, 46, cab0 + 14, 52, hw - 1); }
+    sym(M, xf - hoodL - 2, 44, hw - 1, xf - hoodL, 54, hw + 3, VM.CHROME);                     // west coast mirrors
+    sym(M, cab0 + 2, 12, hw - 4, xf - hoodL - 2, 18, hw - 1, VM.CHROME);                       // fuel tanks / steps
+    sym(M, cab0 + 2, 40, hw - 2, cab0 + 4, (sleeper ? 92 : 80), hw - 1, VM.CHROME);              // exhaust stacks
+    arch(M, axF, r, hw, 8, 2 * r + 3); wheel(M, axF, r, hw - 1, 6, VM.CHROME);
+    const axR = cab0 - 4; arch(M, axR, r, hw, 15, 2 * r + 3); wheel(M, axR, r, hw - 1, 6, HUB, true); wheel(M, axR - 22, r, hw - 1, 6, HUB, true);
+    M.box(axR - 34, 12, -hw + 6, cab0, 24, hw - 6, VM.DARK_GREY);                              // frame rails + fifth wheel
+    M.box(axR - 16, 24, -hw + 8, axR + 4, 26, hw - 8, VM.PLASTIC);
+    return { cab0, axR, rear: axR - 34 };
+  }
+
+  function build(kind, o) {
+    const seed = o.seed | 0, lv = paints.liveries[kind] || {};
+    let M, doors = null;
+    const lit = (on, off) => o.lights ? on : off;
+    switch (kind) {
+      case 'sedan': case 'hatchback': case 'coupe': case 'suv': case 'pickup': case 'minivan': case 'taxi': case 'police': {
+        const c = car(kind, o); M = c.M; doors = { kind: 'car', d: c.doorsAt }; break;
+      }
+      case 'panel_van': case 'ambulance': case 'delivery_van': {
+        // full-size van (ambulance: van cab + modular box)
+        const P = o.paint != null ? o.paint : lv.body || paints.pickFleet(seed);
+        const L = kind === 'panel_van' ? 112 : kind === 'ambulance' ? 132 : 116, W = kind === 'panel_van' ? 40 : 44, hl = L >> 1, hw = W >> 1;
+        M = new VoxModel(L + 6, 64, W + 8, hl + 3, hw + 4);
+        const r = 8;
+        if (kind === 'delivery_van') {
+          // step van: flat tall body, short nose, big windscreen
+          M.box(-hl, 8, -hw, hl - 10, 56, hw, P); M.box(hl - 10, 8, -hw + 2, hl, 24, hw - 2, P);
+          M.box(hl - 10, 24, -hw + 1, hl - 7, 52, hw - 1, GLASS); M.box(hl - 7, 22, -hw + 3, hl - 1, 24, hw - 3, P);
+          sideWin(M, hl - 26, 18, hl - 12, 50, hw);                                              // open step door
+          sym(M, hl - 25, 18, hw - 3, hl - 13, 50, hw - 2, VM.INTERIOR);
+          M.box(-hl, 10, -hw + 2, -hl + 1, 52, hw - 2, VM.SEAM); M.box(-hl, 10, -1, -hl + 1, 52, 1, VM.PLASTIC);
+          sideMark(M, -hl + 4, 30, hl - 30, 36, hw, lv.accent || (P === VM.WHITE ? VM.BROWN : VM.WHITE));
+          sym(M, hl - 1, 14, hw - 6, hl, 18, hw - 2, lit(LENS, VM.HEAD)); sym(M, -hl, 14, hw - 5, -hl + 1, 20, hw - 1, lit(VM.TAIL_LIT, VM.TAIL));
+          M.box(hl - 1, 6, -hw + 2, hl + 1, 10, hw - 2, VM.PLASTIC); M.box(-hl - 1, 6, -hw + 1, -hl + 1, 10, hw - 1, VM.PLASTIC);
+          sym(M, hl - 10, 40, hw, hl - 8, 48, hw + 2, VM.PLASTIC);
+          for (const ax of [hl - 20, -hl + 22]) { arch(M, ax, r, hw, 8); wheel(M, ax, r, hw - 1, 6, HUB, ax < 0); }
+          M.box(-hl + 4, 3, -hw + 8, hl - 14, 8, hw - 8, VM.PLASTIC);
+          doors = { kind: 'rear', x: -hl, y0: 10, y1: 52, hw };
+          break;
+        }
+        const roof = kind === 'panel_van' ? 46 : 46;
+        // body
+        M.box(-hl, 8, -hw, hl - 22, kind === 'ambulance' ? 56 : roof, hw, P);
+        if (kind === 'ambulance') { M.box(-hl, 8, -hw + 3, hl - 22, 9, hw - 3, VM.PLASTIC); M.box(hl - 40, 8, -hw + 2, hl - 22, 46, hw - 2, P); }
+        // nose and cab
+        M.box(hl - 22, 8, -hw + 1, hl - 1, 22, hw - 1, P);
+        M.box(hl - 3, 22, -hw + 2, hl - 1, 23, hw - 2, -1);
+        for (let y = 22; y < 44; y += 2) { const k = Math.round((y - 22) * 0.55); M.box(hl - 22, y, -hw + 1, hl - 20 + 12 - k, y + 2, hw - 1, y < 24 ? P : GLASS); sym(M, hl - 22 + 12 - k - 2, y, hw - 3, hl - 20 + 12 - k, y + 2, hw - 1, P); }
+        M.box(hl - 26, 44, -hw + 1, hl - 14, 46, hw - 1, P);
+        sideWin(M, hl - 32, 26, hl - 23, 42, hw - 1);
+        sideMark(M, hl - 33, 10, hl - 32, 44, hw, VM.SEAM);
+        M.box(hl - 1, 11, -hw + 9, hl, 18, hw - 9, VM.PLASTIC);
+        sym(M, hl - 1, 15, hw - 8, hl, 19, hw - 2, lit(LENS, VM.HEAD));
+        M.box(hl - 1, 6, -hw + 2, hl + 1, 11, hw - 2, VM.PLASTIC); M.box(-hl - 1, 6, -hw + 2, -hl + 1, 11, hw - 2, VM.PLASTIC);
+        sym(M, hl - 30, 30, hw, hl - 27, 36, hw + 2, VM.PLASTIC);
+        // back
+        M.box(-hl, 12, -1, -hl + 1, kind === 'ambulance' ? 52 : 44, 1, VM.SEAM);
+        sym(M, -hl, 14, hw - 5, -hl + 1, 26, hw - 1, lit(VM.TAIL_LIT, VM.TAIL));
+        if (kind === 'panel_van') {
+          sideMark(M, -2, 10, -1, 44, hw, VM.SEAM); sideMark(M, -18, 10, -17, 44, hw, VM.SEAM);
+          if (hs(seed, 7) < 0.5) M.box(-hl, 30, -hw + 3, -hl + 1, 40, hw - 3, GLASS);
+          const band = o.band != null ? o.band : (hs(seed, 8) < 0.45 ? 0 : P === VM.WHITE ? wpick([[VM.RED, 1], [VM.BLUE, 1], [VM.GREEN, 1], [VM.ORANGE, 1]], hs(seed, 9)) : VM.WHITE);
+          if (band) sideMark(M, -hl + 6, 24, hl - 36, 31, hw, band);
+          if (hs(seed, 10) < 0.35) { M.box(-hl + 8, roof, -hw + 4, hl - 30, roof + 1, -hw + 5, VM.PLASTIC); M.box(-hl + 8, roof, hw - 5, hl - 30, roof + 1, hw - 4, VM.PLASTIC); for (let x = -hl + 10; x < hl - 32; x += 18) M.box(x, roof + 1, -hw + 4, x + 2, roof + 2, hw - 4, VM.PLASTIC); M.box(-hl + 12, roof + 2, -hw + 6, -hl + 60, roof + 3, -hw + 9, VM.CHROME); }
+        } else {
+          // ambulance box: red stripe, orange band, windows, light bars, scene lights, Star-of-Life-ish cross
+          sideMark(M, -hl + 1, 22, hl - 40, 26, hw, VM.RED); sideMark(M, -hl + 1, 26, hl - 40, 27, hw, VM.ORANGE);
+          M.box(hl - 22, 22, -hw + 1, hl - 20, 24, hw - 1, VM.RED);
+          sideMark(M, -16, 32, -6, 34, hw, VM.RED); sideMark(M, -12, 28, -10, 38, hw, VM.RED);
+          sideWin(M, hl - 52, 34, hl - 44, 46, hw); sideMark(M, hl - 54, 10, hl - 53, 50, hw, VM.SEAM);
+          M.box(-hl, 28, -hw + 4, -hl + 1, 44, -2, GLASS); M.box(-hl, 28, 2, -hl + 1, 44, hw - 4, GLASS);
+          for (const [x0, x1] of [[-hl, -hl + 3], [hl - 43, hl - 40]]) { sym(M, x0, 52, hw - 4, x1, 56, hw, lit(VM.BAR_RED, VM.RED)); M.box(x0, 52, -2, x1, 56, 2, lit(VM.BAR_RED, VM.RED)); }
+          M.box(hl - 40, 56, -hw + 4, hl - 36, 58, hw - 4, VM.WHITE); M.box(hl - 40, 56, -hw + 5, hl - 37, 58, -1, lit(VM.BAR_RED, VM.RED)); M.box(hl - 40, 56, 1, hl - 37, 58, hw - 5, lit(VM.BAR_BLUE, VM.WHITE));
+          M.box(-hl + 6, 56, -6, -hl + 30, 58, 6, VM.SEAM);
+          sym(M, -hl - 1, 6, -6, -hl + 1, 9, 6, VM.CHROME);
+        }
+        const axR = -hl + 20;
+        for (const [ax, d] of [[hl - 15, false], [axR, kind === 'ambulance']]) { arch(M, ax, r, hw, 8); wheel(M, ax, r, hw - 1, 6, HUB, d); }
+        M.box(-hl + 4, 3, -hw + 8, hl - 14, 8, hw - 8, VM.PLASTIC);
+        doors = { kind: 'rear', x: -hl, y0: 10, y1: kind === 'ambulance' ? 52 : 44, hw };
+        break;
+      }
+      case 'box_truck': case 'garbage_truck': case 'fire_engine': case 'rolloff_truck': {
+        const L = { box_truck: 150, garbage_truck: 188, fire_engine: 204, rolloff_truck: 176 }[kind], W = 48, hl = L >> 1, hw = W >> 1;
+        const P = o.paint != null ? o.paint : kind === 'fire_engine' ? VM.FIRE_RED : kind === 'garbage_truck' ? (hs(seed, 11) < 0.5 ? VM.WHITE : VM.GARB_GREEN) : kind === 'rolloff_truck' ? wpick([[VM.WHITE, 3], [VM.RED, 2], [VM.BLUE, 2], [VM.ORANGE, 1], [VM.GREEN, 1]], hs(seed, 12)) : VM.WHITE;
+        M = new VoxModel(L + 8, 84, W + 10, hl + 4, hw + 5);
+        const r = 10;
+        // cab-over cab at the front: 2.0 m long
+        const cx0 = hl - 40, cy1 = kind === 'fire_engine' ? 66 : 62;
+        if (kind === 'fire_engine') {
+          // custom crew cab: flat front, big windscreen, 4 doors, light bar
+          M.box(hl - 60, 12, -hw, hl, cy1, hw, P);
+          M.box(hl - 2, 36, -hw + 2, hl, 60, hw - 2, GLASS); M.box(hl - 2, 36, -1, hl, 60, 1, P);
+          sideWin(M, hl - 18, 38, hl - 4, 58, hw); sideWin(M, hl - 52, 38, hl - 36, 58, hw);
+          sideMark(M, hl - 34, 14, hl - 33, 60, hw, VM.SEAM); sideMark(M, hl - 20, 14, hl - 19, 60, hw, VM.SEAM);
+          M.box(hl - 60, 12, -hw, hl, 16, hw, VM.CHROME);
+          sideMark(M, -hl, 30, hl, 33, hw, VM.WHITE);
+          M.box(hl - 1, 18, -hw + 8, hl, 32, hw - 8, VM.CHROME); sym(M, hl - 1, 22, hw - 7, hl, 28, hw - 2, lit(LENS, VM.HEAD));
+          M.box(hl - 1, 8, -hw + 1, hl + 3, 14, hw - 1, VM.CHROME);
+          M.box(hl - 14, cy1, -hw + 3, hl - 8, cy1 + 3, hw - 3, VM.PLASTIC); M.box(hl - 14, cy1 + 1, -hw + 3, hl - 8, cy1 + 3, 0, lit(VM.BAR_RED, VM.RED)); M.box(hl - 14, cy1 + 1, 0, hl - 8, cy1 + 3, hw - 3, lit(VM.BAR_RED, VM.WHITE));
+          sym(M, hl - 22, 44, hw, hl - 20, 54, hw + 3, VM.CHROME);
+          // body: compartments with roll-up doors, hose bed, ladder on the roof
+          M.box(-hl, 12, -hw, hl - 60, 56, hw, P);
+          for (let x = -hl + 4; x < hl - 64; x += 22) { sideMark(M, x, 18, x + 18, 52, hw, VM.CHROME); for (let y = 20; y < 52; y += 4) sideMark(M, x, y, x + 18, y + 1, hw, VM.SILVER); }
+          M.box(-hl, 56, -hw + 1, -hl + 40, 60, hw - 1, P); M.box(-hl + 2, 57, -hw + 3, -hl + 38, 60, hw - 3, -1); M.box(-hl + 2, 57, -hw + 3, -hl + 38, 58, hw - 3, VM.BEIGE);
+          for (const z of [-hw + 6, hw - 8]) { M.box(-hl + 6, 60, z, hl - 16, 62, z + 2, VM.SILVER); }
+          for (let x = -hl + 8; x < hl - 16; x += 8) M.box(x, 60, -hw + 6, x + 1, 61, hw - 6, VM.SILVER);
+          sym(M, -hl - 1, 10, hw - 6, -hl + 1, 40, hw - 2, VM.CHROME);
+          sym(M, -hl, 46, hw - 6, -hl + 1, 54, hw - 2, lit(VM.BAR_RED, VM.RED)); sym(M, -hl, 30, hw - 5, -hl + 1, 36, hw - 1, lit(VM.TAIL_LIT, VM.TAIL));
+          const axF = hl - 26, axR = -hl + 42;
+          arch(M, axF, r, hw, 8, 2 * r + 3); wheel(M, axF, r, hw - 1, 6, VM.CHROME);
+          arch(M, axR, r, hw, 15, 2 * r + 3); wheel(M, axR, r, hw - 1, 6, VM.CHROME, true);
+          M.box(-hl + 4, 4, -hw + 10, hl - 8, 12, hw - 10, VM.DARK_GREY);
+          doors = null;
+          break;
+        }
+        cab(M, cx0, hl - 1, 12, cy1, hw - 1, kind === 'rolloff_truck' || kind === 'garbage_truck' ? P : (o.paint != null ? o.paint : wpick([[VM.WHITE, 5], [VM.RED, 1], [VM.BLUE, 1], [VM.SILVER, 1]], hs(seed, 13))), 34, 6, o);
+        M.box(hl - 2, 18, -hw + 10, hl - 1, 28, hw - 10, VM.PLASTIC);
+        const axF = hl - 18;
+        arch(M, axF, r, hw - 1, 8, 2 * r + 3); wheel(M, axF, r, hw - 2, 6, HUB);
+        M.box(-hl + 4, 12, -hw + 8, cx0, 22, hw - 8, VM.DARK_GREY);                            // frame
+        if (kind === 'box_truck') {
+          const bx1 = cx0 - 2, top = 68;
+          M.box(-hl, 20, -hw, bx1, top, hw, VM.WHITE);
+          M.box(bx1 - 1, 56, -hw + 2, cx0 + 6, top - 2, hw - 2, VM.WHITE);                    // over-cab nose
+          sideMark(M, -hl + 1, 21, bx1 - 1, 22, hw, VM.SEAM); sideMark(M, -hl + 1, top - 2, bx1 - 1, top - 1, hw, VM.SEAM);
+          const band = wpick([[VM.RED, 2], [VM.BLUE, 2], [VM.GREEN, 1], [VM.ORANGE, 1], [VM.METRO_BLUE, 1], [0, 2]], hs(seed, 14));
+          if (band) { sideMark(M, -hl + 4, 40, bx1 - 4, 50, hw, band); sideMark(M, -hl + 4, 37, bx1 - 4, 38, hw, band); }
+          M.box(-hl, 22, -hw + 2, -hl + 1, top - 2, hw - 2, VM.SILVER);
+          for (let y = 26; y < top - 2; y += 5) M.box(-hl, y, -hw + 2, -hl + 1, y + 1, hw - 2, VM.SEAM);
+          M.box(-hl - 1, 14, -hw + 2, -hl + 1, 18, hw - 2, VM.PLASTIC);
+          sym(M, -hl, 22, hw - 2, -hl + 1, 30, hw, lit(VM.TAIL_LIT, VM.TAIL));
+          const axR = -hl + 32; arch(M, axR, r, hw, 15, 2 * r + 3); wheel(M, axR, r, hw - 1, 6, HUB, true);
+          sideMark(M, -hl + 10, 18, -hl + 18, 20, hw, VM.AMBER);
+          doors = null;
+        } else if (kind === 'garbage_truck') {
+          // rear loader: tall body tapering to a hopper with a packer blade, tailgate hinge at the top
+          const A = lv.accent, bx1 = cx0 - 2, top = 70;
+          M.box(-hl + 34, 22, -hw, bx1, top, hw, P);
+          for (let x = -hl + 40; x < bx1 - 4; x += 14) sideMark(M, x, 24, x + 2, top - 2, hw, A === P ? VM.WHITE : A);
+          sideMark(M, -hl + 34, 22, bx1, 26, hw, A);
+          M.box(-hl + 6, 16, -hw + 1, -hl + 34, top - 4, hw - 1, A === P ? VM.SILVER : P);       // tailgate / hopper
+          M.box(-hl, 16, -hw + 1, -hl + 6, 34, hw - 1, VM.SILVER);
+          M.box(-hl, 24, -hw + 4, -hl + 4, 34, hw - 4, -1); M.box(-hl + 4, 24, -hw + 4, -hl + 5, 34, hw - 4, VM.PLASTIC);   // hopper mouth
+          for (let y = 34; y < top - 4; y += 2) { const k = Math.round((y - 34) * 0.4); M.box(-hl, y, -hw + 1, -hl + 6 + k, y + 2, hw - 1, -1); M.box(-hl + 6 + k, y, -hw + 1, -hl + 7 + k, y + 2, hw - 1, A === P ? VM.SILVER : P); }
+          sym(M, -hl + 30, 62, hw - 1, -hl + 36, 68, hw + 1, VM.DARK_GREY);                       // hinge
+          sym(M, -hl - 2, 12, hw - 6, -hl + 1, 14, hw - 1, VM.DARK_GREY);                          // riding steps
+          sym(M, -hl, 36, hw - 2, -hl + 1, 42, hw - 1, VM.DARK_GREY);                             // grab handles
+          sym(M, -hl + 1, 18, hw - 1, -hl + 6, 22, hw, lit(VM.TAIL_LIT, VM.TAIL));
+          M.box(bx1 - 4, top, -4, bx1 - 1, top + 2, 4, lit(VM.BAR_AMBER, VM.AMBER));
+          for (const ax of [-hl + 40, -hl + 62]) { arch(M, ax, r, hw, 15, 2 * r + 3); wheel(M, ax, r, hw - 1, 6, HUB, true); }
+          doors = null;
+        } else {
+          // roll-off hoist with a 20-yard container
+          const bx1 = cx0 - 2;
+          M.box(-hl + 2, 22, -hw + 6, bx1, 26, hw - 6, VM.DARK_GREY);
+          sym(M, -hl + 6, 26, hw - 10, bx1 - 4, 28, hw - 8, VM.DARK_GREY);
+          M.box(bx1 - 6, 26, -hw + 4, bx1 - 2, 50, hw - 4, VM.DARK_GREY);                         // headboard / hook arm
+          const cc = o.container != null ? o.container : wpick([[VM.RED, 2], [VM.BLUE, 2], [VM.GREEN, 1], [VM.RUST, 1]], hs(seed, 15));
+          rolloffBox(M, -hl + 2, bx1 - 8, 28, hw - 1, cc, seed);
+          sym(M, -hl, 18, hw - 4, -hl + 1, 24, hw - 1, lit(VM.TAIL_LIT, VM.TAIL));
+          for (const ax of [-hl + 30, -hl + 52]) { arch(M, ax, r, hw, 15, 2 * r + 3); wheel(M, ax, r, hw - 1, 6, HUB, true); }
+          doors = null;
+        }
+        break;
+      }
+      case 'city_bus': case 'school_bus': {
+        const school = kind === 'school_bus', L = school ? 220 : 240, W = school ? 48 : 50, hl = L >> 1, hw = W >> 1;
+        const P = o.paint != null ? o.paint : lv.body, A = lv.accent;
+        M = new VoxModel(L + 8, 72, W + 10, hl + 4, hw + 5);
+        const r = 10, top = 62;
+        const nose = school ? 26 : 0;
+        M.box(-hl, 8, -hw, hl - nose, top, hw, P);
+        M.box(-hl + 2, top, -hw + 2, hl - nose - 2, top + 2, hw - 2, school ? P : VM.WHITE);
+        if (school) {
+          // conventional nose, black rub rails, red / amber warning lamps, stop arm
+          M.box(hl - nose, 10, -hw + 6, hl - 1, 34, hw - 6, P); M.box(hl - 2, 12, -hw + 9, hl, 32, hw - 9, VM.PLASTIC);
+          M.box(hl - 1, 6, -hw + 2, hl + 2, 12, hw - 2, VM.BLACK);
+          sym(M, hl - 2, 24, hw - 9, hl, 30, hw - 6, lit(LENS, VM.HEAD));
+          sym(M, hl - nose - 22, 20, hw - 6, hl - 4, 32, hw - 2, P);
+          M.box(hl - nose - 1, 34, -hw + 1, hl - nose + 1, top - 4, hw - 1, GLASS); M.box(hl - nose - 1, 34, -1, hl - nose + 1, top - 4, 1, P);
+          for (const y of [16, 26, 33]) sideMark(M, -hl + 1, y, hl - nose, y + 1, hw, VM.BLACK);
+          for (let x = -hl + 14; x < hl - nose - 22; x += 15) sideWin(M, x, 38, x + 12, 54, hw);
+          sideWin(M, hl - nose - 18, 14, hl - nose - 4, 56, hw);                                 // entry door (right)
+          M.box(hl - nose - 18, 14, hw - 1, hl - nose - 11, 56, hw, GLASS);
+          sym(M, -hl, 56, hw - 8, -hl + 1, 60, hw - 4, lit(VM.BAR_RED, VM.RED)); sym(M, hl - nose - 1, 58, hw - 8, hl - nose + 1, 61, hw - 4, lit(VM.BAR_RED, VM.RED));
+          M.box(hl - nose - 30, 40, -hw - 3, hl - nose - 22, 48, -hw, VM.RED);                    // stop arm (left side, folded)
+          M.box(-hl, 20, -hw + 2, -hl + 1, 52, hw - 2, P); M.box(-hl, 38, -8, -hl + 1, 54, 8, GLASS); M.box(-hl, 20, -1, -hl + 1, 54, 1, VM.SEAM);
+          sym(M, -hl, 22, hw - 5, -hl + 1, 30, hw - 1, lit(VM.TAIL_LIT, VM.TAIL));
+          M.box(-hl - 1, 6, -hw + 2, -hl + 1, 12, hw - 2, VM.BLACK);
+          sym(M, hl - nose - 4, 40, hw, hl - nose - 2, 52, hw + 3, VM.BLACK);
+          const axF = hl - 18, axR = -hl + 64;
+          arch(M, axF, r, hw, 8, 2 * r + 3); wheel(M, axF, r, hw - 1, 6, HUB);
+          arch(M, axR, r, hw, 15, 2 * r + 3); wheel(M, axR, r, hw - 1, 6, HUB, true);
+        } else {
+          // low-floor transit bus: big windscreen, window band, front + middle doors, livery swoosh, destination sign
+          M.box(hl - 2, 18, -hw + 2, hl, 56, hw - 2, GLASS); M.box(hl - 2, 52, -hw + 3, hl, 56, hw - 3, lit(VM.BAR_AMBER, VM.DARK_GREY));
+          M.box(hl - 1, 6, -hw + 1, hl + 1, 14, hw - 1, VM.PLASTIC); sym(M, hl - 1, 12, hw - 7, hl, 16, hw - 2, lit(LENS, VM.HEAD));
+          sideMark(M, -hl + 2, 30, hl - 2, 56, hw, GLASS);
+          for (let x = -hl + 26; x < hl - 30; x += 24) sideMark(M, x, 30, x + 2, 56, hw, VM.PLASTIC);
+          sideMark(M, -hl + 1, 22, hl - 1, 29, hw, A); sideMark(M, -hl + 1, 29, hl - 1, 30, hw, lv.stripe);
+          sideWin(M, hl - 22, 10, hl - 6, 56, hw); sym(M, hl - 22, 10, hw - 1, hl - 15, 56, hw, GLASS);    // front door
+          sideWin(M, 4, 10, 20, 56, hw); sym(M, 4, 10, hw - 1, 12, 56, hw, GLASS);
+          M.box(-hl, 28, -hw + 3, -hl + 1, 50, hw - 3, GLASS); M.box(-hl, 14, -hw + 2, -hl + 1, 26, hw - 2, A);
+          sym(M, -hl, 16, hw - 5, -hl + 1, 24, hw - 1, lit(VM.TAIL_LIT, VM.TAIL));
+          M.box(-hl + 20, top + 2, -hw + 6, -hl + 60, top + 6, hw - 6, VM.SILVER);                 // A/C pod
+          sym(M, hl - 4, 44, hw, hl - 2, 54, hw + 3, VM.PLASTIC);
+          if (hs(seed, 16) < 0.6) { M.box(hl, 8, -8, hl + 3, 18, 8, VM.DARK_GREY); M.box(hl + 1, 10, -6, hl + 3, 12, 6, VM.SILVER); }   // bike rack
+          const axF = hl - 34, axR = -hl + 56;
+          arch(M, axF, r, hw, 8, 2 * r + 3); wheel(M, axF, r, hw - 1, 6, HUB);
+          arch(M, axR, r, hw, 15, 2 * r + 3); wheel(M, axR, r, hw - 1, 6, HUB, true);
+        }
+        M.box(-hl + 6, 3, -hw + 10, hl - nose - 8, 8, hw - 10, VM.PLASTIC);
+        break;
+      }
+      case 'semi': case 'semi_cab': case 'fuel_tanker': case 'tanker_cab': case 'semi_trailer': case 'tanker_trailer': {
+        const tanker = kind.startsWith('fuel') || kind.startsWith('tanker');
+        const hasCab = kind !== 'semi_trailer' && kind !== 'tanker_trailer', hasTr = kind !== 'semi_cab' && kind !== 'tanker_cab';
+        const trL = tanker ? 240 : 260, cabL = 124, hw = tanker ? 25 : 26;
+        const L = (hasCab ? cabL : 0) + (hasTr ? trL - (hasCab ? 24 : 0) : 0), hl = L >> 1;
+        M = new VoxModel(L + 10, 88, 2 * hw + 12, hl + 5, hw + 6);
+        const cabP = o.paint != null ? o.paint : wpick([[VM.WHITE, 3], [VM.RED, 2], [VM.BLUE, 2], [VM.BLACK, 2], [VM.SILVER, 1], [VM.GREEN, 1], [VM.MAROON, 1]], hs(seed, 17));
+        let trFront = hl;
+        if (hasCab) { const t = tractor(M, hl, hw, cabP, o, hs(seed, 18) < 0.6); trFront = hl - cabL + 24; void t; }
+        if (hasTr) {
+          const x0 = trFront - trL, x1 = trFront, r = 10;
+          if (tanker) {
+            // stainless tank: octagonal section, ribs, catwalk, placards, company stripe
+            const cy = 46, R2 = 22;
+            for (let k = 0; k < 4; ++k) { const a = [R2, R2 - 3, R2 - 7, R2 - 13][k], b = [R2 - 13, R2 - 7, R2 - 3, R2][k]; M.box(x0 + 2, cy - b, -a, x1 - 4, cy + b, a, VM.TANK); }
+            for (let x = x0 + 30; x < x1 - 10; x += 44) for (let k = 0; k < 4; ++k) { const a = [R2, R2 - 3, R2 - 7, R2 - 13][k] + 1, b = [R2 - 13, R2 - 7, R2 - 3, R2][k] + 1; M.box(x, cy - b, -a, x + 2, cy + b, a, VM.SILVER); }
+            M.box(x0 + 20, cy + R2, -3, x1 - 20, cy + R2 + 2, 3, VM.DARK_GREY);
+            for (let x = x0 + 40; x < x1 - 30; x += 60) M.box(x, cy + R2 + 2, -3, x + 6, cy + R2 + 3, 3, VM.SILVER);
+            const st = paints.liveries.fuel_tanker;
+            sideMark(M, x0 + 30, cy - 2, x1 - 30, cy + 2, hw - 3, st.stripe); sideMark(M, x0 + 30, cy + 2, x1 - 30, cy + 3, hw - 3, st.accent);
+            // hazmat diamond (stepped), rear + both sides
+            for (const xc of [x0 + 18]) for (let k = 0; k < 4; ++k) sideMark(M, xc - 4 + k, cy - 10 + k, xc + 4 - k, cy - 9 + k, hw - 3, VM.RED), sideMark(M, xc - 4 + k, cy - 14 - k + 4, xc + 4 - k, cy - 13 - k + 4, hw - 3, VM.RED);
+            M.box(x0 + 2, cy - 10, -4, x0 + 3, cy - 2, 4, VM.RED); M.box(x0 + 2, cy - 8, -2, x0 + 3, cy - 4, 2, VM.WHITE);
+            M.box(x0 + 2, 12, -hw + 4, x1 - 10, cy - R2 + 4, hw - 4, VM.DARK_GREY);
+            sym(M, x0 + 60, 14, hw - 6, x0 + 120, 22, hw - 2, VM.SILVER);                        // valve cabinets
+          } else {
+            M.box(x0, 22, -hw, x1, 80, hw, VM.WHITE);
+            sideMark(M, x0 + 1, 22, x1 - 1, 24, hw, VM.SILVER); sideMark(M, x0 + 1, 78, x1 - 1, 80, hw, VM.SILVER);
+            for (let x = x0 + 8; x < x1 - 4; x += 12) sideMark(M, x, 24, x + 1, 78, hw, VM.SEAM);
+            const band = wpick([[0, 3], [VM.RED, 1], [VM.BLUE, 1], [VM.GREEN, 1], [VM.ORANGE, 1]], hs(seed, 19));
+            if (band) sideMark(M, x0 + 20, 40, x1 - 20, 60, hw, band);
+            M.box(x0, 24, -hw + 1, x0 + 1, 78, hw - 1, VM.SILVER); M.box(x0, 24, -1, x0 + 1, 78, 1, VM.SEAM);
+            for (const y of [36, 52, 68]) M.box(x0, y, -hw + 2, x0 + 1, y + 1, hw - 2, VM.SEAM);
+            sym(M, x0 + 40, 14, hw - 1, x0 + 120, 20, hw, VM.SEAM);                               // side skirts
+            M.box(x0 + 40, 14, -hw, x0 + 120, 22, hw, VM.DARK_GREY);
+            M.box(x0, 10, -hw + 4, x0 + 2, 22, hw - 4, VM.RED);                                    // ICC bumper
+            sym(M, x1 - 60, 6, hw - 6, x1 - 58, 22, hw - 4, VM.DARK_GREY);                       // landing gear
+          }
+          sym(M, x0, 26, hw - 5, x0 + 1, 32, hw - 1, o.lights ? VM.TAIL_LIT : VM.TAIL);
+          for (const ax of [x0 + 26, x0 + 48]) { arch(M, ax, r, hw, 15, 2 * r + 4); wheel(M, ax, r, hw - 1, 6, HUB, true); }
+          if (!hasCab) M.box(x1 - 30, 20, -6, x1 - 2, 22, 6, VM.DARK_GREY);
+        }
+        break;
+      }
+      case 'rolloff': {
+        M = new VoxModel(124, 34, 50, 62, 25);
+        M.box(-58, 0, -20, 58, 2, -16, VM.DARK_GREY).box(-58, 0, 16, 58, 2, 20, VM.DARK_GREY);
+        rolloffBox(M, -60, 60, 2, 23, o.paint != null ? o.paint : VM.RED, seed);
+        break;
+      }
+      default: throw new Error('Vehicles: unknown kind ' + kind);
+    }
+    return { M, doors };
+  }
+  // roll-off container x0..x1 on y0, half width hw: ribbed sides, open top with debris, rear door
+  function rolloffBox(M, x0, x1, y0, hw, col, seed) {
+    const h = 26;
+    M.box(x0, y0, -hw, x1, y0 + h, hw, col);
+    for (let x = x0 + 8; x < x1 - 4; x += 9) M.box(x, y0 + 2, -hw - 1, x + 2, y0 + h, hw + 1, col === VM.RUST ? VM.RUST_DARK : VM.RUST);
+    M.box(x0 + 3, y0 + h - 4, -hw + 3, x1 - 3, y0 + h, hw - 3, -1);
+    M.box(x0 + 3, y0 + h - 5, -hw + 3, x1 - 3, y0 + h - 4, hw - 3, 70);
+    const R = mulberry32(seed * 31 + 7), C = [100, 136, 70, 100, 58];
+    for (let k = 0; k < 6; ++k) { const x = x0 + 6 + Math.floor(R() * (x1 - x0 - 26)), z = -hw + 4 + Math.floor(R() * (2 * hw - 16)); M.box(x, y0 + h - 4, z, x + 8 + Math.floor(R() * 10), y0 + h - 4 + 2 + Math.floor(R() * 4), z + 8, C[k % 5]); }
+    M.box(x1, y0 + 4, -6, x1 + 1, y0 + h - 4, 6, VM.BUS_YELLOW); M.box(x0 - 1, y0 + 4, -6, x0, y0 + h - 4, 6, VM.BUS_YELLOW);
+  }
+
+  // ---------------------------------------------------------------------------------------------- states
+  const isPaintish = (m) => m >= 160 && m <= 175 || m === VM.GARB_GREEN || m === VM.METRO_BLUE || m === VM.TEAL || m === VM.GOLD || m === VM.CREAM || m === 64;
+  function forEach(M, f) { const { w, h, d, v } = M; for (let y = 0; y < h; ++y) for (let z = 0; z < d; ++z) for (let x = 0; x < w; ++x) { const i = (y * d + z) * w + x; if (v[i]) f(x, y, z, i, v[i] - 1); } }
+  const exposed = (M, x, y, z) => !M.at(x + 1, y, z) || !M.at(x - 1, y, z) || !M.at(x, y + 1, z) || !M.at(x, y - 1, z) || !M.at(x, y, z + 1) || !M.at(x, y, z - 1);
+  function bounds(M) {
+    let x0 = 1e9, x1 = -1, y1 = -1, z0 = 1e9, z1 = -1, y0 = 1e9;
+    forEach(M, (x, y, z) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; });
+    return { x0, x1: x1 + 1, y0, y1: y1 + 1, z0, z1: z1 + 1 };
+  }
+  function damage(M, o, seed) {
+    const R = mulberry32(seed * 977 + 13), b = bounds(M);
+    const glassTo = [];
+    if (o.state === 'damaged') {
+      // dents, scrapes, one or two broken windows, a smashed headlight
+      for (let k = 0; k < 7; ++k) {
+        const x = b.x0 + 6 + Math.floor(R() * (b.x1 - b.x0 - 12)), y = b.y0 + 4 + Math.floor(R() * (b.y1 - b.y0) * 0.5), side = R() < 0.5;
+        const z = side ? b.z1 - 1 : b.z0;
+        for (let dx = 0; dx < 3; ++dx) for (let dy = 0; dy < 2; ++dy) { const i = ((y + dy) * M.d + z) * M.w + x + dx; if (M.v[i] && isPaintish(M.v[i] - 1)) M.v[i] = 0; }
+        for (let dx = -2; dx < 6; ++dx) { const zz = side ? z - 1 : z + 1, i = ((y - 1) * M.d + zz) * M.w + x + dx; if (M.v[i] && isPaintish(M.v[i] - 1) && R() < 0.6) M.v[i] = 187 + 1; }
+      }
+      const xg = b.x0 + Math.floor((b.x1 - b.x0) * (0.3 + R() * 0.3));
+      forEach(M, (x, y, z, i, m) => { if (m === GLASS && Math.abs(x - xg) < 10 && z > (M.d >> 1)) M.v[i] = VM.INTERIOR + 1; if ((m === VM.HEAD || m === LENS) && z < (M.d >> 1)) M.v[i] = VM.PLASTIC + 1; });
+    } else {
+      // crashed / rolled / burnt: crumple the front (jagged), buckle the hood, shatter the glass
+      const crush = o.state === 'burnt' ? 0 : Math.round((b.x1 - b.x0) * (o.state === 'rolled' ? 0.04 : 0.09));
+      if (crush) {
+        for (let y = 0; y < M.h; ++y) for (let z = 0; z < M.d; ++z) {
+          const dz = Math.abs(z - (M.d >> 1)) / (M.d >> 1), cut = crush + Math.floor(hash2(y >> 2, z >> 2, seed) * 4) + (dz > 0.6 ? 3 : 0) - (y < 10 ? 2 : 0);
+          for (let x = b.x1 - cut; x < b.x1; ++x) { const i = (y * M.d + z) * M.w + x; if (M.v[i]) { const m = M.v[i] - 1; if (m === VM.TYRE || m === HUB) continue; M.v[i] = 0; } }
+        }
+        // buckled hood: a ridge across behind the crumple zone; the exposed front shows engine bay (dark)
+        let yTop = 0; const xr = b.x1 - crush - 10;
+        for (let y = M.h - 1; y > 0 && !yTop; --y) if (M.at(xr, y, M.d >> 1)) yTop = y;
+        if (yTop && yTop < b.y1 - 6) for (let z = b.z0 + 3; z < b.z1 - 3; ++z) if (hash2(z, 3, seed) < 0.8) { const i = ((yTop + 1) * M.d + z) * M.w + xr; M.v[i] = M.v[(yTop * M.d + z) * M.w + xr]; M.v[i + 1] = M.v[i]; }
+        forEach(M, (x, y, z, i, m) => { if (x >= b.x1 - crush - 4 && m !== VM.TYRE && m !== HUB && M.at(x + 1, y, z) === 0 && hash2(y >> 2, z >> 2, seed + 3) < 0.7) M.v[i] = VM.INTERIOR + 1; });
+      }
+      forEach(M, (x, y, z, i, m) => { if (m === GLASS) M.v[i] = (hash2(x >> 2, y >> 2, (z >> 2) + seed) < 0.4 ? VM.CRACK : VM.INTERIOR) + 1; if (m === LENS || m === VM.TAIL_LIT || m === VM.BAR_RED || m === VM.BAR_BLUE || m === VM.BAR_AMBER) M.v[i] = VM.PLASTIC + 1; });
+    }
+    if (o.state === 'burnt') {
+      // charred body with ash and rust blotches; window glass gone (outer layer erased, black cabin behind)
+      const g = [];
+      forEach(M, (x, y, z, i, m) => { if (m === VM.CRACK || m === VM.INTERIOR || m === GLASS) g.push(i); });
+      forEach(M, (x, y, z, i, m) => {
+        if (m === VM.CRACK || m === VM.INTERIOR || m === GLASS) return;
+        const t = hash2(x >> 3, (y >> 3) * 13 + (z >> 3), seed + 5);
+        M.v[i] = 1 + (m === VM.TYRE ? VM.CHAR : m === HUB || m === VM.CHROME ? VM.RUST_DARK : t < 0.34 ? VM.CHAR : t < 0.62 ? VM.ASH : t < 0.86 ? VM.RUST : VM.RUST_DARK);
+      });
+      const kill = g.filter(i => { const x = i % M.w, z = Math.floor(i / M.w) % M.d, y = Math.floor(i / (M.w * M.d)); return exposed(M, x, y, z); });
+      for (const i of g) M.v[i] = VM.CHAR + 1;
+      for (const i of kill) M.v[i] = 0;
+    }
+  }
+  // open doors: cars swing the front doors out (stepped at ~50 degrees); vans / ambulances open the rear doors flat
+  function openDoors(M, dr, P) {
+    if (!dr) return;
+    if (dr.kind === 'car') {
+      const d = dr.d, x0 = d.front[0], x1 = d.front[1], len = x1 - x0;
+      for (const s of [1, -1]) {
+        const zs = d.side, mats = [];
+        for (let y = d.y0; y < d.y1; ++y) { const i = (y * M.d + (s > 0 ? zs - 1 : -zs) + M.oz) * M.w + x0 + 2 + M.ox; mats.push(M.v[i] ? M.v[i] - 1 : P); }
+        M.box(x0, d.y0, s > 0 ? zs - 2 : -zs, x1, d.y1, s > 0 ? zs : -zs + 2, -1);
+        M.box(x0, d.y0, s > 0 ? zs - 3 : -zs + 2, x1, d.y1, s > 0 ? zs - 2 : -zs + 3, VM.INTERIOR);
+        // door leaf from the hinge (x1, zs) outwards and back: step 2 along, 2 out
+        for (let k = 0; k < len; k += 2) {
+          const x = x1 - Math.round(k * 0.64) - 2, z = zs + Math.round(k * 0.77);
+          for (let y = d.y0; y < d.y1; ++y) { const m = mats[y - d.y0]; if (s > 0) M.box(x, y, z - 1, x + 2, y + 1, z + 1, m); else M.box(x, y, -z - 1, x + 2, y + 1, -z + 1, m); }
+        }
+      }
+    } else if (dr.kind === 'rear') {
+      const { x, y0, y1, hw } = dr;
+      M.box(x, y0, -hw + 2, x + 2, y1, hw - 2, -1); M.box(x + 2, y0, -hw + 2, x + 3, y1, hw - 2, VM.INTERIOR);
+      for (const s of [1, -1]) { const z0 = s > 0 ? hw : -hw - 2; M.box(x - hw + 2, y0, z0, x, y1, z0 + 2, P); M.box(x - hw + 4, y0 + 18, s > 0 ? hw + 2 : -hw - 3, x - 4, y1 - 4, s > 0 ? hw + 3 : -hw - 2, GLASS); }
+    }
+  }
+  // rigid rotations about the x axis: 'side' (lying on its right side, wheels towards -z... i.e. sideways) or 'roof'
+  function rollModel(M, mode) {
+    const b = bounds(M), H = b.y1, D = M.d;
+    const N = mode === 'side' ? new VoxModel(M.w, D, H + 2, M.ox, (H + 2) >> 1) : new VoxModel(M.w, H, D, M.ox, M.oz);
+    forEach(M, (x, y, z, i, m) => {
+      if (mode === 'side') { const Y = (D - 1 - z), Z = y + 1; N.v[(Y * N.d + Z) * N.w + x] = m + 1; }
+      else { const Y = H - 1 - y, Z = D - 1 - z; N.v[(Y * N.d + Z) * N.w + x] = m + 1; }
+    });
+    // drop to the ground
+    const nb = bounds(N);
+    if (nb.y0 > 0) { const s = nb.y0 * N.d * N.w; N.v.copyWithin(0, s); N.v.fill(0, N.v.length - s); }
+    return N;
+  }
+
+  const cache = new Map();
+  function key(kind, o) { return [kind, o.paint == null ? '' : o.paint, o.seed | 0, o.state || 'ok', o.doors ? 1 : 0, o.lights ? 1 : 0, o.band == null ? '' : o.band, o.container == null ? '' : o.container].join('|'); }
+  function model(kind, opts) {
+    const o = opts || {}, k = key(kind, o);
+    let r = cache.get(k);
+    if (r) return r;
+    const seed = o.seed | 0;
+    const b0 = build(kind, o);
+    let M = b0.M;
+    if (o.doors && (o.state || 'ok') !== 'rolled') {
+      const P = o.paint != null ? o.paint : (paints.liveries[kind] || {}).body || (INFO[kind].cls === 'car' ? paints.pick(seed) : VM.WHITE);
+      openDoors(M, b0.doors, P);
+    }
+    if (o.state && o.state !== 'ok') damage(M, o, seed);
+    if (o.state === 'rolled') {
+      M = rollModel(M, INFO[kind].cls === 'car' && hs(seed, 20) < 0.5 ? 'roof' : 'side');
+      if (hs(seed, 21) < 0.4) damage(M, { state: 'burnt' }, seed);
+    }
+    const b = bounds(M);
+    r = { M, len: (b.x1 - b.x0) * PV, wid: (b.z1 - b.z0) * PV, h: b.y1 * PV,
+      x0: (b.x0 - M.ox) * PV, x1: (b.x1 - M.ox) * PV, z0: (b.z0 - M.oz) * PV, z1: (b.z1 - M.oz) * PV, kind, key: k };
+    cache.set(k, r);
+    return r;
+  }
+  function mesh(kind, opts) {
+    const r = model(kind, opts);
+    if (!r.mesh) {
+      // drop the faces lying on the ground (never seen)
+      const m = meshVoxels3D(r.M), P = m.pos, keep = [];
+      for (let q = 0; q < m.quads; ++q) { const k = q * 12; if (!(m.nrm[q * 4] === 5 && P[k + 1] < 1e-3 && P[k + 4] < 1e-3 && P[k + 7] < 1e-3 && P[k + 10] < 1e-3)) keep.push(q); }
+      if (keep.length < m.quads) {
+        const n = keep.length, pos = new Float32Array(n * 12), mat = new Uint8Array(n * 4), nrm = new Uint8Array(n * 4), idx = new Uint16Array(n * 6);
+        keep.forEach((q, j) => { pos.set(P.subarray(q * 12, q * 12 + 12), j * 12); mat.set(m.mat.subarray(q * 4, q * 4 + 4), j * 4); nrm.set(m.nrm.subarray(q * 4, q * 4 + 4), j * 4); idx.set([j * 4, j * 4 + 1, j * 4 + 2, j * 4, j * 4 + 2, j * 4 + 3], j * 6); });
+        r.mesh = { pos, mat, nrm, nvec: null, idx, quads: n };
+      } else r.mesh = m;
+    }
+    return r;
+  }
+  // place into an emitter E.quad(p, q, r, s, mat, normal): nose direction dir 0..3 = -z, +z, -x, +x;
+  // (x, z) = footprint centre, y = ground, scale = emitter units per metre; `fit` = [maxLen, maxWid] (m) scales it down
+  const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]];
+  function emit(E, kind, opts, x, y, z, dir, scale, fit) {
+    const r = mesh(kind, opts), m = r.mesh, P = m.pos;
+    let s = scale;
+    if (fit) s *= Math.min(1, fit[0] / r.len, fit[1] / r.wid);
+    const cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
+    // model +x -> world direction
+    const F = [[0, -1], [0, 1], [-1, 0], [1, 0]][dir & 3], Rt = [-F[1], F[0]];   // model +z -> right of the nose
+    const T = (k) => { const u = P[k] - cx, v = P[k + 2] - cz; return [x + (u * F[0] + v * Rt[0]) * s, y + P[k + 1] * s, z + (u * F[1] + v * Rt[1]) * s]; };
+    let n = 0;
+    for (let q = 0; q < m.quads; ++q) {
+      const k = q * 12, nid = m.nrm[q * 4];
+      if (nid === 5 && P[k + 1] < 1e-3 && P[k + 4] < 1e-3 && P[k + 7] < 1e-3 && P[k + 10] < 1e-3) continue;   // rests on the ground
+      const N = NV[nid], Nw = [N[0] * F[0] + N[2] * Rt[0], N[1], N[0] * F[1] + N[2] * Rt[1]];
+      E.quad(T(k), T(k + 3), T(k + 6), T(k + 9), m.mat[q * 4], Nw); ++n;
+    }
+    return n;
+  }
+  return { KINDS, INFO, paints, model, mesh, emit, VM, PALETTE: VEH_PALETTE, _cache: cache };
+})();
+
 const PROP_TYPES = {
   hotdog: modelHotdog, newsstand: modelNewsstand, bench: modelBench, tree: modelTree, cafe: modelCafe,
   lamp: () => modelLamp(false), lamp2: () => modelLamp(true), signal: () => modelSignal(5.2, 1), signalLong: () => modelSignal(9.2, 1),
@@ -1893,9 +2529,12 @@ const PROP_TYPES = {
   mailbox: modelMailbox, bikerack: () => modelBikeRack(0), bikerackBike: () => modelBikeRack(PM.UMB_RED), bollard: modelBollard,
   cabinet: () => modelCabinet(true), utilbox: () => modelCabinet(false), meter: modelMeter, meterKiosk: modelMeterKiosk,
   busstop: modelBusShelter, busSign: modelBusSign,
-  van: () => modelVan(PM.SIGN_WHITE, 0), vanBlue: () => modelVan(PM.UMB_BLUE, PM.SIGN_WHITE), vanGrey: () => modelVan(PM.STEEL, PM.DUMP_BLUE),
-  truck: () => modelBoxTruck(PM.SIGN_WHITE, PM.UMB_RED), truckBlue: () => modelBoxTruck(PM.UMB_BLUE, PM.UMB_BLUE), truckGreen: () => modelBoxTruck(PM.DUMP_GREEN, PM.DUMP_GREEN),
-  rolloff: () => modelRolloff(PM.HYDRANT), rolloffBlue: () => modelRolloff(PM.DUMP_BLUE),
+  // curb loading / service-yard vehicles from the vehicle library (+x front, z centred, footprints <= 5.8 / 7.6 / 6.2 m)
+  van: () => Vehicles.model('panel_van', { paint: VM.WHITE, seed: 3 }).M, vanBlue: () => Vehicles.model('panel_van', { paint: VM.BLUE, band: VM.WHITE, seed: 4 }).M,
+  vanGrey: () => Vehicles.model('panel_van', { paint: VM.SILVER, band: VM.NAVY, seed: 6 }).M,
+  truck: () => Vehicles.model('box_truck', { paint: VM.WHITE, seed: 2 }).M, truckBlue: () => Vehicles.model('box_truck', { paint: VM.BLUE, seed: 5 }).M,
+  truckGreen: () => Vehicles.model('box_truck', { paint: VM.GREEN, seed: 8 }).M,
+  rolloff: () => Vehicles.model('rolloff', { paint: VM.RED, seed: 1 }).M, rolloffBlue: () => Vehicles.model('rolloff', { paint: VM.BLUE, seed: 2 }).M,
   bags1: () => modelBagPile(5), bags2: () => modelBagPile(9), bags3: () => modelBagPile(12)
 };
 function buildPropMeshes() {
@@ -2069,6 +2708,12 @@ function placeProps(ctx) {
       }
       if (!hit) keep.push(p);
     }
+    out.length = 0; out.push(...keep);
+  }
+  // nothing stands in the void past the edge of the ground (roads run on beyond the map bounds)
+  {
+    const b = net.bounds, big = /^(van|truck|rolloff|busstop)/;
+    const keep = out.filter(p => { const m = big.test(p.type) ? 3 : 0.6; return p.x >= b.x0 + m && p.x <= b.x1 - m && p.z >= b.z0 + m && p.z <= b.z1 - m; });
     out.length = 0; out.push(...keep);
   }
   // nothing stands inside anything else: drop the later of two props whose posts are closer than 0.9 m
@@ -2312,6 +2957,7 @@ function exportNetwork(net) {
   };
 }
 
-const CityCore = { chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+Object.assign(PROP_PALETTE, VEH_PALETTE);
+const CityCore = { Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

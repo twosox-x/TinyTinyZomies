@@ -216,7 +216,7 @@ for (let i = 0; i < 14; ++i) { const l = new THREE.PointLight(0xffc27a, 0, 32, 2
 
 // palette: materials 0..29, plot colours 30..53 (sRGB -> linear)
 const PAL = [];
-for (let i = 0; i < 160; ++i) PAL.push(new THREE.Color(0.5, 0.5, 0.5));
+for (let i = 0; i < 208; ++i) PAL.push(new THREE.Color(0.5, 0.5, 0.5));
 C.PALETTE.forEach((c, i) => PAL[i].setRGB(c[0] / 255, c[1] / 255, c[2] / 255).convertSRGBToLinear());
 const plotHues = [[205, 160, 120], [176, 196, 150], [150, 178, 204], [214, 186, 120], [196, 150, 170], [150, 190, 180], [222, 170, 140], [170, 160, 206]];
 for (let i = 0; i < 24; ++i) { const b = plotHues[i % 8], k = 0.86 + 0.14 * ((i >> 3) / 2); PAL[30 + i].setRGB(b[0] * k / 255, b[1] * k / 255, b[2] * k / 255).convertSRGBToLinear(); }
@@ -245,7 +245,7 @@ function cityMaterial(normalAttr) {
   const m = new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 0, specular: 0x000000 });
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uPal = U.pal; sh.uniforms.uGrid = U.grid; sh.uniforms.uVoxel = U.voxel; sh.uniforms.uTime = U.time; sh.uniforms.uNight = U.night; sh.uniforms.uZenith = U.zenith; sh.uniforms.uHorizon = U.horizon; sh.uniforms.uGroundC = U.groundC;
-    sh.vertexShader = 'attribute float mid;\nattribute float nid;\nattribute float iPhase;\nuniform vec3 uPal[160];\nuniform float uTime;\nuniform float uNight;\nvarying vec3 vWP;\nvarying vec3 vON;\nvarying vec3 vEmit;\nvarying vec3 vWN;\nvarying float vGloss;\n' + sh.vertexShader
+    sh.vertexShader = 'attribute float mid;\nattribute float nid;\nattribute float iPhase;\nuniform vec3 uPal[208];\nuniform float uTime;\nuniform float uNight;\nvarying vec3 vWP;\nvarying vec3 vON;\nvarying vec3 vEmit;\nvarying vec3 vWN;\nvarying float vGloss;\n' + sh.vertexShader
       .replace('#include <beginnormal_vertex>', normalAttr ? '#include <beginnormal_vertex>\nvON = abs(objectNormal.y) > 0.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0);\nvWN = objectNormal;' :
         'vec3 objectNormal = nid < 0.5 ? vec3(0.0, 1.0, 0.0) : nid < 1.5 ? vec3(1.0, 0.0, 0.0) : nid < 2.5 ? vec3(-1.0, 0.0, 0.0) : nid < 3.5 ? vec3(0.0, 0.0, 1.0) : nid < 4.5 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, -1.0, 0.0);\nvON = objectNormal;\nvWN = objectNormal;')
       .replace('#include <color_vertex>', `int cmid = int(mid + 0.5);
@@ -257,6 +257,13 @@ function cityMaterial(normalAttr) {
           vEmit = vColor * 1.3 * uNight;
           if (uNight < 0.5) vColor = uPal[cmid == 87 ? 86 : cmid == 89 ? 88 : cmid == 148 ? 146 : cmid == 159 ? 158 : 147]; else vGloss = 0.0;
         }
+        if (cmid == 181) vEmit = vColor * (0.5 + 1.6 * uNight);                                   // vehicle tail lights (lit)
+        if (cmid == 189 || cmid == 190 || cmid == 199) {                                         // vehicle light bars: alternate flashing
+          float ph = step(0.5, fract(uTime * 1.6 + (cmid == 190 ? 0.5 : 0.0)));
+          vEmit = vColor * (0.3 + 2.4 * uNight) * (0.25 + 0.75 * ph);
+        }
+        if (cmid == 191 || cmid == 178) vGloss = 0.45;                                          // polished tank, chrome
+        if (cmid == 200 || cmid == 201) vGloss = 0.6;                                             // vehicle glass
         if (cmid == 153 || cmid == 154) vEmit = vColor * (0.25 + 1.8 * uNight);                 // neon, LED
         if (cmid == 150) vEmit = vColor * (0.4 + 2.2 * uNight) * (0.6 + 0.4 * step(0.5, fract(uTime * 0.5)));   // aircraft beacons
         if (cmid >= 60 && cmid <= 62 || cmid == 68 || cmid == 69) {                           // signal cycle: 30 s, crossing roads alternate
@@ -789,6 +796,9 @@ function frame(now) {
   const tgt = controls.target;
   const snap = half * 2 / 4096;                                  // texel snapping: no shadow shimmer while panning
   const tx = Math.round(tgt.x / snap) * snap, tz = Math.round(tgt.z / snap) * snap;
+  // normal offset scaled to the shadow texel (a fixed 2 cm is far below a texel once the frustum widens, and
+  // faces lit at a grazing angle - tree crowns, walls - break into acne streaks); 1.5 texels keeps contact shadows
+  sun.shadow.normalBias = Math.max(0.02, 1.5 * sc.right * 2 / 4096);
   sun.target.position.set(tx, 0, tz); sun.position.set(tx + SUN_DIR.x * 900, SUN_DIR.y * 900, tz + SUN_DIR.z * 900);
   // night: street lights at the junctions nearest to the view
   if (S.light === 'night' && (S.lampTimer -= dt) <= 0) {
@@ -889,7 +899,41 @@ resize();
 applyLighting();
 // preview mode: ?tower=name[&w=40&d=44&floors=30&seed=7] shows one tower on an empty lot (agent / review tool)
 const QP = new URLSearchParams(location.search);
-if (QP.get('tower')) {
+if (QP.get('vehicles')) {
+  // vehicle sheet: ?vehicles=sedan,suv,...&states=ok,damaged,...&seeds=1,2 (rows = kinds, columns = states x seeds)
+  S.preview = true;
+  const V = C.Vehicles, kinds = QP.get('vehicles') === 'all' ? V.KINDS : QP.get('vehicles').split(',');
+  const states = (QP.get('states') || 'ok,damaged,crashed,burnt,rolled,open').split(','), seeds = (QP.get('seeds') || '1').split(',').map(Number);
+  const gx = +(QP.get('gx') || 0), gz = +(QP.get('gz') || 0);
+  let tris = 0, maxL = 0, maxW = 0;
+  for (const k of kinds) { const r = V.model(k, { seed: 1 }); maxL = Math.max(maxL, r.len); maxW = Math.max(maxW, r.wid); }
+  const dx = gx || maxL + 2.5, dz = gz || maxW + 2.2;
+  kinds.forEach((k, row) => {
+    let col = 0;
+    for (const sd of seeds) for (const st of states) {
+      const s2 = sd + row * 7, o = st === 'open' ? { seed: s2, doors: true, lights: true } : st === 'lit' ? { seed: s2, lights: true } : { seed: s2, state: st };
+      const r = V.mesh(k, o), g = geometryFrom(r.mesh);
+      const mm = new THREE.Mesh(g, MAT_CITY); mm.castShadow = mm.receiveShadow = true;
+      mm.position.set(col * dx - (r.x0 + r.x1) / 2, 0, row * dz - (r.z0 + r.z1) / 2);
+      world.add(mm); tris += r.mesh.idx.length / 3; ++col;
+    }
+  });
+  const ncol = states.length * seeds.length, W2 = ncol * dx, D2 = kinds.length * dz;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x8a8a8c }));
+  ground.receiveShadow = true; ground.position.y = -0.001; world.add(ground);
+  S.net = { bounds: { x0: -100, x1: 100, z0: -100, z1: 100 }, roads: [], areas: [] };
+  S.junctionNodes = [];
+  $('panel').hidden = true;
+  const yaw = +(QP.get('yaw') || 2.4), pitch = +(QP.get('pitch') || 0.5), dist = +(QP.get('dist') || Math.max(W2, D2) * 1.05);
+  const cx = (W2 - dx) / 2, cz = (D2 - dz) / 2, ty = +(QP.get('ty') || 0.5);
+  controls.target.set(cx, ty, cz);
+  persp.position.set(cx + Math.sin(yaw) * Math.cos(pitch) * -dist, ty + Math.sin(pitch) * dist, cz + Math.cos(yaw) * Math.cos(pitch) * -dist);
+  if (QP.get('fov')) { persp.fov = +QP.get('fov'); persp.updateProjectionMatrix(); }
+  if (QP.get('night')) { S.light = 'night'; applyLighting(); }
+  document.title = 'Vehicles (' + tris + ' tris)';
+  window.__previewReady = true;
+  requestAnimationFrame(frame);
+} else if (QP.get('tower')) {
   S.preview = true;
   const w = +(QP.get('w') || 40), d = +(QP.get('d') || 44), fl = +(QP.get('floors') || 30), sd = +(QP.get('seed') || 7);
   const m = CityArch.previewTower(QP.get('tower'), w, d, fl, sd, C);

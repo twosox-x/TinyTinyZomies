@@ -168,33 +168,31 @@
 
   // ------------------------------------------------------------------------------------------------ lot parts
   const ASPH = [BM.GRANITE_DARK, BM.ROOF_TAR, BM.GRANITE_DARK];
-  const CAR_COL = [BM.TRIM, BM.METAL, BM.STEEL_DARK, BM.SHUTTER_BLACK, BM.DOOR_RED, BM.DOOR_NAVY, BM.AWNING_BLUE, BM.METAL,
-    BM.TRIM, BM.PAINT_YELLOW, BM.SHUTTER_GREEN, BM.AWNING_RED, BM.PAINT_CREAM, BM.SIDING_GRAY, BM.SHUTTER_BLACK, BM.METAL,
-    BM.PAINT_BLUE, BM.WHITE_CONCRETE, BM.COPPER, BM.TRIM_DARK];
   const carLen = (h) => { const k = Math.floor(h * 7919) % 6; return k === 2 ? 15 : k === 1 ? 17 : k === 5 ? 19 : 18; };
-  // a parked car (7 wide); dir 0/1: length along z, nose to -z / +z; dir 2/3: along x, nose to -x / +x. h in [0,1)
+  // a parked car in a 7 x len voxel slot (len = carLen(h)); dir 0/1: length along z, nose to -z / +z; dir 2/3: along x,
+  // nose to -x / +x. h in [0,1). The car is a CityCore.Vehicles model (5 cm voxels) recorded on M and emitted with it
+  // (Emitter.vox), centred on the slot, at most 0.3 m longer than the slot at each end and 2.0 m wide.
+  // a parked car never overlaps another parked car or anything already built in the model (curbs, islands, walls,
+  // pumps, pens): its slot, from the lot slab (y) up 1.75 m, must be empty and clear of the other cars' slots
+  // (+ 1 voxel, the models may be up to 0.3 m longer than the slot)
+  function carFits(M, x, y, z, dir, len) {
+    const ax = dir >= 2, x1 = x + (ax ? len : 7), z1 = z + (ax ? 7 : len);
+    const slots = M._carSlots || (M._carSlots = []);
+    for (const s of slots) if (x < s[2] + 1 && x1 > s[0] - 1 && z < s[3] + 1 && z1 > s[1] - 1) { L.carClash = (L.carClash || 0) + 1; return false; }
+    for (let yy = y; yy < y + 7; ++yy) for (let zz = z; zz < z1; ++zz) for (let xx = x; xx < x1; ++xx)
+      if (M.at(xx + M.ox, yy, zz + M.oz)) { L.carClash = (L.carClash || 0) + 1; return false; }
+    slots.push([x, z, x1, z1]);
+    return true;
+  }
+  const CAR_KIND = ['sedan', 'suv', 'hatchback', 'sedan', 'minivan', 'pickup'];
   function car(M, x, y, z, dir, h) {
-    const col = CAR_COL[Math.floor(h * 9973) % CAR_COL.length], kind = Math.floor(h * 7919) % 6;   // 0,3 sedan 1 suv 2 hatch 4 wagon 5 pickup
-    const len = carLen(h);
-    const put = (a0, y0, b0, a1, y1, b1, m) => {
-      if (dir === 0) M.box(x + b0, y + y0, z + a0, x + b1, y + y1, z + a1, m);
-      else if (dir === 1) M.box(x + b0, y + y0, z + len - a1, x + b1, y + y1, z + len - a0, m);
-      else if (dir === 2) M.box(x + a0, y + y0, z + b0, x + a1, y + y1, z + b1, m);
-      else M.box(x + len - a1, y + y0, z + b0, x + len - a0, y + y1, z + b1, m);
-    };
-    const bh = kind === 1 || kind === 5 ? 5 : 4;
-    put(0, 1, 0, len, bh, 7, col);
-    put(2, 0, 0, 5, 2, 7, BM.SHUTTER_BLACK); put(len - 5, 0, 0, len - 2, 2, 7, BM.SHUTTER_BLACK);
-    put(0, 2, 0, 1, 3, 2, BM.TRIM); put(0, 2, 5, 1, 3, 7, BM.TRIM);                              // headlamps
-    put(len - 1, 2, 0, len, 3, 2, BM.DOOR_RED); put(len - 1, 2, 5, len, 3, 7, BM.DOOR_RED);      // tail lamps
-    if (kind === 5) {                                                                           // pickup: cab + bed
-      put(5, bh, 1, 10, bh + 2, 6, BM.GLASS_DARK); put(6, bh + 2, 1, 10, bh + 3, 6, col);
-      put(11, bh, 0, len, bh + 1, 1, col); put(11, bh, 6, len, bh + 1, 7, col); put(len - 1, bh, 0, len, bh + 1, 7, col);
-      return;
-    }
-    const c0 = kind === 2 ? 4 : 5, c1 = kind === 0 || kind === 3 ? len - 5 : len - 2;
-    put(c0, bh, 1, c1, bh + 2, 6, BM.GLASS_DARK);
-    put(c0 + 1, bh + 2, 1, c1 - (kind === 0 || kind === 3 ? 1 : 0), bh + 3, 6, col);
+    if (!carFits(M, x, y, z, dir, carLen(h))) return;
+    const kind = Math.floor(h * 7919) % 6, len = carLen(h), sd = Math.floor(h * 99991) % 997;
+    let k = CAR_KIND[kind];
+    if (k === 'sedan' && sd % 9 === 0) k = 'coupe';
+    if (k === 'suv' && sd % 7 === 0) k = 'police';
+    const cx = dir < 2 ? x + 3.5 : x + len / 2, cz = dir < 2 ? z + len / 2 : z + 3.5;
+    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.6, 2.0] });
   }
   function tree(M, x, y, z, R, s) {
     s = s || 1;
@@ -221,8 +219,8 @@
   function bed(M, x0, z0, x1, z1, R, o) {
     o = o || {};
     if (x1 - x0 < 2 || z1 - z0 < 2) return;
+    if (x1 - x0 < 3 || z1 - z0 < 3) { M.box(x0, 0, z0, x1, 1, z1, o.fill || BM.GRASS); return; }   // too narrow for a curbed bed
     M.box(x0, 0, z0, x1, 2, z1, o.curb || BM.CONCRETE);
-    if (x1 - x0 < 3 || z1 - z0 < 3) return;
     M.box(x0 + 1, 1, z0 + 1, x1 - 1, 2, z1 - 1, o.fill || BM.GRASS);
     const sh = o.shrubs === undefined ? 0.5 : o.shrubs, iw = x1 - x0 - 2, id = z1 - z0 - 2;
     const along = iw >= id, Ln = along ? iw : id;
@@ -355,17 +353,34 @@
   // 3 masonry walls + steel gates over [x, x + w) x [z, z + d); the gates face dir ('z-' default, 'z+', 'x-', 'x+'),
   // towards the drive aisle the refuse truck comes along
   function dumpsterPen(M, x, z, w, d, wallM, gateM, dir) {
-    M.box(x, 0, z, x + w, 8, z + d, wallM);
-    M.box(x + 1, 1, z + 1, x + w - 1, 8, z + d - 1, -1);
-    M.box(x + 1, 1, z + 1, x + w - 1, 2, z + d - 1, BM.CONCRETE);
-    M.box(x + 2, 2, z + 2, x + w - 2, 7, z + d - 2, BM.SHUTTER_GREEN);
-    const g = gateM || BM.STEEL_DARK, xm = (x + x + w) >> 1, zm = (z + z + d) >> 1;
-    if (dir === 'z+') { M.box(x + 1, 1, z + d - 1, x + w - 1, 7, z + d, g); M.box(xm, 1, z + d, xm + 1, 7, z + d + 1, BM.METAL); }
-    else if (dir === 'x-') { M.box(x, 1, z + 1, x + 1, 7, z + d - 1, g); M.box(x - 1, 1, zm, x, 7, zm + 1, BM.METAL); }
-    else if (dir === 'x+') { M.box(x + w - 1, 1, z + 1, x + w, 7, z + d - 1, g); M.box(x + w, 1, zm, x + w + 1, 7, zm + 1, BM.METAL); }
-    else { M.box(x + 1, 1, z, x + w - 1, 7, z + 1, g); M.box(xm, 1, z - 1, xm + 1, 7, z, BM.METAL); }
-    M.box(x, 8, z, x + w, 9, z + d, BM.CONCRETE);
-    M.box(x + 1, 8, z + 1, x + w - 1, 9, z + d - 1, -1);
+    // pen frame: u along the gate side (0..gw), v from the gate (0) to the back wall (gd)
+    const gx = dir === 'x-' || dir === 'x+', gw = gx ? d : w, gd = gx ? w : d;
+    const P = (u0, y0, v0, u1, y1, v1, m) => {
+      if (dir === 'z+') M.box(x + u0, y0, z + d - v1, x + u1, y1, z + d - v0, m);
+      else if (dir === 'x-') M.box(x + v0, y0, z + u0, x + v1, y1, z + u1, m);
+      else if (dir === 'x+') M.box(x + w - v1, y0, z + u0, x + w - v0, y1, z + u1, m);
+      else M.box(x + u0, y0, z + v0, x + u1, y1, z + v1, m);
+    };
+    // three masonry walls with a coping, open at the gate side, on a concrete pad
+    P(0, 0, 0, gw, 7, gd, wallM);
+    P(1, 0, 0, gw - 1, 8, gd - 1, -1);
+    P(1, 0, 0, gw - 1, 1, gd - 1, BM.CONCRETE);
+    P(0, 7, 0, gw, 8, gd, BM.CONCRETE); P(1, 7, 0, gw - 1, 8, gd - 1, -1);
+    // dumpsters against the back wall: casters, body, dark lid stepping up to the hinge, lift sleeves
+    const n = gw >= 14 ? 2 : 1, dw = Math.floor((gw - 2 - (n + 1)) / n), dd = Math.min(gd - 4, 7), v1 = gd - 2, v0 = v1 - dd;
+    for (let k = 0; k < n; ++k) {
+      const u0 = 2 + k * (dw + 1), u1 = u0 + dw, body = k ? BM.AWNING_BLUE : BM.SHUTTER_GREEN;
+      P(u0 + 1, 1, v0 + 1, u1 - 1, 2, v1 - 1, BM.SHUTTER_BLACK);
+      P(u0, 2, v0, u1, 5, v1, body);
+      P(u0, 5, v0, u1, 6, v1, BM.STEEL_DARK);
+      P(u0, 6, v0 + Math.ceil(dd / 2), u1, 7, v1, BM.STEEL_DARK);
+      P(u0 + 1, 3, v0 - 1, u1 - 1, 4, v0, BM.METAL);
+    }
+    // slatted steel gates (rails and pickets: the dumpsters show through), a latch post in the middle
+    const g = gateM || BM.STEEL_DARK, um = gw >> 1;
+    P(1, 2, 0, gw - 1, 3, 1, g); P(1, 5, 0, gw - 1, 6, 1, g);
+    for (let u = 1; u < gw - 1; u += 2) P(u, 1, 0, u + 1, 6, 1, g);
+    P(um, 1, 0, um + 1, 7, 1, BM.METAL);
   }
   // ---- vehicle access. Every opening in a lot's front strip lands where the sidewalk can take a curb cut
   // (CityArch.lib.curbOK: a plain stretch of one street, clear of corners and crosswalks) and registers it

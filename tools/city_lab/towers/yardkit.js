@@ -166,7 +166,10 @@
       } else if (sp === 'cherry' || sp === 'dogwood') {
         ht = 22 + Math.floor(Rm() * 7); rc = 10 + Math.floor(Rm() * 3); if (small) { ht = Math.round(ht * 0.78); rc = Math.round(rc * 0.72); }
         M = VM(2 * rc + 4, ht + 2, 2 * rc + 4, rc + 2, rc + 2);
-        const bl = sp === 'cherry' ? pick(Rm, [BM.PAINT_SALMON, BM.GRANITE_PINK, BM.PAINT_SALMON]) : pick(Rm, [K.PWHITE, BM.TRIM]);
+        // blossom: cherry pinks; dogwood a warm cream (never paint white, which reads as a blown-out blob in the
+        // sun), a second tone on alternate lobes, green below the lobes and dappled through the top
+        const bl = sp === 'cherry' ? pick(Rm, [BM.PAINT_SALMON, BM.GRANITE_PINK, BM.PAINT_SALMON]) : pick(Rm, [BM.PAINT_CREAM, BM.LIMESTONE]);
+        const bl2 = sp === 'cherry' ? (bl === BM.GRANITE_PINK ? BM.PAINT_SALMON : BM.GRANITE_PINK) : (bl === BM.PAINT_CREAM ? BM.LIMESTONE : BM.GRANITE_PINK);
         const tt = 7 + Math.floor(Rm() * 3);
         M.box(-1, 0, -1, 1, tt, 1, K.TRUNK);
         for (const [dx, dz] of [[1, 0], [-1, 1]]) M.box(dx * 2 - 1, tt, dz * 2 - 1, dx * 2 + 1, tt + 4, dz * 2 + 1, K.TRUNK);
@@ -175,8 +178,9 @@
         const a0 = Rm() * 6.28;
         for (let i = 0; i < 3; ++i) {
           const an = a0 + i * 2.094, rr = 5, dist = rc - rr - 1;
-          blob2(M, Math.round(Math.cos(an) * dist), cy + 1 + Math.round(Rm() * 2), Math.round(Math.sin(an) * dist), rr, 3, bl, bl);
+          blob2(M, Math.round(Math.cos(an) * dist), cy + 1 + Math.round(Rm() * 2), Math.round(Math.sin(an) * dist), rr, 3, K.LEAF, i === 1 ? bl2 : bl);
         }
+        L.dappleTop(M, rc + 1, K.LEAF, 5, 2);
       } else {                                           // birch clump: three leaning white stems
         ht = 30 + Math.floor(Rm() * 12); rc = 9 + Math.floor(Rm() * 2); if (small) { ht = Math.round(ht * 0.78); rc = Math.round(rc * 0.75); }
         M = VM(2 * rc + 4, ht + 2, 2 * rc + 4, rc + 2, rc + 2);
@@ -366,32 +370,15 @@
   }
 
   // ------------------------------------------------------------------------------------------ props
-  function carModel(C, kind, paint) {
-    return cached('car:' + kind + ':' + paint, () => {
-      // u across (width 28), v along (length), nose at +v
-      const len = kind === 'suv' ? 76 : kind === 'pickup' ? 86 : 72, hl = len >> 1;
-      const M = VM(32, 32, len + 2, 16, hl + 1);
-      const glass = BM.GLASS_DARK, tyre = K.BLACK;
-      for (const v of [-hl + 12, hl - 22]) { M.box(-15, 0, v, -12, 10, v + 11, tyre); M.box(12, 0, v, 15, 10, v + 11, tyre); }
-      if (kind === 'pickup') {
-        M.box(-14, 4, -hl, 14, 15, hl, paint);
-        M.box(-12, 9, -hl + 2, 12, 15, -6, -1);                         // open bed
-        M.box(-12, 9, -hl + 2, 12, 10, -6, K.BLACK);
-        M.box(-13, 15, -6, 13, 25, 16, glass); M.box(-13, 23, -5, 13, 26, 15, paint);
-        M.box(-12, 15, 16, 12, 16, 22, paint);
-      } else {
-        const top = kind === 'suv' ? 27 : 23, body = kind === 'suv' ? 15 : 12;
-        M.box(-14, 3, -hl, 14, body, hl, paint);
-        M.box(-13, 2, -hl - 1, 13, 6, hl + 1, K.BLACK);                 // bumpers
-        const c0 = kind === 'suv' ? -hl + 3 : -hl + 14, c1 = kind === 'suv' ? hl - 18 : hl - 22;
-        M.box(-12, body, c0, 12, top - 1, c1, glass);
-        M.box(-12, top - 2, c0 + 2, 12, top, c1 - 2, paint);
-        M.box(-12, body, c0 + Math.round((c1 - c0) * 0.48), 12, top - 1, c0 + Math.round((c1 - c0) * 0.48) + 2, paint);   // B pillar
-      }
-      M.box(-12, 8, hl - 1, -8, 10, hl + 1, BM.TRIM); M.box(8, 8, hl - 1, 12, 10, hl + 1, BM.TRIM);   // headlights
-      M.box(-13, 9, -hl - 1, -9, 11, -hl + 1, K.SRED); M.box(9, 9, -hl - 1, 13, 11, -hl + 1, K.SRED);
-      return M;
-    });
+  // a car on the driveway: CityCore.Vehicles model (5 cm voxels, +x = nose); place with scale carScale (0.2 building
+  // voxels per model voxel, shrunk so it never exceeds the old 4.6 / 4.9 / 5.5 m footprints) and orientation nose ? 1 : 3
+  const CAR_OLD_LEN = { sedan: 74, suv: 78, pickup: 88 };            // old model depth (6.25 cm voxels)
+  function carModel(C, kind, seed) {
+    let k = kind;
+    if (kind === 'sedan') k = seed % 5 === 0 ? 'hatchback' : seed % 7 === 0 ? 'coupe' : seed % 4 === 0 ? 'minivan' : 'sedan';
+    const r = C.Vehicles.model(k, { seed });
+    const sc = 0.2 * Math.min(1, CAR_OLD_LEN[kind] * 0.0625 / r.len, 2.0 / r.wid);
+    return { M: r.M, sc, half: (CAR_OLD_LEN[kind] * S4) / 2 };
   }
   function shedModel(C, wall, roof, door) {
     return cached('shed:' + wall + ':' + roof + ':' + door, () => {
@@ -1092,10 +1079,10 @@
     }
     S.tag = 'items';
     if (dr && !commercial && driveEnd >= 24 && dr.x1 - dr.x0 >= 10 && R() < 0.45) {
-      const Mc = carModel(C, wpick(R, [['sedan', 50], ['suv', 35], ['pickup', 15]]), pick(R, [BM.DOOR_RED, BM.DOOR_NAVY, BM.METAL, BM.SHUTTER_BLACK, BM.TRIM, BM.SHUTTER_GREEN, BM.GRANITE_DARK, BM.PAINT_BLUE, BM.BUFF]));
-      const nose = R() < 0.75, half = (Mc.d * S4) / 2;
+      const Mc = carModel(C, wpick(R, [['sedan', 50], ['suv', 35], ['pickup', 15]]), Math.floor(R() * 99991)), half = Mc.half;
+      const nose = R() < 0.75;
       const zmin = half + 2 + fT, cz = clamp(driveEnd - half - 1.5 - R() * 3, zmin, driveEnd - half - 1), cx = (dr.x0 + dr.x1) / 2;
-      if (driveEnd - half - 1 >= zmin) { put(S, Mc, cx + J, DRIVE * HU - J, cz + J, S4, nose ? 0 : 2); S.items.push('car'); }
+      if (driveEnd - half - 1 >= zmin) { put(S, Mc.M, cx + J, DRIVE * HU - J, cz + J, Mc.sc, nose ? 1 : 3); S.items.push('car'); }
     }
 
     // ---- plants, then the ground (house footprint cut out)
