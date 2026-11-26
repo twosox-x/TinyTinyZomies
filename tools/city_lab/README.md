@@ -177,7 +177,7 @@ The approved downtown is locked by headless checks in `dev/` (run from the repos
 No whole-map plan. Every worker rebuilds the road network once (`rinit`: network, junctions; land use is a pure function
 `landUseAt`). The map is cut into **256 m pages** on a grid from the map corner (`CityArch.PAGE`, `pageOf`, `pageRect`):
 
-- `CityArch.planPage(net, C, voxel, pi, pj)` plans one page on a window of the page + 128 m (`PAGE_HALO`): windowed fields
+- `CityArch.planPage(net, C, voxel, pi, pj)` plans one page on a window of the page + 96 m (`PAGE_HALO`): windowed fields
   (`FieldSampler` win, bit-identical samples), `Rasterizer.blockAreas`, `Plots` with a window (`new Plots(..., win)`,
   same cell origin), `planAll` with `PL.pageMode`, then keeps what it **owns**: jobs and kit quads whose centre lies in the
   page, kit curb cuts whose midpoint does, the block classes of its 0.5 m field cells, and (worker) its street furniture.
@@ -191,6 +191,15 @@ No whole-map plan. Every worker rebuilds the road network once (`rinit`: network
   `buildTile`, road raster with every known curb cut (incl. the tile's halo buildings), and the tile's **traffic**
   (`trafficKit` with `box` / `own`: placed within the tile + 12 m, own cars kept), merged on the page into one
   instanced set. The page holds only resident pages (LRU `?plru=24`) and tiles (`?lru=80`).
+- Nothing per page / tile loops over the whole map: `CityCore.roadSpans(net, box, m)` (segment index on a 64 m grid,
+  built once per network) gives the roads and arc-length stretches near a box; `placeProps` with `box` and
+  `trafficKit` with `box` walk only those. Traffic lanes are walked in 64 m chunks, each with its own random stream
+  (seeded from the lane and the chunk index), so a chunk comes out the same from every tile; set pieces / incidents
+  far from the box are not tried. `pointAt` uses a cached arc-length table (binary search, same doubles).
+- Seams: `CityArch.lib.trafficSeams(parts)` drops a car / traffic prop overlapping one kept from an earlier tile (tiles
+  in a fixed order), used by `mergeTraffic` and by the headless regional build.
+- The page's street furniture is placed on the page's planning window fields / raster (`planPage(..., { keep })`),
+  not on a second window.
 - `?wholeplan=1`: the previous whole-map planner path (`splan` / `sinit` / `stile`).
 - Headless checks on the regional path: `CITY_REGIONAL=1 [CITY_REGION=x0,z0,x1,z1] [CITY_TILE=128]` for `zfight.js`,
   `groundfight.js`, `traffic_check.js` (dev/meshcheck.js `buildRegional`: memory bounded by the region, any map size).

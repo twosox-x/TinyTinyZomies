@@ -84,6 +84,7 @@
     const tr = d.traffic !== undefined ? (d.traffic || (old && old.traffic) || null) : null;
     ST.tiles.set(d.key, { g, used: performance.now(), tris: (d.road.idx.length + d.bld.idx.length) / 3, ij: t, lod: d.lod, traffic: tr });
     if (ST.regional && d.traffic) { ST.trafficDirty = true; ST.trafficMsSum = (ST.trafficMsSum || 0) + d.trafficMs; }
+    if (!ST.firstTile) ST.firstTile = performance.now() - ST.t0;
     ST.built++; ST.buildMs.push(d.ms); ST.fieldMs.push(d.fieldMs); if (d.mem) ST.workerMem[d.w] = Math.max(ST.workerMem[d.w] || 0, d.mem);
     if (!ST.firstFrame && !ST.pending.size && !ST.missing()) ST.firstFrame = performance.now() - ST.t0;
     // LRU: dispose GPU geometry of the least recently needed tiles beyond the cache size
@@ -145,7 +146,7 @@
     const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(CLc.camera.projectionMatrix, CLc.camera.matrixWorldInverse));
     for (const T of ST.tiles.values()) T.g.children.forEach(m => { const s = m.geometry.boundingSphere.clone().applyMatrix4(m.matrixWorld); if (fr.intersectsSphere(s)) { calls++; tris += m.geometry.index.count / 3; } });
     const ms = ST.buildMs.slice().sort((a, b) => a - b);
-    return { tiles: ST.tiles.size, pending: ST.pending.size, built: ST.built, visibleCalls: calls, visibleTris: tris, planMs: Math.round(ST.planMs), firstFrameMs: Math.round(ST.firstFrame),
+    return { tiles: ST.tiles.size, pending: ST.pending.size, built: ST.built, visibleCalls: calls, visibleTris: tris, planMs: Math.round(ST.planMs), firstFrameMs: Math.round(ST.firstFrame), firstTileMs: Math.round(ST.firstTile || 0),
       scale: ST.scale, trafficMs: Math.round(ST.trafficMs || ST.trafficMsSum || 0), pages: ST.pages ? ST.pages.size : 0, pagesDropped: ST.pagesDropped || 0,
       pageMsMedian: ST.pageMs ? Math.round(ST.pageMs.slice().sort((a, b) => a - b)[ST.pageMs.length >> 1] || 0) : 0, cars: CLc.traffic ? { count: CLc.traffic.T.count, hidden: ST.carsHidden || 0, tris: CLc.traffic.tris } : null,
       far: [...ST.tiles.values()].filter(T => T.lod === 'far').length, upgraded: ST.upgraded || 0, initMs: Math.round(ST.initMs || 0), planHeapMB: ST.planMem, workerHeapMB: Object.assign({}, ST.workerMem),
@@ -205,15 +206,21 @@
   function mergeTraffic() {
     const vk = new Map(), variants = [], parts = [];
     let n = 0, paintPH = 0;
-    for (const T of ST.tiles.values()) if (T.traffic && T.traffic.count) { parts.push(T.traffic); n += T.traffic.count; paintPH = T.traffic.paintPH; }
+    const tiles = [...ST.tiles.values()].filter(T => T.traffic && T.traffic.count).sort((a, b) => a.ij[1] - b.ij[1] || a.ij[0] - b.ij[0]);
+    for (const T of tiles) { parts.push(T.traffic); paintPH = T.traffic.paintPH; }
+    // seams: a car overlapping one kept from an earlier tile (fixed tile order) is dropped
+    const L = window.CityArch && window.CityArch.lib, keep = L && L.trafficSeams ? L.trafficSeams(parts) : parts.map(t => new Uint8Array(t.count).fill(1));
+    for (const K of keep) for (const f of K) n += f;
     const M = new Float32Array(n * 12), vid = new Uint16Array(n), paint = new Uint8Array(n), obb = new Float32Array(n * 8);
     let o = 0;
-    for (const t of parts) {
+    parts.forEach((t, pi) => {
       const map = t.variants.map(v => { let k = vk.get(v.key); if (k === undefined) { k = variants.length; vk.set(v.key, k); variants.push(Object.assign({}, v, { n: 0 })); } return k; });
-      M.set(t.M, o * 12); obb.set(t.obb, o * 8); paint.set(t.paint, o);
-      for (let i = 0; i < t.count; ++i) { vid[o + i] = map[t.vid[i]]; variants[vid[o + i]].n++; }
-      o += t.count;
-    }
+      for (let i = 0; i < t.count; ++i) {
+        if (!keep[pi][i]) continue;
+        M.set(t.M.subarray(i * 12, i * 12 + 12), o * 12); obb.set(t.obb.subarray(i * 8, i * 8 + 8), o * 8); paint[o] = t.paint[i];
+        vid[o] = map[t.vid[i]]; variants[vid[o]].n++; ++o;
+      }
+    });
     if (!n && !CLc.traffic) return;
     CLc.addTraffic({ M, vid, paint, obb, count: n, variants, paintPH });
   }

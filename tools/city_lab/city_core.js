@@ -136,6 +136,52 @@ function hpFromLine(a, b, keepPoint) {    // half-plane containing keepPoint, bo
 // opts.scale: map area multiple (default 1 = the original district, unchanged). Above 1 the inner city (downtown grid,
 // old town, east quarter) grows by KC per axis inside a Beltway, and growOutskirts() adds the suburban and rural rings
 // out to sqrt(scale) x the original extent (see the comment there).
+// Spatial index of the road segments (once per network, 64 m grid buckets): roadSpans(net, box, m) -> Map road id ->
+// sorted, merged arc-length intervals [s0, s1] of the road's segments that come within m of box ({x0,z0,x1,z1} or
+// [x0,z0,x1,z1]). Streaming pages / tiles iterate only these roads and stretches instead of the whole map.
+function roadIndex(net) {
+  if (net._rix && net._rix.n === net.roads.length) return net._rix;
+  const G = 64, cells = new Map(), segs = [];
+  for (const r of net.roads) {
+    let acc = 0;
+    for (let i = 0; i + 1 < r.pts.length; ++i) {
+      const [ax, az] = r.pts[i], [bx, bz] = r.pts[i + 1], len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-6) continue;
+      const k = segs.length; segs.push([r.id, acc, acc + len, Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz)]);
+      acc += len;
+      for (let gz = Math.floor(Math.min(az, bz) / G); gz <= Math.floor(Math.max(az, bz) / G); ++gz)
+        for (let gx = Math.floor(Math.min(ax, bx) / G); gx <= Math.floor(Math.max(ax, bx) / G); ++gx) {
+          const key = gx * 65536 + gz; let L = cells.get(key); if (!L) cells.set(key, L = []); L.push(k);
+        }
+    }
+    if (r.pts.length && acc === 0) { const [ax, az] = r.pts[0]; const k = segs.length; segs.push([r.id, 0, 0, ax, az, ax, az]); const key = Math.floor(ax / G) * 65536 + Math.floor(az / G); let L = cells.get(key); if (!L) cells.set(key, L = []); L.push(k); }
+  }
+  return (net._rix = { n: net.roads.length, G, cells, segs });
+}
+function roadSpans(net, box, m) {
+  const I = roadIndex(net), G = I.G;
+  const x0 = (box.x0 !== undefined ? box.x0 : box[0]) - m, z0 = (box.z0 !== undefined ? box.z0 : box[1]) - m;
+  const x1 = (box.x1 !== undefined ? box.x1 : box[2]) + m, z1 = (box.z1 !== undefined ? box.z1 : box[3]) + m;
+  const seen = new Set(), by = new Map();
+  for (let gz = Math.floor(z0 / G); gz <= Math.floor(z1 / G); ++gz) for (let gx = Math.floor(x0 / G); gx <= Math.floor(x1 / G); ++gx) {
+    const L = I.cells.get(gx * 65536 + gz); if (!L) continue;
+    for (const k of L) {
+      if (seen.has(k)) continue; seen.add(k);
+      const g = I.segs[k];
+      if (g[3] > x1 || g[5] < x0 || g[4] > z1 || g[6] < z0) continue;
+      let a = by.get(g[0]); if (!a) by.set(g[0], a = []); a.push([g[1], g[2]]);
+    }
+  }
+  const out = new Map();
+  for (const id of [...by.keys()].sort((a, b) => a - b)) {
+    const a = by.get(id).sort((p, q) => p[0] - q[0]), mg = [];
+    for (const iv of a) { const t = mg[mg.length - 1]; if (t && iv[0] <= t[1] + 1e-6) t[1] = Math.max(t[1], iv[1]); else mg.push([iv[0], iv[1]]); }
+    out.set(id, mg);
+  }
+  return out;
+}
+// s within pad of one of the intervals
+function inSpans(L, s, pad) { if (!L) return false; for (const [a, b] of L) if (s >= a - pad && s <= b + pad) return true; return false; }
 function generateCity(seed, opts) {
   opts = opts || {};
   // (dev hook: a page or worker without the option reads self.CITY_LAB_SCALE, e.g. injected by a test harness)
@@ -351,7 +397,11 @@ function tcElev(P, x, z) {
 function tcWater(P, x, z, m) {
   const f = tcRiver(P.river, x, z);
   if (Math.abs(f[1]) < tcRiverHW(P.river, f[0]) + m) return 1;
-  for (const l of P.lakes) if (Math.hypot(x - l.c[0], z - l.c[1]) < lakeR(l, x, z) + m) return 2;
+  for (const l of P.lakes) {
+    const dx = x - l.c[0], dz = z - l.c[1], R0 = l.r * 1.2 + m;          // lakeR <= 1.19 r: cheap reject first
+    if (R0 <= 0 || dx * dx + dz * dz > R0 * R0) continue;
+    if (Math.hypot(dx, dz) < lakeR(l, x, z) + m) return 2;
+  }
   return 0;
 }
 function gridAt(G, x, z) {                      // bilinear sample of a Float32Array grid { x0, z0, cell, nx, nz, a }
@@ -1495,6 +1545,17 @@ function crossZ(pts, z, xMin) {
 // position and unit tangent at arc length s along a road polyline
 function pointAt(r, s) {
   const pts = r.pts;
+  const A = r._arc;
+  if (A && A.pts === pts && A.n === pts.length) {      // cached arc lengths (FieldSampler.prepare): binary search, same doubles
+    const E = A.end, K = A.seg.length;
+    let lo = 0, hi = K;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (E[m] >= s) hi = m; else lo = m + 1; }
+    let k = lo;
+    if (k === K) { if (!K || A.seg[K - 1] + 2 !== pts.length) return [pts[0][0], pts[0][1], 1, 0]; k = K - 1; }
+    const i = A.seg[k], [ax, az] = pts[i], [bx, bz] = pts[i + 1], l = A.len[k];
+    const t = clamp((s - A.acc[k]) / l, 0, 1);
+    return [ax + (bx - ax) * t, az + (bz - az) * t, (bx - ax) / l, (bz - az) / l];
+  }
   let acc = 0;
   for (let i = 0; i + 1 < pts.length; ++i) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
@@ -1623,6 +1684,11 @@ class FieldSampler {
         this.segs.push({ road: r.id, ax: ex, az: ez, bx: ex, bz: ez, len: 0, tx: 1, tz: 0, s0: r.len, half: r.bulbEnd, bulb: true });
       }
       maxReach = Math.max(maxReach, (r.bulbEnd || P.half) + P.sidewalk + P.radius + 8);
+      { // arc-length cache for pointAt (same sums as its loop)
+        const seg = [], acc = [], len = [], end = []; let ac = 0;
+        for (let i = 0; i + 1 < r.pts.length; ++i) { const [ax, az] = r.pts[i], [bx, bz] = r.pts[i + 1], l = Math.hypot(bx - ax, bz - az); if (l < 1e-6) continue; seg.push(i); acc.push(ac); len.push(l); end.push(ac + l); ac += l; }
+        r._arc = { pts: r.pts, n: r.pts.length, seg, acc, len, end };
+      }
     }
     // segment buckets
     const B = 16;
@@ -3904,7 +3970,8 @@ function placeProps(ctx) {
     }
     for (const [c, L] of byBlock) {
       const ring = L.filter(p => p.depth < 3.6), inner = L.filter(p => p.depth > 7);
-      ring.forEach((p, k) => {
+      ring.forEach((p) => {
+        const k = Math.round((p.x - net.bounds.x0) / step) + Math.round((p.z - net.bounds.z0) / step);   // position-based: same from any box
         const r = net.roads[p.road], [px, pz] = pointAt(r, Math.max(0, Math.min(r.len, p.s)));
         const yaw = yawTowards(p.x, p.z, [px, pz]);
         if (k % 2 === 0) out.push({ type: 'tree', x: p.x, y: hsM, z: p.z, yaw, road: p.road });
@@ -3933,9 +4000,14 @@ function placeProps(ctx) {
       if (type) out.push({ type, x, y: hsM, z, yaw, road: o.road });
     }
   }
-  for (const r of net.roads) {
+  // ctx.box (streaming): only the roads / stretches within 12 m of the box (segment index), same order and spacing
+  const SP = ctx.box ? roadSpans(net, ctx.box, 12) : null;
+  ctx._spans = SP;
+  const roadList = SP ? [...SP.keys()].map(id => net.roads[id]) : net.roads;
+  for (const r of roadList) {
     const P = r.P;
     if (P.id === 'alley' || !r.len) continue;
+    const SL = SP ? SP.get(r.id) : null, skipS = (s) => SL && !inSpans(SL, s, 1);
     const J = (r.junctions || []).filter(j => j.major);
     const nearJunction = (s, pad) => J.some(j => s > j.a - pad && s < j.b + pad);
     const frame = (s, u) => { const [px, pz, tx, tz] = pointAt(r, s); return [px + tz * u, pz - tx * u, tx, tz]; };
@@ -3945,7 +4017,7 @@ function placeProps(ctx) {
     const spacing = P.cls === 'arterial' ? 30 : P.cls === 'collector' ? 34 : 42;
     for (const side of [1, -1]) {
       for (let s = 10 + (side < 0 ? spacing / 2 : 0); s < r.len - 6; s += spacing) {
-        if (nearJunction(s, 9)) continue;
+        if (skipS(s) || nearJunction(s, 9)) continue;
         const u = side * (P.half + 0.55);
         const [x, z, tx, tz] = frame(s, u);
         if (!okAt(x, z, r.id)) continue;
@@ -3955,14 +4027,14 @@ function placeProps(ctx) {
       if (P.median === 'planted') {
         const med = P.edges.find(e => e.type === 'median');
         for (let s = 18; s < r.len - 10; s += 36) {
-          if (nearJunction(s, 30)) continue;
+          if (skipS(s) || nearJunction(s, 30)) continue;
           const [x, z, tx, tz] = frame(s, (med.left + med.right) / 2);
           if (side > 0 && okAt(x, z, r.id, 'median')) out.push({ type: 'lamp2', x, y: hsM, z, yaw: Math.atan2(tz, -tx), road: r.id });
         }
       }
       // hydrants
       for (let s = 20 + (side < 0 ? 40 : 0); s < r.len - 6; s += 85) {
-        if (nearJunction(s, 7)) continue;
+        if (skipS(s) || nearJunction(s, 7)) continue;
         const [x, z] = frame(s, side * (P.half + 0.45));
         if (okAt(x, z, r.id)) out.push({ type: 'hydrant', x, y: hsM, z, yaw: 0, road: r.id });
       }
@@ -3978,7 +4050,7 @@ function placeProps(ctx) {
       for (const [d, sEdge, side] of [[1, j.a, -1], [-1, j.b, 1]]) {
         if (!hasDir(d)) continue;
         const s = sEdge - d * (0.8 + 3.2 + 1.2);
-        if (s < 2 || s > r.len - 2) continue;
+        if (s < 2 || s > r.len - 2 || skipS(s)) continue;
         const [x, z, tx, tz] = frame(s, side * (P.half + 0.7));
         if (!okAt(x, z, r.id, 'any')) continue;
         const yaw = yawTowards(x, z, frame(s, 0));
@@ -4095,16 +4167,19 @@ function placeStreetFurniture(ctx, out) {
     return true;
   };
   for (const p of out) addTaken(p.x, p.z, FURN_R[p.type] || 0.5);
-  const urbanRoads = net.roads.filter(r => (r.district === 'downtown' || r.district === 'oldtown') && r.P.id !== 'alley' && r.len);
+  const SP = ctx._spans || null, SPF = SP && ctx.box ? roadSpans(net, ctx.box, 100) : null;     // streaming: roads near the box only
+  const near = SPF ? net.roads.filter(r => SPF.has(r.id)) : net.roads;
+  const urbanRoads = near.filter(r => (r.district === 'downtown' || r.district === 'oldtown') && r.P.id !== 'alley' && r.len);
   const urban = (x, z) => { for (const u of urbanRoads) if (distToPolyline([x, z], u.pts) < 60) return true; return false; };
-  const alleys = net.roads.filter(r => r.P.id === 'alley' && r.len);
+  const alleys = near.filter(r => r.P.id === 'alley' && r.len);
   const offAlley = (x, z, r) => { for (const a of alleys) if (distToPolyline([x, z], a.pts) < a.P.half + 1.2 + r) return false; return true; };   // keep alley mouths clear
   const isWalk = (x, z, road) => { R.classify(x, z, o, cls); return o.road === road && (cls[1] === MAT.SIDEWALK || cls[1] === MAT.SIDEWALK_JOINT); };
   let n = 0;
-  for (const r of net.roads) {
+  for (const r of SP ? [...SP.keys()].map(id => net.roads[id]) : net.roads) {
     const P = r.P;
     if (P.id === 'alley' || !r.len || !P.sidewalk) continue;
     if (r.district === 'residential') continue;
+    const SL = SP ? SP.get(r.id) : null;
     const through = P.cls === 'arterial' || P.cls === 'collector';
     const J = (r.junctions || []).filter(j => j.major);
     const nearJ = (s, pad) => J.some(j => s > j.a - pad && s < j.b + pad);
@@ -4115,6 +4190,7 @@ function placeStreetFurniture(ctx, out) {
     // street) and hz (across); rad: clearance radius. Faces the street (+z) unless face = -1.
     const put = (type, s, side, c, hx, hz, rad, face) => {
       if (s < 2 || s > r.len - 2) return false;
+      if (SL && !inSpans(SL, s, 1)) return false;
       const u = side * (P.half + c);
       const [x, z] = frame(s, u);
       if (!urban(x, z) || !clear(x, z, rad) || !offAlley(x, z, rad)) return false;
@@ -4189,7 +4265,7 @@ function placeStreetFurniture(ctx, out) {
         const e = side > 0 ? P.edges[0] : P.edges[P.edges.length - 1], uc = (e.left + e.right) / 2;
         const isPark = (qx, qz) => { R.classify(qx, qz, o, cls); return o.road === r.id && (cls[1] === MAT.PARKING || cls[1] === MAT.PAINT_WHITE); };
         for (let s = 25 + H(side, 9) * 40; s < r.len - 12; s += 70 + 90 * H(side + 70, s)) {
-          if (nearJ(s, 14)) continue;
+          if ((SL && !inSpans(SL, s, 1)) || nearJ(s, 14)) continue;
           const h = H(side + 71, s);
           const type = h < 0.3 ? 'van' : h < 0.42 ? 'vanBlue' : h < 0.5 ? 'vanGrey' : h < 0.68 ? 'truck' : h < 0.78 ? 'truckBlue' : h < 0.86 ? 'truckGreen' : h < 0.94 ? 'rolloff' : 'rolloffBlue';
           const half = type.startsWith('truck') ? 3.9 : type.startsWith('van') ? 2.95 : 3.1;
@@ -4216,13 +4292,14 @@ function placeStreetFurniture(ctx, out) {
   }
   // bollards: short rows where plazas and pocket plazas meet the sidewalk
   if (R.blockArea) {
-    for (const r of net.roads) {
+    for (const r of SP ? [...SP.keys()].map(id => net.roads[id]) : net.roads) {
       const P = r.P;
       if (P.id === 'alley' || !r.len || !P.sidewalk || r.district === 'residential') continue;
-      const J = (r.junctions || []).filter(j => j.major);
+      const J = (r.junctions || []).filter(j => j.major), SL = SP ? SP.get(r.id) : null;
       for (const side of [1, -1]) {
         const cand = [];
         for (let s = 3; s < r.len - 3; s += 1.5) {
+          if (SL && !inSpans(SL, s, 40)) continue;
           if (J.some(j => s > j.a - 4 && s < j.b + 4)) continue;
           const u = side * (P.half + P.sidewalk + 0.45);
           const [px, pz, tx, tz] = pointAt(r, s), x = px + tz * u, z = pz - tx * u;
@@ -4299,6 +4376,6 @@ function exportNetwork(net) {
 Object.assign(PROP_PALETTE, VEH_PALETTE);
 // rural ground (city_core GROUND): crop green, furrow, wheat, forest floor, water, farmyard gravel
 Object.assign(PROP_PALETTE, { 202: [112, 146, 74], 203: [128, 104, 78], 204: [204, 182, 116], 205: [86, 100, 66], 206: [76, 114, 138], 207: [166, 156, 138] });
-const CityCore = { Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

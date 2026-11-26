@@ -278,6 +278,9 @@ function trafficKit(K) {
   const inc = (k) => { stats.incidents[k] = (stats.incidents[k] || 0) + 1; };
   const core = (net.origins && net.origins.core) || [0, 0];
   const b = net.bounds, BOX = K.box || null;
+  // streaming tile: only the road stretches within 24 m of the box (segment index), and a test for "far from the box"
+  const SPANS = BOX && C.roadSpans ? C.roadSpans(net, BOX, 24) : null;
+  const farB = (x, z, m) => BOX && (x < BOX[0] - m || x > BOX[2] + m || z < BOX[1] - m || z > BOX[3] + m);
 
   // ---- variants: one mesh per (kind, state, doors, lights, variant, rolled); body paint per instance
   const VEH = C.Vehicles || (self.CityCore && self.CityCore.Vehicles) || null;
@@ -442,7 +445,9 @@ function trafficKit(K) {
   let props = [];
   try {
     const footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind, type: J.type }));
-    props = C.placeProps({ net, F, R, voxel, footprints });
+    // streaming: furniture placed on the box + 16 m (grid-aligned like a page's), as the page places it
+    const pbox = BOX ? { x0: b.x0 + Math.floor((BOX[0] - 16 - b.x0) / 4) * 4, z0: b.z0 + Math.floor((BOX[1] - 16 - b.z0) / 4) * 4, x1: BOX[2] + 16, z1: BOX[3] + 16 } : undefined;
+    props = C.placeProps({ net, F, R, voxel, footprints, box: pbox });
   } catch (e) { props = []; }
   const PFP = propFootprints(C);
   const lampsAndHydrants = [];
@@ -731,13 +736,14 @@ function trafficKit(K) {
           }
         }
         cands.sort((a, c) => a[3] - c[3]);
-        for (const [r, s, d] of cands) { const q = radial(r, s); if (!farFromUsed(q.x, q.z, 90)) continue; if (roadblock(r, s, d)) { ++done; break; } }
+        for (const [r, s, d] of cands) { const q = radial(r, s); if (!farFromUsed(q.x, q.z, 90)) continue; if (farB(q.x, q.z, 60)) continue; if (roadblock(r, s, d)) { ++done; break; } }
         continue;
       }
       const fn = { tanker, garbage, bus: busCrash, ambulances: ambCluster, jackknife }[type];
       for (const [r, s] of spotsArt) {
         const q = radial(r, s); if (q.dist < 60 || !farFromUsed(q.x, q.z, 90)) continue;
         if (type === 'garbage' && r.P.cls === 'arterial' && Rg() < 0.5) continue;
+        if (farB(q.x, q.z, 60)) continue;               // could not place anything in the box from there
         if (fn(r, s)) { ++done; break; }
       }
     }
@@ -767,7 +773,8 @@ function trafficKit(K) {
   };
   const intoPost = (p, Rr) => {
     const r = net.roads[p.road]; if (!r || r.P.id === 'alley') return false;
-    let bs = 0, bd = 1e9; for (let s = 0; s < r.len; s += 1) { const [x, z] = frame(r, s, 0); const dd = Math.hypot(x - p.x, z - p.z); if (dd < bd) { bd = dd; bs = s; } }
+    const SLp = SPANS ? SPANS.get(r.id) : null;
+    let bs = 0, bd = 1e9; for (let s = 0; s < r.len; s += 1) { if (SLp && !C.inSpans(SLp, s, 2)) continue; const [x, z] = frame(r, s, 0); const dd = Math.hypot(x - p.x, z - p.z); if (dd < bd) { bd = dd; bs = s; } }
     if (inJ(r, bs, 1)) return false;
     const [cx, cz, tx, tz] = frame(r, bs, 0);
     const side = ((p.x - cx) * tz - (p.z - cz) * tx) > 0 ? 1 : -1;
@@ -833,11 +840,13 @@ function trafficKit(K) {
         const j = J[Math.floor(Rr() * J.length)], d = Rr() < 0.5 ? 1 : -1;
         const [x, z] = frame(r, d > 0 ? j.a : j.b, 0);
         if (!farFromUsed(x, z, 22)) continue;
+        if (farB(x, z, 60)) continue;
         ok = pileup(r, j, d, Rr);
       } else if (type === 'lamp') {
         if (!lh.length) continue;
         const p = lh[Math.floor(Rr() * lh.length)];
         if (!farFromUsed(p.x, p.z, 22)) continue;
+        if (farB(p.x, p.z, 30)) continue;
         ok = intoPost(p, Rr); if (ok) usedSpots.push([p.x, p.z]);
       } else {
         const pool = type === 'sidewalk' ? poolWalk : roads;
@@ -846,6 +855,7 @@ function trafficKit(K) {
         if (inJ(r, s, 4)) continue;
         const [x, z] = frame(r, s, 0);
         if (!farFromUsed(x, z, 18)) continue;
+        if (farB(x, z, 40)) continue;
         ok = type === 'sidewalk' ? sidewalkCar(r, s, Rr) : single(type, r, s, Rr);
         if (ok) usedSpots.push([x, z]);
       }
@@ -855,11 +865,26 @@ function trafficKit(K) {
 
   // ================================================================== the evacuation: lanes, parking lanes, stalls
   // a lane walker: cars bumper to bumper in travel direction d (facing d), density rho(s) in 0..1
+  // The lane is walked in LANE_CH m chunks, each with its own random stream (seeded from the lane's stream and the
+  // chunk index) and starting at its own end: a streaming tile walks only the chunks near its box and gets the same
+  // cars there as any other tile / the whole map (cars never straddle a chunk boundary).
+  const LANE_CH = 64;
   const fillLane = (r, uC, d, rho, opt) => {
-    const Rr = opt.R;
-    let s = d > 0 ? 3 : r.len - 3, count = 0, run = 0;
+    const base = (opt.R() * 4294967296) >>> 0, nC = Math.max(1, Math.ceil(r.len / LANE_CH)), SL = SPANS ? SPANS.get(r.id) : null;
+    if (SPANS && !SL) return 0;
     if (opt.tag) { const T = stats.lane[opt.tag] = stats.lane[opt.tag] || { len: 0, ok: 0, obb: 0, surf: 0 }; T.len += Math.round(r.len); }
-    const end = (q) => d > 0 ? q > r.len - 3 : q < 3;
+    let count = 0;
+    for (let ci = 0; ci < nC; ++ci) {
+      const c = d > 0 ? ci : nC - 1 - ci, c0 = c * LANE_CH, c1 = Math.min(r.len, (c + 1) * LANE_CH);
+      if (SL && !SL.some(([a, e]) => a < c1 + 8 && e > c0 - 8)) continue;
+      count += fillChunk(r, uC, d, rho, Object.assign({}, opt, { R: C.mulberry32((base ^ Math.imul(c + 1, 0x9E3779B1)) >>> 0) }), Math.max(3, c0), Math.min(r.len - 3, c1));
+    }
+    return count;
+  };
+  const fillChunk = (r, uC, d, rho, opt, lo, hi) => {
+    const Rr = opt.R;
+    let s = d > 0 ? lo + 0.15 : hi - 0.15, count = 0, run = 0;
+    const end = (q) => d > 0 ? q > hi : q < lo;
     while (!end(s)) {
       const p = rho(s);
       if (p < 0.05) { s += d * 8; continue; }
@@ -986,4 +1011,30 @@ function trafficKit(K) {
 }
 
 L.trafficKit = trafficKit;
+// Streaming seams: every tile places its traffic on its own box and keeps the instances centred in the tile, so two
+// neighbours can each keep a car on the same spot near their common edge. Given the tiles' outputs in a fixed order
+// (by tile), returns per part a Uint8Array keep flag: an instance closer than gap to an instance kept from an earlier
+// part is dropped (the result depends only on the parts, not on the order they arrived in).
+L.trafficSeams = function (parts, gap) {
+  gap = gap === undefined ? 0.15 : gap;
+  const G = 8, grid = new Map(), keep = [];
+  const box = (O, i) => ({ x: O[i * 8], z: O[i * 8 + 1], hx: O[i * 8 + 2], hz: O[i * 8 + 3], c: O[i * 8 + 4], s: O[i * 8 + 5] });
+  parts.forEach((t, pi) => {
+    const K = new Uint8Array(t.count).fill(1), O = t.obb, mine = [];
+    for (let i = 0; i < t.count; ++i) {
+      const a = box(O, i), r = Math.hypot(a.hx, a.hz) + gap;
+      const g0 = Math.floor((a.x - r - 10) / G), g1 = Math.floor((a.x + r + 10) / G), h0 = Math.floor((a.z - r - 10) / G), h1 = Math.floor((a.z + r + 10) / G);
+      let hit = false;
+      for (let h = h0; h <= h1 && !hit; ++h) for (let g = g0; g <= g1 && !hit; ++g) {
+        const L2 = grid.get(g * 65536 + h); if (!L2) continue;
+        for (const b of L2) if (b.p !== pi && !obbGap(a, b, gap)) { hit = true; break; }
+      }
+      if (hit) { K[i] = 0; continue; }
+      a.p = pi; mine.push(a);
+    }
+    for (const a of mine) { const k = Math.floor(a.x / G) * 65536 + Math.floor(a.z / G); let L2 = grid.get(k); if (!L2) grid.set(k, L2 = []); L2.push(a); }
+    keep.push(K);
+  });
+  return keep;
+};
 })();

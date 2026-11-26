@@ -74,15 +74,19 @@ function buildRegional(seed, opts, CC, getRaw) {
   const res = mb.finish(0.002);
   R.setCuts(cuts);
   // traffic of every tile as one set (variants deduplicated by key)
-  const vk = new Map(), variants = []; let n = 0; for (const t of tr) n += t.count;
+  // (seams: an instance overlapping one kept from an earlier tile is dropped, as city_stream.js mergeTraffic does)
+  const keepT = L.trafficSeams ? L.trafficSeams(tr) : tr.map(t => new Uint8Array(t.count).fill(1));
+  const vk = new Map(), variants = []; let n = 0; for (const K of keepT) for (const f of K) n += f;
   const T = { M: new Float32Array(n * 12), vid: new Uint16Array(n), paint: new Uint8Array(n), obb: new Float32Array(n * 8), count: n, variants, paintPH: tr.length ? tr[0].paintPH : 0 };
   let o = 0;
-  for (const t of tr) {
+  tr.forEach((t, ti) => {
     const map = t.variants.map(x => { let k = vk.get(x.key); if (k === undefined) { k = variants.length; vk.set(x.key, k); variants.push(Object.assign({}, x, { n: 0 })); } return k; });
-    T.M.set(t.M, o * 12); T.obb.set(t.obb, o * 8); T.paint.set(t.paint, o);
-    for (let i = 0; i < t.count; ++i) { T.vid[o + i] = map[t.vid[i]]; variants[T.vid[o + i]].n++; }
-    o += t.count;
-  }
+    for (let i = 0; i < t.count; ++i) {
+      if (!keepT[ti][i]) continue;
+      T.M.set(t.M.subarray(i * 12, i * 12 + 12), o * 12); T.obb.set(t.obb.subarray(i * 8, i * 8 + 8), o * 8); T.paint[o] = t.paint[i];
+      T.vid[o] = map[t.vid[i]]; variants[T.vid[o]].n++; ++o;
+    }
+  });
   jobs.sort((a, c) => (a.kind === 'shouse' ? 0 : 1) - (c.kind === 'shouse' ? 0 : 1));
   const rest = jobs.filter(J => J.kind !== 'shouse');
   res.counts = counts; res.traffic = T; res.cuts = cuts; res.houseSegs = houseSegs; res.net = net;

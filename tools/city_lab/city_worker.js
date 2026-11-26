@@ -119,11 +119,9 @@ self.addEventListener('message', (e) => {
     self.postMessage({ type: 'rready', ms: performance.now() - t0, bounds: net.bounds });
   } else if (d.cmd === 'rpage' && RP) {
     const t0 = performance.now(), net = RP.net;
-    const P = A.planPage(net, C, RP.voxel, d.pi, d.pj);
-    if (d.props) {                                     // street furniture of the page (placed on the page's window)
-      const H = A.PAGE_HALO, r = P.rect, b = net.bounds;
-      const F = new C.FieldSampler(net, 0.5, [r[0] - 16, r[1] - 16, r[2] + 16, r[3] + 16]); F.build(null, true);
-      const R = new C.Rasterizer(net, F, RP.voxel); R.blockAreas(); R.setCuts(P.kitCuts);
+    const po = { keep: !!d.props }, P = A.planPage(net, C, RP.voxel, d.pi, d.pj, po);
+    if (d.props) {                                     // street furniture of the page (on the page's planning window)
+      const r = P.rect, b = net.bounds, F = po.F, R = po.R; R.setCuts(P.kitCuts);
       const box = { x0: b.x0 + Math.floor((r[0] - 8 - b.x0) / 4) * 4, z0: b.z0 + Math.floor((r[1] - 8 - b.z0) / 4) * 4, x1: r[2] + 8, z1: r[3] + 8 };
       const ctx = { net, F, R, voxel: RP.voxel, box, footprints: P.jobs.filter(J => J.kind !== 'shouse').map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind })) };
       P.props = C.placeProps(ctx).filter(p => p.x >= r[0] && p.x < r[2] && p.z >= r[1] && p.z < r[3]);
