@@ -114,7 +114,7 @@ void drawDebugUI(AppState& s) {
         ImGui::SameLine();
         if (ImGui::Button("noon")) t.hours = 12.f;
         ImGui::SameLine();
-        if (ImGui::Button("golden")) t.hours = 17.3f;
+        if (ImGui::Button("golden")) t.hours = 16.4f;
         ImGui::SameLine();
         if (ImGui::Button("dusk")) t.hours = 18.3f;
         ImGui::SameLine();
