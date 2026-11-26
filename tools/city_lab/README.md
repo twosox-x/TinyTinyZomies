@@ -171,3 +171,26 @@ The approved downtown is locked by headless checks in `dev/` (run from the repos
 - **rural** (D > d2): radials continue as county roads (Grand / Division / Broadway as highway boulevards), back roads on some sectors, axis-aligned parcels (`ruralParcel`: corn / soy / wheat rows, ploughed, pasture, woodlots), noise woods, a lake, farmsteads (`net.plan.farms`). Ground = `ruralGround` in the raster; trees, hedgerows, fences, farm buildings = `towers/ruralkit.js`.
 - Zone thresholds (towers, mids, transition, lot widths) divide distances by `net.zoneScale`. `landUseAt(net, x, z)` gives the zone anywhere (tile-safe: pure functions of the seed and small lists in `net.plan`).
 - Dev: `dev/grow_stats.js [seed] --scale=5 --png=plan.png` (network stats per zone, plan-view PNG of the ground raster); `dev/grow_shots.js` (RTS shots of a grown map, served from disk). Headless tools take the scale from `self.CITY_LAB_SCALE` (e.g. `node -r preload.js dev/zfight.js`).
+
+## Streaming (`city_stream.js`, default page mode): regional planning
+
+No whole-map plan. Every worker rebuilds the road network once (`rinit`: network, junctions; land use is a pure function
+`landUseAt`). The map is cut into **256 m pages** on a grid from the map corner (`CityArch.PAGE`, `pageOf`, `pageRect`):
+
+- `CityArch.planPage(net, C, voxel, pi, pj)` plans one page on a window of the page + 128 m (`PAGE_HALO`): windowed fields
+  (`FieldSampler` win, bit-identical samples), `Rasterizer.blockAreas`, `Plots` with a window (`new Plots(..., win)`,
+  same cell origin), `planAll` with `PL.pageMode`, then keeps what it **owns**: jobs and kit quads whose centre lies in the
+  page, kit curb cuts whose midpoint does, the block classes of its 0.5 m field cells, and (worker) its street furniture.
+- A block fully inside two windows comes out the same from both: region seeds are a hash of the region's first cell in
+  global plot-grid coordinates (`g.sid`, also used by the whole-map plan), grid origins are global, scan order is relative.
+- Local rules in page mode: decks are dealt per page in placement order (unique towers only on the page holding the
+  core); a suburban commercial corner is every arterial x arterial site plus a hashed 35 % of the others (the whole-map
+  plan keeps "best 3 x scale").
+- A tile (128 m) is requested once the pages within its 48 m field margin are in: `CityArch.pagesPlan` (jobs: suburban
+  houses first, then by page, then placement order; kit by page), `Rasterizer.useClassGrid(CityArch.pagesClassGrid)`,
+  `buildTile`, road raster with every known curb cut (incl. the tile's halo buildings), and the tile's **traffic**
+  (`trafficKit` with `box` / `own`: placed within the tile + 12 m, own cars kept), merged on the page into one
+  instanced set. The page holds only resident pages (LRU `?plru=24`) and tiles (`?lru=80`).
+- `?wholeplan=1`: the previous whole-map planner path (`splan` / `sinit` / `stile`).
+- Headless checks on the regional path: `CITY_REGIONAL=1 [CITY_REGION=x0,z0,x1,z1] [CITY_TILE=128]` for `zfight.js`,
+  `groundfight.js`, `traffic_check.js` (dev/meshcheck.js `buildRegional`: memory bounded by the region, any map size).

@@ -2002,6 +2002,18 @@ class Rasterizer {
     this.blockArea = new Map(); this.suburb = new Set(); this.pocket = BC.pocket;
     BC.table.forEach((t, k) => { if (t.kind) this.blockArea.set(k, t.kind); if (t.sub) this.suburb.add(k); });
   }
+  // Streaming pages: block classes per global field cell from the planned pages (get(gix, giz) -> code: 2 * (kind
+  // index + 1, 0 none) + suburb; 255 no block; 254 no page there), kinds = CityArch.classKinds(net)
+  useClassGrid(get, kinds) {
+    const F = this.F;
+    for (let z = 0; z < F.nz; ++z) for (let x = 0; x < F.nx; ++x) {
+      const i = z * F.nx + x; if (F.comp[i] < 0) continue;
+      const k = get(F.oix + x, F.oiz + z);
+      F.comp[i] = k === 255 ? -1 : k === 254 ? 0 : k;
+    }
+    this.blockArea = new Map(); this.suburb = new Set(); this.pocket = 0;
+    for (let k = 0; k < 2 * (kinds.length + 1); ++k) { if (k >= 2) this.blockArea.set(k, kinds[(k >> 1) - 1]); if (k & 1) this.suburb.add(k); }
+  }
   areaAt(x, z, road, u) {
     if (!this.blockArea) this.blockAreas();
     if (this.net.plan && isRural(this.net, x, z)) return 'rural';
@@ -2196,11 +2208,18 @@ function arrowGlyph(a, b, left, w) {
 // (nearest street), a lot along that street (random widths per road) and a depth. Corners join the lower-id
 // road's lot (L-shaped corner buildings). Interiors deeper than the lot depth stay open (courtyards).
 class Plots {
-  constructor(net, fields, raster, cell, seed) {
+  // win = [x0, z0, x1, z1] (m, optional): only that window of the global plot grid (same cell origin: streaming pages)
+  constructor(net, fields, raster, cell, seed, win) {
     this.net = net; this.F = fields; this.Ra = raster; this.cell = cell; this.seed = seed;
     const b = net.bounds;
     this.x0 = b.x0; this.z0 = b.z0;
     this.nx = Math.ceil((b.x1 - b.x0) / cell); this.nz = Math.ceil((b.z1 - b.z0) / cell);
+    this.gix = 0; this.giz = 0;                          // window offset in global plot cells (block seeds: global cell)
+    if (win) {
+      const i0 = Math.max(0, Math.floor((win[0] - b.x0) / cell)), j0 = Math.max(0, Math.floor((win[1] - b.z0) / cell));
+      const i1 = Math.min(this.nx, Math.ceil((win[2] - b.x0) / cell)), j1 = Math.min(this.nz, Math.ceil((win[3] - b.z0) / cell));
+      this.gix = i0; this.giz = j0; this.x0 = b.x0 + i0 * cell; this.z0 = b.z0 + j0 * cell; this.nx = Math.max(1, i1 - i0); this.nz = Math.max(1, j1 - j0);
+    }
     this.lots = net.roads.map(r => this.lotCuts(r));
   }
   district(r) { return r.district; }
@@ -3871,7 +3890,7 @@ function placeProps(ctx) {
   // a kiosk or food cart with cafe tables around it. Small plazas get the ring only.
   if (R.blockArea === undefined) R.blockAreas();
   {
-    const b = net.bounds, step = 4;
+    const b = ctx.box || net.bounds, step = 4;      // ctx.box: a streaming page's window (aligned to the bounds grid)
     const byBlock = new Map();
     for (let gz = b.z0; gz < b.z1; gz += step) for (let gx = b.x0; gx < b.x1; gx += step) {
       const c = F.blockAt(gx, gz), kind = c >= 0 ? R.blockArea.get(c) : undefined;

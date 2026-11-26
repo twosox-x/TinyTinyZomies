@@ -476,7 +476,7 @@ function parkKit(K0) {
       else if (zone === 'transition' && area >= 900 && T >= 8) type = 'park';
       else type = front >= 8 && T >= 2.5 && area >= 120 && !plazaDone ? 'plaza' : 'buffer';
       if (type === 'plaza') plazaDone = true;                   // one pocket plaza per block, the rest landscaped
-      const Rc = C.mulberry32((g.id * 7919 + cp.id * 104729 + seed0 * 31337 + 0x9a7c) >>> 0);
+      const Rc = C.mulberry32(((g.sid !== undefined ? g.sid : g.id) * 7919 + cp.id * 104729 + seed0 * 31337 + 0x9a7c) >>> 0);
       const info = { block: g.id, comp: cp.id, zone, type, area: Math.round(area), c: [+mx.toFixed(1), +mz.toFixed(1)], T: +T.toFixed(1), len: Math.round(len), wid: Math.round(wid), front: Math.round(front), trees: 0, bushes: 0, items: [] };
       const S = { slots, inR, cp, comp, dOut, dLot, lotNear, dEdge, used, W, H, X, Z, kAt, lots, R: Rc, info, trees: [], bushes: [], tall: [] };
       fill(S, type, { ax, mx, mz, kT, pmin, pmax, wedge, g, b });

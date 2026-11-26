@@ -2291,8 +2291,13 @@ function planSuburbs(PL, C, blocks) {
   });
   const isCommercialSite = (b) => b.corner && b.art >= 30 && !(b.urban >= 30 && b.dc < 280);
   const cand = B.filter(isCommercialSite).sort((a, b) => (b.corner * 100 + b.art) - (a.corner * 100 + a.art) || a.g.id - b.g.id);
-  const K = Math.max(1, Math.min(3 * Math.round(net.plan ? net.plan.scale : 1), Math.round(B.length / 4)));
-  cand.slice(0, K).forEach(b => { b.use = 'commercial'; });
+  // a commercial corner is a local decision (streaming pages never see the whole map): every arterial x arterial site,
+  // and a hashed share of the arterial x collector ones (was: the best 3 x scale sites of the whole map)
+  if (PL.pageMode) cand.forEach(b => { if (b.corner >= 2 || C.hash2(b.g.sid, 17, seed0 + 911) < 0.35) b.use = 'commercial'; });
+  else {
+    const K = Math.max(1, Math.min(3 * Math.round(net.plan ? net.plan.scale : 1), Math.round(B.length / 4)));
+    cand.slice(0, K).forEach(b => { b.use = 'commercial'; });
+  }
   for (const b of B) if (b.use === 'residential' && b.urban >= 30 && b.dc < 275) b.use = 'transition';   // farther out: houses
   for (const b of B) {
     const whole = b.use === 'commercial' && (b.g.area < 2500 || b.art >= 0.45 * b.per);
@@ -2303,7 +2308,7 @@ function planSuburbs(PL, C, blocks) {
       else f.use = 'house';
       f.group = f.use === 'commercial' || f.use === 'mixed' ? 0 : f.use === 'apartments' || f.use === 'townhouse' ? 1 :
         f.use === 'none' ? -1 : f.kind === 'bulb' ? 2 : f.len >= 0.6 * maxHouse ? 3 : 4;
-      const Rf = C.mulberry32((b.g.id * 7919 + f.rid * 104729 + Math.round(f.t0) * 31 + seed0 * 977) >>> 0);
+      const Rf = C.mulberry32((b.g.sid * 7919 + f.rid * 104729 + Math.round(f.t0) * 31 + seed0 * 977) >>> 0);
       f.R = Rf;
       f.setback = f.use === 'house' ? 5.5 + Rf() * 1.5 : f.use === 'townhouse' ? 4 + Rf() * 1 : f.use === 'apartments' ? 6 + Rf() * 1.5 : 0;
       const U = SUB_USE[f.kind === 'bulb' ? 'bulb' : f.use] || SUB_USE.house;
@@ -2312,7 +2317,7 @@ function planSuburbs(PL, C, blocks) {
       if (net.plan && f.use === 'house') {
         const [fx, fz, qx, qz] = faceAt(f, f.t0 + f.len / 2), zu = C.landUseAt(net, fx + qx * 12, fz + qz * 12);
         if (zu !== 'suburban' && zu !== 'transition' && zu !== 'commercial') {
-          const h = C.hash2(b.g.id, f.rid, seed0 + 4441);
+          const h = C.hash2(b.g.sid, f.rid, seed0 + 4441);
           f.target *= f.kind === 'bulb' ? 1.35 : 1.5 + 0.3 * h; f.setback += 3 + 4 * h; f.capK = 1.45;
         }
       }
@@ -2503,7 +2508,7 @@ function planSuburbs(PL, C, blocks) {
   }
   for (const a of order.values()) a.sort((p, q) => p.a - q.a).forEach((L, i) => { L.k = i; });
   for (const L of lots) {
-    L.seed = (L.g.id * 7919 + L.f.rid * 104729 + L.k * 31337 + Math.round(L.a * 4) * 13 + seed0 * 7 + 0x51b) >>> 0;
+    L.seed = (L.g.sid * 7919 + L.f.rid * 104729 + L.k * 31337 + Math.round(L.a * 4) * 13 + seed0 * 7 + 0x51b) >>> 0;
     if (L.use === 'house') L.H = layoutHouse(L, C.mulberry32(L.seed), L.flip ? L.k + 1 : L.k);
   }
   const kept = lots.filter(L => L.use !== 'house' || L.H);
@@ -2798,7 +2803,10 @@ function blockRegions(PL) {
       if (q >= nx && B[q - nx] === 1 && lab[q - nx] < 0) { lab[q - nx] = id; st.push(q - nx); }
       if (q + nx < n && B[q + nx] === 1 && lab[q + nx] < 0) { lab[q + nx] = id; st.push(q + nx); }
     }
-    regs.push({ id, cells });
+    // seed id: hash of the region's first cell in scan order, in global plot-grid coordinates, so a block gets the same
+    // seeds from the whole-map plan and from any streaming page whose window contains it (local ids follow scan order)
+    const gx = (PL.gix || 0) + i % nx, gz = (PL.giz || 0) + ((i / nx) | 0);
+    regs.push({ id, cells, sid: (Math.imul(gz + 1, 73856093) ^ Math.imul(gx + 1, 19349663)) >>> 8 });
   }
   for (const g of regs) {
     let mx = 0, mz = 0;
@@ -3044,7 +3052,7 @@ function placeBlocks(PL, C, occ, addJob) {
     const dcB = Math.hypot(g.mx - core[0], g.mz - core[1]) / (net.zoneScale || 1);
     const rzone = zkey(zoneOf(net, roads[best], g.mx, g.mz));
     const district = roads[best].district;
-    const Rb = C.mulberry32((g.id * 2654435761 ^ (PL.seed * 40503)) >>> 0);
+    const Rb = C.mulberry32((g.sid * 2654435761 ^ (PL.seed * 40503)) >>> 0);
     const base = blockBase(rzone, district, dcB, Rb);
     const walks = {};
     // one lot -> one job (world frame), with its storeys and type
@@ -3057,7 +3065,7 @@ function placeBlocks(PL, C, occ, addJob) {
       const zone = pr.rear ? 'row' : road ? zkey(zoneOf(net, road, cx, cz)) : rzone;
       const zb = zone === rzone ? base : blockBase(zone, road ? road.district : district, Math.hypot(cx - core[0], cz - core[1]), Rb);
       const wk = walks[pr.strip] = Math.max(-1.5, Math.min(1.5, (walks[pr.strip] || 0) + [-1, 0, 0, 1][Math.floor(Rb() * 4)]));
-      const seed = (g.id * 7919 + (pr.strip || 'X').charCodeAt(0) * 104729 + (pr.idx || 0) * 31337 + PL.seed * 977) >>> 0;
+      const seed = (g.sid * 7919 + (pr.strip || 'X').charCodeAt(0) * 104729 + (pr.idx || 0) * 31337 + PL.seed * 977) >>> 0;
       const Rl = C.mulberry32(seed ^ 0x2545f491);
       let kind, floors;
       if (pr.tower && wm >= 18 && dm >= 18) {
@@ -3067,7 +3075,7 @@ function placeBlocks(PL, C, occ, addJob) {
       else { kind = zone === 'row' ? 'row' : 'mid'; floors = lotFloors(zone, road, pr, zb, wk, Rl); }
       occ.rect(O, e1, e2, 0, wm, 0, dm, markVal, undefined, frameAngle(e1));
       addJob(O, e1, e2, W, D, { kind, floors, seed, zone: zone === 'core' ? 'core' : zone === 'row' ? 'row' : 'mid',
-        tag: g.id + ':' + pr.strip + (pr.idx || 0), corner: !!pr.corner, shops: !pr.rear && !!road && (RANK[road.P.cls] >= 2 || !!pr.corner || zone === 'core') });
+        tag: g.sid + ':' + pr.strip + (pr.idx || 0), corner: !!pr.corner, shops: !pr.rear && !!road && (RANK[road.P.cls] >= 2 || !!pr.corner || zone === 'core') });
       stats.lots++;
       return true;
     };
@@ -3116,7 +3124,7 @@ function placeBlocks(PL, C, occ, addJob) {
         for (let b = b0; b < b1; ++b) bo.fill(1, b * W + a0, b * W + a1);
         lots.push({ a0, a1, b0, b1, face, pr });
       };
-      const Rc = C.mulberry32((g.id * 40503 + PL.seed * 7) >>> 0);
+      const Rc = C.mulberry32((g.sid * 40503 + PL.seed * 7) >>> 0);
       cutBlock(W, D, sides, rzone, Rc, lot, dcB);
       const Ob = P(A0, B0), Q = (a, b) => [Ob[0] + a * BV * E1[0] + b * BV * E2[0], Ob[1] + a * BV * E1[1] + b * BV * E2[1]];
       for (const L of lots) {
@@ -3163,7 +3171,7 @@ function placeBlocks(PL, C, occ, addJob) {
         for (; j < m.d && j < capJ; ++j) { let ok = true; for (let i = i0; i < i1; ++i) if (!m.mask[j * m.w + i]) { ok = false; break; } if (!ok) break; }
         return j === jF ? 0 : m.b0 + j * m.c - bF;
       };
-      const Rp = C.mulberry32((g.id * 977 + rid * 7919 + PL.seed) >>> 0);
+      const Rp = C.mulberry32((g.sid * 977 + rid * 7919 + PL.seed) >>> 0);
       let a = Math.ceil((fa0 - 0.25) / BV) * BV, lastEnd = -1e9, k = 0;
       const end = fa1 + 0.25;
       while (a + Z.minW <= end) {
@@ -3201,8 +3209,8 @@ function placeBlocks(PL, C, occ, addJob) {
 //                              sides), then only the tile's own quads are kept. Pure function of (plan, rectangle).
 //   buildAll(PL, R, voxel, C, opts)  plan + every tile (opts.tile metres, default one tile = the whole map), concatenated.
 const TILE_HALO = 6;
-function assignTypes(jobs, C) {
-  towerDeck = []; dealt = 0; usedUnique = new Set(); midDecks = {};
+function assignTypes(jobs, C, banUnique) {
+  towerDeck = []; dealt = 0; usedUnique = new Set(banUnique || []); midDecks = {};
   for (const J of jobs) {
     const spec = { seed: J.seed, floors: J.floors, use: J.use };
     if (J.kind === 'row') J.pre = { m: chooseMid(J.W, spec, C, 'row') };
@@ -3214,12 +3222,13 @@ function assignTypes(jobs, C) {
     if (J.pre && J.pre.m) J.type = J.pre.m.name; else if (J.pre && J.pre.t) J.type = J.pre.t.name;
   }
 }
-function planAll(PL, R, voxel, C) {
+function planAll(PL, R, voxel, C, popts) {
+  popts = popts || {};
   C_VoxModel = C.VoxModel;
   CUTS = []; CUT_WHY = {}; CUT_R = R && R.F ? R : null;                           // driveway curb cuts, see curbProbe()
   if (CUT_R && CUT_R.setCuts) CUT_R.setCuts(null);
   const hs = R.hs * voxel, counts = { house: 0 };
-  const occ = new Occupancy(PL.net.bounds);
+  const occ = new Occupancy(PL.occBounds || PL.net.bounds);
   const jobs = [];
   const addJob = (O, e1, e2, W, D, p) => jobs.push(Object.assign({ O, e1, e2, W, D }, p));
   const tb = Date.now();
@@ -3310,7 +3319,12 @@ function planAll(PL, R, voxel, C) {
     }
   });
   const tt = Date.now();
-  assignTypes(jobs.filter(J => J.kind !== 'shouse'), C);
+  if (PL.pageMode) {                                 // decks dealt per streaming page (pageOf), in placement order
+    const byPage = new Map();
+    for (const J of jobs) if (J.kind !== 'shouse') { const k = pageOf(PL.net, J.cx, J.cz).join(','); let a = byPage.get(k); if (!a) byPage.set(k, a = []); a.push(J); }
+    const corePage = pageOf(PL.net, ...((PL.net.origins && PL.net.origins.core) || [0, 0])).join(',');
+    for (const [k, a] of byPage) if (!popts.core || k === popts.pageKey) assignTypes(a, C, k === corePage ? null : TOWERS.filter(t => t.unique).map(t => t.name));
+  } else assignTypes(jobs.filter(J => J.kind !== 'shouse'), C);
   counts.typesMs = Date.now() - tt;
   const plan = { PL, R, voxel, C, hs, occ, jobs: order, blockJobs: jobs.filter(J => J.kind !== 'shouse'), blocks, sub, counts, cuts: [], kit: null };
   // cross-lot dressing (service yards, parks) into their own mesh; quads binned per tile at build time
@@ -3328,6 +3342,92 @@ function planAll(PL, R, voxel, C) {
   plan.kitC = KC; plan.kitB = KB;
   CUT_R = null;
   return plan;
+}
+// ---- regional planning (streaming pages). The map is cut into PAGE x PAGE m pages on the global grid (from the map's
+// x0/z0 corner). A page is planned on its own: fields, plots, block regions, placeBlocks / planSuburbs / lots, kits,
+// in a window of PAGE_HALO m around it (planAll with PL.pageMode: local rules), then keeps only what it owns: jobs and
+// kit quads whose centre lies in the page, curb cuts whose midpoint does, and the block classes of its field cells.
+// A block fully inside two windows comes out the same from both (seeds hashed from the block's global first cell,
+// same grid origins, same relative scan order), so a tile assembles the jobs / kit of the pages around it.
+const PAGE = 256, PAGE_HALO = 128;
+function pageOf(net, x, z) { const b = net.bounds; return [Math.floor((x - b.x0) / PAGE), Math.floor((z - b.z0) / PAGE)]; }
+function pageRect(net, pi, pj) { const b = net.bounds; return [b.x0 + pi * PAGE, b.z0 + pj * PAGE, b.x0 + (pi + 1) * PAGE, b.z0 + (pj + 1) * PAGE]; }
+function classKinds(net) { const k = ['pocket']; for (const a of net.areas || []) if (!k.includes(a.kind)) k.push(a.kind); return k; }
+function planPage(net, C, voxel, pi, pj, opts) {
+  opts = opts || {};
+  const t0 = Date.now(), H = opts.halo || PAGE_HALO, rect = pageRect(net, pi, pj), b = net.bounds;
+  const win = [rect[0] - H, rect[1] - H, rect[2] + H, rect[3] + H];
+  const F = new C.FieldSampler(net, 0.5, [win[0] - 4, win[1] - 4, win[2] + 4, win[3] + 4]); F.build(null, true);
+  const R = new C.Rasterizer(net, F, voxel); R.blockAreas();
+  const tf = Date.now();
+  const PL = new C.Plots(net, F, R, 0.5, net.seed || 1, win); PL.pageMode = true;
+  const ox = b.x0 + Math.floor((win[0] - b.x0) / 0.5) * 0.5, oz = b.z0 + Math.floor((win[1] - b.z0) / 0.5) * 0.5;
+  PL.occBounds = { x0: ox, z0: oz, x1: win[2], z1: win[3] };
+  PL.build();
+  const tp = Date.now();
+  const key = pi + ',' + pj, own = (x, z) => x >= rect[0] && x < rect[2] && z >= rect[1] && z < rect[3];
+  const plan = planAll(PL, R, voxel, C, { core: rect, pageKey: key });
+  const jobs = plan.jobs.filter(J => own(J.cx, J.cz)).map(J => {
+    const o = Object.assign({}, J); delete o.type; o.page = key; o.pord = J.ord;
+    if (J.pre) o.pre = { mi: J.pre.m ? MIDS.indexOf(J.pre.m) : -1, ti: J.pre.t ? TOWERS.indexOf(J.pre.t) : -1 };
+    if (J.L) { const L = J.L; o.L = { H: L.H, O: L.O, e1: L.e1, e2: L.e2, w: L.w, d: L.d, cornerL: L.cornerL, cornerR: L.cornerR, nb: L.nb, seed: L.seed, use: L.use }; }
+    return o;
+  });
+  // owned kit quads (centre in the page), compact
+  const K = plan.kit, v = voxel, sel = [];
+  for (let q = 0; q < K.quads; ++q) if (own(plan.kitC[q * 2] * v, plan.kitC[q * 2 + 1] * v)) sel.push(q);
+  const n = sel.length, kit = { quads: n, pos: new Float64Array(n * 12), mat: new Uint16Array(n * 4), nrm: new Uint8Array(n * 4), nvec: K.nvec ? new Float64Array(n * 12) : null };
+  sel.forEach((q, k) => {
+    for (let e = 0; e < 12; ++e) kit.pos[k * 12 + e] = K.pos[q * 12 + e];
+    for (let e = 0; e < 4; ++e) { kit.mat[k * 4 + e] = K.mat[q * 4 + e]; kit.nrm[k * 4 + e] = K.nrm[q * 4 + e]; }
+    if (kit.nvec) for (let e = 0; e < 12; ++e) kit.nvec[k * 12 + e] = K.nvec[q * 12 + e];
+  });
+  const kitCuts = plan.kitCuts.filter(c => own((c.ax + c.bx) / 2, (c.az + c.bz) / 2)).map(c => Object.assign({}, c));
+  // block classes of the page's field cells (global field grid; 255 = no block): what a tile raster needs
+  const kinds = classKinds(net), gix0 = Math.round((rect[0] - F.bX0) / 0.5), giz0 = Math.round((rect[1] - F.bZ0) / 0.5), N = Math.round(PAGE / 0.5);
+  const cls = new Uint8Array(N * N).fill(255);
+  for (let z = 0; z < N; ++z) for (let x = 0; x < N; ++x) {
+    const ix = gix0 + x - F.oix, iz = giz0 + z - F.oiz;
+    if (ix < 0 || iz < 0 || ix >= F.nx || iz >= F.nz) continue;
+    const c = F.comp[iz * F.nx + ix]; if (c < 0) continue;
+    const kd = R.blockArea.get(c);
+    cls[z * N + x] = (kd ? kinds.indexOf(kd) + 1 : 0) * 2 + (R.suburb && R.suburb.has(c) ? 1 : 0);
+  }
+  const counts = plan.counts;
+  return { key, pi, pj, rect, jobs, kit, kitCuts, cls: { gix0, giz0, N, data: cls }, core: plan.sub ? plan.sub.core : null, hs: plan.hs,
+    ms: { fields: tf - t0, plots: tp - tf, plan: Date.now() - tp, park: counts.parkMs || 0, service: counts.serviceMs || 0, total: Date.now() - t0 } };
+}
+// a tile's plan from the pages around it (jobs in a fixed global order: suburban houses first, then by page, then by
+// placement order within the page; kit quads by page), for buildTile
+function pagesPlan(pages, net, C, voxel, hs) {
+  const ord = (k) => { const [a, b] = k.split(',').map(Number); return b * 4096 + a; };
+  pages = pages.slice().sort((p, q) => ord(p.key) - ord(q.key));
+  const jobs = [];
+  for (const P of pages) for (const J of P.jobs) jobs.push(J);
+  const rank = (J) => (J.kind === 'shouse' ? 0 : 1e9) + ord(J.page) * 1e5 + J.pord;
+  jobs.sort((a, b) => rank(a) - rank(b));
+  for (const J of jobs) if (J.pre && (J.pre.mi !== undefined)) { const p = {}; if (J.pre.mi >= 0) p.m = MIDS[J.pre.mi]; if (J.pre.ti >= 0) p.t = TOWERS[J.pre.ti]; J.pre = p; }
+  let nq = 0; for (const P of pages) nq += P.kit.quads;
+  const hasN = pages.some(P => P.kit.nvec), K = { quads: nq, pos: new Float64Array(nq * 12), mat: new Uint16Array(nq * 4), nrm: new Uint8Array(nq * 4), nvec: hasN ? new Float64Array(nq * 12) : null };
+  let o = 0;
+  for (const P of pages) {
+    const k = P.kit; K.pos.set(k.pos, o * 12); K.mat.set(k.mat, o * 4); K.nrm.set(k.nrm, o * 4);
+    if (hasN) { if (k.nvec) K.nvec.set(k.nvec, o * 12); else for (let q = 0; q < k.quads; ++q) { const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]][k.nrm[q * 4]]; for (let e = 0; e < 4; ++e) K.nvec.set(NV, (o + q) * 12 + e * 3); } }
+    o += k.quads;
+  }
+  const plan = { C, voxel, hs, jobs, sub: { core: (pages.find(P => P.core) || {}).core || null }, R: null };
+  setKit(plan, K);
+  return plan;
+}
+// block-class lookup over the pages' cells (global field grid indices) for Rasterizer.useClassGrid
+function pagesClassGrid(pages) {
+  const m = new Map(); for (const P of pages) m.set(P.cls.gix0 + ',' + P.cls.giz0, P.cls);
+  const N = Math.round(PAGE / 0.5);
+  return (gix, giz) => {
+    const off = (g) => g - ((g - 12) % N + N) % N;   // field index of the page corner (gix0 = 2 * (pi * PAGE + 6))
+    const c = m.get(off(gix) + ',' + off(giz)); if (!c) return 254;
+    return c.data[(giz - c.giz0) * N + (gix - c.gix0)];
+  };
 }
 // one job into mb (building-local emitter); returns its type
 function emitJob(plan, J, mb) {
@@ -3411,8 +3511,9 @@ function buildTile(plan, x0, z0, x1, z1, opts) {
   const ka = cr.marks[2 * segs.length], kb = cr.marks[2 * segs.length + 1];
   const kitStart = out.quads;
   for (let q = ka; q < kb; ++q) { const sq = cr.src ? cr.src[q] - kq0 : q - ka; if (sq >= 0 && sq < kown.length ? kown[sq] : true) copy(q, q + 1); }
+  const allCuts = opts.allCuts ? CUTS.map(c => Object.assign({}, c)) : null;   // own + halo buildings' curb cuts (streaming road raster / traffic)
   CUTS = []; CUT_R = null; if (R.setCuts) R.setCuts(cutsBefore || null);
-  return { mb: out, jobs, cuts, kitQuads: out.quads - kitStart, ms: Date.now() - t0, halo: sel.length - jobs.length };
+  return { mb: out, jobs, cuts, allCuts, kitQuads: out.quads - kitStart, ms: Date.now() - t0, halo: sel.length - jobs.length };
 }
 // Streaming hand-off: the planner worker exports what buildTile needs (jobs, suburban core, kit mesh + bins, kit curb
 // cuts, the block classes of the road raster) as plain data + typed arrays; the tile workers rebuild only the road
@@ -3828,6 +3929,6 @@ function previewTower(name, Wm, Dm, floors, seed, C) {
   t.fn(E, C, W, D, { seed, floors, party: {} }, C.mulberry32(seed), LIB);
   return mb.finish(0.002);
 }
-const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, planAll, buildTile, exportPlan, importPlan, kitSlice, setKit, TILE_HALO, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
+const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, planAll, buildTile, exportPlan, importPlan, kitSlice, setKit, TILE_HALO, PAGE, PAGE_HALO, pageOf, pageRect, planPage, pagesPlan, pagesClassGrid, classKinds, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityArch; else root.CityArch = CityArch;
 })(typeof self !== 'undefined' ? self : this);

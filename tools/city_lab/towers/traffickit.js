@@ -277,7 +277,7 @@ function trafficKit(K) {
   const stats = { jam: 0, exit: 0, arterial: 0, parked: 0, stalled: 0, emergency: 0, sets: [], incidents: {}, props: 0, vehicles: 0, ms: 0, propMs: 0, meshMs: 0, fail: {}, hitK: {}, lane: {} };
   const inc = (k) => { stats.incidents[k] = (stats.incidents[k] || 0) + 1; };
   const core = (net.origins && net.origins.core) || [0, 0];
-  const b = net.bounds;
+  const b = net.bounds, BOX = K.box || null;
 
   // ---- variants: one mesh per (kind, state, doors, lights, variant, rolled); body paint per instance
   const VEH = C.Vehicles || (self.CityCore && self.CityCore.Vehicles) || null;
@@ -307,6 +307,7 @@ function trafficKit(K) {
     const want = !VEH || LIVERY.has(kind) || !info0 ? 0 : (info0.cls === 'car' ? VEH.paints.pick(o.ps | 0) : VEH.paints.pickFleet(o.ps | 0));
     const key = kind + '|' + o.state + '|' + (o.doors || 0) + '|' + (o.lights ? 1 : 0) + '|' + ((o.seed | 0) & 3) + '|' + (o.roll ? 1 : 0) + (VEH ? '' : '|' + (o.ps | 0));
     let v = cache.get(key);
+    if (!v && K.meshCache && K.meshCache.has(key)) { const m = K.meshCache.get(key); v = { id: variants.length, key, kind, hi: m.hi, lo: m.lo, bb: m.bb, n: 0 }; variants.push(v); cache.set(key, v); }
     if (!v) {
       const tm = Date.now();
       let Mv = null, f = 1;
@@ -324,7 +325,7 @@ function trafficKit(K) {
       const hi = pack(C.meshVoxels3D(H), 2 * f, !!o.roll);
       const lo = o.roll ? pack(C.meshVoxels3D(half(H)), 4 * f, true) : proxy(bboxOf(hi), kind, o.state);
       v = { id: variants.length, key, kind, hi, lo, bb: bboxOf(hi), n: 0 };
-      variants.push(v); cache.set(key, v);
+      variants.push(v); cache.set(key, v); if (K.meshCache) K.meshCache.set(key, v);
       stats.meshMs += Date.now() - tm;
     }
     return { v, bb: v.bb, paint: want, kind };
@@ -371,11 +372,12 @@ function trafficKit(K) {
   const prop = (name, vr) => {
     const key = 'p|' + name + '|' + vr;
     let v = cache.get(key);
+    if (!v && K.meshCache && K.meshCache.has(key)) { const m = K.meshCache.get(key); v = { id: variants.length, key, kind: 'prop:' + name, hi: m.hi, lo: null, bb: m.bb, n: 0 }; variants.push(v); cache.set(key, v); }
     if (v) return { v, bb: v.bb, paint: 0 };
     const p = propModel(C, name, 977 * vr + 13);
     const hi = pack(C.meshVoxels3D(p.M), p.sc / C.PV, false);
     v = { id: variants.length, key, kind: 'prop:' + name, hi, lo: null, bb: bboxOf(hi), n: 0 };
-    variants.push(v); cache.set(key, v);
+    variants.push(v); cache.set(key, v); if (K.meshCache) K.meshCache.set(key, v);
     return { v, bb: v.bb, paint: 0 };
   };
 
@@ -488,6 +490,8 @@ function trafficKit(K) {
     const fp = fpOf(V, x, z, yaw, roll || 0);
     const gap = Math.max(0.15, opt.gap === undefined ? 0.2 : opt.gap);
     if (!inside(fp, Math.max(3, opt.edge || 3))) { stats.fail.out = (stats.fail.out || 0) + 1; return null; }
+    // streaming tiles (K.box): only within the tile's placement box (the tile + a margin; the tile keeps its own)
+    if (BOX && (fp.x < BOX[0] || fp.x >= BOX[2] || fp.z < BOX[1] || fp.z >= BOX[3])) return null;
     const h = roll === 1 ? V.bb.z1 - V.bb.z0 : V.bb.y1;
     if (hitObb(fp, gap, 16 | 1 | (h > 1.95 ? 8 : 4) | (opt.walk ? 2 : 0))) { stats.fail.obb = (stats.fail.obb || 0) + 1; return null; }
     if (!surfOK(fp, opt.walk ? 0.2 : 0.15, !!opt.walk)) { stats.fail.surf = (stats.fail.surf || 0) + 1; return null; }
@@ -959,6 +963,7 @@ function trafficKit(K) {
   }
 
   // ---- output: variants (hi / lo meshes in metres) and instance arrays
+  if (K.own) { const o = K.own, kept = inst.filter(I => I.fp.x >= o[0] && I.fp.x < o[2] && I.fp.z >= o[1] && I.fp.z < o[3]); inst.length = 0; inst.push(...kept); }
   const n = inst.length;
   const M = new Float32Array(n * 12), vid = new Uint16Array(n), paint = new Uint8Array(n), obb = new Float32Array(n * 8);
   inst.forEach((I, i) => {

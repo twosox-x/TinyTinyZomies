@@ -103,3 +103,60 @@ self.addEventListener('message', (e) => {
       [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer, m.pos.buffer, m.mat.buffer, m.nrm.buffer, m.idx.buffer].concat(B.nvec ? [B.nvec.buffer] : []));
   }
 });
+
+// ---- regional streaming (city_stream.js, default). No whole-map plan: every worker rebuilds the road network once
+// ('rinit'); the page asks for 256 m pages ('rpage': CityArch.planPage on a window around the page, owned jobs / kit /
+// curb cuts / block classes / street furniture) and for tiles ('rtile': the pages around the tile, windowed fields,
+// buildTile, road raster with the known curb cuts, traffic placed on this tile with its own and its halo's cuts).
+let RP = null;
+self.addEventListener('message', (e) => {
+  const d = e.data, C = self.CityCore, A = self.CityArch;
+  if (d.cmd === 'rinit') {
+    const t0 = performance.now();
+    const net = C.generateCity(d.seed, { scale: d.scale || 1 });
+    new C.FieldSampler(net, 0.5, [0, 0, 1, 1]).computeJunctions();
+    RP = { net, voxel: d.voxel, grid: C.chunkGrid(net, d.voxel), kinds: A.classKinds(net), meshCache: new Map() };
+    self.postMessage({ type: 'rready', ms: performance.now() - t0, bounds: net.bounds });
+  } else if (d.cmd === 'rpage' && RP) {
+    const t0 = performance.now(), net = RP.net;
+    const P = A.planPage(net, C, RP.voxel, d.pi, d.pj);
+    if (d.props) {                                     // street furniture of the page (placed on the page's window)
+      const H = A.PAGE_HALO, r = P.rect, b = net.bounds;
+      const F = new C.FieldSampler(net, 0.5, [r[0] - 16, r[1] - 16, r[2] + 16, r[3] + 16]); F.build(null, true);
+      const R = new C.Rasterizer(net, F, RP.voxel); R.blockAreas(); R.setCuts(P.kitCuts);
+      const box = { x0: b.x0 + Math.floor((r[0] - 8 - b.x0) / 4) * 4, z0: b.z0 + Math.floor((r[1] - 8 - b.z0) / 4) * 4, x1: r[2] + 8, z1: r[3] + 8 };
+      const ctx = { net, F, R, voxel: RP.voxel, box, footprints: P.jobs.filter(J => J.kind !== 'shouse').map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind })) };
+      P.props = C.placeProps(ctx).filter(p => p.x >= r[0] && p.x < r[2] && p.z >= r[1] && p.z < r[3]);
+      P.propsMs = performance.now() - t0 - P.ms.total;
+    }
+    P.mem = self.performance && performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+    P.wall = performance.now() - t0;
+    self.postMessage({ type: 'rpage', page: P }, [P.kit.pos.buffer, P.kit.mat.buffer, P.kit.nrm.buffer, P.cls.data.buffer].concat(P.kit.nvec ? [P.kit.nvec.buffer] : []));
+  } else if (d.cmd === 'rtile' && RP) {
+    const t0 = performance.now(), v = RP.voxel, [x0, z0, x1, z1] = d.rect, M = TILE_MARGIN, net = RP.net;
+    const F = new C.FieldSampler(net, 0.5, [x0 - M, z0 - M, x1 + M, z1 + M]); F.build(null, true);
+    const R = new C.Rasterizer(net, F, v); R.useClassGrid(A.pagesClassGrid(d.pages), RP.kinds);
+    const fieldMs = performance.now() - t0;
+    const plan = A.pagesPlan(d.pages, net, C, v, d.pages[0].hs); plan.R = R;
+    const r = A.buildTile(plan, x0, z0, x1, z1, { lod: d.lod, allCuts: true });
+    const B = r.mb.finish(0.002);
+    const t1 = performance.now();
+    R.setCuts(d.cuts.concat(r.allCuts || r.cuts));
+    const ox = Math.round(x0 / v), oz = Math.round(z0 / v);
+    const m = C.buildChunk(Object.assign({ net, voxel: v, F, R }, RP.grid), { ox, oz, w: Math.round((x1 - x0) / v), d: Math.round((z1 - z0) / v) });
+    const roadMs = performance.now() - t1;
+    // traffic of this tile: placed within the tile + 12 m (the curb cuts of the tile and its halo are known), own kept
+    let T = null, trafficMs = 0;
+    if (d.traffic && A.lib.trafficKit && d.lod !== 'far') {
+      const tt = performance.now(), G = 12;
+      const near = plan.jobs.filter(J => J.bb[2] > x0 - 30 && J.bb[0] < x1 + 30 && J.bb[3] > z0 - 30 && J.bb[1] < z1 + 30 && J.kind !== 'shouse');
+      const st = A.lib.trafficKit({ PL: { net, seed: net.seed || 1 }, C, R, jobs: near, hs: R.hs * v, voxel: v, box: [x0 - G, z0 - G, x1 + G, z1 + G], own: [x0, z0, x1, z1], meshCache: RP.meshCache });
+      T = st && st.out; trafficMs = performance.now() - tt;
+    }
+    const mem = self.performance && performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+    const tb = [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer, m.pos.buffer, m.mat.buffer, m.nrm.buffer, m.idx.buffer].concat(B.nvec ? [B.nvec.buffer] : []);
+    if (T) tb.push(T.M.buffer, T.vid.buffer, T.paint.buffer, T.obb.buffer);
+    self.postMessage({ type: 'rtile', key: d.key, lod: d.lod || 'full', bld: B, road: m, cuts: r.cuts.map(c => Object.assign({}, c)), traffic: T, trafficMs,
+      ms: performance.now() - t0, roadMs, fieldMs, halo: r.halo, mem }, tb);
+  }
+});

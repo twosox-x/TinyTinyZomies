@@ -20,6 +20,7 @@ function build(seed, opts) {
     quadN(...a) { if (opts.stacks && opts.stacks.has(this.quads) && !raw) stacks.set(this.quads, new Error().stack.split('\n').slice(2, 6).map(l => l.trim().replace(/\(.*\/(\w+\.js):(\d+):\d+\)/, '$1:$2')).join(' < ')); return super.quadN(...a); }
   }
   const CC = Object.assign({}, C, { MeshBuffer: Capture });
+  if (process.env.CITY_REGIONAL || process.env.CITY_REGION) return buildRegional(seed, opts, CC, () => raw);
   const net = C.generateCity(seed), ctx = C.prepareBuild(net, 0.1);
   const PL = new C.Plots(net, ctx.F, ctx.R, 0.5, net.seed || 1); PL.build();
   const t = Date.now();
@@ -30,6 +31,82 @@ function build(seed, opts) {
   ctx.footprints = res.footprints || null;
   const props = opts.props ? C.placeProps(ctx) : null;
   return { raw, res, ctx, ms, props, groundY: ctx.R.hs, stacks };
+}
+// Regional build (the streaming path, any map size): CITY_REGIONAL=1 [CITY_REGION=x0,z0,x1,z1 metres, default the
+// whole map] [CITY_TILE=128]. Tiles of the region are built like city_worker.js 'rtile' (pages from CityArch.planPage,
+// buildTile, traffic per tile with its own + halo curb cuts) into one mesh, so the checks see only the region:
+// memory is bounded by the region, not the map (the whole-map build overflows JS arrays above ~5 M quads).
+function buildRegional(seed, opts, CC, getRaw) {
+  const t = Date.now(), v = 0.1;
+  const net = C.generateCity(seed), b = net.bounds;
+  new C.FieldSampler(net, 0.5, [0, 0, 1, 1]).computeJunctions();
+  const rg = process.env.CITY_REGION ? process.env.CITY_REGION.split(',').map(Number) : [b.x0, b.z0, b.x1, b.z1];
+  const TILE = +(process.env.CITY_TILE || 128), M = 48;
+  // tiles on the streaming grid (from the map corner) that overlap the region
+  const ti0 = Math.floor((rg[0] - b.x0) / TILE), tj0 = Math.floor((rg[1] - b.z0) / TILE), ti1 = Math.ceil((rg[2] - b.x0) / TILE), tj1 = Math.ceil((rg[3] - b.z0) / TILE);
+  const X0 = b.x0 + ti0 * TILE, Z0 = b.z0 + tj0 * TILE, X1 = b.x0 + ti1 * TILE, Z1 = b.z0 + tj1 * TILE;
+  const npi = Math.ceil((b.x1 - b.x0) / A.PAGE), npj = Math.ceil((b.z1 - b.z0) / A.PAGE), pages = new Map();
+  const pagesIn = (x0, z0, x1, z1) => { const [pa, pb] = A.pageOf(net, x0, z0), [pc, pd] = A.pageOf(net, x1, z1), o = [];
+    for (let pj = Math.max(0, pb); pj <= Math.min(npj - 1, pd); ++pj) for (let pi = Math.max(0, pa); pi <= Math.min(npi - 1, pc); ++pi) {
+      const k = pi + ',' + pj; if (!pages.has(k)) pages.set(k, A.planPage(net, C, v, pi, pj)); o.push(pages.get(k)); }
+    return o; };
+  const all = pagesIn(X0 - M, Z0 - M, X1 + M, Z1 + M);
+  const F = new C.FieldSampler(net, 0.5, [X0 - M, Z0 - M, X1 + M, Z1 + M]); F.build(null, true);
+  const R = new C.Rasterizer(net, F, v); R.useClassGrid(A.pagesClassGrid(all), A.classKinds(net));
+  const mb = new CC.MeshBuffer(), jobs = [], houseSegs = [], meshCache = new Map();
+  let cuts = []; const tr = [];
+  for (const P of all) cuts = cuts.concat(P.kitCuts);
+  const counts = { tileMs: [], trafficMs: 0 };
+  for (let tj = tj0; tj < tj1; ++tj) for (let ti = ti0; ti < ti1; ++ti) {
+    const x0 = b.x0 + ti * TILE, z0 = b.z0 + tj * TILE, x1 = x0 + TILE, z1 = z0 + TILE;
+    const plan = A.pagesPlan(structuredClone(pagesIn(x0 - M, z0 - M, x1 + M, z1 + M)), net, C, v, all[0].hs); plan.R = R;
+    const r = A.buildTile(plan, x0, z0, x1, z1, { allCuts: true });
+    const off = mb.quads; copyAll(r.mb, mb);
+    for (const J of r.jobs) { J.q0 += off; J.q1 += off; jobs.push(J); if (J.kind === 'shouse') houseSegs.push([J.q0, J.q1]); }
+    cuts = cuts.concat(r.cuts); counts.tileMs.push(r.ms);
+    if (L.trafficKit) {
+      const tt = Date.now(); R.setCuts(cuts.concat(r.allCuts));
+      const near = plan.jobs.filter(J => J.bb[2] > x0 - 30 && J.bb[0] < x1 + 30 && J.bb[3] > z0 - 30 && J.bb[1] < z1 + 30 && J.kind !== 'shouse');
+      const st = L.trafficKit({ PL: { net, seed: net.seed || 1 }, C, R, jobs: near, hs: R.hs * v, voxel: v, box: [x0 - 12, z0 - 12, x1 + 12, z1 + 12], own: [x0, z0, x1, z1], meshCache });
+      if (st && st.out) tr.push(st.out); counts.trafficMs += Date.now() - tt; R.setCuts(null);
+    }
+  }
+  const res = mb.finish(0.002);
+  R.setCuts(cuts);
+  // traffic of every tile as one set (variants deduplicated by key)
+  const vk = new Map(), variants = []; let n = 0; for (const t of tr) n += t.count;
+  const T = { M: new Float32Array(n * 12), vid: new Uint16Array(n), paint: new Uint8Array(n), obb: new Float32Array(n * 8), count: n, variants, paintPH: tr.length ? tr[0].paintPH : 0 };
+  let o = 0;
+  for (const t of tr) {
+    const map = t.variants.map(x => { let k = vk.get(x.key); if (k === undefined) { k = variants.length; vk.set(x.key, k); variants.push(Object.assign({}, x, { n: 0 })); } return k; });
+    T.M.set(t.M, o * 12); T.obb.set(t.obb, o * 8); T.paint.set(t.paint, o);
+    for (let i = 0; i < t.count; ++i) { T.vid[o + i] = map[t.vid[i]]; variants[T.vid[o + i]].n++; }
+    o += t.count;
+  }
+  jobs.sort((a, c) => (a.kind === 'shouse' ? 0 : 1) - (c.kind === 'shouse' ? 0 : 1));
+  const rest = jobs.filter(J => J.kind !== 'shouse');
+  res.counts = counts; res.traffic = T; res.cuts = cuts; res.houseSegs = houseSegs; res.net = net;
+  res.footprints = rest.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1, use: J.use }));
+  const grid = C.chunkGrid(net, v), CH = Math.round(48 / v);
+  const chunks = [];
+  for (let oz = Math.round(X0 * 0 + Z0 / v); oz < Math.round(Z1 / v); oz += CH) for (let ox = Math.round(X0 / v); ox < Math.round(X1 / v); ox += CH)
+    chunks.push({ ox, oz, w: Math.min(CH, Math.round(X1 / v) - ox), d: Math.min(CH, Math.round(Z1 / v) - oz) });
+  const ctx = Object.assign({ net, voxel: v, F, R }, grid, { chunks, footprints: res.footprints, box: { x0: b.x0 + Math.floor((X0 - b.x0) / 4) * 4, z0: b.z0 + Math.floor((Z0 - b.z0) / 4) * 4, x1: X1, z1: Z1 } });
+  let props = null;
+  if (opts.props) {                                     // street furniture of the region's pages (placed like city_worker 'rpage')
+    props = C.placeProps(ctx).filter(p => p.x >= X0 && p.x < X1 && p.z >= Z0 && p.z < Z1);
+  }
+  ctx.region = [X0, Z0, X1, Z1];
+  return { raw: getRaw(), res, ctx, ms: Date.now() - t, props, groundY: R.hs, stacks: new Map(), pages: pages.size };
+}
+function copyAll(src, dst) {
+  for (let q = 0; q < src.quads; ++q) {
+    for (let k = 0; k < 12; ++k) dst.pos.push(src.pos[q * 12 + k]);
+    for (let k = 0; k < 4; ++k) { dst.mat.push(src.mat[q * 4 + k]); dst.nrm.push(src.nrm[q * 4 + k]); }
+    if (!dst.nvec) dst.nvec = [];
+    if (src.nvec) for (let k = 0; k < 12; ++k) dst.nvec.push(src.nvec[q * 12 + k]);
+    const b0 = dst.quads * 4; dst.idx.push(b0, b0 + 1, b0 + 2, b0, b0 + 2, b0 + 3); dst.quads++;
+  }
 }
 // copy of a MeshBuffer's arrays (cullHidden works in place)
 function clone(mb) { return { pos: Array.from(mb.pos), mat: Array.from(mb.mat), nrm: Array.from(mb.nrm), nvec: Array.from(mb.nvec), idx: [], quads: mb.quads }; }
