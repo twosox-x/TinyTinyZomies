@@ -88,7 +88,7 @@
     if (!ST.firstFrame && !ST.pending.size && !ST.missing()) ST.firstFrame = performance.now() - ST.t0;
     // LRU: dispose GPU geometry of the least recently needed tiles beyond the cache size
     if (ST.tiles.size > LRU) {
-      const old = [...ST.tiles.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, ST.tiles.size - LRU);
+      const old = [...ST.tiles.entries()].filter(([k]) => !(ST.needSet && ST.needSet.has(k))).sort((a, b) => a[1].used - b[1].used).slice(0, ST.tiles.size - LRU);
       for (const [k, T] of old) { world.remove(T.g); T.g.traverse(c => c.geometry && c.geometry.dispose()); ST.tiles.delete(k); if (T.traffic) ST.trafficDirty = true; }
     }
     if (CLc.traffic) CLc.updateTrafficLOD(true);
@@ -167,6 +167,7 @@
   function rpump() {
     if (ST.ready < ST.workers.length) return;
     const need = footprint(), now = performance.now(), p = CLc.controls.target;
+    ST.needSet = new Set(need.map(([i, j]) => key(i, j)));   // never evicted while in view (LRU thrash at max zoom)
     for (const [i, j] of need) { const T = ST.tiles.get(key(i, j)); if (T) T.used = now; }
     const miss = need.filter(([i, j]) => !ST.tiles.has(key(i, j)) && !ST.pending.has(key(i, j)));
     const cx = (i) => ST.bounds.x0 + (i + 0.5) * TILE, cz = (j) => ST.bounds.z0 + (j + 0.5) * TILE;
@@ -193,6 +194,7 @@
     // page LRU: drop pages beyond PAGE_LRU that no pending tile needs (their data lives only in their tiles' meshes)
     if (ST.pages.size > PAGE_LRU) {
       const busy = new Set(); for (const [i, j] of ST.pending.values()) for (const [pi, pj] of pagesFor(i, j)) busy.add(pageKey(pi, pj));
+      for (const [i, j] of miss) for (const [pi, pj] of pagesFor(i, j)) busy.add(pageKey(pi, pj));   // still wanted by missing tiles
       const old = [...ST.pages.entries()].filter(([k, P]) => P.state === 'ready' && !busy.has(k)).sort((a, b) => a[1].used - b[1].used);
       for (const [k] of old.slice(0, ST.pages.size - PAGE_LRU)) { ST.pages.delete(k); ST.pagesDropped = (ST.pagesDropped || 0) + 1; ST.propsDirty = true; }
     }
