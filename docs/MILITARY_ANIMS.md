@@ -185,7 +185,7 @@ drapes beside / over the crate.
 | Clip | Speed m/s | Cycle s | Step m |
 |---|---|---|---|
 | walk | 1.30 | 0.92 | 0.60 (stride 1.20) |
-| run | 3.60 | 0.64 | 1.15 (stride 2.30, flight phase) |
+| run | 3.80 | 0.72 | 1.37 (stride 2.74, flight phase, lean 0.48 rad) |
 | stairs_up / stairs_down | 0.56 m along + 0.35 m rise per cycle (`delta`) | 1.00 | 1 stair per step: 0.175 m rise × 0.28 m tread |
 | enter_building / exit_building | root motion 1.68 m (4 steps of 0.42 m), door plane at the `door` event's `z` | 2.40 | — |
 | para_descent | 5.0 down | 4.8 | — |
@@ -200,14 +200,14 @@ Exact values are in each clip's `speed`, `delta` and `stairs` fields. Every clip
 | Action | s | Loop | Notes |
 |---|---|---|---|
 | idle | 3.0 | yes | breathing, weight shift, head scan; low-ready carry |
-| walk / run | 0.92 / 0.64 | yes | in place, `speed` 1.3 / 3.6 m/s; run = port arms, strong lean |
+| walk / run | 0.92 / 0.72 | yes | in place, `speed` 1.3 / 3.8 m/s; walk upright, run = port arms, strong lean, big strides |
 | turn_l / turn_r | 0.8 | no | ±90° in place (`delta[3]`), two steps |
 | aim | 2.0 | yes | rifle/sniper bladed shoulder; MG hip, wide stance |
 | fire | rifle 0.9 / MG 1.0 / sniper 1.9 | yes | rifle 3 aimed shots (short kick); MG 12 rounds/s rattle + body shake, tracer every 4th; sniper 1 heavy suppressed shot + bolt cycle (left hand on the bolt) |
 | crouch_aim / crouch_fire | 2.0 / as fire | yes | kneeling on the right knee; MG shouldered when kneeling |
 | reload | rifle 2.4 / MG 4.2 / sniper 2.9 | no | rifle: mag out → pouch → mag in → charging handle; MG: cover open → box off → new box from the pack → belt → cover closed; sniper: bolt back → mag swap → bolt forward |
 | hit | 0.6 | no | jolt back, weapon knocked off line |
-| death_a / _b / _c | 1.6 / 1.8 / 1.5 | no | backwards onto the back / crumple forward face down / spun onto the side; hold the last frame (corpse) |
+| death_a / _b / _c | 1.2 / 1.4 / 1.2 | no | flat on the ground by 0.6–0.8 s; backwards onto the back / crumple forward face down / spun onto the side; hold the last frame (corpse) |
 | collect_ammo | 3.2 | no | kneel at a crate 0.85 m ahead, grab (`grab`), stow on the vest (`stow`), stand |
 | enter_building / exit_building | 2.4 | no | weapon up / scanning; root motion 1.68 m |
 | stairs_up / stairs_down | 1.0 | yes | root motion per cycle |
