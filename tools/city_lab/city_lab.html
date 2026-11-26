@@ -1045,6 +1045,7 @@ controls.target.set(0, 0, 0);
 if (new URLSearchParams(location.search).get('stream')) { S.scene = 'city'; } else setScene('city');   // ?stream=1: city_stream.js
 requestAnimationFrame(frame);
 }
+window.CL = { S, U, C, world, geometryFrom, MAT_CITY, MAT_BLOCKS, persp, renderer, addProps, $, get camera() { return camera; }, get controls() { return controls; } };   // city_stream.js
 })();
 </script>
 <script src="city_stream.js"></script>

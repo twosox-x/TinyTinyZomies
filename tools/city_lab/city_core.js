@@ -138,7 +138,8 @@ function hpFromLine(a, b, keepPoint) {    // half-plane containing keepPoint, bo
 // out to sqrt(scale) x the original extent (see the comment there).
 function generateCity(seed, opts) {
   opts = opts || {};
-  const scale = Math.max(1, +opts.scale || 1), KS = Math.sqrt(scale), KC = scale > 1 ? 1 + (KS - 1) * 0.22 : 1;
+  // (dev hook: a page or worker without the option reads self.CITY_LAB_SCALE, e.g. injected by a test harness)
+  const scale = Math.max(1, +(opts.scale || (typeof self !== 'undefined' && self.CITY_LAB_SCALE)) || 1), KS = Math.sqrt(scale), KC = scale > 1 ? 1 + (KS - 1) * 0.22 : 1;
   const R = mulberry32(seed * 7919 + 17);
   const J = (a) => (R() * 2 - 1) * a;
   const X0 = -330 * KC, X1 = 330 * KC, Z0 = -275 * KC, Z1 = 275 * KC;

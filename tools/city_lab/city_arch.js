@@ -2257,7 +2257,7 @@ function planSuburbs(PL, C, blocks) {
     const per = faces.reduce((a, f) => a + f.len, 0);
     const urban = faces.filter(f => f.across === 'urban' && f.rank >= 2).reduce((a, f) => a + f.len, 0);
     const art = faces.filter(f => f.rank >= 3).reduce((a, f) => a + f.len, 0);
-    const dc = Math.hypot(g.mx - core[0], g.mz - core[1]);
+    const dc = Math.hypot(g.mx - core[0], g.mz - core[1]) / (net.zoneScale || 1);
     // corners between an arterial face and another through-street face (score: arterial x arterial > collector)
     let corner = 0;
     for (const f of faces) for (const h of faces) {
@@ -2268,7 +2268,7 @@ function planSuburbs(PL, C, blocks) {
   });
   const isCommercialSite = (b) => b.corner && b.art >= 30 && !(b.urban >= 30 && b.dc < 280);
   const cand = B.filter(isCommercialSite).sort((a, b) => (b.corner * 100 + b.art) - (a.corner * 100 + a.art) || a.g.id - b.g.id);
-  const K = Math.max(1, Math.min(3, Math.round(B.length / 4)));
+  const K = Math.max(1, Math.min(3 * Math.round(net.plan ? net.plan.scale : 1), Math.round(B.length / 4)));
   cand.slice(0, K).forEach(b => { b.use = 'commercial'; });
   for (const b of B) if (b.use === 'residential' && b.urban >= 30 && b.dc < 275) b.use = 'transition';   // farther out: houses
   for (const b of B) {
@@ -2726,7 +2726,7 @@ function lotRectangles(PL, C) {
 }
 function zoneOf(net, r, x, z) {
   const core = (net.origins && net.origins.core) || [0, 0];
-  const dc = Math.hypot(x - core[0], z - core[1]);
+  const dc = Math.hypot(x - core[0], z - core[1]) / (net.zoneScale || 1);      // grown maps: the zones widen with the inner city
   const d = r.district;
   if (d === 'residential') return 'house';
   if (d === 'oldtown') return dc < 180 && r.P.cls !== 'local' ? 'mid' : 'row';
@@ -3010,7 +3010,7 @@ function placeBlocks(PL, C, occ, addJob) {
     }
     if (best < 0 || res >= tot * 0.5) continue;
     handled.add(g.id); stats.blocks++;
-    const dcB = Math.hypot(g.mx - core[0], g.mz - core[1]);
+    const dcB = Math.hypot(g.mx - core[0], g.mz - core[1]) / (net.zoneScale || 1);
     const rzone = zkey(zoneOf(net, roads[best], g.mx, g.mz));
     const district = roads[best].district;
     const Rb = C.mulberry32((g.id * 2654435761 ^ (PL.seed * 40503)) >>> 0);
@@ -3553,6 +3553,8 @@ function buildAllLegacy(PL, R, voxel, C) {
   // Emitted after every building: cullHidden() groups faces by quantised normal and measures planes with the first
   // face of each group, so these freely rotated parts must not come first in a group the buildings use
   if (sub && LIB.parkKit) { const tp = Date.now(); sub.leftovers = LIB.parkKit({ PL, C, R, blocks, sub, mb, hs, voxel }); counts.parkMs = Date.now() - tp; }
+  // countryside past the county line (towers/ruralkit.js; only on grown maps, generateCity opts.scale > 1)
+  if (LIB.ruralKit && PL.net.plan) counts.rural = LIB.ruralKit({ PL, C, R, mb, hs, voxel });
   // every curb cut is known now: the rasterizer drops the curbs (the page re-meshes the road chunks they touch)
   const cuts = CUTS; CUT_R = null; CUTS = [];
   if (R && R.setCuts) R.setCuts(cuts);

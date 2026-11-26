@@ -1,2 +1,2 @@
 // plug-ins loaded by city_lab.html and city_worker.js (towers, mid-rises, roof kit), in this order
-self.TOWER_FILES = ['roofkit.js', 'yardkit.js', 'houses.js', 'commercial.js', 'forest.js', 'sunburst.js', 'bundled.js', 'diagrid.js', 'hotel.js', 'wave.js', 'gothic.js', 'twins.js', 'skygarden.js', 'beacon.js', 'mid_loft.js', 'mid_civic.js', 'mid_modern.js', 'parkkit.js', 'servicekit.js', 'traffickit.js'];
+self.TOWER_FILES = ['roofkit.js', 'yardkit.js', 'houses.js', 'commercial.js', 'forest.js', 'sunburst.js', 'bundled.js', 'diagrid.js', 'hotel.js', 'wave.js', 'gothic.js', 'twins.js', 'skygarden.js', 'beacon.js', 'mid_loft.js', 'mid_civic.js', 'mid_modern.js', 'parkkit.js', 'servicekit.js', 'traffickit.js', 'ruralkit.js'];

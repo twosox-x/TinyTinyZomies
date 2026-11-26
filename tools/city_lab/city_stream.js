@@ -7,12 +7,14 @@
 (function () {
   const Q = new URLSearchParams(location.search);
   if (!Q.get('stream')) return;
+  const { S, U, C, world, geometryFrom, MAT_CITY, MAT_BLOCKS, persp, renderer, addProps, $ } = window.CL;
+  const CLc = window.CL;
   const TILE = +(Q.get('tile') || 128), RTS = { minD: 30, maxD: 300, minPitch: 35, maxPitch: 70 }, LRU = +(Q.get('lru') || 80);
   const ST = window.STREAM = { tiles: new Map(), pending: new Map(), queue: [], cuts: [], workers: [], ready: 0, t0: performance.now(), firstFrame: 0, built: 0, buildMs: [], rts: true, planMs: 0 };
   // ---- RTS rig: OrbitControls clamped (pivot on the ground, pitch 35-70 deg, distance 30-300 m); the dev camera
   // (key V or STREAM.setDev(true)) restores the free orbit / plan / street views for tooling
   function applyRig() {
-    const c = controls;
+    const c = CLc.controls;
     if (ST.rts) {
       c.minDistance = RTS.minD; c.maxDistance = RTS.maxD;
       c.minPolarAngle = (90 - RTS.maxPitch) * Math.PI / 180; c.maxPolarAngle = (90 - RTS.minPitch) * Math.PI / 180;
@@ -23,19 +25,19 @@
   window.addEventListener('keydown', (e) => { if (e.key === 'v' && e.target.tagName !== 'INPUT') ST.setDev(ST.rts); });
   ST.view = (x, z, dist, pitchDeg, yawDeg) => {
     const p = pitchDeg * Math.PI / 180, y = (yawDeg || 0) * Math.PI / 180;
-    controls.target.set(x, 0, z);
+    CLc.controls.target.set(x, 0, z);
     persp.position.set(x + Math.sin(y) * Math.cos(p) * dist, Math.sin(p) * dist, z + Math.cos(y) * Math.cos(p) * dist);
-    controls.update();
+    CLc.controls.update();
   };
   // ---- tiles
   const key = (i, j) => i + ',' + j;
   function footprint() {                              // tiles under the view frustum's ground footprint (+1 ring)
-    const cam = camera, pts = [];
+    const cam = CLc.camera, pts = [];
     const ray = new THREE.Raycaster(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
     for (const [u, v] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, 0]]) {
       ray.setFromCamera({ x: u, y: v }, cam);
       if (ray.ray.intersectPlane(plane, hit) && hit.distanceTo(cam.position) < 900) pts.push(hit.clone());
-      else { const d = ray.ray.direction.clone(); d.y = 0; d.normalize().multiplyScalar(RTS.maxD * 2.2); pts.push(controls.target.clone().add(d)); }
+      else { const d = ray.ray.direction.clone(); d.y = 0; d.normalize().multiplyScalar(RTS.maxD * 2.2); pts.push(CLc.controls.target.clone().add(d)); }
     }
     const xs = pts.map(p => p.x), zs = pts.map(p => p.z), b = ST.bounds;
     const i0 = Math.floor((Math.max(b.x0, Math.min(...xs)) - b.x0) / TILE) - 1, i1 = Math.floor((Math.min(b.x1, Math.max(...xs)) - b.x0) / TILE) + 1;
@@ -67,7 +69,7 @@
   }
   function pump() {
     if (ST.ready < ST.workers.length) return;
-    const need = footprint(), now = performance.now(), p = controls.target;
+    const need = footprint(), now = performance.now(), p = CLc.controls.target;
     for (const [i, j] of need) { const T = ST.tiles.get(key(i, j)); if (T) T.used = now; }
     const miss = need.filter(([i, j]) => !ST.tiles.has(key(i, j)) && !ST.pending.has(key(i, j)));
     const cx = (i) => ST.bounds.x0 + (i + 0.5) * TILE, cz = (j) => ST.bounds.z0 + (j + 0.5) * TILE;
@@ -81,7 +83,7 @@
   }
   ST.stats = () => {
     let calls = 0, tris = 0, vis = 0;
-    const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const fr = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(CLc.camera.projectionMatrix, CLc.camera.matrixWorldInverse));
     for (const T of ST.tiles.values()) T.g.children.forEach(m => { const s = m.geometry.boundingSphere.clone().applyMatrix4(m.matrixWorld); if (fr.intersectsSphere(s)) { calls++; tris += m.geometry.index.count / 3; } });
     const ms = ST.buildMs.slice().sort((a, b) => a - b);
     return { tiles: ST.tiles.size, pending: ST.pending.size, built: ST.built, visibleCalls: calls, visibleTris: tris, planMs: Math.round(ST.planMs), firstFrameMs: Math.round(ST.firstFrame),
