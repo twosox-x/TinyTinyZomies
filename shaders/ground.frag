@@ -125,7 +125,8 @@ void main() {
     }
     // explosion shock ring
     vec3 emissive = vec3(0.0);
-    for (int i = 0; i < MAX_BLASTS; ++i) {
+    // (baked city: drawn additively by city.frag instead; this opaque ground plane would paint dark rings over the street)
+    for (int i = 0; i < MAX_BLASTS && (gridDim.w & GRID_CITY) == 0u; ++i) {
         if (blasts[i].w < 0.0) continue;
         float r = length(xz - blasts[i].xz);
         float age = blasts[i].w;
