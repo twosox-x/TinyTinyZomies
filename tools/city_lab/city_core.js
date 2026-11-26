@@ -1970,7 +1970,6 @@ function placeProps(ctx) {
       const reach = infra ? 3.7 : 3.0;            // canopies / marquees reach up to ~3.6 m over the sidewalk
       let hit = false;
       for (const f of ctx.footprints) {
-        if (f.open) continue;                 // suburban lots with a forecourt / parking / lawn in front: nothing reaches the sidewalk
         const dx = p.x - f.O[0], dz = p.z - f.O[1];
         const a = dx * f.e1[0] + dz * f.e1[1], b = dx * f.e2[0] + dz * f.e2[1];
         const fr = (!infra && f.type === 'prewar_apartment') ? 8 : reach;      // entrance canopy on posts out to the curb

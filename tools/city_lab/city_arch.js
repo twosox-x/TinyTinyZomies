@@ -2090,8 +2090,8 @@ function subdivide(net, Ra, C, occ, emitHouse) {
 //     L.yardKit in its lot frame, with the neighbour flags of the lot ownership rule (towers/AGENT_BRIEF.md).
 const SUB_FRONT = 0.4;                        // lot front line: back of sidewalk + 0.4 m (block land starts 0.3 m in)
 const SUB_USE = {        // metres: frontage range, min frontage, min / initial depth, depth cap
-  house:      { w: [15, 18], minW: 11, minD: 14, cap: 40 },
-  bulb:       { w: [12, 14], minW: 9, minD: 14, cap: 24 },
+  house:      { w: [15, 18.5], minW: 12, minD: 18, cap: 40 },
+  bulb:       { w: [13, 15], minW: 11, minD: 18, cap: 26 },
   townhouse:  { w: [24, 34], minW: 15, minD: 22, cap: 34 },
   apartments: { w: [30, 40], minW: 22, minD: 24, cap: 38 },
   mixed:      { w: [10, 19], minW: 8, minD: 16, cap: 28 },
@@ -2242,7 +2242,7 @@ function planSuburbs(PL, C, blocks) {
   const cand = B.filter(isCommercialSite).sort((a, b) => (b.corner * 100 + b.art) - (a.corner * 100 + a.art) || a.g.id - b.g.id);
   const K = Math.max(1, Math.min(3, Math.round(B.length / 4)));
   cand.slice(0, K).forEach(b => { b.use = 'commercial'; });
-  for (const b of B) if (b.use === 'residential' && b.urban >= 30) b.use = 'transition';
+  for (const b of B) if (b.use === 'residential' && b.urban >= 30 && b.dc < 275) b.use = 'transition';   // farther out: houses
   for (const b of B) {
     const whole = b.use === 'commercial' && (b.g.area < 2500 || b.art >= 0.45 * b.per);
     const maxHouse = Math.max(0, ...b.faces.filter(f => f.kind === 'side').map(f => f.len));
@@ -2254,7 +2254,7 @@ function planSuburbs(PL, C, blocks) {
         f.use === 'none' ? -1 : f.kind === 'bulb' ? 2 : f.len >= 0.6 * maxHouse ? 3 : 4;
       const Rf = C.mulberry32((b.g.id * 7919 + f.rid * 104729 + Math.round(f.t0) * 31 + seed0 * 977) >>> 0);
       f.R = Rf;
-      f.setback = f.use === 'house' ? 6 + Rf() * 1.5 : f.use === 'townhouse' ? 4 + Rf() * 1 : f.use === 'apartments' ? 6 + Rf() * 1.5 : 0;
+      f.setback = f.use === 'house' ? 5.5 + Rf() * 1.5 : f.use === 'townhouse' ? 4 + Rf() * 1 : f.use === 'apartments' ? 6 + Rf() * 1.5 : 0;
       const U = SUB_USE[f.kind === 'bulb' ? 'bulb' : f.use] || SUB_USE.house;
       f.target = U.w[0] + Rf() * (U.w[1] - U.w[0]);
     }
@@ -2469,15 +2469,16 @@ function planSuburbs(PL, C, blocks) {
 function houseFits(Wm, Dm) { return HOUSES.some(h => Wm >= h.minW && Wm <= h.maxW && Dm >= h.minD && Dm <= h.maxD); }
 function layoutHouse(L, R, k) {
   const f = L.f, w = L.w, d = L.d, sy = 1.6, cx = 1.4;
-  const sb = Math.min(f.setback, Math.max(4, d - 13));
-  let side = k % 2 === 0 ? 'r' : 'l';
+  const sb = Math.min(f.setback, Math.max(4.5, d - 14.5));
+  let side = (k % 2 === 0) ? 'r' : 'l';
   if (L.cornerL && !L.cornerR) side = 'r'; else if (L.cornerR && !L.cornerL) side = 'l';
   const xl = sy + (L.cornerL ? cx : 0), xr = w - sy - (L.cornerR ? cx : 0), avail = xr - xl;
-  const Dh = Math.max(6.5, Math.min(8.5 + R() * 3.5, d - sb - 5));
-  if (d - sb - Dh < 3.5 || avail < 7) return null;
-  let garage = HOUSES.length > 0 && avail >= 10.5 && R() < 0.65;
-  let Wh = garage ? Math.min(avail, 12.5 + R() * 2.5) : Math.min(avail - 3.8, 9.5 + R() * 2.5);
-  if (!garage && Wh < 7) { if (HOUSES.length && avail >= 10) { garage = true; Wh = Math.min(avail, 11); } else Wh = Math.min(avail, 9); }
+  // footprint 10-16 m wide (garage wing included) x 9-13 m deep, a rear yard of at least 4.5 m
+  const Dh = Math.min(9.5 + R() * 3.5, d - sb - 4.5);
+  if (Dh < 7 || avail < 8) return null;
+  let garage = HOUSES.length > 0 && avail >= 11 && R() < 0.75;
+  let Wh = garage ? Math.min(avail, 12 + R() * 4) : Math.min(avail - 3.8, 10 + R() * 2.5);
+  if (!garage && Wh < 8) { if (HOUSES.length && avail >= 10) { garage = true; Wh = avail; } else Wh = Math.min(avail, 9); }
   Wh = Math.round(Wh / BV) * BV;
   const reg = houseFits(Wh, Math.round(Dh / BV) * BV);
   if (!reg) garage = false;                       // the classic fallback house: no garage, driveway alongside
@@ -2618,7 +2619,7 @@ function emitSuburbs(sub, mb, hs, voxel, C, occ, addJob) {
       L.use === 'mixed' ? (dcore < 210 || R() < 0.5 ? 3 : 2) : 1;
     occ.rect(L.O, L.e1, L.e2, 0, Wl * BV, 0, Dl * BV, 1);
     addJob(L.O, L.e1, L.e2, Wl, Dl, { kind: zone, floors, seed, use: L.use, zone, corner: !!(L.cornerL || L.cornerR), shops: L.use === 'mixed' || zone === 'commercial',
-      lot: { w: L.w, d: L.d }, open: L.use !== 'mixed' });
+      lot: { w: L.w, d: L.d } });
   }
   return houses;
 }
@@ -3265,7 +3266,7 @@ function buildAll(PL, R, voxel, C) {
   res.mids = MID_LOG;
   res.houses = HOUSE_LOG;
   res.blocks = blocks ? blocks.stats : null;
-  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1, open: J.open || undefined, use: J.use }));
+  res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1, use: J.use }));
   res.suburbs = sub ? Object.assign({}, sub.stats, { ms: counts.suburbMs, lots: sub.lots.map(L => ({ O: L.O, e1: L.e1, e2: L.e2, w: L.w, d: L.d, use: L.use, nb: L.nb })) }) : null;
   return res;
 }
