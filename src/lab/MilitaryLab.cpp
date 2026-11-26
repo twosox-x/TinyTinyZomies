@@ -13,7 +13,7 @@ namespace ttz {
 namespace {
 constexpr uint32_t kMaxChars = 16, kMaxAtts = 224, kMaxInst = 2048;
 constexpr float kPi = 3.14159265f;
-struct MilCharU { float posYaw[4]; float anim[4]; uint32_t look[4]; };
+struct MilCharU { float posYaw[4]; float anim[4]; uint32_t look[4]; float rot[10][4]; float root[4]; float rootXZ[4]; };
 struct MilAttU { uint32_t info[4]; float offset[4]; float quat[4]; };
 struct MilPoseU {
     uint32_t cfg[4];
@@ -21,8 +21,14 @@ struct MilPoseU {
     MilCharU chars[kMaxChars];
     MilAttU atts[kMaxAtts];
 };
-static_assert(sizeof(MilPoseU) == 32 + 48 * (kMaxChars + kMaxAtts));
+static_assert(sizeof(MilPoseU) == 32 + 240 * kMaxChars + 48 * kMaxAtts);
 
+void qrotv(const float q[4], const float v[3], float out[3]) {   // v + 2w(q x v) + 2 q x (q x v)
+    float tx = 2.f * (q[1] * v[2] - q[2] * v[1]), ty = 2.f * (q[2] * v[0] - q[0] * v[2]), tz = 2.f * (q[0] * v[1] - q[1] * v[0]);
+    out[0] = v[0] + q[3] * tx + (q[1] * tz - q[2] * ty);
+    out[1] = v[1] + q[3] * ty + (q[2] * tx - q[0] * tz);
+    out[2] = v[2] + q[3] * tz + (q[0] * ty - q[1] * tx);
+}
 void yawQuat(float yaw, float q[4]) { q[0] = 0; q[1] = std::sin(0.5f * yaw); q[2] = 0; q[3] = std::cos(0.5f * yaw); }
 // the lineup's comparison zombies: the three approved Zombie Lab designs
 LookSpec lineupLook(int i) { return i == 0 ? labOfficeDrone() : i == 1 ? labStreetWalker() : labRotter(); }
@@ -195,7 +201,7 @@ void MilitaryLab::update(AppState& s, float dt) {
                 s.renderSettings.tiltShift = v.find("+notilt") == std::string::npos;
                 holdFlash_ = v.find("+flash") != std::string::npos;
                 holdTracer_ = holdFlash_;
-                if (holdFlash_) { tracers_.clear(); tracers_.push_back({muzzleWorld_, {std::sin(worldYaw(0)), 0, std::cos(worldYaw(0))}, 0.f}); }
+                if (holdFlash_) { tracers_.clear(); tracers_.push_back({0.f}); }
                 size_t p = v.find("+prop=");
                 if (p != std::string::npos) { selKind_ = 1; selIndex_ = std::atoi(v.c_str() + p + 6); }
                 p = v.find("+inf=");
@@ -212,12 +218,18 @@ void MilitaryLab::update(AppState& s, float dt) {
     if (turntable_) turnAngle_ = std::fmod(turnAngle_ + dt * 0.6f, 2.f * kPi);
     const MilInfantry* sel = selKind_ == 0 && selIndex_ < (int)lib_.infantry.size() ? &lib_.infantry[(size_t)selIndex_] : nullptr;
     MilClip clip = sel && clip_ < (int)sel->clips.size() ? sel->clips[(size_t)clip_] : MilClip{};
+    const float prevTime = animTime_;
     if (playing_ && clip.available) {
         animTime_ += dt * animSpeed_;
         if (animTime_ > clip.length) {
             if (loop_) animTime_ = std::fmod(animTime_, std::max(0.01f, clip.length));
             else { animTime_ = clip.length; playing_ = false; }
         }
+    }
+    if (playing_ && clip.keyClip >= 0 && clip.keyClip < (int)lib_.keyClips.size()) {   // clip FX events crossed this frame
+        bool wrapped = animTime_ < prevTime;
+        for (const MilFxEvent& e : lib_.keyClips[(size_t)clip.keyClip].events)
+            if (wrapped ? (e.t > prevTime || e.t <= animTime_) : (e.t > prevTime && e.t <= animTime_)) triggerFx(e.type);
     }
     if (chutePlaying_) {
         chuteTime_ += dt;
@@ -239,6 +251,17 @@ void MilitaryLab::update(AppState& s, float dt) {
         MilCharU& C = U.chars[ci];
         C.posYaw[0] = p.x; C.posYaw[1] = p.y; C.posYaw[2] = p.z; C.posYaw[3] = worldYaw(localYaw);
         C.anim[0] = (float)(c.available ? c.anim : 8u); C.anim[1] = t;
+        MilPoseKey K;
+        bool keyed = c.available && c.keyClip >= 0 && c.keyClip < (int)lib_.keyClips.size();
+        if (keyed) {   // authored clip: sampled here, posed with the same joint hierarchy on the GPU
+            lib_.keyClips[(size_t)c.keyClip].sample(t, K);
+            C.anim[0] = 9.f;
+            for (int sl = 0; sl < 10; ++sl) for (int k = 0; k < 3; ++k) C.rot[sl][k] = K.rot[sl][k];
+            C.root[0] = K.bob; C.root[1] = K.tilt; C.root[2] = K.roll; C.root[3] = K.root[1];
+            C.rootXZ[0] = K.root[0]; C.rootXZ[2] = K.root[2]; C.rootXZ[3] = K.prone;
+        }
+        float mountQ[4] = {0, 0, 0, 1};
+        if (keyed && K.hasMount) eulerXYZToQuat(K.weaponMount, mountQ);
         C.anim[2] = c.length > 0 ? t / c.length * 2.f * kPi : 0.f; C.anim[3] = c.speed;
         C.look[0] = inf.lookX; C.look[1] = inf.lookY; C.look[2] = inf.ownBody ? 1u : 0u; C.look[3] = (uint32_t)(ci * 389u);
         for (size_t a = 0; a < inf.atts.size() && attCount_ < kMaxAtts; ++a) {
@@ -248,9 +271,32 @@ void MilitaryLab::update(AppState& s, float dt) {
             O.info[0] = ci; O.info[1] = (uint32_t)A.slot; O.info[2] = (A.fx && !fxOn) ? 1u : 0u;
             std::memcpy(O.offset, A.offset, sizeof(A.offset));
             std::memcpy(O.quat, A.quat, sizeof(A.quat));
+            if (keyed && K.hasMount && ((int)a == inf.weaponAtt || (int)a == inf.muzzleAtt)) {   // weapon follows the clip's mount
+                std::memcpy(O.quat, mountQ, sizeof(mountQ));
+                if ((int)a == inf.muzzleAtt) {
+                    float m[3] = {inf.muzzleW[0] / bodyVoxel_, inf.muzzleW[1] / bodyVoxel_, inf.muzzleW[2] / bodyVoxel_}, r[3];
+                    qrotv(mountQ, m, r);
+                    O.offset[0] = r[0]; O.offset[1] = -3.5f + r[1]; O.offset[2] = r[2];
+                }
+            }
             attDraws_.push_back({&meshes_[(size_t)A.model], attCount_, 1});
             ++attCount_;
         }
+        if (ci == 0 && lib_.tracerModel >= 0)
+            for (const Tracer& tr : tracers_) {   // tracers: along the barrel from the muzzle (exact with the GPU pose)
+                if (attCount_ >= kMaxAtts) break;
+                float dist = (holdTracer_ ? 3.f : tr.age * 160.f) / bodyVoxel_;
+                MilAttU& O = U.atts[attCount_];
+                O.info[0] = ci; O.info[1] = 5; O.info[2] = 0;
+                float m[3] = {inf.muzzleW[0] / bodyVoxel_, inf.muzzleW[1] / bodyVoxel_, inf.muzzleW[2] / bodyVoxel_ + dist}, r[3];
+                if (inf.weaponAtt < 0) { m[0] = inf.muzzle[0]; m[1] = inf.muzzle[1] + 3.5f; m[2] = inf.muzzle[2] + dist; }
+                const float* q = inf.weaponAtt >= 0 && keyed && K.hasMount ? mountQ : inf.weaponAtt >= 0 ? inf.atts[(size_t)inf.weaponAtt].quat : mountQ;
+                qrotv(q, m, r);
+                O.offset[0] = r[0]; O.offset[1] = -3.5f + r[1]; O.offset[2] = r[2];
+                std::memcpy(O.quat, q, sizeof(float) * 4);
+                attDraws_.push_back({&meshes_[(size_t)lib_.tracerModel], attCount_, 1});
+                ++attCount_;
+            }
         if (fxOn || ci == 0) {   // muzzle (rest-pose approximation: lights / tracer origin)
             float yaw = C.posYaw[3], cy = std::cos(yaw), sy = std::sin(yaw);
             float mx = (-3.f + inf.muzzle[0]) * bodyVoxel_, my = (10.f + inf.muzzle[1]) * bodyVoxel_, mz = inf.muzzle[2] * bodyVoxel_;
@@ -339,11 +385,6 @@ void MilitaryLab::update(AppState& s, float dt) {
             put(lib_.chuteOpenModel, {base.x, base.y + crateY + 0.9f - canopyDrop, base.z}, 0.f, milDraws_, nullptr, q);
         }
     }
-    for (const Tracer& tr : tracers_) {
-        float dist = holdTracer_ ? 3.f : tr.age * 160.f;
-        V3 p = tr.p + tr.d * dist;
-        put(lib_.tracerModel, p, std::atan2(tr.d.x, tr.d.z), milDraws_);
-    }
     vehFirst_ = (uint32_t)cpuInst_.size();
     if (showLineup_ && showVehicles_) {   // existing civilian vehicle models at the same scale, side by side
         float x = -11.f + 3 * 1.3f + 0.4f + lib_.infantry.size() * 1.3f + 1.6f;
@@ -357,6 +398,12 @@ void MilitaryLab::update(AppState& s, float dt) {
             x += len + 0.6f;
         }
     }
+}
+
+void MilitaryLab::triggerFx(const std::string& type) {
+    if (type == "muzzle_flash" || type == "flash" || type == "shot" || type == "fire") { suppressed_ = false; flashTimer_ = 0.07f; }
+    else if (type == "suppressed" || type == "suppressed_shot") { suppressed_ = true; flashTimer_ = 0.f; tracers_.push_back({0.f}); }
+    else if (type == "tracer") tracers_.push_back({0.f});
 }
 
 void MilitaryLab::injectLights(std::vector<PointLight>& lights) const {
@@ -502,14 +549,8 @@ void MilitaryLab::drawUI(AppState& s) {
                                          : chuteTime_ < kChuteDrop + kChuteLand + kChuteCollapse ? "collapse" : "settled");
     }
     if (ImGui::CollapsingHeader("FX preview (stubs)", ImGuiTreeNodeFlags_DefaultOpen)) {
-        auto fire = [&](bool supp) {
-            suppressed_ = supp;
-            flashTimer_ = supp ? 0.f : 0.07f;
-            float yaw = worldYaw(turntable_ ? turnAngle_ : 0.f);
-            tracers_.push_back({muzzleWorld_, {std::sin(yaw), 0.f, std::cos(yaw)}, 0.f});
-        };
-        if (ImGui::Button("muzzle flash + tracer")) fire(false);
-        ImGui::SameLine(); if (ImGui::Button("suppressed shot")) fire(true);
+        if (ImGui::Button("muzzle flash + tracer")) { triggerFx("muzzle_flash"); triggerFx("tracer"); }
+        ImGui::SameLine(); if (ImGui::Button("suppressed shot")) triggerFx("suppressed");
         ImGui::Checkbox("hold flash", &holdFlash_);
         ImGui::SameLine(); ImGui::Checkbox("freeze tracer", &holdTracer_);
         ImGui::TextDisabled("voxel flash attachment + point light + emissive tracer; full FX with the animation step");

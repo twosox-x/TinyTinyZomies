@@ -14,10 +14,14 @@ layout(local_size_x = 16) in;
 #define MIL_MAX_CHARS 16
 #define MIL_MAX_ATTS 224
 #define ANIM_REST 8u
+#define ANIM_EXPLICIT 9u   // authored clip: per-slot Euler XYZ sampled on the CPU (src/lab/MilitaryAnims)
 struct MilChar {
     vec4  posYaw;    // xyz feet position (m), w heading (rad)
     vec4  anim;      // x clip (ANIM_*, 8 = rest pose), y clip time (s), z gait phase (rad), w speed (m/s)
     uvec4 look;      // x, y: 56-bit appearance (body meshes), z flags (1 hidden body), w vary bits
+    vec4  rot[10];   // ANIM_EXPLICIT: Euler XYZ per slot (rad, zombie slot order)
+    vec4  root;      // ANIM_EXPLICIT: x torso bob (voxels), y tilt, z roll (rad), w root offset y (m)
+    vec4  rootXZ;    // ANIM_EXPLICIT: xz root offset (m, character space), w prone 0..1
 };
 struct MilAtt {
     uvec4 info;      // x character, y slot (0..9), z flags (1 hidden)
@@ -41,7 +45,12 @@ void main() {
     vec4 q[10]; vec3 t[10];
     float scale = params.x;
     uint clip = uint(C.anim.x + 0.5);
-    if (clip == ANIM_REST) {
+    if (clip == ANIM_EXPLICIT) {
+        vec3 E[10];
+        for (int i = 0; i < 10; ++i) E[i] = C.rot[i].xyz;
+        evaluatePose(E, C.root.x, C.root.y, C.root.z, C.rootXZ.w, C.root.w, scale, q, t);
+        for (int i = 0; i < 10; ++i) t[i] += vec3(C.rootXZ.x, 0.0, C.rootXZ.z);
+    } else if (clip == ANIM_REST) {
         vec3 E[10];
         for (int i = 0; i < 10; ++i) E[i] = vec3(0.0);
         evaluatePose(E, 0.0, 0.0, 0.0, 0.0, 0.0, scale, q, t);

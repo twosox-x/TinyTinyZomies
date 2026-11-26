@@ -41,8 +41,33 @@ struct MilAttachment {
     bool fx = false;                  // effect attachment (muzzle flash): hidden unless triggered
 };
 
+// Authored keyframed pose (docs/MILITARY_ANIMS.md): Euler XYZ per body slot (zombie slot order, radians) + body root.
+struct MilPoseKey {
+    float t = 0.f;
+    float rot[10][3] = {};
+    float bob = 0.f, tilt = 0.f, roll = 0.f;      // torso bob (voxels), whole-body tilt / roll (rad)
+    float root[3] = {0, 0, 0};                    // root offset (m, character space)
+    float prone = 0.f;
+    float weaponMount[3] = {0, 0, 0};             // weapon rotation in forearmR space (Euler XYZ)
+    bool hasMount = false;
+};
+struct MilFxEvent {
+    float t = 0.f;
+    std::string type;                             // muzzle_flash, tracer, suppressed, casing, ...
+    float param = 0.f;
+};
+struct MilKeyClip {
+    std::string name;
+    float length = 1.f;
+    bool loop = true;
+    std::vector<MilPoseKey> keys;                 // sorted by t
+    std::vector<MilFxEvent> events;
+    void sample(float t, MilPoseKey& out) const;  // linear interpolation (loop-aware)
+};
+
 struct MilClip {
     std::string name;
+    int keyClip = -1;                 // >= 0: authored keyframed clip (MilitaryLibrary::keyClips), anim ignored
     uint32_t anim = 1;                // pose clip id (zombie_pose.glsl ANIM_*, 8 = rest pose)
     float length = 2.f;               // s
     float speed = 0.f;                // m/s (gait phase)
@@ -57,6 +82,9 @@ struct MilInfantry {
     std::vector<MilClip> clips;
     bool ownBody = false;             // authored soldier: body segments are attachments; the zombie-mesh body is hidden
     int muzzleAtt = -1;               // index into atts of the muzzle effect (or -1)
+    int weaponAtt = -1;               // index into atts of the weapon (or -1)
+    float muzzleW[3] = {0, 0, 0};     // muzzle in weapon space (m, grip origin, barrel +Z)
+    std::string model;                // authored model name (infantry.json), anim clips bind by model / class
     float muzzle[3] = {0, 0, 0};      // muzzle position, body voxels from the forearmR pivot (FX hooks)
 };
 
@@ -73,6 +101,7 @@ struct MilitaryLibrary {
     std::vector<CityMesh> premeshed;     // parallel to models: authored meshes (.ttzm parts); empty = mesh the voxels
     std::vector<MilInfantry> infantry;
     std::vector<MilProp> props;
+    std::vector<MilKeyClip> keyClips;
     // lab-only helper models (scale ruler, ground grid, parachute demo, tracer)
     int flashModel = -1, rulerModel = -1, gridModel = -1, chuteOpenModel = -1, chuteCollapsedModel = -1, dropCrateModel = -1, tracerModel = -1;
     bool placeholder = true;
@@ -90,5 +119,6 @@ private:
 // Visible-face voxel mesher (one quad per exposed voxel face, explicit indices), model space in metres:
 // (v - pivot) * voxel. Material ids = palette index.
 CityMesh meshVoxelModel(const MilVoxelModel& m);
+void eulerXYZToQuat(const float e[3], float q[4]);   // q = qx * qy * qz (zombie_pose.glsl qeulerXYZ)
 
 } // namespace ttz

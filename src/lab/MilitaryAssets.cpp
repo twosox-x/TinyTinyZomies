@@ -61,6 +61,35 @@ CityMesh meshVoxelModel(const MilVoxelModel& m) {
     return out;
 }
 
+void eulerXYZToQuat(const float e[3], float q[4]) {
+    float cx = std::cos(e[0] * 0.5f), sx = std::sin(e[0] * 0.5f), cy = std::cos(e[1] * 0.5f), sy = std::sin(e[1] * 0.5f);
+    float cz = std::cos(e[2] * 0.5f), sz = std::sin(e[2] * 0.5f);
+    q[0] = sx * cy * cz + cx * sy * sz; q[1] = cx * sy * cz - sx * cy * sz;
+    q[2] = cx * cy * sz + sx * sy * cz; q[3] = cx * cy * cz - sx * sy * sz;
+}
+
+void MilKeyClip::sample(float t, MilPoseKey& out) const {
+    if (keys.empty()) { out = MilPoseKey{}; return; }
+    if (keys.size() == 1 || t <= keys.front().t) { out = keys.front(); return; }
+    if (t >= keys.back().t) {
+        if (!loop || length <= keys.back().t) { out = keys.back(); return; }
+    }
+    size_t i = 0;
+    while (i + 1 < keys.size() && keys[i + 1].t <= t) ++i;
+    const MilPoseKey& a = keys[i];
+    const MilPoseKey& b = i + 1 < keys.size() ? keys[i + 1] : keys.front();   // looping: last -> first
+    float tb = i + 1 < keys.size() ? b.t : length + b.t;
+    float f = tb > a.t ? (t - a.t) / (tb - a.t) : 0.f;
+    f = std::clamp(f, 0.f, 1.f);
+    auto L = [f](float x, float y) { return x + (y - x) * f; };
+    out = a;
+    out.t = t;
+    for (int s = 0; s < 10; ++s) for (int k = 0; k < 3; ++k) out.rot[s][k] = L(a.rot[s][k], b.rot[s][k]);
+    out.bob = L(a.bob, b.bob); out.tilt = L(a.tilt, b.tilt); out.roll = L(a.roll, b.roll); out.prone = L(a.prone, b.prone);
+    for (int k = 0; k < 3; ++k) { out.root[k] = L(a.root[k], b.root[k]); out.weaponMount[k] = L(a.weaponMount[k], b.weaponMount[k]); }
+    out.hasMount = a.hasMount || b.hasMount;
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // placeholder library
 namespace {
@@ -183,15 +212,15 @@ void MilitaryLibrary::buildPlaceholders(float bodyVoxel) {
         encodeLook(l, x, y);
     };
     auto clipsFor = [](MilInfantry& inf) {
-        inf.clips = {{"rest pose", 8, 1.f, 0.f, true, true},
-                     {"idle (zombie clip)", 1, 4.f, 0.f, true, true},
-                     {"walk (zombie clip)", 2, 1.6f, 1.3f, true, true},
-                     {"reach (zombie clip)", 3, 2.f, 0.f, true, true},
-                     {"climb (zombie clip)", 4, 2.f, 0.f, true, true},
-                     {"flail (zombie clip)", 5, 2.f, 0.f, true, true},
-                     {"dying (zombie clip)", 6, 2.5f, 0.f, false, true}};
+        inf.clips = {{"rest pose", -1, 8, 1.f, 0.f, true, true},
+                     {"idle (zombie clip)", -1, 1, 4.f, 0.f, true, true},
+                     {"walk (zombie clip)", -1, 2, 1.6f, 1.3f, true, true},
+                     {"reach (zombie clip)", -1, 3, 2.f, 0.f, true, true},
+                     {"climb (zombie clip)", -1, 4, 2.f, 0.f, true, true},
+                     {"flail (zombie clip)", -1, 5, 2.f, 0.f, true, true},
+                     {"dying (zombie clip)", -1, 6, 2.5f, 0.f, false, true}};
         for (const char* n : {"aim", "fire", "reload", "run", "crouch", "prone", "throw", "die"})
-            inf.clips.push_back({n, 8, 1.f, 0.f, true, false});
+            inf.clips.push_back({n, -1, 8, 1.f, 0.f, true, false});
     };
     auto att = [](const char* name, int slot, int model, float x, float y, float z, bool fx = false) {
         MilAttachment a;
@@ -421,12 +450,11 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
                 if (A.name == "weapon") {   // grip at the hand: (0, -3.5, 0) V below the elbow, rest-pose mount rotation
                     A.offset[1] = -3.5f;
                     const json::Value& e = rest["weaponMount"];
-                    float ex = (float)e[0].n(), ey = (float)e[1].n(), ez = (float)e[2].n();
-                    float cx = std::cos(ex * 0.5f), sx = std::sin(ex * 0.5f), cy = std::cos(ey * 0.5f), sy = std::sin(ey * 0.5f);
-                    float cz = std::cos(ez * 0.5f), sz = std::sin(ez * 0.5f);   // q = qx * qy * qz (Euler XYZ, as qeulerXYZ)
-                    A.quat[0] = sx * cy * cz + cx * sy * sz; A.quat[1] = cx * sy * cz - sx * cy * sz;
-                    A.quat[2] = cx * cy * sz + sx * sy * cz; A.quat[3] = cx * cy * cz - sx * sy * sz;
+                    float eu[3] = {(float)e[0].n(), (float)e[1].n(), (float)e[2].n()};
+                    eulerXYZToQuat(eu, A.quat);
                     const json::Value& mz = mj["weapon"]["muzzle"];
+                    for (int k = 0; k < 3; ++k) I.muzzleW[k] = (float)mz[k].n();
+                    I.weaponAtt = (int)I.atts.size();
                     I.muzzle[0] = (float)mz[0].n() / bodyVoxel; I.muzzle[1] = -3.5f + (float)mz[1].n() / bodyVoxel; I.muzzle[2] = (float)mz[2].n() / bodyVoxel;
                 }
                 I.atts.push_back(A);
@@ -438,9 +466,26 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
                 I.atts.push_back(F);
                 I.muzzleAtt = (int)I.atts.size() - 1;
             }
-            I.clips = {{"rest pose", 8, 1.f, 0.f, true, true}, {"idle (zombie clip)", 1, 4.f, 0.f, true, true},
-                       {"walk (zombie clip)", 2, 1.6f, 1.3f, true, true}};
-            for (const char* n : {"carry", "aim", "fire", "reload", "run", "crouch", "prone", "throw", "die"}) I.clips.push_back({n, 8, 1.f, 0.f, true, false});
+            I.model = mj["name"].str;
+            I.clips.clear();
+            for (const char* pn : {"rest", "carry"}) {   // reference poses of infantry.json as one-key clips
+                const json::Value& pj = mj["poses"][pn];
+                if (pj.type != json::Value::Object) continue;
+                MilKeyClip kc;
+                kc.name = std::string(pn) + " pose";
+                kc.loop = true;
+                MilPoseKey k;
+                for (int s = 0; s < 10; ++s) for (int a = 0; a < 3; ++a) k.rot[s][a] = (float)pj["rot"][kSlots[s]][(size_t)a].n();
+                for (int a = 0; a < 3; ++a) k.weaponMount[a] = (float)pj["weaponMount"][(size_t)a].n();
+                k.hasMount = true;
+                kc.keys.push_back(k);
+                keyClips.push_back(kc);
+                MilClip c;
+                c.name = kc.name; c.keyClip = (int)keyClips.size() - 1; c.anim = 9; c.length = 1.f;
+                I.clips.push_back(c);
+            }
+            I.clips.push_back({"idle (zombie clip)", -1, 1, 4.f, 0.f, true, true});
+            I.clips.push_back({"walk (zombie clip)", -1, 2, 1.6f, 1.3f, true, true});
             infantry.push_back(I);
         } else {
             MilProp P;

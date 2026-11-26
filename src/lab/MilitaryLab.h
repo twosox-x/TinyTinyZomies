@@ -35,6 +35,7 @@ private:
     float worldYaw(float localYaw) const { return frameYaw_ + localYaw; }
     void findSpot(AppState& s);
     void select(AppState& s, int kind, int index);
+    void triggerFx(const std::string& type);   // clip events / FX buttons
 
     AppState* app_ = nullptr;
     MilitaryLibrary lib_;
@@ -76,7 +77,7 @@ private:
     // FX stubs
     float flashTimer_ = 0.f;
     bool holdFlash_ = false, suppressed_ = false;
-    struct Tracer { V3 p, d; float age; };
+    struct Tracer { float age; };   // drawn as an attachment of the selected soldier's weapon (muzzle + age * speed along the barrel)
     std::vector<Tracer> tracers_;
     bool holdTracer_ = false;
     std::string lastView_ = "closeup";
