@@ -2453,7 +2453,7 @@ const Vehicles = (function () {
       const r = vnoise(x, y, z, 16, seed + 5);
       let c = VM.CHAR;
       if (y > yAsh && !M.at(x, y + 1, z) && vnoise(x, y, z, 10, seed + 9) > 0.3) c = VM.ASH;
-      if (r > 0.7) c = VM.RUST; else if (r > 0.64) c = VM.RUST_DARK;
+      if (r > 0.8) c = VM.RUST; else if (r > 0.72) c = VM.RUST_DARK;
       M.v[i] = c + 1;
     });
     const kill = g.filter(i => { const x = i % M.w, z = Math.floor(i / M.w) % M.d, y = Math.floor(i / (M.w * M.d)); return exposed(M, x, y, z); });

@@ -45,14 +45,14 @@
 
   // ---- shared voxel parts
   // a parked car in a 7 x len voxel slot; dir 0/1: length along z, nose to -z / +z; dir 2/3: along x, nose to -x / +x.
-  // A CityCore.Vehicles model recorded on M and emitted with it (Emitter.vox), centred on the slot (<= 0.15 m over each end, <= 1.95 m wide).
+  // A CityCore.Vehicles model recorded on M and emitted with it (Emitter.vox), centred on the slot (<= 0.05 m over each end, <= 1.85 m wide).
   const CAR_KIND = ['sedan', 'suv', 'hatchback', 'sedan', 'minivan'];
   function car(M, x, y, z, dir, h) {
     const kind = Math.floor(h * 7919) % 5, len = kind === 2 ? 15 : kind === 1 ? 17 : 18, sd = Math.floor(h * 99991) % 997;
     let k = CAR_KIND[kind];
     if (k === 'sedan' && sd % 11 === 0) k = 'coupe';
     const cx = dir < 2 ? x + 3.5 : x + len / 2, cz = dir < 2 ? z + len / 2 : z + 3.5;
-    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.3, 1.95] });
+    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.1, 1.85] });
   }
   function tree(M, x, y, z, R, big) {
     const th = big ? 8 + Math.floor(R() * 3) : 5 + Math.floor(R() * 3), r = big ? 3.6 + R() : 2.4 + R() * 0.8;

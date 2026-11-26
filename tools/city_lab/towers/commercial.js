@@ -171,7 +171,7 @@
   const carLen = (h) => { const k = Math.floor(h * 7919) % 6; return k === 2 ? 15 : k === 1 ? 17 : k === 5 ? 19 : 18; };
   // a parked car in a 7 x len voxel slot (len = carLen(h)); dir 0/1: length along z, nose to -z / +z; dir 2/3: along x,
   // nose to -x / +x. h in [0,1). The car is a CityCore.Vehicles model (5 cm voxels) recorded on M and emitted with it
-  // (Emitter.vox), centred on the slot, at most 0.15 m longer than the slot at each end and 1.95 m wide.
+  // (Emitter.vox), centred on the slot, at most 0.05 m longer than the slot at each end and 1.85 m wide.
   // a parked car never overlaps another parked car or anything already built in the model (curbs, islands, walls,
   // pumps, pens): its slot, its lowest 0.5 m above the lot slab (y), must be empty and clear of the other cars' slots
   // (+ 1 voxel, the models may be up to 0.3 m longer than the slot)
@@ -192,7 +192,7 @@
     if (k === 'sedan' && sd % 9 === 0) k = 'coupe';
     if (k === 'suv' && sd % 7 === 0) k = 'police';
     const cx = dir < 2 ? x + 3.5 : x + len / 2, cz = dir < 2 ? z + len / 2 : z + 3.5;
-    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.3, 1.95] });
+    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.1, 1.85] });
   }
   function tree(M, x, y, z, R, s) {
     s = s || 1;

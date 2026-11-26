@@ -86,7 +86,17 @@ class Emitter {
     }
     // vehicles parked on this part (M.vehicles, from the plug-ins' car() helpers): CityCore.Vehicles models,
     // placed at their footprint centre in the part's voxel frame (1 / BV voxels per metre)
-    if (M.vehicles) for (const v of M.vehicles) C.Vehicles.emit(this, v.kind, v.opts, x + v.x, y + v.y, z + v.z, v.dir, 1 / BV, v.fit);
+    // (skipped when the finished part has anything inside the vehicle's footprint above the ground: shrubs, awnings)
+    if (M.vehicles) for (const v of M.vehicles) {
+      if (v.fit) {
+        const a = (v.dir < 2 ? v.fit[1] : v.fit[0]) / BV / 2, b = (v.dir < 2 ? v.fit[0] : v.fit[1]) / BV / 2;
+        let hit = false;
+        for (let yy = v.y + 1; yy < v.y + 6 && !hit; ++yy) for (let zz = Math.floor(v.z - b + 0.5); zz < Math.ceil(v.z + b - 0.5) && !hit; ++zz)
+          for (let xx = Math.floor(v.x - a + 0.5); xx < Math.ceil(v.x + a - 0.5); ++xx) if (M.at(xx + M.ox, yy, zz + M.oz)) { hit = true; break; }
+        if (hit) continue;
+      }
+      C.Vehicles.emit(this, v.kind, v.opts, x + v.x, y + v.y, z + v.z, v.dir, 1 / BV, v.fit);
+    }
   }
   // relief / height map meshed by the column mesher, then mapped: map(rx, ry, rz) -> local (x, y, z)
   relief(H, M, w, d, map, wallMat, C, clampDepth) {
