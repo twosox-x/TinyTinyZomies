@@ -268,12 +268,6 @@ void MilitaryLab::update(AppState& s, float dt) {
         }
     }
     U.cfg[0] = charCount_; U.cfg[1] = attCount_;
-    if (s.frameIndex == 30) SDL_Log("military lab: %u characters, %u attachments posed on the GPU", charCount_, attCount_);
-    if (s.frameIndex == 31 && SDL_getenv("TTZ_LAB_DUMP")) {
-        std::vector<CityRenderer::GpuInstance> d(attCount_);
-        gpu_->downloadNow(insts_, d.data(), attCount_ * (uint32_t)sizeof(CityRenderer::GpuInstance));
-        for (uint32_t a = 0; a < attCount_; a += 9) SDL_Log("att %u: char %u pos %.2f %.2f %.2f", a, U.atts[a].info[0], d[a].pos[0], d[a].pos[1], d[a].pos[2]);
-    }
     U.params[0] = bodyVoxel_;
 
     // ---- CPU instances: props, helpers, parachute demo, tracers (after the attachment block), lineup vehicles

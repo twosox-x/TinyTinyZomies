@@ -265,3 +265,31 @@ Export a glTF/GLB from Blockbench with groups named `head`, `body`, `arm_left`, 
 - [Asset pipeline](docs/ASSET_PIPELINE.md)
 - [Optimisation report](docs/OPTIMIZATION.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
+
+## Military Asset Lab (owner review of the military assets)
+
+In-engine review diorama (no gameplay): a street patch of the baked city under the in-game night look (same renderer,
+moon shadows, street lamps, fog, tilt-shift), the approved zombies and civilian vehicles for scale, the military
+infantry (zombie body standard posed on the GPU, gear / weapon parented to body slots) and props from
+`assets/military/` (`node tools/convert_military.mjs`, format in docs/MILITARY_ASSETS.md; built-in placeholders if
+the folder is missing).
+
+```bash
+cmake --build build-city -j
+./build-city/ttz --lab military
+```
+
+Panel "Military Asset Lab": asset browser (infantry variants, props) -> turntable spot; camera presets (close-up,
+front / rear / side / top, lineup, RTS 45 / 110 / 300 m, props row, parachute); MMB or Alt+LMB orbit, RMB pan, wheel
+zoom, F2 = RTS rig limits; lighting (in-game night / neutral studio), tilt-shift, shadows, fog, comparison lineup
+(zombies, vehicles), props row, 1 m grid, 2 m scale ruler; animation scaffold (clip list, play / pause, loop, speed,
+scrub; the infantry animation set fills the greyed slots), supply-drop timeline (descent -> landing -> collapse),
+muzzle flash / tracer / suppressed-shot stubs. F1 hides the UI.
+
+Headless review captures (one view per `--shots` frame; options: `+studio`, `+notilt`, `+flash`, `+inf=N`,
+`+prop=N`, `+clip=N`, `+chute=SECONDS`):
+
+```bash
+./build-city/ttz --lab military --headless --width 1600 --height 900 --frames 125 --shots 20,40,60,80,100,120 \
+  --lab-views closeup+inf=0,lineup,rts110,props,front+inf=7+studio,closeup+inf=2+flash --shot-dir /tmp/milab
+```
