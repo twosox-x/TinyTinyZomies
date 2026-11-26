@@ -10,6 +10,7 @@
 //   4. draw        one non-indexed indirect draw per size class, vertices pulled from a storage buffer
 // A zombie is never a CPU object: its appearance is 56 bits in its agent record (and its corpse record).
 #include "gpu/GpuContext.h"
+#include "render/ShadowPass.h"
 #include "sim/CrowdSim.h"
 
 #include <array>
@@ -44,13 +45,20 @@ public:
     // static occluders (tall buildings and walls of the current map)
     void setOccluders(const std::vector<float>& boxesMinMax);
     void setShadowField(SDL_GPUBuffer* b) { shadowField_ = b; }   // owned by the Renderer
+    void setShadowMap(const ShadowMapBinding& b) { shadowMap_ = b; }   // key-light shadow map (owned by the Renderer)
     // Records the draws inside the scene render pass (frame uniforms already pushed to slot 0).
-    void draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs);
+    void draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs,
+              bool depthOnly = false);
+    // The same characters into the key-light shadow pass (light view-projection in vertex slot 0; camera-culled list).
+    void drawShadow(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs) {
+        draw(cmd, pass, sim, time, cs, true);
+    }
 
     // Military Asset Lab: draw `count` externally posed body segments (SegInst layout, e.g. from shaders/mil_pose.comp)
     // with the approved segment meshes / material shader (geometry level 3, triangle lists, one draw padded to the
     // largest mesh). Separate from the zombie path: no culling, no counters, nothing shared is written.
-    void drawExternal(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, SDL_GPUBuffer* segs, uint32_t count);
+    void drawExternal(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, SDL_GPUBuffer* segs, uint32_t count,
+                      bool depthOnly = false);
 
     uint32_t drawCalls(const CharacterSettings& cs) const { return (uint32_t)classSet(cs).maxVerts.size(); }
     bool quadIndexingAvailable(int level) const { return quadOK_[level]; }
@@ -67,6 +75,8 @@ public:
 
 private:
     SDL_GPUBuffer* shadowField_ = nullptr;
+    ShadowMapBinding shadowMap_;
+    SDL_GPUGraphicsPipeline* pShadow_ = nullptr;
     struct ClassSet { std::vector<uint32_t> maxVerts; SDL_GPUBuffer* meshInfo = nullptr; SDL_GPUBuffer* classInfo = nullptr; };
     bool loadAsset(const std::string& path);
     void buildQuads();

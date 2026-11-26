@@ -7,7 +7,7 @@
 layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
     mat4  viewProj;
     vec4  camPos;       // xyz, w = time (s)
-    vec4  sunDir;       // xyz towards the moon, w unused
+    vec4  sunDir;       // xyz towards the key light (sun by day, moon by night), w DOF focus distance
     vec4  sunColor;
     vec4  skyColor;
     vec4  groundColor;
@@ -20,6 +20,9 @@ layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
     vec4  lightPos[MAX_LIGHTS];   // xyz, w radius
     vec4  lightCol[MAX_LIGHTS];   // rgb, w intensity
     vec4  blastsP[MAX_BLASTS];    // x effect scale (1 car / grenade, 2.2 fuel tanker), yzw unused
+    vec4  todP;         // time of day: x night 0..1 (windows / lamp lenses), y fire-light gain, z 1 = moon is the key light, w hours
+    mat4  shadowVP;     // world -> key-light (sun / moon) shadow map clip space
+    vec4  shadowP;      // x 1 = shadow map on, y metres per texel, z depth bias (clip units), w uv per texel
 };
 #define DBG_DENSITY 1u
 #define DBG_FLOW    2u

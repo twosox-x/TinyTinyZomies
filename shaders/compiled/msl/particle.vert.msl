@@ -98,6 +98,9 @@ struct Frame
     float4 lightPos[24];
     float4 lightCol[24];
     float4 blastsP[8];
+    float4 todP;
+    float4x4 shadowVP;
+    float4 shadowP;
 };
 
 struct SimUniforms

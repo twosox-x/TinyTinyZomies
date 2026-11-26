@@ -13,10 +13,10 @@ layout(location = 3) flat in vec4 vPaint;
 layout(location = 4) flat in float vPhase;
 layout(location = 0) out vec4 outColor;
 struct Mat { vec4 albedo; vec4 emis; uvec4 info; };   // albedo: linear rgb, w gloss; emis: x night, y mode, z roughness
-layout(std430, set = 2, binding = 0) readonly buffer Mats    { Mat mats[]; };
-layout(std430, set = 2, binding = 1) readonly buffer Decals  { uint decals[]; };
-layout(std430, set = 2, binding = 2) readonly buffer ShadowH { float shadowH[]; };
-layout(std430, set = 2, binding = 3) readonly buffer CorpseH { int corpseH[]; };
+layout(std430, set = 2, binding = 1) readonly buffer Mats    { Mat mats[]; };
+layout(std430, set = 2, binding = 2) readonly buffer Decals  { uint decals[]; };
+layout(std430, set = 2, binding = 3) readonly buffer ShadowH { float shadowH[]; };
+layout(std430, set = 2, binding = 4) readonly buffer CorpseH { int corpseH[]; };
 #include "shadow.glsl"
 #define M_GLASS 1u
 #define M_EMISSIVE 2u
@@ -81,6 +81,11 @@ void main() {
     vec3 albedo = m.albedo.rgb;
     if (vPaint.w > 0.5) albedo = vPaint.rgb;
     uint flags = m.info.x;
+    if ((flags & M_EMISSIVE) != 0u && int(m.emis.y + 0.5) == 2 && todP.x < 1.0) {   // lit windows by day: the unlit glass
+        Mat dm = mats[m.info.y];
+        albedo = mix(dm.albedo.rgb, albedo, todP.x);
+        if (todP.x < 0.5) { flags |= dm.info.x & M_GLASS; m.albedo.w = dm.albedo.w; }
+    }
     float t = camPos.w;
     if ((flags & M_FOLIAGE) != 0u) albedo *= 0.8 + 0.4 * hash12(floor(vWorld.xz * 0.7) + floor(vWorld.y * 0.7));
 
@@ -122,19 +127,20 @@ void main() {
         float k = (flags & M_WATER) != 0u ? 1.0 : (flags & M_GLASS) != 0u ? max(gloss, 0.5) : wet * 0.6;
         col = mix(col, sky, clamp(f * k, 0.0, 1.0)) + sky * 0.15 * k * ((flags & M_GLASS) != 0u ? 1.0 : 0.0);
     }
-    // emission (the engine runs at night: uNight = 1)
+    // emission (FORMAT.md section 6, City Lab's uNight = todP.x: 0 day .. 1 night)
     if ((flags & M_EMISSIVE) != 0u) {
-        float s = m.emis.x;
+        float night = todP.x;
+        float steady = mix(m.emis.w, m.emis.x, night);                          // day .. night strength
         int mode = int(m.emis.y + 0.5);
-        float e = s;
-        if (mode == 2) e = 1.3;                                                  // lit windows
-        else if (mode == 3) e = s * (0.6 + 0.4 * sq(t, 0.5));                    // aircraft beacon
-        else if (mode == 4) e = s * (0.25 + 0.75 * sq(t + (vMat == 190u ? 0.3125 : 0.0), 1.6));   // light bars
+        float e = steady;
+        if (mode == 2) e = 1.3 * night;                                          // lit windows (day: unlit glass, below)
+        else if (mode == 3) e = steady * (0.6 + 0.4 * sq(t, 0.5));               // aircraft beacon
+        else if (mode == 4) e = steady * (0.25 + 0.75 * sq(t + (vMat == 190u ? 0.3125 : 0.0), 1.6));   // light bars
         else if (mode == 5) {                                                    // traffic / pedestrian signals, 30 s cycle
             float c = mod(t + vPhase * 15.0, 30.0);
             bool green = c < 12.0, amber = c >= 12.0 && c < 15.0;
             bool lit = vMat == 60u ? !(green || amber) : vMat == 61u ? amber : vMat == 62u ? green : vMat == 69u ? green : !green;
-            e = lit ? 3.2 : 0.3;
+            e = lit ? 1.4 + 1.8 * night : 0.3;
         }
         col += m.albedo.rgb * e;
     }

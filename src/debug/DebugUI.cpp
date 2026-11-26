@@ -101,9 +101,43 @@ void drawDebugUI(AppState& s) {
         ImGui::Text("F2: %s camera", s.debugCam ? "debug (free)" : "RTS");
     }
 
+    if (ImGui::CollapsingHeader("Time of day & shadows", ImGuiTreeNodeFlags_DefaultOpen)) {
+        RenderSettings& rs = s.renderSettings;
+        TimeOfDaySettings& t = rs.tod;
+        const TimeOfDayLight tl = s.renderer.lightAt(rs);
+        int hh = (int)t.hours, mm = (int)((t.hours - (float)hh) * 60.f);
+        ImGui::Text("%02d:%02d  %s elevation %.1f deg  night %.2f", hh, mm, tl.moon ? "moon" : "sun", tl.moon ? std::asin(tl.dir.y) * 57.2958f : tl.sunElevation, tl.night);
+        ImGui::SliderFloat("time (h)", &t.hours, 0.f, 23.99f, "%.2f");
+        ImGui::Checkbox("pause clock", &t.paused);
+        ImGui::SameLine();
+        if (ImGui::Button("dawn")) t.hours = 6.2f;
+        ImGui::SameLine();
+        if (ImGui::Button("noon")) t.hours = 12.f;
+        ImGui::SameLine();
+        if (ImGui::Button("golden")) t.hours = 17.3f;
+        ImGui::SameLine();
+        if (ImGui::Button("dusk")) t.hours = 18.3f;
+        ImGui::SameLine();
+        if (ImGui::Button("night")) t.hours = 0.f;
+        ImGui::SliderFloat("clock speed", &t.speed, 0.f, 60.f, "%.1fx", ImGuiSliderFlags_Logarithmic);
+        ImGui::SliderFloat("cycle (min / 24 h)", &t.cycleMinutes, 2.f, 120.f, "%.0f");
+        ImGui::SliderFloat("sun max elevation", &t.sunMaxElevation, 15.f, 85.f, "%.0f deg");
+        ImGui::SliderFloat("sun azimuth offset", &t.sunAzimuthOffset, -180.f, 180.f, "%.0f deg");
+        ImGui::SliderFloat("sun strength", &t.sunStrength, 0.f, 2.f);
+        ImGui::SliderFloat("night brightness", &t.nightBrightness, 0.2f, 3.f);
+        ImGui::Checkbox("shadows", &rs.shadows);
+        ImGui::SameLine();
+        ImGui::Checkbox("shadow map (off: legacy moon field)", &rs.shadowMap);
+        int sz = rs.shadowMapSize <= 1024 ? 0 : rs.shadowMapSize <= 2048 ? 1 : 2;
+        if (ImGui::Combo("shadow map size", &sz, "1024\0" "2048\0" "4096\0")) rs.shadowMapSize = 1024 << sz;
+        ImGui::SliderFloat("shadow range (m)", &rs.shadowRange, 40.f, 400.f, "%.0f");
+        ImGui::SliderFloat("shadow softness (texels)", &rs.shadowSoftness, 0.25f, 3.f);
+        ImGui::Text("shadow pass: %u draw calls", s.renderer.shadowDrawCalls());
+    }
+
     if (ImGui::CollapsingHeader("Look (fog, exposure, miniature)")) {
         RenderSettings& rs = s.renderSettings;
-        ImGui::SliderFloat("exposure", &rs.exposure, 0.4f, 2.5f);
+        ImGui::SliderFloat("exposure (x time of day)", &rs.exposure, 0.4f, 2.5f);
         ImGui::SliderFloat("fog density", &rs.fogDensity, 0.0f, 0.006f, "%.4f");
         ImGui::SliderFloat("fog start (x cam dist)", &rs.fogStart, 0.0f, 2.0f);
         ImGui::SliderFloat("saturation", &rs.saturation, 0.5f, 1.8f);

@@ -15,9 +15,9 @@ layout(location = 3) in float vAO;
 layout(location = 4) flat in uvec4 vInfo;
 layout(location = 0) out vec4 outColor;
 // geometry level 3: merged faces span several materials; the voxel behind each fragment decides
-layout(std430, set = 2, binding = 0) readonly buffer MeshVox { uvec4 meshVox[]; };   // tag byte offset, min*2+128, dims
-layout(std430, set = 2, binding = 1) readonly buffer VoxTags { uint voxTags[]; };
-layout(std430, set = 2, binding = 2) readonly buffer ShadowH { float shadowH[]; };
+layout(std430, set = 2, binding = 1) readonly buffer MeshVox { uvec4 meshVox[]; };   // tag byte offset, min*2+128, dims
+layout(std430, set = 2, binding = 2) readonly buffer VoxTags { uint voxTags[]; };
+layout(std430, set = 2, binding = 3) readonly buffer ShadowH { float shadowH[]; };
 #include "shadow.glsl"
 #define TAG_LOOKUP 31u
 

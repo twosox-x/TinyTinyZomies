@@ -14,6 +14,7 @@
 #include "city/CityWater.h"
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
+#include "render/ShadowPass.h"
 #include "sim/Sandbox.h"
 
 #include <unordered_map>
@@ -76,6 +77,13 @@ public:
     // frag buffers: decals, shadow field, corpse heights (sim window); null-safe for tests.
     void draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH,
               SDL_GPUBuffer* corpseH);
+    // Key-light shadow map: casters for the next update() are the tiles / chunks inside the light's clip box
+    // (lightViewProj, column-major; null = no shadow pass). Instances: the camera-visible vehicles / props.
+    void setShadowCaster(const float* lightViewProj);
+    void setShadowMap(const ShadowMapBinding& b) { shadowMap_ = b; }
+    // Inside the shadow pass (light view-projection pushed to vertex slot 0): tiles (multi-draw indirect) + instances.
+    void drawShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd);
+    uint32_t shadowDrawCalls() const { return shadowCalls_; }
     // Highest static top (m) near (x, z) from resident tiles (4 m cells; camera obstacle avoidance), 0 if unknown.
     float heightAt(float x, float z) const;
     // Street-lamp point lights nearest to (x, z) among visible tiles.
@@ -104,6 +112,8 @@ public:
     // Inside the scene pass: instances (GpuInstance layout, `insts`) drawn with the given palette.
     void drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* materials, SDL_GPUBuffer* insts,
                       SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH, SDL_GPUBuffer* corpseH, const std::vector<ExtDraw>& draws);
+    // The same instances into the shadow pass (depth only).
+    void drawExternalShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* insts, const std::vector<ExtDraw>& draws);
 
     CitySettings settings;
     CityWater water;          // smooth water surfaces (WATR)
@@ -124,6 +134,9 @@ private:
         bool hasLod2 = false;                // baked LOD2 (else chunked tiles draw LOD1 chunks far away)
         std::vector<std::pair<uint32_t, uint32_t>> ranges;   // this frame: (first index, index count), merged when contiguous
         uint32_t indFirst = 0;              // this frame: first command of its ranges in the indirect buffer
+        std::vector<std::pair<uint32_t, uint32_t>> sranges;   // this frame: shadow-caster ranges (LOD slod)
+        uint32_t sindFirst = 0;
+        int slod = 0;
         std::vector<CityInstance> instances;
         std::vector<float> coarse;          // 32 x 32 max-height cells of 4 m (camera avoidance)
         float cx0 = 0, cz0 = 0;
@@ -144,7 +157,13 @@ private:
 
     GpuContext* gpu_ = nullptr;
     CityAsset* asset_ = nullptr;
-    SDL_GPUGraphicsPipeline *pipe_ = nullptr, *pipeNoCull_ = nullptr;
+    SDL_GPUGraphicsPipeline *pipe_ = nullptr, *pipeNoCull_ = nullptr, *pipeShadow_ = nullptr;
+    bool boxInPlanes(const float (*planes)[4], int n, const float* mn, const float* mx) const;
+    float shadowPlanes_[5][4];                    // light clip box minus its near plane (depth clamped)
+    bool shadowCull_ = false;
+    uint32_t shadowCalls_ = 0;
+    ShadowMapBinding shadowMap_;
+    void bindShadowMap(SDL_GPURenderPass* pass) const;
     SDL_GPUBuffer *materials_ = nullptr, *instances_ = nullptr, *dummy_ = nullptr;
     SDL_GPUBuffer* quadIB_ = nullptr;            // shared u32 index buffer of the implicit quad pattern
     uint32_t quadIBQuads_ = 0;

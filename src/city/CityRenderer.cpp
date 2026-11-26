@@ -20,7 +20,8 @@ struct DrawU {               // std140, vertex uniform slot 1 (shaders/city.vert
 };
 struct GpuMat {              // std430, shaders/city.frag
     float albedo[4];         // linear rgb, w gloss
-    float emis[4];           // x night strength, y mode (EmissiveMode), z roughness
+    float emis[4];           // x night strength, y mode (EmissiveMode), z roughness, w day strength
+    // info: x flags (CityMatFlags), y day material (windows)
     uint32_t info[4];        // x flags (CityMatFlags)
 };
 using GpuInst = CityRenderer::GpuInstance;   // std430, shaders/city.vert
@@ -59,6 +60,7 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
         ci.target_info.depth_stencil_format = kDepthFormat;
         ci.target_info.has_depth_stencil_target = true;
         (k == 0 ? pipe_ : pipeNoCull_) = SDL_CreateGPUGraphicsPipeline(d, &ci);
+        if (k == 0) pipeShadow_ = makeShadowPipeline(gpu, ci);   // same vertex stage, depth only
         SDL_ReleaseGPUShader(d, v);
         SDL_ReleaseGPUShader(d, f);
         if (!(k == 0 ? pipe_ : pipeNoCull_)) {
@@ -71,7 +73,8 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
     for (auto& m : mats) m = {{0.5f, 0.5f, 0.5f, 0.f}, {0, 0, 0.8f, 0}, {0, 0, 0, 0}};
     for (size_t i = 0; i < asset.materials.size() && i < 256; ++i) {
         const CityMaterial& m = asset.materials[i];
-        mats[i] = {{m.r, m.g, m.b, m.gloss}, {m.emissiveNight, (float)m.emissiveMode, m.roughness, 0}, {m.flags, 0, 0, 0}};
+        mats[i] = {{m.r, m.g, m.b, m.gloss}, {m.emissiveNight, (float)m.emissiveMode, m.roughness, m.emissiveDay},
+                   {m.flags, m.dayMaterial >= 0 && m.dayMaterial < 256 ? (uint32_t)m.dayMaterial : (uint32_t)i, 0, 0}};
     }
     materials_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(mats.size() * sizeof(GpuMat)), "cityMaterials");
     gpu.uploadNow(materials_, mats.data(), (uint32_t)(mats.size() * sizeof(GpuMat)));
@@ -187,9 +190,9 @@ void CityRenderer::shutdown() {
     indirectCap_ = 0;
     if (instTB_) SDL_ReleaseGPUTransferBuffer(d, instTB_);
     instTB_ = nullptr;
-    for (auto p : {pipe_, pipeNoCull_})
+    for (auto p : {pipe_, pipeNoCull_, pipeShadow_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
-    pipe_ = pipeNoCull_ = nullptr;
+    pipe_ = pipeNoCull_ = pipeShadow_ = nullptr;
     gpu_ = nullptr;
 }
 
@@ -511,6 +514,34 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
             gatherInstance(byModel, v.kind, v.variant, &v.x, v.q, v.paint);
         }
     }
+    // shadow casters: tiles / chunks inside the key light's clip box. LOD: the camera's choice where the camera sees the
+    // chunk (receiver and caster then match), else by eye distance (no hysteresis).
+    shadowCalls_ = 0;
+    for (auto& [k, g] : tiles_) {
+        g.sranges.clear();
+        if (!shadowCull_ || !boxInPlanes(shadowPlanes_, 5, g.bmin, g.bmax)) continue;
+        auto lodAt = [&](float dist) { return dist > settings.lod2Dist ? 2 : dist > settings.lod1Dist ? 1 : 0; };
+        g.slod = g.visible ? g.lod : lodAt(distTo(g.bmin, g.bmax));
+        auto addRange = [&](uint32_t firstIdx, uint32_t count) {
+            if (!count) return;
+            if (!g.sranges.empty() && g.sranges.back().first + g.sranges.back().second == firstIdx) g.sranges.back().second += count;
+            else g.sranges.push_back({firstIdx, count});
+        };
+        if ((g.slod == 2 && g.hasLod2) || g.chunks.empty()) {
+            addRange(g.lods[g.slod].first, g.lods[g.slod].count);
+        } else {
+            for (size_t c = 0; c < g.chunks.size(); ++c) {
+                const CityChunk& ch = g.chunks[c];
+                if (!ch.n0) continue;
+                int lod = std::min(1, g.slod);
+                if (settings.chunks) {
+                    if (!boxInPlanes(shadowPlanes_, 5, ch.bmin, ch.bmax)) continue;
+                    lod = g.visible && boxVisible(ch.bmin, ch.bmax) ? g.chunkLod[c] : std::min(1, lodAt(distTo(ch.bmin, ch.bmax)));
+                }
+                addRange(g.lods[0].first + ch.first * 6, (lod ? ch.n1 : ch.n0) * 6);
+            }
+        }
+    }
     if (vehicles_)
         for (uint32_t i : vehicles_->customList()) {
             const Vehicle& v = vehicles_->vehicle(i);
@@ -539,6 +570,12 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
             g.indFirst = (uint32_t)cmds.size();
             const GpuTile::Lod& Q = ((g.lod == 2 && g.hasLod2) || g.chunks.empty()) ? g.lods[g.lod] : g.lods[0];
             for (auto& r : g.ranges) cmds.push_back({r.second, 1, r.first, (int32_t)Q.vtxOffset, 0});
+        }
+    if (settings.indirect)   // shadow-caster ranges after the camera's
+        for (auto& [k, g] : tiles_) {
+            g.sindFirst = (uint32_t)cmds.size();
+            const GpuTile::Lod& Q = ((g.slod == 2 && g.hasLod2) || g.chunks.empty()) ? g.lods[g.slod] : g.lods[0];
+            for (auto& r : g.sranges) cmds.push_back({r.second, 1, r.first, (int32_t)Q.vtxOffset, 0});
         }
     SDL_GPUDevice* d = gpu_->device();
     if (cmds.size() > indirectCap_) {
@@ -652,6 +689,7 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
     SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);
     SDL_GPUBuffer* fb[4] = {materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_};
     SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 4);
+    bindShadowMap(pass);
     SDL_BindGPUVertexStorageBuffers(pass, 0, &instances_, 1);
     // front to back (early depth rejection)
     std::vector<std::pair<float, const GpuTile*>> order;
@@ -704,7 +742,8 @@ SDL_GPUBuffer* CityRenderer::createMaterialBuffer(const std::vector<CityMaterial
     for (auto& m : mats) m = {{0.5f, 0.5f, 0.5f, 0.f}, {0, 0, 0.8f, 0}, {0, 0, 0, 0}};
     for (size_t i = 0; i < list.size() && i < 256; ++i) {
         const CityMaterial& m = list[i];
-        mats[i] = {{m.r, m.g, m.b, m.gloss}, {m.emissiveNight, (float)m.emissiveMode, m.roughness, 0}, {m.flags, 0, 0, 0}};
+        mats[i] = {{m.r, m.g, m.b, m.gloss}, {m.emissiveNight, (float)m.emissiveMode, m.roughness, m.emissiveDay},
+                   {m.flags, m.dayMaterial >= 0 && m.dayMaterial < 256 ? (uint32_t)m.dayMaterial : (uint32_t)i, 0, 0}};
     }
     SDL_GPUBuffer* b = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(mats.size() * sizeof(GpuMat)), "extMaterials");
     gpu_->uploadNow(b, mats.data(), (uint32_t)(mats.size() * sizeof(GpuMat)));
@@ -717,6 +756,95 @@ void CityRenderer::drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* c
     SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);
     SDL_GPUBuffer* fb[4] = {materials ? materials : materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_};
     SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 4);
+    bindShadowMap(pass);
+    SDL_BindGPUVertexStorageBuffers(pass, 0, &insts, 1);
+    for (const ExtDraw& d : draws) {
+        if (!d.mesh || !d.mesh->vb || !d.count) continue;
+        const GpuMesh& m = *d.mesh;
+        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, d.first, 0, 0, {}, {}};
+        std::memcpy(u.clampRect, d.clamp, sizeof(u.clampRect));
+        std::memcpy(u.clampH, d.clamp + 4, sizeof(u.clampH));
+        SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
+        SDL_GPUBufferBinding vb{m.vb, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_GPUBufferBinding ib{m.ib, 0};
+        SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(pass, m.idxCount, d.count, 0, 0, 0);
+    }
+}
+
+void CityRenderer::bindShadowMap(SDL_GPURenderPass* pass) const {
+    if (!shadowMap_.valid()) return;
+    SDL_GPUTextureSamplerBinding b{shadowMap_.texture, shadowMap_.sampler};
+    SDL_BindGPUFragmentSamplers(pass, 0, &b, 1);
+}
+
+bool CityRenderer::boxInPlanes(const float (*planes)[4], int n, const float* mn, const float* mx) const {
+    for (int i = 0; i < n; ++i) {
+        const float* p = planes[i];
+        float x = p[0] > 0 ? mx[0] : mn[0], y = p[1] > 0 ? mx[1] : mn[1], z = p[2] > 0 ? mx[2] : mn[2];
+        if (p[0] * x + p[1] * y + p[2] * z + p[3] < 0) return false;
+    }
+    return true;
+}
+
+void CityRenderer::setShadowCaster(const float* lightViewProj) {
+    shadowCull_ = lightViewProj != nullptr && pipeShadow_ != nullptr;
+    if (!shadowCull_) return;
+    M4 vp;
+    std::memcpy(vp.m, lightViewProj, sizeof(vp.m));
+    // left, right, bottom, top, far (no near plane: casters towards the light are depth-clamped)
+    for (int c = 0; c < 4; ++c) {
+        shadowPlanes_[0][c] = vp(3, c) + vp(0, c);
+        shadowPlanes_[1][c] = vp(3, c) - vp(0, c);
+        shadowPlanes_[2][c] = vp(3, c) + vp(1, c);
+        shadowPlanes_[3][c] = vp(3, c) - vp(1, c);
+        shadowPlanes_[4][c] = vp(3, c) - vp(2, c);
+    }
+}
+
+void CityRenderer::drawShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd) {
+    shadowCalls_ = 0;
+    if (!settings.draw || tiles_.empty() || !pipeShadow_ || !shadowCull_) return;
+    SDL_BindGPUGraphicsPipeline(pass, pipeShadow_);
+    SDL_BindGPUVertexStorageBuffers(pass, 0, &instances_, 1);
+    for (auto& [k, g] : tiles_) {
+        const GpuTile::Lod& L = g.lods[g.slod];
+        if (!g.vb || g.sranges.empty() || (L.shared ? !quadIB_ : !g.ib)) continue;
+        const GpuTile::Lod& Q = ((g.slod == 2 && g.hasLod2) || g.chunks.empty()) ? L : g.lods[0];
+        DrawU u{{Q.origin[0], Q.origin[1], Q.origin[2], 0}, {Q.scale[0], Q.scale[1], 0, 0}, 0, 0, 0, 0, {}, {}};
+        SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
+        SDL_GPUBufferBinding vb{g.vb, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_GPUBufferBinding ib{Q.shared ? quadIB_ : g.ib, 0};
+        SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        if (indirectReady_) {
+            SDL_DrawGPUIndexedPrimitivesIndirect(pass, indirect_, g.sindFirst * (uint32_t)sizeof(SDL_GPUIndexedIndirectDrawCommand),
+                                                 (uint32_t)g.sranges.size());
+            shadowCalls_++;
+        } else {
+            for (auto& r : g.sranges) SDL_DrawGPUIndexedPrimitives(pass, r.second, 1, r.first, (int32_t)Q.vtxOffset, 0);
+            shadowCalls_ += (uint32_t)g.sranges.size();
+        }
+    }
+    for (const VDraw& v : vdraws_) {   // vehicles / props (camera-visible instances)
+        const GpuMesh& m = models_[v.lod][v.model];
+        if (!m.vb) continue;
+        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, v.first, 0, 0, {}, {}};
+        SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
+        SDL_GPUBufferBinding vb{m.vb, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_GPUBufferBinding ib{m.ib, 0};
+        SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(pass, m.idxCount, v.count, 0, 0, 0);
+        shadowCalls_++;
+    }
+}
+
+void CityRenderer::drawExternalShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* insts,
+                                      const std::vector<ExtDraw>& draws) {
+    if (draws.empty() || !insts || !pipeShadow_) return;
+    SDL_BindGPUGraphicsPipeline(pass, pipeShadow_);
     SDL_BindGPUVertexStorageBuffers(pass, 0, &insts, 1);
     for (const ExtDraw& d : draws) {
         if (!d.mesh || !d.mesh->vb || !d.count) continue;

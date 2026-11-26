@@ -1,4 +1,5 @@
-// Night-time lighting: hemispheric ambient, cool moonlight, warm point lights, explosion flashes, fog.
+// Lighting: hemispheric ambient, key light (warm sun by day, cool moon by night; TimeOfDay.h), warm point lights,
+// explosion flashes (stronger at night, todP.y), fog.
 #ifndef TTZ_LIGHTING_GLSL
 #define TTZ_LIGHTING_GLSL
 vec3 pointLights(vec3 P, vec3 N) {
@@ -24,15 +25,15 @@ vec3 pointLights(vec3 P, vec3 N) {
         fire *= fire * (0.75 + 0.25 * sin(age * 41.0 + float(i) * 2.1) * sin(age * 23.0 + 1.3));
         float attF = clamp(1.0 - d / (20.0 * ss), 0.0, 1.0), attR = clamp(1.0 - d / (15.0 * ss), 0.0, 1.0);
         float lam = max(dot(N, L / max(d, 1e-3)), 0.15);
-        c += (vec3(1.0, 0.88, 0.7) * 5.0 * flash * attF * attF + vec3(1.0, 0.42, 0.1) * 2.6 * fire * attR * attR) * ss * lam;
+        c += (vec3(1.0, 0.88, 0.7) * 5.0 * flash * attF * attF + vec3(1.0, 0.42, 0.1) * 2.6 * fire * attR * attR) * ss * lam * todP.y;
     }
     return c;
 }
-// vis: moon visibility (1 lit, 0 in a building's shadow), see shadow.glsl
+// vis: key-light visibility (1 lit, 0 in shadow), see shadow.glsl
 vec3 shadeV(vec3 albedo, vec3 N, vec3 P, float ao, float vis) {
     vec3 hemi = mix(groundColor.rgb, skyColor.rgb, N.y * 0.5 + 0.5) * ao;
-    vec3 moon = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0) * vis;
-    return albedo * (hemi + moon + pointLights(P, N));
+    vec3 key = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0) * vis;
+    return albedo * (hemi + key + pointLights(P, N));
 }
 vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) { return shadeV(albedo, N, P, ao, 1.0); }
 // Fog (fogColor.w density per metre, starting groundColor.w metres from the eye, capped so distant blocks keep their

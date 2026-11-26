@@ -190,6 +190,8 @@ bool CityAsset::load(const std::string& dir) {
             c.emissiveMode = mode == "steady" || mode == "night" ? EM_STEADY : mode == "windows" ? EM_WINDOWS : mode == "blink" ? EM_BLINK
                            : mode == "flash" ? EM_FLASH : mode == "signal" ? EM_SIGNAL : EM_STEADY;
             c.emissiveNight = e["night"].f(1.f);
+            c.emissiveDay = e["day"].f(0.f);
+            c.dayMaterial = (int)e["dayMaterial"].f(-1.f);
             c.flags |= MAT_EMISSIVE;
         }
     }

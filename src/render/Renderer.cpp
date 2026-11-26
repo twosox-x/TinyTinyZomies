@@ -40,7 +40,8 @@ int Renderer::msaaSamples() const {
     }
 }
 
-SDL_GPUGraphicsPipeline* Renderer::makePipeline(const char* vs, const char* fs, bool modelVertex, bool cubeVertex, bool cull, bool cullFront) {
+SDL_GPUGraphicsPipeline* Renderer::makePipeline(const char* vs, const char* fs, bool modelVertex, bool cubeVertex, bool cull, bool cullFront,
+                                                SDL_GPUGraphicsPipeline** shadowOut) {
     SDL_GPUShader* v = gpu_->loadShader(std::string(vs) + ".vert", SDL_GPU_SHADERSTAGE_VERTEX);
     SDL_GPUShader* f = gpu_->loadShader(std::string(fs) + ".frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
     if (!v || !f) return nullptr;
@@ -79,6 +80,7 @@ SDL_GPUGraphicsPipeline* Renderer::makePipeline(const char* vs, const char* fs, 
     ci.target_info.has_depth_stencil_target = true;
     SDL_GPUGraphicsPipeline* p = SDL_CreateGPUGraphicsPipeline(gpu_->device(), &ci);
     if (!p) SDL_Log("pipeline %s/%s: %s", vs, fs, SDL_GetError());
+    if (shadowOut) *shadowOut = makeShadowPipeline(*gpu_, ci);
     SDL_ReleaseGPUShader(gpu_->device(), v);
     SDL_ReleaseGPUShader(gpu_->device(), f);
     return p;
@@ -117,7 +119,7 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
     // animation never mirrors geometry, so back-face culling is safe.
     pZombie_ = makePipeline("zombie", "zombie", true, false, true);
     pCorpse_ = makePipeline("corpse", "zombie", true, false, true);
-    pBox_ = makePipeline("box", "box", false, true, true);
+    pBox_ = makePipeline("box", "box", false, true, true, false, &pBoxShadow_);
     pGround_ = makePipeline("ground", "ground", false, false, false);
     pParticle_ = makePipeline("particle", "particle", false, false, true);
     pFx_ = makePipeline("fx_volume", "fx_volume", false, false, true);                 // camera inside: far faces
@@ -136,7 +138,11 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
         sci.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
         sci.address_mode_u = sci.address_mode_v = sci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         linear_ = SDL_CreateGPUSampler(d, &sci);
+        sci.enable_compare = true;                       // shadow map: hardware depth comparison, bilinear PCF
+        sci.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+        shadowCmp_ = SDL_CreateGPUSampler(d, &sci);
     }
+    ensureShadowMap(2048);
 
     zombieIndexCount_ = (uint32_t)zombie.indices.size();
     variantRows_ = zombie.variantRows;
@@ -266,7 +272,7 @@ void Renderer::shutdown() {
     if (!gpu_) return;
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
-    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pFx_, pFxNear_, pDofPre_, pDofTile_, pDofDilate_, pDofGather_,
+    for (auto p : {pBoxShadow_, pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pFx_, pFxNear_, pDofPre_, pDofTile_, pDofDilate_, pDofGather_,
                    pDofFill_, pComposite_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
     for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_, &shadowH_}) gpu_->releaseBuffer(*b);
@@ -274,6 +280,9 @@ void Renderer::shutdown() {
         if (t) SDL_ReleaseGPUTexture(d, t);
     if (nearest_) SDL_ReleaseGPUSampler(d, nearest_);
     if (linear_) SDL_ReleaseGPUSampler(d, linear_);
+    if (shadowCmp_) SDL_ReleaseGPUSampler(d, shadowCmp_);
+    if (shadowTex_) SDL_ReleaseGPUTexture(d, shadowTex_);
+    shadowTex_ = nullptr;
     gpu_ = nullptr;
 }
 
@@ -317,6 +326,81 @@ void Renderer::ensureTargets(uint32_t w, uint32_t h) {
     targetH_ = h;
 }
 
+void Renderer::ensureShadowMap(uint32_t size) {
+    size = size <= 1024 ? 1024u : size <= 2048 ? 2048u : 4096u;
+    if (size == shadowSize_ && shadowTex_) return;
+    SDL_GPUDevice* d = gpu_->device();
+    if (shadowTex_) SDL_ReleaseGPUTexture(d, shadowTex_);
+    SDL_GPUTextureCreateInfo ci{};
+    ci.type = SDL_GPU_TEXTURETYPE_2D;
+    ci.format = kShadowDepthFormat;
+    ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    ci.width = ci.height = size;
+    ci.layer_count_or_depth = 1;
+    ci.num_levels = 1;
+    shadowTex_ = SDL_CreateGPUTexture(d, &ci);
+    shadowSize_ = shadowTex_ ? size : 0;
+    if (!shadowTex_) { SDL_Log("shadow map %u: %s", size, SDL_GetError()); return; }
+    // clear once: the map is bound (never sampled) on frames without a shadow pass
+    SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(d);
+    SDL_GPUDepthStencilTargetInfo st{};
+    st.texture = shadowTex_;
+    st.clear_depth = 1.0f;
+    st.load_op = SDL_GPU_LOADOP_CLEAR;
+    st.store_op = SDL_GPU_STOREOP_STORE;
+    st.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    st.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    SDL_EndGPURenderPass(SDL_BeginGPURenderPass(cmd, nullptr, 0, &st));
+    SDL_SubmitGPUCommandBuffer(cmd);
+}
+
+// Key-light shadow map fit. The light's view is anchored at the world origin (its x / y axes depend only on the light
+// direction), the ortho box covers the camera's visible ground (5 x 5 screen rays to y = 0 and 25 m above it, clamped
+// to shadowRange from the pivot) in light space; its half extents snap up to 1/8-octave steps and its centre to whole
+// texels, so panning moves the map by whole texels (no shimmer) and zooming changes its size only in steps. Depth:
+// 500 m towards the light .. 500 m beyond the pivot, nearer casters are depth-clamped (ShadowPass.h).
+bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings& rs, M4& lightVP, float* texelMetres) const {
+    if (rs.studioLighting || !rs.shadows || !rs.shadowMap || !shadowTex_) return false;
+    const TimeOfDayLight tl = evalTimeOfDay(rs.tod);
+    if (tl.color.x + tl.color.y + tl.color.z < 1e-4f) return false;
+    const V3 L = tl.dir, tgt = cam.target();
+    const M4 view = lookAt(L * 500.f, V3{0, 0, 0}, std::fabs(L.y) > 0.99f ? V3{0, 0, 1} : V3{0, 1, 0});
+    V3 fwd = tgt - cam.eye();
+    fwd.y = 0;
+    fwd = std::sqrt(dot(fwd, fwd)) > 1e-3f ? normalize(fwd) : V3{0, 0, 1};
+    const float range = std::max(rs.shadowRange, 10.f), Hs = 1000.f, Ws = Hs * std::max(aspect, 0.1f);
+    float mnx = 1e30f, mny = 1e30f, mxx = -1e30f, mxy = -1e30f;
+    for (int j = 0; j <= 4; ++j)
+        for (int i = 0; i <= 4; ++i) {
+            V3 p;
+            if (!cam.screenToGround(Ws * (float)i / 4.f, Hs * (float)j / 4.f, Ws, Hs, 0.f, p) || dot(p - tgt, fwd) > range) p = tgt + fwd * range;
+            V3 dxz = p - tgt;
+            dxz.y = 0;
+            float l = std::sqrt(dot(dxz, dxz));
+            if (l > range) p = tgt + dxz * (range / l);
+            for (float y : {0.f, 25.f}) {
+                V3 q{p.x, y, p.z};
+                float x = view(0, 0) * q.x + view(0, 1) * q.y + view(0, 2) * q.z + view(0, 3);
+                float yy = view(1, 0) * q.x + view(1, 1) * q.y + view(1, 2) * q.z + view(1, 3);
+                mnx = std::min(mnx, x); mxx = std::max(mxx, x);
+                mny = std::min(mny, yy); mxy = std::max(mxy, yy);
+            }
+        }
+    auto stepUp = [](float v) { return std::exp2(std::ceil(std::log2(std::max(v, 8.f)) * 8.f) / 8.f); };
+    const float hx = stepUp(0.5f * (mxx - mnx) + 3.f), hy = stepUp(0.5f * (mxy - mny) + 3.f);
+    const float n = (float)shadowSize_, tx = 2.f * hx / n, ty = 2.f * hy / n;
+    const float cx = std::round(0.5f * (mnx + mxx) / tx) * tx, cy = std::round(0.5f * (mny + mxy) / ty) * ty;
+    const float zn = -dot(L, tgt), zf = zn + 1000.f;   // view-space distance range along -L: 500 m above .. 500 m below the pivot
+    M4 proj;
+    proj(0, 0) = 1.f / hx; proj(0, 3) = -cx / hx;
+    proj(1, 1) = 1.f / hy; proj(1, 3) = -cy / hy;
+    proj(2, 2) = -1.f / (zf - zn); proj(2, 3) = -zn / (zf - zn);
+    proj(3, 3) = 1.f;
+    lightVP = mul(proj, view);
+    if (texelMetres) *texelMetres = std::max(tx, ty);
+    return true;
+}
+
 void Renderer::addBlast(float x, float y, float z, float scale) {
     blasts_.push_back({x, y, z, 0.f, std::max(scale, 0.1f)});
     fxBlasts_.push_back({x, y, z, 0.f, std::clamp(scale, 0.3f, 3.f), (float)((fxSeed_++ * 2654435761u) % 997u)});
@@ -352,6 +436,7 @@ uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* 
 void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
                       const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars) {
     ensureTargets(w, h);
+    ensureShadowMap((uint32_t)rs.shadowMapSize);
     const bool modular = chars && rs.characterModel == 1;
     if (modular && !skipCharacterPrepare_) prepareCharacters(cmd, w, h, cam, sim, time, rs, chars);
     if (extPrepare) extPrepare(cmd);
@@ -360,17 +445,22 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     std::memcpy(fu.viewProj, vp.m, sizeof(fu.viewProj));
     V3 e = cam.eye();
     fu.camPos = {e.x, e.y, e.z, (float)time};
-    V3 sun = normalize(V3{-0.35f, 0.8f, 0.45f});
-    fu.sunDir = {sun.x, sun.y, sun.z, 0};
-    // moonlit-blue night with a generous ambient so the palette colours read (City Lab look); .w slots carry
-    // exposure (sunColor), miniature depth-of-field focus / range (sunDir / skyColor) and the fog start (groundColor)
+    // time of day (TimeOfDay.h): key light (sun / moon), hemisphere ambient, fog, exposure, night emissives. The .w slots
+    // carry exposure (sunColor), miniature depth-of-field focus / range (sunDir / skyColor) and the fog start (groundColor)
+    const TimeOfDayLight tl = evalTimeOfDay(rs.tod);
     const float camDist = cam.distance();
     const bool dof = rs.tiltShift && !rs.studioLighting && rs.dofStrength > 0.f;
-    fu.sunDir.w = std::max(1.f, camDist * (1.f + rs.dofFocusOffset));   // thin-lens focus distance (finishA)
-    fu.sunColor = {0.13f, 0.16f, 0.24f, rs.exposure};    // moonlight
-    fu.skyColor = {0.10f, 0.12f, 0.21f, dof ? std::max(1e-3f, rs.dofAperture) : 0.f};   // aperture, 0 = CoC 0
-    fu.groundColor = {0.035f, 0.035f, 0.05f, rs.fogStart * camDist};
-    fu.fogColor = {0.05f, 0.065f, 0.12f, rs.fogDensity};
+    fu.sunDir = {tl.dir.x, tl.dir.y, tl.dir.z, std::max(1.f, camDist * (1.f + rs.dofFocusOffset))};   // w: thin-lens focus (finishA)
+    fu.sunColor = {tl.color.x, tl.color.y, tl.color.z, tl.exposure * rs.exposure};
+    fu.skyColor = {tl.sky.x, tl.sky.y, tl.sky.z, dof ? std::max(1e-3f, rs.dofAperture) : 0.f};   // aperture, 0 = CoC 0
+    fu.groundColor = {tl.ground.x, tl.ground.y, tl.ground.z, rs.fogStart * camDist};
+    fu.fogColor = {tl.fog.x, tl.fog.y, tl.fog.z, rs.fogDensity};
+    fu.todP = {tl.night, 1.f + 0.6f * tl.night, tl.moon ? 1.f : 0.f, rs.tod.hours};
+    M4 lightVP;
+    float texelM = 0.1f;
+    const bool shadowMap = shadowView(cam, (float)w / (float)h, rs, lightVP, &texelM);
+    std::memcpy(fu.shadowVP, lightVP.m, sizeof(fu.shadowVP));
+    fu.shadowP = {shadowMap ? 1.f : 0.f, texelM, 3e-5f, std::max(0.25f, rs.shadowSoftness) / (float)std::max(1u, shadowSize_)};
     if (rs.studioLighting) {   // neutral studio close to Zombie Lab's "Neutral" mode (sage backdrop, warm key)
         V3 key = normalize(V3{0.47f, 0.76f, 0.40f});
         fu.sunDir = {key.x, key.y, key.z, 0};
@@ -380,6 +470,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         fu.fogColor = {0.424f, 0.463f, 0.322f, 0.0f};
         fu.sunDir.w = fu.skyColor.w = fu.groundColor.w = 0.f;
         fu.sunColor.w = 1.f;
+        fu.todP = {1.f, 1.f, 0.f, 0.f};   // emissives as at night (the pre-day/night studio look)
     }
     fu.gridP = {sandbox_.originX, sandbox_.originZ, params_.cellSize, 1.0f / params_.cellSize};
     uint32_t nl = rs.studioLighting ? 0u : (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
@@ -393,17 +484,50 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         fu.blasts[i] = {blasts_[i].x, blasts_[i].y, blasts_[i].z, blasts_[i].age};
         fu.blastsP[i] = {blasts_[i].scale, 0, 0, 0};
     }
+    const float lampScale = city_ ? 1.f : tl.night;   // city: the app scales its street lamps (fire lights stay)
     for (uint32_t i = 0; i < nl; ++i) {
         const PointLight& L = sandbox_.lights[i];
         fu.lightPos[i] = {L.x, L.y, L.z, L.radius};
-        fu.lightCol[i] = {L.r, L.g, L.b, L.intensity};
+        fu.lightCol[i] = {L.r, L.g, L.b, L.intensity * lampScale};
+    }
+    const ShadowMapBinding smb{shadowTex_, shadowCmp_};
+    if (city_) city_->setShadowMap(smb);
+    if (chars) chars->setShadowMap(smb);
+    shadowDraws_ = 0;
+    if (shadowMap) {   // key-light depth pass: the scene's vertex stages with the light's view-projection
+        FrameUniforms su = fu;
+        std::memcpy(su.viewProj, lightVP.m, sizeof(su.viewProj));
+        SDL_PushGPUVertexUniformData(cmd, 0, &su, sizeof(su));
+        SDL_PushGPUFragmentUniformData(cmd, 0, &su, sizeof(su));
+        SDL_GPUDepthStencilTargetInfo st{};
+        st.texture = shadowTex_;
+        st.clear_depth = 1.0f;
+        st.load_op = SDL_GPU_LOADOP_CLEAR;
+        st.store_op = SDL_GPU_STOREOP_STORE;
+        st.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        st.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        SDL_GPURenderPass* sp = SDL_BeginGPURenderPass(cmd, nullptr, 0, &st);
+        if (city_) { city_->drawShadow(sp, cmd); shadowDraws_ += city_->shadowDrawCalls(); }
+        if (rs.drawBoxes && boxCount_ && pBoxShadow_) {
+            SDL_BindGPUGraphicsPipeline(sp, pBoxShadow_);
+            SDL_GPUBufferBinding vb{cubeVB_, 0};
+            SDL_BindGPUVertexBuffers(sp, 0, &vb, 1);
+            SDL_GPUBufferBinding ib{cubeIB_, 0};
+            SDL_BindGPUIndexBuffer(sp, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+            SDL_BindGPUVertexStorageBuffers(sp, 0, &boxes_, 1);
+            SDL_DrawGPUIndexedPrimitives(sp, 36, boxCount_, 0, 0, 0);
+            shadowDraws_++;
+        }
+        if (modular) { chars->drawShadow(cmd, sp, sim, time, rs.chars); shadowDraws_ += chars->drawCalls(rs.chars); }
+        if (extShadowDraw) extShadowDraw(sp, cmd);
+        SDL_EndGPURenderPass(sp);
     }
     SDL_PushGPUVertexUniformData(cmd, 0, &fu, sizeof(fu));
     SDL_PushGPUFragmentUniformData(cmd, 0, &fu, sizeof(fu));
 
     SDL_GPUColorTargetInfo ct{};
     // sky: fog colour in display space (scene shaders write gamma colours), alpha = CoC code of infinity (finishA)
-    auto toDisplay = [&](float c) { c *= rs.studioLighting ? 1.f : rs.exposure; return std::pow(std::clamp(c / (1.f + c * 0.3f), 0.f, 1.f), 1.f / 2.2f); };
+    auto toDisplay = [&](float c) { c *= rs.studioLighting ? 1.f : fu.sunColor.w; return std::pow(std::clamp(c / (1.f + c * 0.3f), 0.f, 1.f), 1.f / 2.2f); };
     ct.clear_color = rs.studioLighting ? SDL_FColor{fu.fogColor.x, fu.fogColor.y, fu.fogColor.z, 1.0f}
                                        : SDL_FColor{toDisplay(fu.fogColor.x), toDisplay(fu.fogColor.y), toDisplay(fu.fogColor.z),
                                                     0.5f + 0.5f * std::min(fu.skyColor.w, 1.f)};
@@ -430,6 +554,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_BindGPUGraphicsPipeline(pass, pGround_);
         SDL_GPUBuffer* gb[7] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist(), sim.decals(), shadow()};
         SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 7);
+        SDL_GPUTextureSamplerBinding sb{shadowTex_, shadowCmp_};
+        SDL_BindGPUFragmentSamplers(pass, 0, &sb, 1);
         SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
     }
     if (city_) city_->draw(pass, cmd, sim.decals(), shadow(), sim.corpseHeight());
@@ -443,6 +569,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_BindGPUVertexStorageBuffers(pass, 0, &boxes_, 1);
         SDL_GPUBuffer* fb[2] = {sim.decals(), shadow()};
         SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 2);
+        SDL_GPUTextureSamplerBinding sb{shadowTex_, shadowCmp_};
+        SDL_BindGPUFragmentSamplers(pass, 0, &sb, 1);
         SDL_DrawGPUIndexedPrimitives(pass, 36, boxCount_, 0, 0, 0);
     }
     if (rs.drawParticles) {             // blood droplets, fire, smoke, debris: one indirect draw

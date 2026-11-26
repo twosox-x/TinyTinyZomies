@@ -82,6 +82,12 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--cam-y")) o.camY = (float)std::atof(next());
         else if (!std::strcmp(a, "--fov")) o.fovDeg = (float)std::atof(next());
         else if (!std::strcmp(a, "--showcase")) o.showcase = std::atoi(next());
+        else if (!std::strcmp(a, "--time") || !std::strcmp(a, "--tod")) o.todHours = (float)std::atof(next());
+        else if (!std::strcmp(a, "--tod-speed")) o.todSpeed = (float)std::atof(next());
+        else if (!std::strcmp(a, "--tod-paused")) o.todPaused = true;
+        else if (!std::strcmp(a, "--no-dof")) o.noDof = true;
+        else if (!std::strcmp(a, "--shadows")) o.shadowMode = std::atoi(next());
+        else if (!std::strcmp(a, "--day-cycle")) o.dayCycleMinutes = (float)std::atof(next());
         else if (!std::strcmp(a, "--map")) o.cityMap = !std::strcmp(next(), "city");
         else if (!std::strcmp(a, "--city")) { o.cityMap = true; o.cityDir = next(); }
         else if (!std::strcmp(a, "--city-window")) o.cityWindow = std::atoi(next());

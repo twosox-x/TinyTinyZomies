@@ -79,6 +79,16 @@ bool App::init() {
     s_.renderSettings.characterModel = o.characterModel;
     s_.renderSettings.chars = o.charSettings;
     s_.renderSettings.studioLighting = o.studio;
+    {   // time of day: city, lab and showcases start in the late afternoon (long warm shadows, dusk within ~3 min)
+        TimeOfDaySettings& t = s_.renderSettings.tod;
+        t.hours = o.todHours >= 0.f ? std::fmod(o.todHours, 24.f) : o.lab == "military" ? 15.0f : 16.5f;
+        t.speed = o.todSpeed;
+        t.paused = o.todPaused;
+        t.cycleMinutes = std::max(0.1f, o.dayCycleMinutes);
+    }
+    if (o.noDof) s_.renderSettings.tiltShift = false;
+    s_.renderSettings.shadows = o.shadowMode != 0;
+    s_.renderSettings.shadowMap = o.shadowMode != 2;
     s_.renderSettings.drawGround = !o.noGround;
     if (o.studio) { s_.renderSettings.drawBoxes = !o.noGround; s_.renderSettings.fogDensity = 0.f; }
     if (o.freeCam) { s_.camera.settings.minDistance = 1.0f; s_.camera.settings.minPitch = -0.3f; }
@@ -448,15 +458,25 @@ void App::frame(double dt) {
 
     double t2 = nowMs();
     s.renderer.update((float)dt);
+    s.renderSettings.tod.advance((float)dt);
     if (s.lab) s.lab->update(s, (float)dt);
     SDL_GPUTexture* swap = nullptr;
     uint32_t w = (uint32_t)s.opt.width, h = (uint32_t)s.opt.height;
     if (s.window && !SDL_WaitAndAcquireGPUSwapchainTexture(cmd, s.window, &swap, &w, &h)) swap = nullptr;
     if (s.cityMode) {   // streaming, LOD, uploads (copy passes before the scene pass), street-lamp lights
+        {   // key-light shadow casters: the city culls its tiles against the same light box the renderer draws
+            M4 lightVP;
+            const bool sm = s.renderer.shadowView(s.camera, (float)w / (float)std::max(1u, h), s.renderSettings, lightVP);
+            s.cityRenderer.setShadowCaster(sm ? lightVP.m : nullptr);
+        }
         s.cityRenderer.update(cmd, s.camera, (float)w / (float)std::max(1u, h), s.frameIndex);
         std::vector<PointLight> lamps;
         V3 p = s.camera.target();
         s.cityRenderer.nearestLamps(p.x, p.z, kMaxLights, lamps);
+        if (!s.renderSettings.studioLighting) {   // street lamps fade on at dusk, off by day (fire lights below stay)
+            const float on = s.renderer.lightAt(s.renderSettings).night;
+            for (PointLight& l : lamps) l.intensity *= on;
+        }
         std::vector<PointLight> fires;   // burning vehicles take the place of the farthest lamps
         s.vehicles.fireLights(p.x, p.z, s.renderTime, 8, fires);
         if (!fires.empty()) {
@@ -766,6 +786,7 @@ void App::shutdown() {
     if (s_.lab) {
         s_.renderer.extPrepare = nullptr;
         s_.renderer.extDraw = nullptr;
+        s_.renderer.extShadowDraw = nullptr;
         s_.lab->shutdown();
         delete s_.lab;
         s_.lab = nullptr;

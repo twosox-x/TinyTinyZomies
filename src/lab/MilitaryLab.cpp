@@ -202,6 +202,7 @@ bool MilitaryLab::init(AppState& s) {
     s.renderer.extDraw = [this](SDL_GPURenderPass* p, SDL_GPUCommandBuffer* c, SDL_GPUBuffer* d, SDL_GPUBuffer* sh, SDL_GPUBuffer* ch) {
         draw(p, c, d, sh, ch);
     };
+    s.renderer.extShadowDraw = [this](SDL_GPURenderPass* p, SDL_GPUCommandBuffer* c) { drawShadow(p, c); };
     s.debugCam = true;   // free orbit camera (F2 toggles the RTS rig)
     s.camera.settings.minDistance = 1.0f;
     s.camera.settings.maxDistance = 600.f;
@@ -1276,6 +1277,13 @@ void MilitaryLab::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_G
     city_->drawExternal(pass, cmd, city_->materials(), insts_, decals, shadow, corpseH, vehDraws_);
 }
 
+void MilitaryLab::drawShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd) {
+    if (!gpu_) return;
+    if (placeholderChars_) chars_->drawExternal(cmd, pass, *sim_, segs_, placeholderChars_ * 10, true);
+    city_->drawExternalShadow(pass, cmd, insts_, draws_);
+    city_->drawExternalShadow(pass, cmd, insts_, vehDraws_);
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 void MilitaryLab::drawUI(AppState& s) {
     const float fs = ImGui::GetIO().FontGlobalScale;
@@ -1333,7 +1341,7 @@ void MilitaryLab::drawUI(AppState& s) {
     }
     if (ImGui::CollapsingHeader("Lighting & display", ImGuiTreeNodeFlags_DefaultOpen)) {
         int light = s.renderSettings.studioLighting ? 1 : 0;
-        ImGui::RadioButton("in-game night", &light, 0);
+        ImGui::RadioButton("in-game (time of day)", &light, 0);
         ImGui::SameLine(); ImGui::RadioButton("neutral studio", &light, 1);
         s.renderSettings.studioLighting = light == 1;
         ImGui::Checkbox("tilt-shift", &s.renderSettings.tiltShift);

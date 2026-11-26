@@ -8,8 +8,8 @@ layout(location = 1) in vec3 vNormal;
 layout(location = 2) flat in vec2 vKindSeed;
 layout(location = 3) in vec3 vLocal;
 layout(location = 0) out vec4 outColor;
-layout(std430, set = 2, binding = 0) readonly buffer Decals  { uint decals[]; };
-layout(std430, set = 2, binding = 1) readonly buffer ShadowH { float shadowH[]; };
+layout(std430, set = 2, binding = 1) readonly buffer Decals  { uint decals[]; };
+layout(std430, set = 2, binding = 2) readonly buffer ShadowH { float shadowH[]; };
 #include "shadow.glsl"
 // Blood splatter on walls: the gore simulation records the highest splat per cell in front of a wall;
 // the face shows a ragged band up to that height with drips running down.

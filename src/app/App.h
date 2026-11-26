@@ -53,6 +53,12 @@ struct AppOptions {
     int shotsOnMove = -1;          // >= 0: screenshot the frame before each window move and K frames after it
     int panSpawnEvery = 0;         // scripted pan: every N frames spawn 300 zombies and blast near the pivot
     int cityVerify = 0;            // > 0: every N frames a synchronous check of the horde against the window (test only)
+    // time of day (TimeOfDay.h): --time H (0..24, start clock), --tod-speed X (cycle rate multiplier, 0 = frozen),
+    // --tod-paused, --day-cycle MIN (real minutes per 24 h, default 30). Default start: 16:30 (late afternoon).
+    float todHours = -1.f, todSpeed = 1.f, dayCycleMinutes = 30.f;
+    bool todPaused = false;
+    bool noDof = false;            // --no-dof: miniature depth of field off (comparison shots)
+    int shadowMode = 1;            // --shadows 0 off | 1 key-light shadow map | 2 legacy moon height field
     std::string lab;               // --lab military: Military Asset Lab (src/lab/MilitaryLab.h)
     std::vector<std::string> labViews;   // --lab-views v1,v2,..: lab camera preset per --shots frame (headless review captures)
     std::vector<int> labStress;    // --lab-stress 10,50,..: soldier presets (headless: benchmark table, then exit)

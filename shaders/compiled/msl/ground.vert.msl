@@ -61,6 +61,9 @@ struct Frame
     float4 lightPos[24];
     float4 lightCol[24];
     float4 blastsP[8];
+    float4 todP;
+    float4x4 shadowVP;
+    float4 shadowP;
 };
 
 constant spvUnsafeArray<float2, 6> _19 = spvUnsafeArray<float2, 6>({ float2(0.0), float2(1.0), float2(1.0, 0.0), float2(0.0), float2(0.0, 1.0), float2(1.0) });

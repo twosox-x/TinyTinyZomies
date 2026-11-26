@@ -33,6 +33,7 @@ public:
     void injectLights(std::vector<PointLight>& lights) const;   // muzzle flash lights
     void prepare(SDL_GPUCommandBuffer* cmd);
     void draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* decals, SDL_GPUBuffer* shadow, SDL_GPUBuffer* corpseH);
+    void drawShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd);   // casters into the key-light shadow map
     void drawUI(AppState& s);
     bool applyView(AppState& s, const std::string& name);
 

@@ -3,13 +3,13 @@
 #define FRAME_SET 3
 #include "frame.glsl"
 #include "lighting.glsl"
-layout(std430, set = 2, binding = 0) readonly buffer StaticH { float staticH[]; };
-layout(std430, set = 2, binding = 1) readonly buffer CorpseH { int corpseH[]; };
-layout(std430, set = 2, binding = 2) readonly buffer Density { vec4 density[]; };
-layout(std430, set = 2, binding = 3) readonly buffer NavDir  { vec2 navDir[]; };
-layout(std430, set = 2, binding = 4) readonly buffer NavDist { float navDist[]; };
-layout(std430, set = 2, binding = 5) readonly buffer Decals  { uint decals[]; };   // blood, wall blood, scorch (gore.glsl)
-layout(std430, set = 2, binding = 6) readonly buffer ShadowH { float shadowH[]; };
+layout(std430, set = 2, binding = 1) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 2, binding = 2) readonly buffer CorpseH { int corpseH[]; };
+layout(std430, set = 2, binding = 3) readonly buffer Density { vec4 density[]; };
+layout(std430, set = 2, binding = 4) readonly buffer NavDir  { vec2 navDir[]; };
+layout(std430, set = 2, binding = 5) readonly buffer NavDist { float navDist[]; };
+layout(std430, set = 2, binding = 6) readonly buffer Decals  { uint decals[]; };   // blood, wall blood, scorch (gore.glsl)
+layout(std430, set = 2, binding = 7) readonly buffer ShadowH { float shadowH[]; };
 #include "shadow.glsl"
 // decal value with bilinear filtering (organic splat edges instead of 25 cm squares)
 float decalAt(ivec2 c, uint layer) {

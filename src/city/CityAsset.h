@@ -47,7 +47,8 @@ struct CityMaterial {
     float r = 0.5f, g = 0.5f, b = 0.5f;   // linear
     uint32_t flags = 0;                    // CityMatFlags
     uint32_t emissiveMode = EM_NONE;
-    float emissiveNight = 0.f, roughness = 0.8f, gloss = 0.f;
+    float emissiveNight = 0.f, emissiveDay = 0.f, roughness = 0.8f, gloss = 0.f;
+    int dayMaterial = -1;                  // windows: the unlit-glass material drawn by day (-1 = itself)
     std::string name;
 };
 

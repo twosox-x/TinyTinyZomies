@@ -1,0 +1,108 @@
+#pragma once
+// Day / night cycle: a 24 h clock mapped onto a configurable real-time cycle (default 30 min: 15 min of day from
+// 06:00 to 18:00, 15 min of night), with dawn / dusk inside the transitions. evalTimeOfDay() turns the clock into the
+// lighting of a frame: the key light (warm sun by day, cool moon by night, both fading to zero at their horizon so
+// the direction can switch without a pop), hemisphere ambient, fog / sky colour, exposure, and how far the night
+// emissives (windows, street lamps) are on.
+#include "render/Math.h"
+
+#include <algorithm>
+#include <cmath>
+
+namespace ttz {
+
+struct TimeOfDaySettings {
+    float hours = 16.5f;          // clock, 0..24 (6 = sunrise, 12 = noon, 18 = sunset, 0 = midnight)
+    bool paused = false;
+    float speed = 1.0f;           // multiplier on the cycle rate
+    float cycleMinutes = 30.f;    // real minutes per 24 h (half day, half night)
+    float sunMaxElevation = 52.f; // degrees at noon (lower = longer shadows all day)
+    float sunAzimuthOffset = 25.f;// degrees: rotates the sun's path against the street grid (diagonal shadows)
+    float moonMaxElevation = 50.f;
+    float nightBrightness = 1.0f; // scales the night ambient + moonlight
+    float sunStrength = 1.0f;     // scales the direct sun
+    // advance by dt real seconds
+    void advance(float dt) {
+        if (paused || cycleMinutes <= 0.f) return;
+        hours = std::fmod(hours + dt * speed * 24.f / (cycleMinutes * 60.f), 24.f);
+        if (hours < 0.f) hours += 24.f;
+    }
+};
+
+struct TimeOfDayLight {
+    V3 dir{0, 1, 0};              // towards the key light (sun or moon)
+    V3 color{};                   // key light colour * intensity (linear)
+    V3 sky{}, ground{}, fog{};    // hemisphere ambient, fog / sky colour (linear)
+    float exposure = 1.f;
+    float night = 1.f;            // 0 day .. 1 night: windows, lamp lenses, street-lamp point lights
+    float sunElevation = 0.f;     // degrees
+    bool moon = false;            // key light is the moon
+};
+
+namespace tod_detail {
+struct Key { float elev; V3 sun, sky, ground, fog; float exposure, night; };
+inline V3 lerp(V3 a, V3 b, float t) { return a + (b - a) * t; }
+inline float smooth(float a, float b, float x) {
+    float t = std::clamp((x - a) / (b - a), 0.f, 1.f);
+    return t * t * (3.f - 2.f * t);
+}
+} // namespace tod_detail
+
+inline TimeOfDayLight evalTimeOfDay(const TimeOfDaySettings& s) {
+    using namespace tod_detail;
+    constexpr float kPi = 3.14159265f, kDeg = kPi / 180.f;
+    const float h = std::fmod(std::fmod(s.hours, 24.f) + 24.f, 24.f);
+    // sun: 06:00 east -> 18:00 west; elevation shaped to linger low (long shadows in the morning / afternoon)
+    const float phi = (h - 6.f) / 12.f;                        // 0 sunrise .. 1 sunset
+    const float sphi = std::sin(kPi * phi);
+    const float elev = (sphi >= 0.f ? s.sunMaxElevation * std::pow(sphi, 1.3f) : 18.f * sphi);   // below: twilight depth
+    const float az = kPi * std::clamp(phi, -0.1f, 1.1f) + s.sunAzimuthOffset * kDeg;
+    auto dirFrom = [](float azr, float elr) {
+        return normalize(V3{std::cos(azr) * std::cos(elr), std::sin(elr), std::sin(azr) * std::cos(elr)});
+    };
+    // colour keys by sun elevation (degrees): deep night, blue hour, twilight, sunrise, golden hour, afternoon, noon
+    static const Key keys[] = {
+        {-12.f, {0, 0, 0}, {0.026f, 0.034f, 0.070f}, {0.010f, 0.011f, 0.017f}, {0.016f, 0.022f, 0.046f}, 1.30f, 1.0f},
+        {-6.f, {0, 0, 0}, {0.060f, 0.068f, 0.140f}, {0.024f, 0.022f, 0.032f}, {0.070f, 0.070f, 0.140f}, 1.25f, 0.95f},
+        {-2.f, {0, 0, 0}, {0.140f, 0.125f, 0.200f}, {0.060f, 0.045f, 0.045f}, {0.300f, 0.190f, 0.200f}, 1.10f, 0.65f},
+        {2.f, {1.00f, 0.40f, 0.14f}, {0.180f, 0.170f, 0.240f}, {0.090f, 0.062f, 0.045f}, {0.520f, 0.330f, 0.230f}, 1.00f, 0.25f},
+        {9.f, {1.00f, 0.58f, 0.28f}, {0.200f, 0.220f, 0.320f}, {0.110f, 0.082f, 0.055f}, {0.580f, 0.470f, 0.380f}, 0.95f, 0.0f},
+        {22.f, {1.00f, 0.76f, 0.52f}, {0.220f, 0.280f, 0.420f}, {0.120f, 0.100f, 0.080f}, {0.500f, 0.560f, 0.680f}, 0.90f, 0.0f},
+        {52.f, {1.00f, 0.85f, 0.66f}, {0.240f, 0.310f, 0.460f}, {0.130f, 0.110f, 0.090f}, {0.540f, 0.620f, 0.760f}, 0.86f, 0.0f},
+    };
+    constexpr int nk = (int)(sizeof(keys) / sizeof(keys[0]));
+    int k = 0;
+    while (k + 1 < nk - 1 && elev > keys[k + 1].elev) ++k;
+    const Key &a = keys[k], &b = keys[k + 1];
+    const float t = std::clamp((elev - a.elev) / (b.elev - a.elev), 0.f, 1.f);
+    TimeOfDayLight o;
+    o.sunElevation = elev;
+    o.sky = lerp(a.sky, b.sky, t);
+    o.ground = lerp(a.ground, b.ground, t);
+    o.fog = lerp(a.fog, b.fog, t);
+    o.exposure = a.exposure + (b.exposure - a.exposure) * t;
+    o.night = a.night + (b.night - a.night) * t;
+    // direct sun: warm colour from the keys, strength rising from the horizon (0 at -1 deg) to full by ~25 deg
+    const float sunI = smooth(-1.f, 4.f, elev) * (1.25f + 1.05f * smooth(4.f, 30.f, elev)) * s.sunStrength;
+    const V3 sunCol = lerp(a.sun, b.sun, t);
+    if (elev > -1.f) {
+        o.dir = dirFrom(az, std::max(elev, 0.5f) * kDeg);
+        o.color = sunCol * sunI;
+    } else {
+        // moon: rises after dusk (18:20), sets before dawn (05:40), opposite path; fades at its horizon
+        float hm = h < 12.f ? h + 24.f : h;
+        float psi = (hm - 18.33f) / 11.34f;
+        float sp = std::sin(kPi * std::clamp(psi, 0.f, 1.f));
+        float mel = s.moonMaxElevation * std::pow(sp, 0.7f);
+        o.dir = dirFrom(kPi + kPi * std::clamp(psi, 0.f, 1.f) + s.sunAzimuthOffset * kDeg + 0.5f, std::max(mel, 0.5f) * kDeg);
+        float moonI = (psi > 0.f && psi < 1.f ? smooth(0.f, 10.f, mel) : 0.f) * smooth(-1.f, -6.f, elev);
+        o.color = V3{0.100f, 0.130f, 0.235f} * (moonI * s.nightBrightness);
+        o.moon = true;
+        const float nb = 1.f + (s.nightBrightness - 1.f) * o.night;
+        o.sky = o.sky * nb;
+        o.ground = o.ground * nb;
+    }
+    return o;
+}
+
+} // namespace ttz
