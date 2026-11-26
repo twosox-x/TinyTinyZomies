@@ -325,6 +325,7 @@ function generateCity(seed, opts) {
 // Global decisions (the street network) are made once per seed in generateCity; everything per point is a pure
 // function of net.plan, so tiles can evaluate it in any order.
 const TAU = Math.PI * 2;
+const TC_FU = 0.55, TC_RING = 66;                // TC_RING: countryside ring width per unit of ruralScale (x ku), m                             // urban share of the plain (urbanScale = ruralScale = 1) tensor map
 const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 function tcRiver(rv, x, z) {                    // [u along the valley, signed distance to the centre line, slope]
   const u = x * rv.cf + z * rv.sf, v = -x * rv.sf + z * rv.cf, k1 = TAU / rv.L1, k2 = TAU / rv.L2;
@@ -363,7 +364,7 @@ function gridAt(G, x, z) {                      // bilinear sample of a Float32A
 function tcDens(P, x, z) {
   const D = P.dn, c = P.core, rv = P.river, ex = x - c[0], ez = z - c[1], eu = ex * rv.cf + ez * rv.sf, ev = -ex * rv.sf + ez * rv.cf;
   const d = Math.hypot(eu / 1.3, ev);                    // stretched along the valley
-  const n1 = vnoise(P.seed + 501, x / 280, z / 280) * 2 - 1, n2 = vnoise(P.seed + 503, x / 95, z / 95) * 2 - 1;
+  const n1 = vnoise(P.seed + 501, x / (280 * P.ku), z / (280 * P.ku)) * 2 - 1, n2 = vnoise(P.seed + 503, x / 95, z / 95) * 2 - 1;
   let v = 1 - sstep(D.Rin, D.Rout, d * (1 - 0.26 * n1));
   for (const s of D.sub) { const q = (x - s.c[0]) ** 2 + (z - s.c[1]) ** 2; v = Math.max(v, s.a * Math.exp(-q / (2 * s.r * s.r))); }
   if (P.cor) v = Math.max(v, D.ca * gridAt(P.cor, x, z) * (1 - sstep(D.Rout * 0.55, D.Rout * 1.1, d * (1 - 0.25 * n1))));
@@ -379,6 +380,11 @@ function tcZone(P, x, z, dn) {
   return d > 0.86 ? 'downtown' : d > 0.7 ? 'inner' : d > 0.34 ? 'suburban' : d > 0.24 ? 'exurban' : 'rural';
 }
 const TC_ZRANK = { core: 5, downtown: 4, inner: 3, suburban: 2, exurban: 1, rural: 0 };
+function inPoly(pts, x, z) {                    // point in polygon (even-odd)
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) c = !c; }
+  return c;
+}
 function tcIsRural(net, x, z) {
   const P = net.plan;
   if (tcWater(P, x, z, 0)) return true;
@@ -460,17 +466,24 @@ function rdp(pts, eps) {                        // Douglas-Peucker
 }
 
 function generateTensorCity(seed, opts, scale) {
-  const KS = Math.sqrt(scale), OX = 330 * KS, OZ = 275 * KS, M = Math.min(OX, OZ), EDGE = 12;
+  // opts.urbanScale / opts.ruralScale (defaults 2 / 3): area multiples of the city and of the countryside around it,
+  // relative to the plain scale-`scale` map (whose urban share is about TC_FU). Every city length (river meanders,
+  // density radii, basis fields, hills, villages, low-frequency noise) grows by ku = sqrt(urbanScale), block sizes
+  // stay; the map grows so that the rural ring gets ruralScale x its area.
+  const US = Math.max(0.25, +(opts.urbanScale || 2)), RS = Math.max(0, +(opts.ruralScale === undefined ? 3 : opts.ruralScale));
+  const KS = Math.sqrt(scale), ku = 0.94 * Math.sqrt(US), km = Math.max(ku, Math.sqrt(US * TC_FU + RS * (1 - TC_FU)));
+  const OX0 = 330 * KS, OZ0 = 275 * KS, M = Math.min(OX0, OZ0) * ku, EDGE = 12;
   const R = mulberry32(seed * 48271 + 1013), J = (a) => (R() * 2 - 1) * a;
-  const core = [J(0.07 * OX), J(0.07 * OZ)];
-  const P = { kind: 'tensor', seed, scale, OX, OZ, core, hills: [], lakes: [], farms: [], hubs: [], bridges: [], radials: [] };
+  const core = [J(0.07 * OX0 * ku), J(0.07 * OZ0 * ku)];
+  let OX = OX0 * km, OZ = OZ0 * km, cx = 0, cz = 0;
+  const P = { kind: 'tensor', seed, scale, OX, OZ, cx: 0, cz: 0, M, ku, km, US, RS, core, hills: [], lakes: [], farms: [], hubs: [], bridges: [], radials: [] };
   // ---- terrain
-  const phi = R() * Math.PI, rv = P.river = { cf: Math.cos(phi), sf: Math.sin(phi), phi, a1: 50 + 40 * R(), L1: 1100 + 600 * R(), p1: R() * TAU,
-    a2: 14 + 14 * R(), L2: 380 + 220 * R(), p2: R() * TAU, w: 34 + 12 * R(), v0: 0 };
+  const phi = R() * Math.PI, rv = P.river = { cf: Math.cos(phi), sf: Math.sin(phi), phi, a1: (50 + 40 * R()) * ku, L1: (1100 + 600 * R()) * ku, p1: R() * TAU,
+    a2: (14 + 14 * R()) * ku, L2: (380 + 220 * R()) * ku, p2: R() * TAU, w: 34 + 12 * R(), v0: 0 };
   const rside = R() < 0.5 ? 1 : -1;
   {
     const uc = core[0] * rv.cf + core[1] * rv.sf, vc = -core[0] * rv.sf + core[1] * rv.cf, k1 = TAU / rv.L1, k2 = TAU / rv.L2;
-    rv.v0 = vc + rside * (0.27 * M + 30 * R()) - (rv.a1 * Math.sin(k1 * uc + rv.p1) + rv.a2 * Math.sin(k2 * uc + rv.p2));
+    rv.v0 = vc + rside * (0.27 * M + 30 * R() * ku) - (rv.a1 * Math.sin(k1 * uc + rv.p1) + rv.a2 * Math.sin(k2 * uc + rv.p2));
   }
   // the railway follows the valley on the city side of the river (industry between it and the water)
   P.rail = { off: -rside * (rv.w * 0.6 + 40 + rv.a2) };
@@ -478,16 +491,16 @@ function generateTensorCity(seed, opts, scale) {
   for (let t = 0; t < 80 && P.hills.length < nH; ++t) {
     const a = R() * TAU, d = (0.72 + 0.4 * R()) * M, c = [core[0] + Math.cos(a) * d, core[1] + Math.sin(a) * d * OZ / OX];
     const rvf = tcRiver(rv, c[0], c[1]);
-    if (Math.abs(rvf[1]) < 210 || Math.abs(tcRail(P, c[0], c[1])) < 170) continue;
-    if (P.hills.some(h => Math.hypot(h.c[0] - c[0], h.c[1] - c[1]) < 500)) continue;
+    if (Math.abs(rvf[1]) < 210 * ku || Math.abs(tcRail(P, c[0], c[1])) < 170 * ku) continue;
+    if (P.hills.some(h => Math.hypot(h.c[0] - c[0], h.c[1] - c[1]) < 500 * ku)) continue;
     const b = R() * Math.PI;
     P.hills.push({ c, ca: Math.cos(b), sa: Math.sin(b), sl: (0.2 + 0.1 * R()) * M, ss: (0.085 + 0.035 * R()) * M });
   }
   const nL = 1 + (R() < 0.5 ? 1 : 0);
   for (let t = 0; t < 120 && P.lakes.length < nL; ++t) {
-    const c = [J(OX - 80), J(OZ - 80)], r = 30 + 26 * R();
-    if (Math.hypot(c[0] - core[0], c[1] - core[1]) < 0.55 * M || Math.abs(tcRiver(rv, c[0], c[1])[1]) < r + 120 || Math.abs(tcRail(P, c[0], c[1])) < r + 60) continue;
-    if (P.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < 400) || tcElev(P, c[0], c[1]) > 0.4) continue;
+    const c = [J((OX0 - 80) * ku), J((OZ0 - 80) * ku)], r = (30 + 26 * R()) * ku;
+    if (Math.hypot(c[0] - core[0], c[1] - core[1]) < 0.55 * M || Math.abs(tcRiver(rv, c[0], c[1])[1]) < r + 120 * ku || Math.abs(tcRail(P, c[0], c[1])) < r + 60 * ku) continue;
+    if (P.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < 400 * ku) || tcElev(P, c[0], c[1]) > 0.4) continue;
     P.lakes.push({ c, r, ph: R() * TAU });
   }
   P.dn = { Rin: 0.15 * M, Rout: 1.25 * M, Rcore: 0.4 * M, ca: 0.7, sub: [], far: rside };
@@ -495,9 +508,43 @@ function generateTensorCity(seed, opts, scale) {
   const nV = 1 + (R() < 0.6 ? 1 : 0);
   for (let t = 0; t < 60 && P.dn.sub.length < nV; ++t) {
     const a = R() * TAU, d = (0.7 + 0.25 * R()) * M, c = [core[0] + Math.cos(a) * d, core[1] + Math.sin(a) * d];
-    if (Math.abs(c[0]) > OX - 120 || Math.abs(c[1]) > OZ - 120 || tcWater(P, c[0], c[1], 60) || tcElev(P, c[0], c[1]) > 0.25) continue;
+    if (Math.abs(c[0]) > (OX0 - 120) * ku || Math.abs(c[1]) > (OZ0 - 120) * ku || tcWater(P, c[0], c[1], 60) || tcElev(P, c[0], c[1]) > 0.25) continue;
     if (P.dn.sub.some(s => Math.hypot(s.c[0] - c[0], s.c[1] - c[1]) < 0.8 * M)) continue;
     P.dn.sub.push({ c, r: 0.17 * M, a: 0.72, th: R() * Math.PI / 2 });
+  }
+  // a district on the far bank, opposite the centre (drawn without R: the rest of the seed's plan is unchanged)
+  {
+    const uc = core[0] * rv.cf + core[1] * rv.sf;
+    for (let k = 0; k < 9; ++k) {
+      const u = uc + [0, 1, -1, 2, -2, 3, -3, 4, -4][k] * 0.12 * M, rc = tcRiver(rv, rv.cf * u - rv.sf * 0, rv.sf * u + rv.cf * 0);
+      const k1 = TAU / rv.L1, k2 = TAU / rv.L2, vr = rv.v0 + rv.a1 * Math.sin(k1 * u + rv.p1) + rv.a2 * Math.sin(k2 * u + rv.p2), v = vr + rside * 0.36 * M;
+      const c = [rv.cf * u - rv.sf * v, rv.sf * u + rv.cf * v]; void rc;
+      if (Math.abs(c[0]) > OX - 150 || Math.abs(c[1]) > OZ - 150 || tcWater(P, c[0], c[1], 80) || tcElev(P, c[0], c[1]) > 0.2) continue;
+      P.dn.sub.push({ c, r: 0.2 * M, a: 0.8, th: phi, far: true }); break;
+    }
+  }
+  // the map: centred on the town (density > 0.3 before the corridors), at least TC_RING m of countryside beyond it
+  {
+    let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+    for (let z = -1.6 * OZ0 * ku; z <= 1.6 * OZ0 * ku; z += 24) for (let x = -1.6 * OX0 * ku; x <= 1.6 * OX0 * ku; x += 24) {
+      if (tcDens(P, x, z) < 0.3 || tcWater(P, x, z, 0)) continue;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+    }
+    if (x1 > x0) {
+      cx = Math.round((x0 + x1) / 2); cz = Math.round((z0 + z1) / 2);
+      OX = Math.max(OX0 * ku, (x1 - x0) / 2 + TC_RING * RS * ku); OZ = Math.max(OZ0 * ku, (z1 - z0) / 2 + TC_RING * RS * ku);
+    }
+    Object.assign(P, { OX, OZ, cx, cz });
+  }
+  // ponds and lakes out in the countryside ring (own stream: the town's plan above is unchanged)
+  {
+    const R2 = mulberry32(seed * 9973 + 7), nE = Math.round(RS * 0.7);
+    for (let t = 0, n = 0; t < 80 && n < nE; ++t) {
+      const c = [cx + (R2() * 2 - 1) * (OX - 90), cz + (R2() * 2 - 1) * (OZ - 90)], r = 28 + 34 * R2();
+      if (tcDens(P, c[0], c[1]) > 0.12 || Math.abs(tcRiver(rv, c[0], c[1])[1]) < r + 140 || Math.abs(tcRail(P, c[0], c[1])) < r + 60 || tcElev(P, c[0], c[1]) > 0.3) continue;
+      if (P.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < l.r + r + 300)) continue;
+      P.lakes.push({ c, r, ph: R2() * TAU }); ++n;
+    }
   }
   // ---- cross field
   const thD = J(0.22), thB = thD + (R() < 0.5 ? 1 : -1) * (0.62 + 0.18 * R());     // downtown grid, Broadway diagonal
@@ -510,7 +557,7 @@ function generateTensorCity(seed, opts, scale) {
     const a = a0 + TAU * (k + 0.3 * R()) / nS, d = (0.62 + 0.3 * R()) * M;
     basis.push({ c: [core[0] + Math.cos(a) * d, core[1] + Math.sin(a) * d], th: R() * Math.PI / 2, w: 1.3, s: 0.3 * M });
   }
-  const FC = 8, fx0 = -OX - 40, fz0 = -OZ - 40, fnx = Math.ceil((2 * OX + 80) / FC) + 1, fnz = Math.ceil((2 * OZ + 80) / FC) + 1;
+  const FC = 8, fx0 = cx - OX - 40, fz0 = cz - OZ - 40, fnx = Math.ceil((2 * OX + 80) / FC) + 1, fnz = Math.ceil((2 * OZ + 80) / FC) + 1;
   const C4 = new Float32Array(fnx * fnz), S4 = new Float32Array(fnx * fnz);
   for (let j = 0; j < fnz; ++j) for (let i = 0; i < fnx; ++i) {
     const x = fx0 + i * FC, z = fz0 + j * FC;
@@ -524,7 +571,7 @@ function generateTensorCity(seed, opts, scale) {
     const e = tcElev(P, x, z);
     if (e > 0.04) { const gx = tcElev(P, x + 3, z) - tcElev(P, x - 3, z), gz = tcElev(P, x, z + 3) - tcElev(P, x, z - 3); acc(Math.atan2(gz, gx), 3.5 * sstep(0.12, 0.5, e)); }
     const dn0 = 1 - sstep(P.dn.Rin, P.dn.Rout, dc);
-    const rot = (vnoise(seed + 601, x / 260, z / 260) * 2 - 1) * (0.1 + 0.32 * (1 - dn0)) + (vnoise(seed + 607, x / 120, z / 120) * 2 - 1) * 0.28 * (1 - dn0);
+    const rot = (vnoise(seed + 601, x / (260 * ku), z / (260 * ku)) * 2 - 1) * (0.1 + 0.32 * (1 - dn0)) + (vnoise(seed + 607, x / 120, z / 120) * 2 - 1) * 0.28 * (1 - dn0);
     const th = Math.atan2(sn, cs) / 4 + rot;
     C4[j * fnx + i] = Math.cos(4 * th); S4[j * fnx + i] = Math.sin(4 * th);
   }
@@ -586,7 +633,7 @@ function generateTensorCity(seed, opts, scale) {
     return ri;
   };
   const dcore = (p) => Math.hypot(p[0] - core[0], p[1] - core[1]);
-  const inMap = (p, m) => Math.abs(p[0]) < OX + m && Math.abs(p[1]) < OZ + m;
+  const inMap = (p, m) => Math.abs(p[0] - cx) < OX + m && Math.abs(p[1] - cz) < OZ + m;
   const clipEdge = (p, q) => {                // point on p-q where it leaves the map + EDGE
     let lo = 0, hi = 1;
     for (let i = 0; i < 30; ++i) { const m = (lo + hi) / 2; if (inMap([p[0] + (q[0] - p[0]) * m, p[1] + (q[1] - p[1]) * m], EDGE)) lo = m; else hi = m; }
@@ -600,14 +647,16 @@ function generateTensorCity(seed, opts, scale) {
     const th = Math.atan2(S4[k], C4[k]) / 4, a = Math.atan2(d[1], d[0]) - th;
     return ((Math.round(a / (Math.PI / 2)) % 2) + 2) % 2;
   };
-  // block spacing: downtown ~84 x 72 m, inner ~96 x 112 m, suburbs long blocks ~88 x 230 m (two lot rows deep)
+  // block spacing: downtown ~84 x 72 m, inner ~96 x 112 m, suburbs long blocks ~90 x 190 m (two lot rows deep)
+  // pods: patches of the suburbs with deeper blocks (more of them get crescent loops in the infill below)
+  const podAt = (p) => sstep(0.56, 0.68, vnoise(seed + 831, p[0] / (330 * ku), p[1] / (330 * ku)));
   const localSep = (p, d) => {
     const dn = tcDens(P, p[0], p[1]), f = d ? famOf(p, d) : 0, a = sstep(0.86, 0.72, dn), b = sstep(0.72, 0.5, dn);
-    const s0 = 84 + 12 * a - 6 * b, s1 = 72 + 40 * a + 110 * b;
+    const s0 = 84 + 12 * a - 6 * b + 30 * b * podAt(p), s1 = 72 + 40 * a + 78 * b;
     return f === (P.fam || 0) ? s0 : s1;
   };
   const LV = [
-    { name: 'major', h: 6, maxLen: 5000, minLen: 160, dens: -1, hill: 2, rail: true, bridge: true, ccos: 0.8, rej: 0.75,
+    { name: 'major', h: 6, maxLen: 9000, minLen: 160, dens: -1, hill: 2, rail: true, bridge: true, ccos: 0.8, rej: 0.75,
       dsep: (p) => 300 + 60 * sstep(0.3 * M, 0.9 * M, dcore(p)) + 80 * sstep(0.35, 0.1, baseD(p)) },
     { name: 'collector', h: 5, maxLen: 2200, minLen: 90, dens: 0.42, hill: 0.55, rail: true, bridge: false, ccos: 0.8, rej: 0.9,
       dsep: (p, d) => { const l = localSep(p, d); return l > 150 ? 1.02 * l * 2 : l * (2.05 + sstep(0.84, 0.6, tcDens(P, p[0], p[1]))); } },
@@ -615,9 +664,9 @@ function generateTensorCity(seed, opts, scale) {
       dsep: localSep }
   ];
   // one half streamline from p0 along d0 (p0 excluded); returns { pts, end }
-  const half = (p0, d0, lv, li, skip) => {
+  const half = (p0, d0, lv, li, skip, ml) => {
     const pts = [], h = lv.h; let p = p0, d = d0, len = 0, end = 'len';
-    for (let it = 0; it < lv.maxLen / h; ++it) {
+    for (let it = 0; it < (ml || lv.maxLen) / h; ++it) {
       const d1 = dirAt(p[0], p[1], d), pm = [p[0] + d1[0] * h / 2, p[1] + d1[1] * h / 2], d2 = dirAt(pm[0], pm[1], d1);
       let q = [p[0] + d2[0] * h, p[1] + d2[1] * h];
       if (!inMap(q, EDGE)) { pts.push(clipEdge(p, q)); end = 'edge'; break; }
@@ -627,7 +676,7 @@ function generateTensorCity(seed, opts, scale) {
           const f = tcRiver(rv, p[0], p[1]), ta = phi + Math.atan(f[2]), cr = Math.abs(Math.sin(Math.atan2(d2[1], d2[0]) - ta));
           let far = null;
           for (let t = 2; t < 150; t += 2) { const b = [p[0] + d2[0] * t, p[1] + d2[1] * t]; if (!tcWater(P, b[0], b[1], 5)) { far = [p[0] + d2[0] * (t + 4), p[1] + d2[1] * (t + 4)]; break; } }
-          if (far && cr > 0.75 && inMap(far, 0) && P.bridges.length < 4 && P.bridges.every(b => Math.hypot(b.c[0] - p[0], b.c[1] - p[1]) > 260)) {
+          if (far && cr > 0.75 && inMap(far, 0) && P.bridges.length < 6 && P.bridges.every(b => Math.hypot(b.c[0] - p[0], b.c[1] - p[1]) > 260)) {
             P.bridges.push({ a: p, b: far, c: [(p[0] + far[0]) / 2, (p[1] + far[1]) / 2] });
             pts.push(far); p = far; d = d2; len += Math.hypot(far[0] - p0[0], far[1] - p0[1]); continue;
           }
@@ -658,8 +707,8 @@ function generateTensorCity(seed, opts, scale) {
     pts.push(hit[3]);
     return true;
   };
-  const traceFrom = (p, n, lv, li, skip) => {
-    const A = half(p, n, lv, li, skip), B = half(p, [-n[0], -n[1]], lv, li, skip);
+  const traceFrom = (p, n, lv, li, skip, mlA, mlB) => {
+    const A = half(p, n, lv, li, skip, mlA), B = half(p, [-n[0], -n[1]], lv, li, skip, mlB);
     const lenOf = (H) => H.pts.length ? Math.hypot(H.pts[0][0] - p[0], H.pts[0][1] - p[1]) + plen(H.pts) : 0;
     const snapL = li === 0 ? 220 : li === 1 ? 120 : Math.min(110, 0.75 * lv.dsep(p, n));
     for (const H of [A, B]) if (H.pts.length && H.end !== 'edge' && H.end !== 'loop') { if (snap(H.pts, H.d, lv, snapL)) H.end = 'snap'; }
@@ -707,6 +756,18 @@ function generateTensorCity(seed, opts, scale) {
       const ri = accept(all, 0, [B.end, A.end], { named: 'Broadway' });
       void a; void b; void ri;
     }
+    // the bypass: a partial ring on the urban fringe, on the side away from the river (its free ends are cut back
+    // to the last arterial it meets in the clean-up)
+    const rb = 0.97 * M, w0 = Math.atan2(-rside * rv.cf, rside * rv.sf);       // away from the river, in (x, z)
+    let run = [];
+    const flush = () => { if (run.length > 30) accept(dedupe(run), 0, ['free', 'free'], { named: 'Route 30 Bypass', bypass: true }); run = []; };
+    for (let t = -1.45; t <= 1.45; t += 0.004) {
+      const a = w0 + t, cu = Math.cos(a - phi), sv = Math.sin(a - phi), rr = rb * (1 + 0.05 * Math.sin(3 * t + seed));
+      const eu = cu * 1.3 * rr, ev = sv * rr, q = [core[0] + rv.cf * eu - rv.sf * ev, core[1] + rv.sf * eu + rv.cf * ev];
+      if (!inMap(q, -30) || tcWater(P, q[0], q[1], 6) || tcElev(P, q[0], q[1]) > 0.6) { flush(); continue; }
+      if (!run.length || Math.hypot(q[0] - run[run.length - 1][0], q[1] - run[run.length - 1][1]) > 6) run.push(q);
+    }
+    flush();
   }
   for (let li = 0; li < 3; ++li) {
     const lv = LV[li], heap = tcHeap(), n0 = roads.length;
@@ -726,10 +787,59 @@ function generateTensorCity(seed, opts, scale) {
     if (li === 0) {
       // corridors: density is raised within ~120 m of the arterials (the city spreads out along them)
       const cell = 16, nx = Math.ceil((2 * OX + 64) / cell) + 1, nz = Math.ceil((2 * OZ + 64) / cell) + 1, a = new Float32Array(nx * nz).fill(1e9);
-      const G = { x0: -OX - 32, z0: -OZ - 32, cell, nx, nz, a };
-      for (let ri = n0 > 0 ? 0 : 0; ri < roads.length; ++ri) stampDist(G, roads[ri].pts, 260);
-      for (let k = 0; k < a.length; ++k) a[k] = Math.exp(-a[k] * a[k] / (2 * 115 * 115));
+      const G = { x0: cx - OX - 32, z0: cz - OZ - 32, cell, nx, nz, a };
+      for (let ri = n0 > 0 ? 0 : 0; ri < roads.length; ++ri) stampDist(G, roads[ri].pts, 260 * ku);
+      for (let k = 0; k < a.length; ++k) a[k] = Math.exp(-a[k] * a[k] / (2 * 115 * 115 * ku * ku));
       P.cor = G;
+    }
+  }
+  // ---- infill: blocks that came out too deep (> ~120 m, lots back to back) or too long (> ~260 m) get a street
+  // down the middle; in the suburbs some deep blocks get a crescent loop instead of a through street
+  {
+    const lvF = Object.assign({}, LV[2], { name: 'infill', minLen: 30, dsep: (p, d) => 0.62 * localSep(p, d) });
+    const FG = 16, cand = [];
+    for (let z = cz - OZ + 40; z < cz + OZ - 40; z += FG) for (let x = cx - OX + 40; x < cx + OX - 40; x += FG) {
+      const ix = Math.round(x / FG), iz = Math.round(z / FG), p = [x + (hash2(ix, iz, seed + 811) - 0.5) * 10, z + (hash2(iz, ix, seed + 813) - 0.5) * 10];
+      const dn = tcDens(P, p[0], p[1]); if (dn < 0.3 || dn > 0.86) continue;
+      cand.push({ p, dn, k: hash2(ix, iz, seed + 817) });
+    }
+    cand.sort((a, b) => a.k - b.k);
+    const rayStep = (p, d, L) => {             // rayHit in 60 m steps (the first hit is near: cheap)
+      for (let t0 = 0; t0 < L; t0 += 59) { const h = rayHit([p[0] + d[0] * t0, p[1] + d[1] * t0], d, Math.min(60, L - t0), -1); if (h) { h[0] += t0; return h; } }
+      return null;
+    };
+    const ext = (p, d) => { const f = rayStep(p, d, 420); if (!f) return null; const b = rayStep(p, [-d[0], -d[1]], 420); return b ? [f[0], b[0]] : null; };
+    const round = (a, b, c, r) => {             // corner b rounded (quadratic, r metres back along each leg)
+      const la = Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, lc = Math.hypot(c[0] - b[0], c[1] - b[1]) || 1, ra = Math.min(r, la / 2), rc = Math.min(r, lc / 2);
+      const p0 = [b[0] + (a[0] - b[0]) * ra / la, b[1] + (a[1] - b[1]) * ra / la], p2 = [b[0] + (c[0] - b[0]) * rc / lc, b[1] + (c[1] - b[1]) * rc / lc], out = [];
+      for (let t = 0; t <= 1.001; t += 0.2) out.push([(1 - t) * (1 - t) * p0[0] + 2 * t * (1 - t) * b[0] + t * t * p2[0], (1 - t) * (1 - t) * p0[1] + 2 * t * (1 - t) * b[1] + t * t * p2[1]]);
+      return out;
+    };
+    for (let pass = 0; pass < 2; ++pass) for (const C of cand) {
+      const p = C.p;
+      if (sepNear(p[0], p[1], [1, 0], 30, -1, -1) >= 0) continue;
+      if (tcWater(P, p[0], p[1], 20) || tcElev(P, p[0], p[1]) > 0.45 || (P.rail && Math.abs(tcRail(P, p[0], p[1])) < 30)) continue;
+      const d = dirAt(p[0], p[1], [1, 0]), e = [-d[1], d[0]], A = ext(p, d); if (!A) continue;
+      const B = ext(p, e); if (!B) continue;
+      const a = A[0] + A[1], b = B[0] + B[1], ld = a >= b ? d : e, sd = a >= b ? e : d, L = a >= b ? A : B, S = a >= b ? B : A;
+      const depth = S[0] + S[1], len = L[0] + L[1], sub = C.dn < 0.7, maxD = sub ? 118 : 126, maxL = sub ? 265 : 205;
+      if (pass === 0 && depth > maxD && Math.abs(S[0] - S[1]) < 0.3 * depth && depth < 400) {
+        const loop = () => {
+          // crescent: in from the street on one long side, along the block, back out to the same street
+          const sg = S[0] < S[1] ? 1 : -1, toS = [sd[0] * sg, sd[1] * sg];
+          const H1 = half(p, ld, lvF, 2, -1, L[0] - 34), H2 = half(p, [-ld[0], -ld[1]], lvF, 2, -1, L[1] - 34);
+          if (H1.pts.length < 4 || H2.pts.length < 4 || H1.end !== 'len' || H2.end !== 'len') return false;
+          const mid = H2.pts.slice().reverse().concat([p], H1.pts), e1 = mid[0], e2 = mid[mid.length - 1];
+          const h1 = rayStep(e1, toS, 90), h2 = rayStep(e2, toS, 90);
+          if (!h1 || !h2 || h1[0] < 25 || h2[0] < 25 || h1[0] > 75 || h2[0] > 75) return false;
+          const q1 = mid[Math.min(4, mid.length - 1)], q2 = mid[Math.max(0, mid.length - 5)];
+          const pts = dedupe([h1[3]].concat(round(h1[3], e1, q1, 14), mid.slice(5, mid.length - 5), round(q2, e2, h2[3], 14), [h2[3]]));
+          accept(pts, 2, ['snap', 'snap'], { loop: true }); return true;
+        };
+        if (!(sub && len > 150 && len < 420 && hash2(Math.round(p[0]), Math.round(p[1]), seed + 821) < 0.3 + 0.65 * podAt(p) && loop())) traceFrom(p, ld, lvF, 2, -1, L[0] - 2, L[1] - 2);
+      } else if (pass === 1 && len > maxL && depth > 40 && depth < maxD + 20 && Math.abs(L[0] - L[1]) < 0.22 * len && len < 900) {
+        traceFrom(p, sd, lvF, 2, -1, S[0] - 2, S[1] - 2);
+      }
     }
   }
   // ---- clean-up: junctions per road, dangling ends cut back to the last junction (suburban tails: cul-de-sacs)
@@ -817,7 +927,7 @@ function stampDist(G, pts, r, off) {
 }
 // emit the traced network into ordinary roads (profiles / districts / zones), open spaces and the land-use plan
 function tensorCity(seed, opts, scale) {
-  const T = generateTensorCity(seed, opts, scale), { P, alive } = T, core = P.core, M = Math.min(P.OX, P.OZ);
+  const T = generateTensorCity(seed, opts, scale), { P, alive } = T, core = P.core, M = P.M;
   const src = T.roads.filter((r, i) => alive[i]);
   // final junctions on the kept roads
   T.roads.length = 0; T.alive.length = 0;
@@ -827,6 +937,7 @@ function tensorCity(seed, opts, scale) {
   // routes: the two or three longest arterials that run edge to edge
   const routes = src.map((r, i) => ({ i, L: plen(r.pts), e: r.lv === 0 && r.ends[0] === 'edge' && r.ends[1] === 'edge' })).filter(o => o.e).sort((a, b) => b.L - a.L).slice(0, 2 + (seed % 2));
   routes.forEach(o => { src[o.i].route = true; });
+  src.forEach(r => { if (r.bypass) r.route = true; });
   const pieces = [];
   src.forEach((r, ri) => {
     const L = plen(r.pts), cuts = [0].concat(js[ri].map(j => j[0]).filter(s => s > 0.5 && s < L - 0.5), [L]);
@@ -873,11 +984,12 @@ function tensorCity(seed, opts, scale) {
     else { profile = lv === 1 ? (h < 0.5 ? 'oneway' : 'street') : h < 0.3 ? 'oneway' : 'street'; district = 'downtown'; }
     let name;
     if (r.named) name = r.named;
+    else if (r.bypass) name = 'Bypass ' + (9 + 3 * (routes.length + 1));
     else if (pc.c === 'R') name = r.route ? `Route ${9 + 3 * (routes.findIndex(o => src[o.i] === r) + 1)}` : `County Road ${10 + 2 * (r.cr || (r.cr = ++cr))}`;
     else if (lv === 0) name = (r.nm || (r.nm = hname(pc.ri, NM.major))) + (r.route ? ' Highway' : ' Avenue');
     else if (district === 'downtown') name = `${ordinal(++nSt)} Street`;
     else if (district === 'oldtown') name = hname(pc.ri, NM.old) + (lv === 1 ? ' Street' : ' Lane');
-    else name = hname(pc.ri, NM.sub) + (pc.bulb ? ' Court' : lv === 1 ? ' Road' : [' Drive', ' Street', ' Way', ' Lane'][Math.floor(h * 4)]);
+    else name = hname(pc.ri, NM.sub) + (r.loop ? ' Circle' : pc.bulb ? ' Court' : lv === 1 ? ' Road' : [' Drive', ' Street', ' Way', ' Lane'][Math.floor(h * 4)]);
     const pts = rdp(pc.pts, 0.12);
     const rd = { id: roads.length, profile, pts, name, district, zone: pc.c === 'R' ? 'rural' : zl, cls: ['major', 'collector', 'local'][lv] };
     if (pc.bulb) rd.bulbEnd = pc.bulb;
@@ -887,7 +999,7 @@ function tensorCity(seed, opts, scale) {
   const areas = [];
   areas.push({ kind: 'square', shape: 'circle', c: [core[0] + 35, core[1] + 35], r: 30, name: 'Court Square' });
   // land-use grids: urban reach (distance to urban streets minus the lot depth of their zone), arterial distance
-  const mk = (cell) => { const nx = Math.ceil((2 * P.OX + 64) / cell) + 1, nz = Math.ceil((2 * P.OZ + 64) / cell) + 1; return { x0: -P.OX - 32, z0: -P.OZ - 32, cell, nx, nz, a: new Float32Array(nx * nz).fill(1e4) }; };
+  const mk = (cell) => { const nx = Math.ceil((2 * P.OX + 64) / cell) + 1, nz = Math.ceil((2 * P.OZ + 64) / cell) + 1; return { x0: P.cx - P.OX - 32, z0: P.cz - P.OZ - 32, cell, nx, nz, a: new Float32Array(nx * nz).fill(1e4) }; };
   const mask = mk(4), art = mk(16);
   const REACH = { core: 80, downtown: 80, oldtown: 70, suburban: 50, exurban: 55 };
   for (const r of roads) {
@@ -897,6 +1009,39 @@ function tensorCity(seed, opts, scale) {
     if (r.cls === 'major') stampDist(art, r.pts, 80, 0);
   }
   P.mask = mask; P.art = art;
+  // neighbourhood parks and school grounds: about one block in every 420 m cell of the suburbs / old town is left open
+  {
+    const SGc = 40, ix = new Map();
+    for (const r of roads) for (let i = 0; i + 1 < r.pts.length; ++i) {
+      const a = r.pts[i], b = r.pts[i + 1];
+      for (let x = Math.floor(Math.min(a[0], b[0]) / SGc); x <= Math.floor(Math.max(a[0], b[0]) / SGc); ++x) for (let z = Math.floor(Math.min(a[1], b[1]) / SGc); z <= Math.floor(Math.max(a[1], b[1]) / SGc); ++z) {
+        const k = x * 65536 + z; let L = ix.get(k); if (!L) ix.set(k, L = []); L.push([a, b]);
+      }
+    }
+    const near = (p, rr) => { for (let x = Math.floor((p[0] - rr) / SGc); x <= Math.floor((p[0] + rr) / SGc); ++x) for (let z = Math.floor((p[1] - rr) / SGc); z <= Math.floor((p[1] + rr) / SGc); ++z) for (const [a, b] of ix.get(x * 65536 + z) || []) if (segDist(p[0], p[1], a[0], a[1], b[0], b[1]) < rr) return true; return false; };
+    const ray = (p, d) => { for (let t = 4; t < 260; t += 3) if (near([p[0] + d[0] * t, p[1] + d[1] * t], 3)) return t; return 0; };
+    const PC = 380, PN = ['Lincoln', 'Roosevelt', 'Garfield', 'Kennedy', 'Wilson', 'Jefferson', 'Hoover', 'Grant', 'Adams', 'Truman', 'Cleveland', 'Taft'];
+    let np = 0;
+    for (let gz = Math.floor((P.cz - P.OZ) / PC); gz * PC < P.cz + P.OZ; ++gz) for (let gx = Math.floor((P.cx - P.OX) / PC); gx * PC < P.cx + P.OX; ++gx) {
+      for (let t = 0; t < 14; ++t) {
+        const p = [(gx + hash2(gx, gz * 31 + t, seed + 851)) * PC, (gz + hash2(gz, gx * 31 + t, seed + 853)) * PC];
+        const zn = tcZone(P, p[0], p[1]);
+        if ((zn !== 'suburban' && zn !== 'inner') || tcIsRural({ plan: P }, p[0], p[1]) || near(p, 24)) continue;
+        if (P.rail && Math.abs(tcRail(P, p[0], p[1])) < 80) continue;
+        const d = T.dirAt(p[0], p[1], [1, 0]), e = [-d[1], d[0]], f1 = ray(p, d), f2 = ray(p, [-d[0], -d[1]]), g1 = ray(p, e), g2 = ray(p, [-e[0], -e[1]]);
+        if (!f1 || !f2 || !g1 || !g2 || (f1 + f2) * (g1 + g2) > 24000 || (f1 + f2) * (g1 + g2) < 5000) continue;
+        const q = (s, u) => [p[0] + d[0] * s + e[0] * u, p[1] + d[1] * s + e[1] * u];
+        // inset to the lot line; the block must be near-rectangular (no street crossing the rectangle's edges)
+        const poly = [q(f1 - 12, g1 - 12), q(-f2 + 12, g1 - 12), q(-f2 + 12, -g2 + 12), q(f1 - 12, -g2 + 12)];
+        let cross = false;
+        for (let k = 0; k < 4 && !cross; ++k) { const A = poly[k], B = poly[(k + 1) % 4], l = Math.hypot(B[0] - A[0], B[1] - A[1]); for (let s = 0; s <= l; s += 4) if (near([A[0] + (B[0] - A[0]) * s / l, A[1] + (B[1] - A[1]) * s / l], 3.5)) { cross = true; break; } }
+        if (cross) continue;
+        const school = np % 3 === 1, nm = PN[Math.floor(hash2(gx, gz, seed + 857) * PN.length)];
+        areas.push({ kind: 'park', shape: 'poly', pts: poly, name: school ? nm + ' Elementary School' : nm + ' Park', school });
+        ++np; break;
+      }
+    }
+  }
   P.ind = { u0: core[0] * P.river.cf + core[1] * P.river.sf - 0.7 * M, u1: core[0] * P.river.cf + core[1] * P.river.sf + 0.5 * M, w: 70 };
   // commercial nodes: arterial x arterial junctions outside the core
   const majors = roads.filter(r => r.cls === 'major' && r.zone !== 'rural');
@@ -908,7 +1053,7 @@ function tensorCity(seed, opts, scale) {
     }
   }
   // farmsteads along the county roads
-  const net = { kind: 'city', seed, bounds: { x0: -P.OX, z0: -P.OZ, x1: P.OX, z1: P.OZ }, roads, areas, origins: { star: core, core }, axes: { xD: core[0], zG: core[1] }, plan: P, zoneScale: P.dn.Rcore / 172 };
+  const net = { kind: 'city', seed, bounds: { x0: P.cx - P.OX, z0: P.cz - P.OZ, x1: P.cx + P.OX, z1: P.cz + P.OZ }, roads, areas, origins: { star: core, core }, axes: { xD: core[0], zG: core[1] }, plan: P, zoneScale: P.dn.Rcore / 172 };
   for (const r of roads) {
     if (r.zone !== 'rural') continue;
     const P0 = PROFILES[r.profile], L = plen(r.pts);
@@ -1313,6 +1458,7 @@ function landUseAt(net, x, z) {
   for (const a of net.areas) {
     if (a.shape === 'circle' && Math.hypot(x - a.c[0], z - a.c[1]) < a.r) return a.kind === 'lot' ? 'lot' : a.kind === 'park' ? 'park' : 'plaza';
     if (a.shape === 'rect' && x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) return 'park';
+    if (a.shape === 'poly' && inPoly(a.pts, x, z)) return a.kind === 'park' ? 'park' : 'plaza';
   }
   const pl = net.plan;
   if (pl && pl.kind === 'tensor') return tcLandUse(net, x, z);
@@ -1777,13 +1923,13 @@ class Rasterizer {
       cnt.set(c, (cnt.get(c) || 0) + 1);
       const x = F.x0 + ix * F.cell, z = F.z0 + iz * F.cell;
       this.areas.forEach((a, k) => {
-        const hit = a.shape === 'circle' ? Math.hypot(x - a.c[0], z - a.c[1]) < a.r : a.shape === 'rect' ? (x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) : false;
-        if (hit) { const key = c * 8 + k; inside.set(key, (inside.get(key) || 0) + 1); }
+        const hit = a.shape === 'circle' ? Math.hypot(x - a.c[0], z - a.c[1]) < a.r : a.shape === 'rect' ? (x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) : a.shape === 'poly' ? inPoly(a.pts, x, z) : false;
+        if (hit) { const key = c * 4096 + k; inside.set(key, (inside.get(key) || 0) + 1); }
       });
     }
     this.blockArea = new Map();
     for (const [key, v] of inside) {
-      const c = Math.floor(key / 8), k = key % 8;
+      const c = Math.floor(key / 4096), k = key % 4096;
       if (v / cnt.get(c) >= 0.35 && v * F.cell * F.cell < 25000) this.blockArea.set(c, this.areas[k].kind);
     }
     // pocket plazas: in the city (downtown / along avenues), small blocks and wedge-shaped slivers left between
