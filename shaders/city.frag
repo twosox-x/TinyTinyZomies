@@ -57,7 +57,6 @@ float wallBlood(vec3 P, vec3 N, float u) {
         h = max(h, max(wallH(q), 0.8 * max(wallH(q + t * 0.3), wallH(q - t * 0.3))));
     }
     if (h <= 0.0) return 0.0;
-    return 1.0;
     float dy = P.y - h;                                    // > 0 above the highest splat
     if (dy > 1.2) return 0.0;
     vec2 q = vec2(u, P.y);
@@ -107,7 +106,7 @@ void main() {
         } else if (abs(N.y) < 0.3) {
             float u = dot(vWorld.xz, vec2(-N.z, N.x));
             float b = wallBlood(vWorld, N, u);
-            albedo = mix(albedo, vec3(4.0, 0.0, 4.0), b);
+            albedo = mix(albedo, vec3(0.085, 0.002, 0.003), b * 0.95);
             wet = b * 0.7;
         }
     }

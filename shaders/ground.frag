@@ -123,7 +123,7 @@ void main() {
         albedo = mix(albedo, bc, bloodCov * 0.92);
         wet = max(wet, bloodCov);
     }
-    // explosion shock ring
+    // explosion ground flash (the expanding shock ring was removed: owner feedback)
     vec3 emissive = vec3(0.0);
     // (baked city: drawn additively by city.frag instead; this opaque ground plane would paint dark rings over the street)
     for (int i = 0; i < MAX_BLASTS && (gridDim.w & GRID_CITY) == 0u; ++i) {
@@ -131,8 +131,6 @@ void main() {
         float r = length(xz - blasts[i].xz);
         float age = blasts[i].w;
         if (age < 0.8) {
-            float front = age * 18.0;
-            emissive += vec3(1.0, 0.5, 0.15) * smoothstep(1.2, 0.0, abs(r - front)) * (1.0 - age / 0.8) * 3.0;
             emissive += vec3(1.0, 0.7, 0.3) * smoothstep(3.0, 0.0, r) * (1.0 - age / 0.8) * 4.0;
         }
     }

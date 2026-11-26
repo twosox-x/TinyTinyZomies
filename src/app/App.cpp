@@ -159,19 +159,6 @@ void App::loadScenario(int index, int count) {
         s_.simWindow.resetTo(s_.sandbox, s_.renderer);
     }
     s_.staticHeights = s_.sandbox.rasterize();
-    if (SDL_getenv("TTZ_TMP_WALL")) {   // TEMP
-        const Sandbox& sb = s_.sandbox;
-        for (const Rect& r : sc.spawns) {
-            float cx = 0.5f * (r.minX + r.maxX), cz = 0.5f * (r.minZ + r.maxZ), best = 1e30f, bx = 0, bz = 0;
-            for (int k = 0; k < sb.gridH; ++k) for (int i = 0; i < sb.gridW; ++i) {
-                if (s_.staticHeights[(size_t)k * sb.gridW + i] < 6.f) continue;
-                float x = sb.originX + (i + 0.5f) * sb.cellSize, z = sb.originZ + (k + 0.5f) * sb.cellSize;
-                float d = (x - cx) * (x - cx) + (z - cz) * (z - cz);
-                if (d < best) { best = d; bx = x; bz = z; }
-            }
-            SDL_Log("TMP spawn %.1f %.1f r %.1f wall %.1f %.1f dist %.1f", cx, cz, 0.5f * (r.maxX - r.minX), bx, bz, std::sqrt(best));
-        }
-    }
     s_.sim.reset(s_.sandbox);
     if (s_.cityMode && s_.sandbox.map == MapKind::Baked)   // vehicles keep their state; their obstacles go back in
         s_.vehicles.setWindow(s_.sandbox.originX, s_.sandbox.originZ, s_.sandbox.cellSize, s_.sandbox.gridW, s_.sandbox.gridH, s_.staticHeights);

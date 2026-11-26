@@ -592,19 +592,40 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _98 [[buffer(
         wet = fast::max(wet, bloodCov);
     }
     float3 emissive = float3(0.0);
-    for (int i_1 = 0; i_1 < 8; i_1++)
+    int i_1 = 0;
+    for (;;)
     {
-        if (_98.blasts[i_1].w < 0.0)
+        bool _1371 = i_1 < 8;
+        bool _1378;
+        if (_1371)
         {
+            _1378 = (_98.gridDim.w & 64u) == 0u;
+        }
+        else
+        {
+            _1378 = _1371;
+        }
+        if (_1378)
+        {
+            if (_98.blasts[i_1].w < 0.0)
+            {
+                int _1413 = i_1;
+                i_1 = _1413 + 1;
+                continue;
+            }
+            float r_1 = length(xz - _98.blasts[i_1].xz);
+            float age = _98.blasts[i_1].w;
+            if (age < 0.800000011920928955078125)
+            {
+                emissive += (((float3(1.0, 0.699999988079071044921875, 0.300000011920928955078125) * smoothstep(3.0, 0.0, r_1)) * (1.0 - (age / 0.800000011920928955078125))) * 4.0);
+            }
+            int _1413 = i_1;
+            i_1 = _1413 + 1;
             continue;
         }
-        float r_1 = length(xz - _98.blasts[i_1].xz);
-        float age = _98.blasts[i_1].w;
-        if (age < 0.800000011920928955078125)
+        else
         {
-            float front = age * 18.0;
-            emissive += (((float3(1.0, 0.5, 0.1500000059604644775390625) * smoothstep(1.2000000476837158203125, 0.0, abs(r_1 - front))) * (1.0 - (age / 0.800000011920928955078125))) * 3.0);
-            emissive += (((float3(1.0, 0.699999988079071044921875, 0.300000011920928955078125) * smoothstep(3.0, 0.0, r_1)) * (1.0 - (age / 0.800000011920928955078125))) * 4.0);
+            break;
         }
     }
     albedo = powr(albedo, float3(2.2000000476837158203125)) * 2.0;
@@ -627,17 +648,17 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _98 [[buffer(
     }
     if ((_98.gridDim.w & 64u) != 0u)
     {
-        bool _1521 = overlayA < 0.0199999995529651641845703125;
-        bool _1528;
-        if (_1521)
+        bool _1509 = overlayA < 0.0199999995529651641845703125;
+        bool _1516;
+        if (_1509)
         {
-            _1528 = dot(emissive, emissive) < 9.9999997473787516355514526367188e-05;
+            _1516 = dot(emissive, emissive) < 9.9999997473787516355514526367188e-05;
         }
         else
         {
-            _1528 = _1521;
+            _1516 = _1509;
         }
-        if (_1528)
+        if (_1516)
         {
             discard_fragment();
         }
