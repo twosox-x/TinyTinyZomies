@@ -3349,7 +3349,7 @@ function planAll(PL, R, voxel, C, popts) {
 // kit quads whose centre lies in the page, curb cuts whose midpoint does, and the block classes of its field cells.
 // A block fully inside two windows comes out the same from both (seeds hashed from the block's global first cell,
 // same grid origins, same relative scan order), so a tile assembles the jobs / kit of the pages around it.
-const PAGE = 256, PAGE_HALO = 96;               // halo 96 m: same tiles as 128 m against the whole-map plan (eqp, scale 1); 64 m is not
+const PAGE = 256, PAGE_HALO = 128;              // 96 m: eqp-equal at seed 1 but house lots fight at a page seam (groundfight 3 --self)
 function pageOf(net, x, z) { const b = net.bounds; return [Math.floor((x - b.x0) / PAGE), Math.floor((z - b.z0) / PAGE)]; }
 function pageRect(net, pi, pj) { const b = net.bounds; return [b.x0 + pi * PAGE, b.z0 + pj * PAGE, b.x0 + (pi + 1) * PAGE, b.z0 + (pj + 1) * PAGE]; }
 function classKinds(net) { const k = ['pocket']; for (const a of net.areas || []) if (!k.includes(a.kind)) k.push(a.kind); return k; }

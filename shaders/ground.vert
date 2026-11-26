@@ -9,6 +9,6 @@ void main() {
     vec2 c = corners[gl_VertexIndex];
     vec2 size = vec2(gridDim.xy) * gridP.z;
     vec2 xz = gridP.xy - 40.0 + c * (size + 80.0);
-    vWorld = vec3(xz.x, 0.0, xz.y);
+    vWorld = vec3(xz.x, (gridDim.w & GRID_CITY) != 0u ? 0.03 : 0.0, xz.y);   // city: overlay just above the baked road
     gl_Position = viewProj * vec4(vWorld, 1.0);
 }

@@ -1,5 +1,6 @@
 #include "app/App.h"
 
+#include "city/CityWorld.h"
 #include "debug/DebugUI.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -53,6 +54,7 @@ bool App::init() {
     s_.opt.config = cfg;
     s_.params.load(cfg);
     s_.sandbox.build(s_.params.cellSize, s_.params.gridW, s_.params.gridH);
+    if (o.cityMap && !initCity()) return false;
     if (!s_.zombieModel.load(dataPath("assets/models/zombie.glb"), s_.params.standHeight)) return false;
     if (!s_.sim.init(s_.gpu, s_.params, s_.sandbox)) return false;
     SDL_GPUTextureFormat swapFmt = s_.window ? SDL_GetGPUSwapchainTextureFormat(s_.gpu.device(), s_.window)
@@ -61,6 +63,15 @@ bool App::init() {
     if (!s_.chars.init(s_.gpu, s_.params, dataPath("assets/characters/zombie_parts.ttzc"), (uint32_t)s_.params.visibleCharacterCapacity)) return false;
     s_.sim.setExtraReadback(s_.chars.counters(), 48 * 4);
     s_.chars.setOccluders(s_.sandbox.occluders());
+    if (s_.cityMode) {
+        if (!s_.cityRenderer.init(s_.gpu, s_.city, s_.renderer.msaaSamples() == 4 ? SDL_GPU_SAMPLECOUNT_4 : SDL_GPU_SAMPLECOUNT_1)) return false;
+        s_.renderer.setCity(&s_.cityRenderer);
+        double t = nowMs();
+        s_.renderer.setShadowField(cityShadowField(s_.sandbox.heightOverride, s_.sandbox.gridW, s_.sandbox.gridH, s_.sandbox.cellSize,
+                                                   s_.sandbox.originX, s_.sandbox.originZ));
+        SDL_Log("city: moon shadow field %.0f ms", nowMs() - t);
+    }
+    applyCameraRig();
     s_.renderSettings.debugFlags = o.debugFlags;
     s_.renderSettings.characterModel = o.characterModel;
     s_.renderSettings.chars = o.charSettings;
@@ -89,7 +100,45 @@ bool App::init() {
     if (o.showcase >= 0) loadShowcase(o.showcase);
     else loadScenario(s_.scenario, o.count);
     if (o.camSet) s_.camera.setImmediate({o.camX, o.camY, o.camZ}, o.camYaw, o.camPitch, o.camDist);
+    // scripted headless captures: stream the visible tiles in before the first frame (benchmarks measure streaming)
+    if (s_.cityMode && o.headless && o.frames > 0 && o.cityBench == 0) s_.cityRenderer.flush(s_.camera, (float)o.width / (float)o.height);
     return true;
+}
+
+// Baked city: load the package, place the simulation window, size the sim grid to it.
+bool App::initCity() {
+    AppOptions& o = s_.opt;
+    std::string dir = dataPath(o.cityDir);
+    if (!s_.city.load(dir)) {
+        SDL_Log("city: no baked package at %s (bake it: see tools/city_lab/bake/FORMAT.md, or run with --city-synth)", dir.c_str());
+        return false;
+    }
+    float cx = 0.5f * (s_.city.x0 + s_.city.x1), cz = 0.5f * (s_.city.z0 + s_.city.z1);
+    if (o.cityAtX < 1e8f) { cx = o.cityAtX; cz = o.cityAtZ; }
+    else {   // spawn point nearest the map centre: the window sits on streets
+        float best = 1e30f, bx = cx, bz = cz;
+        for (const CitySpawn& sp : s_.city.spawns) {
+            float d = (sp.x - cx) * (sp.x - cx) + (sp.z - cz) * (sp.z - cz);
+            if (d < best) { best = d; bx = sp.x; bz = sp.z; }
+        }
+        cx = bx; cz = bz;
+    }
+    s_.params.gridW = s_.params.gridH = std::clamp(o.cityWindow, 64, 1024);
+    if (!buildCityWindow(s_.city, cx, cz, s_.params.cellSize, s_.params.gridW, s_.params.gridH, s_.sandbox)) {
+        SDL_Log("city: no collision tiles under the simulation window");
+        return false;
+    }
+    s_.cityMode = true;
+    return true;
+}
+
+// RTS rig (City Lab's: pivot on the ground, pitch 35-70 deg, distance 30-300 m) or the free debug camera (F2).
+void App::applyCameraRig() {
+    CameraSettings& c = s_.camera.settings;
+    const float deg = 3.14159265f / 180.f;
+    if (!s_.cityMode) return;
+    if (s_.debugCam) { c.minDistance = 1.5f; c.maxDistance = 1800.f; c.minPitch = 0.05f; c.maxPitch = 89.f * deg; }
+    else { c.minDistance = 30.f; c.maxDistance = 300.f; c.minPitch = 35.f * deg; c.maxPitch = 70.f * deg; }
 }
 
 void App::loadScenario(int index, int count) {
@@ -108,7 +157,8 @@ void App::loadScenario(int index, int count) {
     int per = n / (int)sc.spawns.size();
     for (const Rect& r : sc.spawns) s_.sim.requestSpawn(r, (uint32_t)per);
     const Rect& r = sc.spawns[0];
-    s_.camera.setImmediate({(r.minX + r.maxX) * 0.5f + 15.f, 0, (r.minZ + r.maxZ) * 0.5f}, 0.9f, 0.8f, 75.f);
+    if (sc.map == MapKind::Baked && !sc.goals.empty()) s_.camera.setImmediate({sc.goals[0], 0, sc.goals[1]}, 0.9f, 0.9f, 110.f);
+    else s_.camera.setImmediate({(r.minX + r.maxX) * 0.5f + 15.f, 0, (r.minZ + r.maxZ) * 0.5f}, 0.9f, 0.8f, 75.f);
     (void)r;
     s_.simAccumulator = 0;
 }
@@ -165,6 +215,7 @@ void App::handleEvent(const SDL_Event& e) {
         case SDLK_SPACE: s_.paused = !s_.paused; break;
         case SDLK_R: s_.resetRequested = true; break;
         case SDLK_F1: s_.showUI = !s_.showUI; break;
+        case SDLK_F2: s_.debugCam = !s_.debugCam; applyCameraRig(); break;   // free debug camera (city RTS rig off)
         case SDLK_1: s_.tool = Tool::Explosion; break;
         case SDLK_2: s_.tool = Tool::SetGoal; break;
         case SDLK_3: s_.tool = Tool::Spawn; break;
@@ -188,6 +239,7 @@ void App::handleEvent(const SDL_Event& e) {
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
         if (uiMouse) break;
         if (e.button.button == SDL_BUTTON_MIDDLE) mmbDown_ = true;
+        if (e.button.button == SDL_BUTTON_RIGHT) rmbDown_ = true;
         if (e.button.button == SDL_BUTTON_LEFT && (SDL_GetModState() & SDL_KMOD_ALT)) altDrag_ = true;
         else if (e.button.button == SDL_BUTTON_LEFT) {
             int w, h;
@@ -208,6 +260,7 @@ void App::handleEvent(const SDL_Event& e) {
         break;
     case SDL_EVENT_MOUSE_BUTTON_UP:
         if (e.button.button == SDL_BUTTON_MIDDLE) mmbDown_ = false;
+        if (e.button.button == SDL_BUTTON_RIGHT) rmbDown_ = false;
         if (e.button.button == SDL_BUTTON_LEFT) altDrag_ = false;
         break;
     case SDL_EVENT_MOUSE_MOTION:
@@ -215,6 +268,7 @@ void App::handleEvent(const SDL_Event& e) {
             rotDx_ += e.motion.xrel;
             rotDy_ += e.motion.yrel;
         }
+        if (rmbDown_) { panDx_ += e.motion.xrel; panDy_ += e.motion.yrel; }   // right drag: pan (grab the ground)
         break;
     default: break;
     }
@@ -243,15 +297,41 @@ void App::frame(double dt) {
         turn = (float)keys[SDL_SCANCODE_E] - (float)keys[SDL_SCANCODE_Q];
     }
     float boost = (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]) ? 2.5f : 1.f;
-    s.camera.update((float)dt, mx, mz, wheel_, rotDx_ + turn * 300.f * (float)dt, rotDy_, boost);
-    float halfX = 0.5f * s.params.gridW * s.params.cellSize, halfZ = 0.5f * s.params.gridH * s.params.cellSize;
-    s.camera.clampTarget(-halfX, -halfZ, halfX, halfZ);
-    s.camera.avoidObstacles([&](float x, float z) {
-        const Sandbox& sb = s.sandbox;
-        int cx = (int)std::floor((x - sb.originX) / sb.cellSize), cz = (int)std::floor((z - sb.originZ) / sb.cellSize);
-        if (cx < 0 || cz < 0 || cx >= sb.gridW || cz >= sb.gridH) return 0.f;
-        return s.staticHeights[(size_t)cz * sb.gridW + cx];
-    });
+    if (s.cityMode && s.window && dt > 0) {
+        // RTS panning: right-drag moves the ground with the cursor; the window edge pans (City Lab rig)
+        float wx, wy;
+        int ww, wh;
+        SDL_GetMouseState(&wx, &wy);
+        SDL_GetWindowSize(s.window, &ww, &wh);
+        bool focus = (SDL_GetWindowFlags(s.window) & SDL_WINDOW_MOUSE_FOCUS) != 0 && !(ImGui::GetIO().WantCaptureMouse);
+        const float edge = 6.f;
+        if (focus && !rmbDown_ && !mmbDown_) {
+            if (wx < edge) mx -= 1; else if (wx > ww - edge) mx += 1;
+            if (wy < edge) mz += 1; else if (wy > wh - edge) mz -= 1;
+        }
+        // metres per pixel at the pivot ~ 2 * dist * tan(fov/2) / height; convert to the camera's per-second input
+        float mpp = 2.f * s.camera.distance() * std::tan(s.camera.settings.fovY * 0.5f) / std::max(1, wh);
+        float speed = s.camera.settings.moveSpeed * (s.camera.distance() / 80.f);
+        mx -= panDx_ * mpp / (speed * (float)dt);
+        mz += panDy_ * mpp / (speed * (float)dt) / std::sin(std::max(0.3f, s.camera.pitch()));
+    }
+    panDx_ = panDy_ = 0;
+    if (s.opt.cityBench > 0) cityBenchStep();
+    else s.camera.update((float)dt, mx, mz, wheel_, rotDx_ + turn * 300.f * (float)dt, rotDy_, boost);
+    if (s.cityMode) {
+        s.camera.clampTarget(s.city.x0, s.city.z0, s.city.x1, s.city.z1);
+        if (!s.debugCam)
+            s.camera.avoidObstacles([&](float x, float z) { return s.cityRenderer.heightAt(x, z); });
+    } else {
+        float halfX = 0.5f * s.params.gridW * s.params.cellSize, halfZ = 0.5f * s.params.gridH * s.params.cellSize;
+        s.camera.clampTarget(-halfX, -halfZ, halfX, halfZ);
+        s.camera.avoidObstacles([&](float x, float z) {
+            const Sandbox& sb = s.sandbox;
+            int cx = (int)std::floor((x - sb.originX) / sb.cellSize), cz = (int)std::floor((z - sb.originZ) / sb.cellSize);
+            if (cx < 0 || cz < 0 || cx >= sb.gridW || cz >= sb.gridH) return 0.f;
+            return s.staticHeights[(size_t)cz * sb.gridW + cx];
+        });
+    }
     wheel_ = rotDx_ = rotDy_ = 0;
 
     // scripted blasts (for reproducible demo footage / screenshots)
@@ -298,6 +378,13 @@ void App::frame(double dt) {
     SDL_GPUTexture* swap = nullptr;
     uint32_t w = (uint32_t)s.opt.width, h = (uint32_t)s.opt.height;
     if (s.window && !SDL_WaitAndAcquireGPUSwapchainTexture(cmd, s.window, &swap, &w, &h)) swap = nullptr;
+    if (s.cityMode) {   // streaming, LOD, uploads (copy passes before the scene pass), street-lamp lights
+        s.cityRenderer.update(cmd, s.camera, (float)w / (float)std::max(1u, h), s.frameIndex);
+        std::vector<PointLight> lamps;
+        V3 p = s.camera.target();
+        s.cityRenderer.nearestLamps(p.x, p.z, kMaxLights, lamps);
+        s.renderer.setLights(lamps);
+    }
     if (!s.window || swap) {
         s.renderTime += dt;
         s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings, &s.chars);
@@ -329,7 +416,57 @@ void App::frame(double dt) {
     // Without a swapchain nothing paces the CPU: keep headless runs to one frame in flight.
     if (!s.window) SDL_WaitForGPUIdle(s.gpu.device());
     s.cpuFrame.add(nowMs() - t0);
+    if (s.opt.cityBench > 0) {
+        s.benchFrameMs.push_back(nowMs() - t0);
+        const CityRenderStats& cs = s.cityRenderer.stats();
+        s.benchUploadMs.push_back(cs.uploadMs);
+        CityRenderStats& m = s.benchMax;
+        m.resident = std::max(m.resident, cs.resident); m.visible = std::max(m.visible, cs.visible);
+        m.drawCalls = std::max(m.drawCalls, cs.drawCalls); m.triangles = std::max(m.triangles, cs.triangles);
+        m.vehicles = std::max(m.vehicles, cs.vehicles); m.gpuBytes = std::max(m.gpuBytes, cs.gpuBytes);
+        m.uploadedTiles += cs.uploadedTiles; m.uploadedBytes += cs.uploadedBytes; m.lod1Tiles = std::max(m.lod1Tiles, cs.lod1Tiles);
+    }
     ++s.frameIndex;
+}
+
+// City benchmark camera: starts over the simulation window, then flies a straight 1.4 km line across the map at
+// 40 m/s (pitch and zoom sweep the RTS range), so tiles stream in and out and LODs switch.
+void App::cityBenchStep() {
+    AppState& s = s_;
+    float t = (float)s.frameIndex / 60.f;
+    float cx = 0.5f * (s.city.x0 + s.city.x1), cz = 0.5f * (s.city.z0 + s.city.z1);
+    const Scenario& sc = s.sandbox.scenarios[(size_t)s.scenario];
+    float gx = sc.goals.size() >= 2 ? sc.goals[0] : cx, gz = sc.goals.size() >= 2 ? sc.goals[1] : cz;
+    float dirx = cx - gx, dirz = cz - gz, len = std::sqrt(dirx * dirx + dirz * dirz);
+    if (len < 1.f) { dirx = 1; dirz = 0.3f; len = std::sqrt(1.09f); }
+    float along = std::max(0.f, t - 2.f) * 40.f;
+    float dist = 120.f + 150.f * (0.5f - 0.5f * std::cos(t * 0.4f));
+    float pitch = (35.f + 35.f * (0.5f + 0.5f * std::sin(t * 0.3f))) * 3.14159265f / 180.f;
+    s.camera.setImmediate({gx + dirx / len * along, 0, gz + dirz / len * along}, 0.9f + 0.1f * t, pitch, dist);
+}
+
+void App::printCityBench() {
+    AppState& s = s_;
+    auto pct = [](std::vector<double> v, double p) {
+        if (v.empty()) return 0.0;
+        std::sort(v.begin(), v.end());
+        return v[std::min(v.size() - 1, (size_t)(p * v.size()))];
+    };
+    double avg = 0, up = 0;
+    for (double v : s.benchFrameMs) avg += v;
+    for (double v : s.benchUploadMs) up += v;
+    avg /= std::max<size_t>(1, s.benchFrameMs.size());
+    up /= std::max<size_t>(1, s.benchUploadMs.size());
+    const CityRenderStats& m = s.benchMax;
+    std::printf("\ncity benchmark (%s, %dx%d, %d frames, zombies live %u; headless: frame ms include waiting for the GPU)\n",
+                s.gpu.driverName(), s.opt.width, s.opt.height, (int)s.benchFrameMs.size(), s.sim.stats().live);
+    std::printf("| frame ms avg / p50 / p95 / max | city update+upload ms avg / p95 / max | resident max | visible max | lod1 max | draws max | city tris max | instances max | tiles uploaded | MB uploaded | city GPU MB max |\n");
+    std::printf("|---|---|---|---|---|---|---|---|---|---|---|\n");
+    std::printf("| %.2f / %.2f / %.2f / %.2f | %.3f / %.3f / %.3f | %u | %u | %u | %u | %llu | %llu | %u | %.1f | %.1f |\n", avg,
+                pct(s.benchFrameMs, 0.5), pct(s.benchFrameMs, 0.95), pct(s.benchFrameMs, 1.0), up, pct(s.benchUploadMs, 0.95),
+                pct(s.benchUploadMs, 1.0), m.resident, m.visible, m.lod1Tiles, m.drawCalls, (unsigned long long)m.triangles,
+                (unsigned long long)m.vehicles, m.uploadedTiles, m.uploadedBytes / 1048576.0, m.gpuBytes / 1048576.0);
+    std::fflush(stdout);
 }
 
 int App::run(const AppOptions& opt) {
@@ -358,6 +495,7 @@ int App::run(const AppOptions& opt) {
         if (s_.opt.frames > 0 && (int)s_.frameIndex >= s_.opt.frames) {
             SDL_WaitForGPUIdle(s_.gpu.device());
             if (!s_.opt.screenshot.empty()) s_.renderer.saveScreenshot(s_.opt.screenshot);
+            if (s_.opt.cityBench > 0) printCityBench();
             const SimStats& st = s_.sim.stats();
             SDL_Log("finished %d frames: live=%u corpses=%u climbing=%u elevated=%u maxH=%.2f", s_.opt.frames, st.live,
                     st.corpses, st.climbing, st.elevated, st.maxStackHeight);
@@ -375,6 +513,7 @@ void App::shutdown() {
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
     }
+    s_.cityRenderer.shutdown();
     s_.renderer.shutdown();
     s_.chars.shutdown();
     s_.sim.shutdown();

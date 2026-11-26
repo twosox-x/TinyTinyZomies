@@ -76,7 +76,7 @@ vertex main0_out main0(constant Frame& _41 [[buffer(0)]], uint gl_VertexIndex [[
     float2 c = _19[int(gl_VertexIndex)];
     float2 size = float2(_41.gridDim.xy) * _41.gridP.z;
     float2 xz = (_41.gridP.xy - float2(40.0)) + (c * (size + float2(80.0)));
-    out.vWorld = float3(xz.x, 0.0, xz.y);
+    out.vWorld = float3(xz.x, ((_41.gridDim.w & 64u) != 0u) ? 0.02999999932944774627685546875 : 0.0, xz.y);
     out.gl_Position = _41.viewProj * float4(out.vWorld, 1.0);
     return out;
 }

@@ -1,5 +1,7 @@
 #pragma once
 #include "assets/Model.h"
+#include "city/CityAsset.h"
+#include "city/CityRenderer.h"
 #include "debug/Profiler.h"
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
@@ -35,6 +37,12 @@ struct AppOptions {
     bool studio = false, noGround = false, freeCam = false;
     float fovDeg = 0.f;
     int showcase = -1;             // --showcase N: character validation scenes (see App::loadShowcase)
+    // baked city (--map city)
+    bool cityMap = false;
+    std::string cityDir = "assets/city/seed1";
+    int cityWindow = 512;          // simulation window, cells per side (0.75 m)
+    float cityAtX = 1e9f, cityAtZ = 1e9f;   // window centre (default: spawn nearest the map centre)
+    int cityBench = 0;             // > 0: headless city benchmark of N frames (camera flies a scripted path)
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };
@@ -44,6 +52,11 @@ struct AppState {
     SDL_Window* window = nullptr;
     Sandbox sandbox;
     std::vector<float> staticHeights;   // CPU copy for camera obstacle avoidance
+    CityAsset city;
+    CityRenderer cityRenderer;
+    bool cityMode = false, debugCam = false;
+    std::vector<double> benchFrameMs, benchUploadMs;
+    CityRenderStats benchMax;
     SimParams params;
     CrowdSim sim;
     Renderer renderer;
@@ -84,8 +97,12 @@ private:
     void handleEvent(const SDL_Event& e);
     void frame(double dt);
     AppState s_;
-    bool mmbDown_ = false, altDrag_ = false;
-    float rotDx_ = 0, rotDy_ = 0, wheel_ = 0;
+    bool initCity();
+    void applyCameraRig();
+    void cityBenchStep();
+    void printCityBench();
+    bool mmbDown_ = false, altDrag_ = false, rmbDown_ = false;
+    float rotDx_ = 0, rotDy_ = 0, wheel_ = 0, panDx_ = 0, panDy_ = 0;
 };
 
 } // namespace ttz

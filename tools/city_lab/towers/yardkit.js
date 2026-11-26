@@ -48,7 +48,7 @@
   const K = {
     GRASS: BM.GRASS, PARK: 14, MGRASS: 10, YARD: 16, PLOT: 11, PLAZA: 12, PATH: 18, ASPH: 2, ASPH_D: 3, ASPH_B: 1,
     LEAF: 133, LEAF_D: 134, TRUNK: 135, SOIL: 140, EVER: 137, CEDAR: 136, PALLET: 129, RED: 131, YEL: 132, BLUE: 139,
-    WHITE: 64, PWHITE: 69, CONC: 70, STEEL: 130, POLE_D: 55, BLACK: 58, BIN_G: 126, BIN_B: 127, SRED: 63, SGREEN: 65, ORANGE: 68
+    WHITE: 64, PWHITE: 157, CONC: 70, STEEL: 130, POLE_D: 55, BLACK: 58, BIN_G: 126, BIN_B: 127, SRED: 63, SGREEN: 65, ORANGE: 170
   };
   const S4 = 0.25, S2 = 0.5, S1 = 1;              // model voxel sizes in building voxels (6.25 cm, 12.5 cm, 25 cm)
   const J = 1 / 32;                                // model offset (see header)

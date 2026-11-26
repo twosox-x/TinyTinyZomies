@@ -67,6 +67,27 @@ void drawDebugUI(AppState& s) {
     ImGui::SameLine();
     flag("corpse height", 16);
 
+    if (s.cityMode && ImGui::CollapsingHeader("City", ImGuiTreeNodeFlags_DefaultOpen)) {
+        const CityRenderStats& c = s.cityRenderer.stats();
+        CitySettings& cs = s.cityRenderer.settings;
+        ImGui::Text("tiles resident %u / wanted %u / visible %u (far LOD %u), pending %u", c.resident, c.wanted, c.visible, c.lod1Tiles, c.pending);
+        ImGui::Text("draws %u, triangles %.2f M, instances %llu, GPU %.1f MB", c.drawCalls, c.triangles / 1e6, (unsigned long long)c.vehicles,
+                    c.gpuBytes / 1048576.0);
+        ImGui::Text("update + upload %.2f ms (%u tiles, %.1f MB this frame)", c.uploadMs, c.uploadedTiles, c.uploadedBytes / 1048576.0);
+        ImGui::Checkbox("draw city", &cs.draw);
+        ImGui::SameLine();
+        ImGui::Checkbox("vehicles", &cs.vehicles);
+        ImGui::SameLine();
+        ImGui::Checkbox("props", &cs.props);
+        ImGui::SameLine();
+        ImGui::Checkbox("back-face cull", &cs.backfaceCull);
+        ImGui::SliderFloat("far LOD distance", &cs.lodFar, 100.f, 1000.f);
+        cs.lodNear = cs.lodFar - 40.f;
+        ImGui::SliderFloat("vehicle box distance", &cs.vehicleBoxDist, 30.f, 600.f);
+        ImGui::SliderFloat("prop distance", &cs.propDist, 50.f, 600.f);
+        ImGui::Text("F2: %s camera", s.debugCam ? "debug (free)" : "RTS");
+    }
+
     if (ImGui::CollapsingHeader("Characters", ImGuiTreeNodeFlags_DefaultOpen)) {
         RenderSettings& rs = s.renderSettings;
         CharacterSettings& cs = rs.chars;

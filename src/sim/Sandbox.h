@@ -20,7 +20,7 @@ struct Box {
 
 struct Rect { float minX, minZ, maxX, maxZ; };
 
-enum class MapKind : int { City = 0, Arena = 1 };
+enum class MapKind : int { City = 0, Arena = 1, Baked = 2 };   // Baked: a window of the baked city (src/city/CityWorld)
 
 struct Scenario {
     std::string name;
@@ -40,6 +40,7 @@ struct Sandbox {
     std::vector<Scenario> scenarios;
 
     MapKind map = MapKind::City;
+    std::vector<float> heightOverride;   // Baked map: static height grid (gridW x gridH) sampled from the city's collision tiles
     float wallX = 0.f;          // x of the defensive wall (both maps)
 
     void build(float cellSize, int gridW, int gridH, MapKind map = MapKind::City);

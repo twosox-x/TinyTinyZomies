@@ -42,7 +42,7 @@ void main() {
     float wet = smoothstep(0.55, 0.75, hash12(floor(xz * 0.15)) * 0.6 + n * 0.4);
     // sidewalks next to buildings
     float nearSolid = 0.0;
-    if (inside) {
+    if (inside && (gridDim.w & GRID_CITY) == 0u) {
         for (int dy = -2; dy <= 2; ++dy)
         for (int dx = -2; dx <= 2; ++dx) {
             ivec2 cc = c + ivec2(dx, dy);
@@ -145,6 +145,11 @@ void main() {
         vec3 H = normalize(normalize(L) + V);
         float spec = pow(max(H.y, 0.0), 180.0) * wet;
         col += lightCol[i].rgb * lightCol[i].w * spec * 0.8 * clamp(1.0 - length(L) / (lightPos[i].w * 2.5), 0.0, 1.0);
+    }
+    if ((gridDim.w & GRID_CITY) != 0u) {   // baked city: only overlays and blast light; the city shader draws the street
+        if (overlayA < 0.02 && dot(emissive, emissive) < 1e-4) discard;
+        outColor = vec4(finish(overlay * overlayA + emissive, vWorld), 1.0);
+        return;
     }
     col = mix(col, overlay, overlayA);
     outColor = vec4(finish(col + emissive, vWorld), 1.0);

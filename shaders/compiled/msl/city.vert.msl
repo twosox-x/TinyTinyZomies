@@ -1,0 +1,122 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct CityDraw
+{
+    float4 origin;
+    float4 qscale;
+    uint4 mode;
+};
+
+struct Inst
+{
+    float4 pos;
+    float4 quat;
+    float4 paint;
+};
+
+struct Inst_1
+{
+    float4 pos;
+    float4 quat;
+    float4 paint;
+};
+
+struct Insts
+{
+    Inst_1 inst[1];
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+};
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    float3 vNormal [[user(locn1)]];
+    uint vMat [[user(locn2)]];
+    float4 vPaint [[user(locn3)]];
+    float vPhase [[user(locn4)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    int4 inPos [[attribute(0)]];
+    int4 inNrm [[attribute(1)]];
+};
+
+static inline __attribute__((always_inline))
+float3 qrot(thread const float4& q, thread const float3& v)
+{
+    return v + (cross(q.xyz, cross(q.xyz, v) + (v * q.w)) * 2.0);
+}
+
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _179 [[buffer(0)]], constant CityDraw& _41 [[buffer(1)]], const device Insts& _99 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
+{
+    main0_out out = {};
+    float3 p = _41.origin.xyz + (float3(in.inPos.xyz) * _41.qscale.xyx);
+    float3 n = float3(in.inNrm.xyz) * 0.0078740157186985015869140625;
+    out.vMat = uint(in.inNrm.w) & 255u;
+    out.vPaint = float4(0.0);
+    out.vPhase = 0.0;
+    if (_41.mode.x == 1u)
+    {
+        uint _105 = _41.mode.y + uint(int(gl_InstanceIndex));
+        Inst I;
+        I.pos = _99.inst[_105].pos;
+        I.quat = _99.inst[_105].quat;
+        I.paint = _99.inst[_105].paint;
+        float4 param = I.quat;
+        float3 param_1 = p;
+        p = I.pos.xyz + qrot(param, param_1);
+        float4 param_2 = I.quat;
+        float3 param_3 = n;
+        n = qrot(param_2, param_3);
+        if (I.pos.w < 0.5)
+        {
+            bool _140 = (in.inPos.w & 1) != 0;
+            bool _146;
+            if (_140)
+            {
+                _146 = I.paint.w > 0.5;
+            }
+            else
+            {
+                _146 = _140;
+            }
+            if (_146)
+            {
+                out.vPaint = float4(I.paint.xyz, 1.0);
+            }
+        }
+        else
+        {
+            out.vPhase = I.paint.w;
+        }
+    }
+    out.vWorld = p;
+    out.vNormal = n;
+    out.gl_Position = _179.viewProj * float4(p, 1.0);
+    return out;
+}
+

@@ -1,0 +1,76 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Baked city viewer</title>
+<style>html,body{margin:0;height:100%;background:#9fb4c8;overflow:hidden;font:12px sans-serif}#info{position:absolute;left:8px;top:8px;background:#fffc;padding:4px 8px}</style>
+</head><body><div id="info">loading</div>
+<!-- Format check for FORMAT.md: serve the repo root (python3 -m http.server 8765) and open
+     /tools/city_lab/bake/view.html?pkg=/assets/city/seed1&i=8&j=7&r=1[&lod=1][&grid=1] -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const Q = new URLSearchParams(location.search), PKG = Q.get('pkg') || '/assets/city/seed1';
+const ci = +(Q.get('i') || 8), cj = +(Q.get('j') || 7), RR = +(Q.get('r') || 1), LOD1 = Q.get('lod') === '1', GRID = Q.get('grid') === '1';
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(innerWidth, innerHeight); renderer.outputEncoding = THREE.sRGBEncoding; document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 1, 5000);
+scene.add(new THREE.HemisphereLight(0xdde8ff, 0x807060, 0.75)); const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(0.5, 1, 0.3); scene.add(sun);
+const ctl = new THREE.OrbitControls(cam, renderer.domElement);
+function sections(buf) {
+  const dv = new DataView(buf), n = dv.getUint32(8, true), out = {};
+  for (let k = 0; k < n; ++k) { const o = 16 + k * 12, tag = String.fromCharCode(...new Uint8Array(buf, o, 4)); out[tag] = { off: dv.getUint32(o + 4, true), len: dv.getUint32(o + 8, true) }; }
+  return out;
+}
+// mesh section -> BufferGeometry in its local quantised frame + the transform to world
+function meshGeom(buf, s, pal, lod1) {
+  const dv = new DataView(buf, s.off, s.len), V = dv.getUint32(0, true), sxz = dv.getFloat32(16, true), sy = dv.getFloat32(20, true);
+  const org = [dv.getFloat32(24, true), dv.getFloat32(28, true), dv.getFloat32(32, true)], q1 = dv.getUint32(36, true);
+  const nv = lod1 ? q1 * 4 : V, pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), col = new Float32Array(nv * 3), paint = new Float32Array(nv);
+  for (let v = 0; v < nv; ++v) {
+    const o = 72 + v * 12;
+    pos[v * 3] = org[0] + dv.getInt16(o, true) * sxz; pos[v * 3 + 1] = org[1] + dv.getInt16(o + 2, true) * sy; pos[v * 3 + 2] = org[2] + dv.getInt16(o + 4, true) * sxz;
+    paint[v] = dv.getUint16(o + 6, true) & 1;
+    for (let c = 0; c < 3; ++c) nrm[v * 3 + c] = dv.getInt8(o + 8 + c) / 127;
+    const p = pal[dv.getUint8(o + 11)]; col[v * 3] = p.linear[0]; col[v * 3 + 1] = p.linear[1]; col[v * 3 + 2] = p.linear[2];
+  }
+  const nq = nv / 4, idx = new Uint32Array(nq * 6);
+  for (let q = 0; q < nq; ++q) { const b = q * 4; idx.set([b, b + 1, b + 2, b, b + 2, b + 3], q * 6); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1)); g.userData.paint = paint;
+  return g;
+}
+(async () => {
+  const city = await (await fetch(PKG + '/city.json')).json(), pal = city.palette, T = city.tile.size, b = city.bounds;
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const vbuf = await (await fetch(PKG + '/vehicles.bin')).arrayBuffer(), vsec = sections(vbuf), vgeo = {};
+  let tris = 0, cars = 0;
+  for (let j = cj - RR; j <= cj + RR; ++j) for (let i = ci - RR; i <= ci + RR; ++i) {
+    const r = await fetch(`${PKG}/tiles/${i}_${j}.bin`); if (!r.ok) continue;
+    const buf = await r.arrayBuffer(), s = sections(buf);
+    if (s.MESH) { const g = meshGeom(buf, s.MESH, pal, LOD1); tris += g.index.count / 3; scene.add(new THREE.Mesh(g, mat)); }
+    if (s.VEHI) {
+      const dv = new DataView(buf, s.VEHI.off, s.VEHI.len), n = dv.getUint32(0, true);
+      for (let k = 0; k < n; ++k) {
+        const o = 4 + k * 28, v = dv.getUint16(o, true), id = String(v).padStart(3, '0');
+        if (!vgeo[v]) vgeo[v] = meshGeom(vbuf, vsec['V' + id], pal, false);
+        const g = vgeo[v].clone(), pr = dv.getUint8(o + 7);
+        if (pr) { const c = g.attributes.color.array, P = g.userData.paint, rgb = pal[pr].linear; for (let q = 0; q < P.length; ++q) if (P[q]) c.set(rgb, q * 3); }
+        const m = new THREE.Mesh(g, mat);
+        m.position.set(dv.getFloat32(o + 8, true), dv.getFloat32(o + 12, true), dv.getFloat32(o + 16, true));
+        m.quaternion.set(...[0, 1, 2, 3].map(c => dv.getInt16(o + 20 + c * 2, true) / 32767)).normalize();
+        scene.add(m); cars++;
+      }
+    }
+    if (GRID && s.HGT0) {                               // blocked cells as red points at their top height
+      const dv = new DataView(buf, s.HGT0.off, s.HGT0.len), nx = dv.getUint32(0, true), x0 = dv.getFloat32(12, true), z0 = dv.getFloat32(16, true), pts = [];
+      for (let k = 0; k < nx * nx; ++k) if (dv.getUint8(20 + nx * nx * 2 + k) & 32) pts.push(x0 + (k % nx + 0.5) * 0.5, dv.getInt16(20 + k * 2, true) / 100 + 0.2, z0 + (Math.floor(k / nx) + 0.5) * 0.5);
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xff2020, size: 0.4 })));
+    }
+  }
+  const cx = b.x0 + (ci + 0.5) * T, cz = b.z0 + (cj + 0.5) * T;
+  ctl.target.set(cx, 0, cz); cam.position.set(cx + 160 * RR + 60, 140 * RR + 60, cz + 160 * RR + 60); ctl.update();
+  document.getElementById('info').textContent = `tiles around ${ci},${cj} r${RR} ${LOD1 ? 'LOD1' : 'LOD0'}: ${tris} tris, ${cars} vehicles`;
+  window.__ready = true;
+})();
+(function loop() { requestAnimationFrame(loop); renderer.render(scene, cam); })();
+</script></body></html>

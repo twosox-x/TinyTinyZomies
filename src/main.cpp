@@ -7,6 +7,9 @@
 //   ttz --selftest               (same as the ttz_selftest executable)
 //   ttz --save-config path       write all simulation parameters with their defaults
 #include "app/App.h"
+#include "city/CityWorld.h"
+
+#include <algorithm>
 #include "app/Bench.h"
 #include "app/SelfTest.h"
 
@@ -74,6 +77,11 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--cam-y")) o.camY = (float)std::atof(next());
         else if (!std::strcmp(a, "--fov")) o.fovDeg = (float)std::atof(next());
         else if (!std::strcmp(a, "--showcase")) o.showcase = std::atoi(next());
+        else if (!std::strcmp(a, "--map")) o.cityMap = !std::strcmp(next(), "city");
+        else if (!std::strcmp(a, "--city")) { o.cityMap = true; o.cityDir = next(); }
+        else if (!std::strcmp(a, "--city-window")) o.cityWindow = std::atoi(next());
+        else if (!std::strcmp(a, "--city-at")) { o.cityAtX = (float)std::atof(next()); o.cityAtZ = (float)std::atof(next()); }
+        else if (!std::strcmp(a, "--city-synth")) { const char* d = next(); return ttz::writeSyntheticCity(d) ? 0 : 1; }
         else if (!std::strcmp(a, "--bench")) bench = true;
         else if (!std::strcmp(a, "--bench-counts")) b.counts = parseInts(next());
         else if (!std::strcmp(a, "--bench-scenarios")) b.scenarios = parseStrs(next());
@@ -84,6 +92,18 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--selftest")) selftest = true;
         else if (!std::strcmp(a, "--save-config")) { ttz::SimParams p; return p.save(next()) ? 0 : 1; }
         else { SDL_Log("unknown argument %s", a); return 2; }
+    }
+    // City map benchmark: the real game loop, headless, camera flying across the baked city (see App::cityBenchStep).
+    if (bench && std::find(b.scenarios.begin(), b.scenarios.end(), "citymap") != b.scenarios.end()) {
+        b.scenarios.erase(std::find(b.scenarios.begin(), b.scenarios.end(), "citymap"));
+        o.cityMap = true;
+        o.headless = true;
+        o.vsync = false;
+        o.width = b.width;
+        o.height = b.height;
+        o.cityBench = o.frames = o.frames > 0 ? o.frames : 600;
+        int rc = ttz::App().run(o);
+        if (rc || b.scenarios.empty()) return rc;
     }
     if (bench) return ttz::runBenchmarks(b);
     if (selftest) {

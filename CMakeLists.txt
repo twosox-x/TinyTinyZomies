@@ -72,6 +72,10 @@ add_executable(ttz
   src/sim/CrowdSim.cpp
   src/sim/Sandbox.cpp
   src/sim/SimParams.cpp
+  src/city/CityAsset.cpp
+  src/city/CityAssetFormat.cpp
+  src/city/CityRenderer.cpp
+  src/city/CityWorld.cpp
   src/debug/DebugUI.cpp
   src/debug/Profiler.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
@@ -112,7 +116,10 @@ add_executable(ttz_selftest
   src/render/CharacterRenderer.cpp
   src/sim/CrowdSim.cpp
   src/sim/Sandbox.cpp
-  src/sim/SimParams.cpp)
+  src/sim/SimParams.cpp
+  src/city/CityAsset.cpp
+  src/city/CityAssetFormat.cpp
+  src/city/CityWorld.cpp)
 target_include_directories(ttz_selftest PRIVATE src)
 target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3)
 target_compile_definitions(ttz_selftest PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

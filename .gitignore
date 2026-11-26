@@ -7,3 +7,7 @@ build-*/
 .vscode/
 .idea/
 benchmark_results.csv
+# baked city packages (tools/city_lab/bake/bake.js; regenerate, do not commit)
+assets/city/
+.tools/
+assets/city/

@@ -177,7 +177,7 @@ The approved downtown is locked by headless checks in `dev/` (run from the repos
 No whole-map plan. Every worker rebuilds the road network once (`rinit`: network, junctions; land use is a pure function
 `landUseAt`). The map is cut into **256 m pages** on a grid from the map corner (`CityArch.PAGE`, `pageOf`, `pageRect`):
 
-- `CityArch.planPage(net, C, voxel, pi, pj)` plans one page on a window of the page + 96 m (`PAGE_HALO`): windowed fields
+- `CityArch.planPage(net, C, voxel, pi, pj)` plans one page on a window of the page + 128 m (`PAGE_HALO`): windowed fields
   (`FieldSampler` win, bit-identical samples), `Rasterizer.blockAreas`, `Plots` with a window (`new Plots(..., win)`,
   same cell origin), `planAll` with `PL.pageMode`, then keeps what it **owns**: jobs and kit quads whose centre lies in the
   page, kit curb cuts whose midpoint does, the block classes of its 0.5 m field cells, and (worker) its street furniture.
@@ -203,3 +203,11 @@ No whole-map plan. Every worker rebuilds the road network once (`rinit`: network
 - `?wholeplan=1`: the previous whole-map planner path (`splan` / `sinit` / `stile`).
 - Headless checks on the regional path: `CITY_REGIONAL=1 [CITY_REGION=x0,z0,x1,z1] [CITY_TILE=128]` for `zfight.js`,
   `groundfight.js`, `traffic_check.js` (dev/meshcheck.js `buildRegional`: memory bounded by the region, any map size).
+
+## Offline bake for the engine (`bake/`)
+
+`node tools/city_lab/bake/bake.js --seed=1 --scale=5 --out=assets/city/seed1 [--jobs=3] [--tiles=i0,j0,i1,j1]` bakes the
+regional path (planPage / pagesPlan / buildTile + road raster + traffic + street furniture per 128 m tile, in
+worker_threads) into the package described in `bake/FORMAT.md` (the engine's contract). `node bake/verify.js <dir>
+[--hash]` reads it back and prints counts (and a digest for determinism checks); `bake/view.html` renders a few baked
+tiles with three.js (serve the repository root). `assets/city/` is git-ignored: regenerate rather than commit.

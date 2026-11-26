@@ -45,6 +45,11 @@ public:
     bool init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, const SimParams& p, SDL_GPUTextureFormat swapchainFormat);
     void shutdown();
     void setSandbox(const Sandbox& sb);
+    // Baked city: moon-shadow height field computed from the city height grid (CityWorld), street-lamp lights,
+    // and the tile renderer drawn inside the scene pass.
+    void setShadowField(const std::vector<float>& field);
+    void setLights(const std::vector<PointLight>& lights) { sandbox_.lights = lights; }
+    void setCity(class CityRenderer* city) { city_ = city; }
 
     void addBlast(float x, float y, float z);
     void update(float dt);   // ages blast effects
@@ -79,6 +84,7 @@ private:
     float modelHeight_ = 1.7f;
     SimParams params_;
     Sandbox sandbox_;
+    class CityRenderer* city_ = nullptr;
     struct Blast { float x, y, z, age; };
     std::vector<Blast> blasts_;
 public:

@@ -14,6 +14,7 @@ static float hashf(int i) {
 
 void Sandbox::build(float cs, int gw, int gh, MapKind mapKind) {
     map = mapKind;
+    heightOverride.clear();
     cellSize = cs;
     gridW = gw;
     gridH = gh;
@@ -132,6 +133,7 @@ std::vector<float> Sandbox::occluders(float minHeight) const {
 }
 
 std::vector<float> Sandbox::rasterize() const {
+    if (heightOverride.size() == (size_t)gridW * gridH) return heightOverride;
     std::vector<float> h((size_t)gridW * gridH, 0.0f);
     for (const Box& b : boxes) {
         if (!b.solid) continue;

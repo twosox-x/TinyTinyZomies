@@ -1,5 +1,6 @@
 #include "render/Renderer.h"
 
+#include "city/CityRenderer.h"
 #include "stb_image_write.h"
 
 #include <algorithm>
@@ -164,8 +165,10 @@ void Renderer::setSandbox(const Sandbox& sb) {
     }
     boxCount_ = (uint32_t)sb.boxes.size();
     gpu_->releaseBuffer(boxes_);
-    boxes_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(data.size() * sizeof(Vec4)), "boxes");
-    gpu_->uploadNow(boxes_, data.data(), (uint32_t)(data.size() * sizeof(Vec4)));
+    if (!data.empty()) {
+        boxes_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(data.size() * sizeof(Vec4)), "boxes");
+        gpu_->uploadNow(boxes_, data.data(), (uint32_t)(data.size() * sizeof(Vec4)));
+    }
     buildShadowField(sb);
 }
 
@@ -209,6 +212,14 @@ void Renderer::buildShadowField(const Sandbox& sb) {
     gpu_->releaseBuffer(shadowH_);
     shadowH_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(field.size() * 4), "moonShadowField");
     gpu_->uploadNow(shadowH_, field.data(), (uint32_t)(field.size() * 4));
+}
+
+void Renderer::setShadowField(const std::vector<float>& field) {
+    const size_t n = (size_t)params_.gridW * kDecalScale * params_.gridH * kDecalScale;
+    if (field.size() != n) return;
+    gpu_->releaseBuffer(shadowH_);
+    shadowH_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(n * 4), "moonShadowField");
+    gpu_->uploadNow(shadowH_, field.data(), (uint32_t)(n * 4));
 }
 
 void Renderer::shutdown() {
@@ -273,6 +284,7 @@ void Renderer::prepareCharacters(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t
 
 uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* chars) const {
     uint32_t n = (rs.drawGround ? 1u : 0u) + (rs.drawBoxes && boxCount_ ? 1u : 0u) + (rs.drawParticles ? 1u : 0u);
+    if (city_) n += city_->stats().drawCalls;
     if (rs.characterModel == 1 && chars) n += chars->drawCalls(rs.chars);
     else n += (rs.drawZombies ? 1u : 0u) + (rs.drawCorpses ? 1u : 0u);
     return n;
@@ -305,7 +317,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     fu.gridP = {sandbox_.originX, sandbox_.originZ, params_.cellSize, 1.0f / params_.cellSize};
     uint32_t nl = rs.studioLighting ? 0u : (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
     fu.gridDim = {(uint32_t)params_.gridW, (uint32_t)params_.gridH, nl,
-                  rs.debugFlags | (rs.shadows && !rs.studioLighting ? 32u : 0u)};
+                  rs.debugFlags | (rs.shadows && !rs.studioLighting ? 32u : 0u) | (city_ ? 64u : 0u)};
     fu.modelP = {(float)variantRows_, modelHeight_, params_.standHeight, params_.proneHeight};
     const auto& g = sim.goals();
     for (size_t i = 0; i + 1 < g.size() && i / 2 < 4; i += 2) fu.goals[i / 2] = {g[i], 0, g[i + 1], 1};
@@ -346,6 +358,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 7);
         SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
     }
+    if (city_) city_->draw(pass, cmd, sim.decals(), shadowH_, sim.corpseHeight());
 
     if (rs.drawBoxes && boxCount_) {
         SDL_BindGPUGraphicsPipeline(pass, pBox_);

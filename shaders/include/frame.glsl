@@ -25,4 +25,5 @@ layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
 #define DBG_GRID    4u
 #define DBG_NAVDIST 8u
 #define DBG_CORPSEH 16u
+#define GRID_CITY   64u   // baked city map: the ground pass only draws debug overlays / effects (city.frag shades the ground)
 #endif

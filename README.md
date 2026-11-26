@@ -153,6 +153,51 @@ The **Gore & effects** panel turns gore, screen shake, shadows and particles on 
 
 The debug panel shows statistics (frame time, simulation CPU cost, GPU memory, RSS, zombie, corpse, climbing and elevated counts, max stack height). It also provides scenario and count selection, spawning, toggles for vertical accumulation and corpses, overlays, and every simulation parameter. *Save* writes `config/sim.cfg`.
 
+## Baked city map (phase 6)
+
+The City Lab city (tools/city_lab) is baked offline into `assets/city/seed1` (format: `tools/city_lab/bake/FORMAT.md`;
+the package is large and git-ignored) and streamed by the engine (`src/city/`, `shaders/city.*`).
+
+```bash
+node --max-old-space-size=6000 tools/city_lab/bake/bake.js --seed=1 --scale=5 --out=assets/city/seed1
+```
+
+```bash
+cmake --build build --config Release
+```
+
+```bash
+./build/Release/ttz --map city                 # Xcode build; ./build/ttz with Ninja / Makefiles
+```
+
+```bash
+./build/Release/ttz --bench --bench-scenarios citymap --frames 900 --no-vsync
+```
+
+| Option | Meaning |
+|---|---|
+| `--map city` | baked city from `assets/city/seed1` (`--city DIR` for another package) |
+| `--city-window N` | simulation window, N x N cells of 0.75 m (default 512 = 384 m) |
+| `--city-at x z` | centre of the simulation window (default: the spawn point nearest the map centre) |
+| `--city-synth DIR` | write a tiny synthetic package (tests, no bake needed) |
+| `--bench-scenarios citymap` | headless game loop, camera flying 1.4 km across the city: frame ms, streaming/upload ms, resident / visible tiles, draws, triangles, instances, GPU MB |
+
+City controls: RTS rig as in City Lab (pivot on the ground, pitch 35–70°, distance 30–300 m). WASD / window edge /
+right-drag pan, Q / E or middle-drag rotate, wheel zoom, **F2** free debug camera. The *City* panel shows streaming
+statistics and LOD / draw-distance settings.
+
+How it works (details in `src/city/*.h`):
+- **Streaming**: tiles under the camera's ground footprint (+1 tile ring) are decoded on a background thread, nearest
+  first, and uploaded on the main thread within a per-frame byte budget (8 MB); an LRU keeps 96 tiles.
+- **Rendering**: one pipeline, one indexed draw per visible tile (AABB frustum culling, front to back), LOD1 beyond
+  420 m (back at 380 m); vehicles and street furniture instanced per variant (vehicle box proxy beyond 160 m, props
+  culled beyond 260 m); palette materials with glass / water Fresnel sky reflection and night emission modes (lit
+  windows, lamps, beacons, light bars, traffic-signal cycle); the nearest 24 street lamps are point lights.
+- **Simulation**: the horde runs in a window of the city (the whole map at 0.75 m would be ~8.4 M cells, ~1.2 GB of
+  sim fields and a nav sweep over all of it every step). The window's static height grid is the max of the baked
+  0.5 m collision samples per cell (buildings, cars, props, curbs; water is a low wall). Zombies spawn at the
+  package's street spawn points. Moon shadows and blood / scorch decals cover the window.
+
 ## Benchmark workflow for the development Mac
 
 These commands produce the numbers this environment cannot. Run them on the Mac and paste the printed tables into `docs/BENCHMARKS.md`, or send them over.
