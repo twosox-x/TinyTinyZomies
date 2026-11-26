@@ -507,6 +507,25 @@ function trafficKit(K) {
   };
   const majorJ = (r) => (r.junctions || []).filter(j => j.major);
   const inJ = (r, s, pad) => (r.junctions || []).some(j => s > j.a - pad && s < j.b + pad);
+  // the road's raw crossings (another carriageway reaches one of its curb lines), without computeJunctions' merging
+  // of junctions closer than 22 m: a diagonal like Broadway crossing the grid is otherwise ~70% 'junction' and empty
+  const ev = {};
+  const rawJ = (r) => {
+    if (r._rawJ) return r._rawJ;
+    const out = [], half = r.P.half, st = 0.5; let cur = null;
+    for (let s = 0; s <= r.len; s += st) {
+      const [px, pz, tx, tz] = C.pointAt(r, s);
+      let hit = false;
+      for (const side of [1, -1]) {
+        F.evalPoint(px + tz * side * (half + 0.1), pz - tx * side * (half + 0.1), ev);
+        const other = ev.road === r.id ? ev.road2 : ev.road, dO = ev.road === r.id ? ev.oth : ev.dj;
+        if (other >= 0 && dO < 0.2 && net.roads[other].P.id !== 'alley') hit = true;
+      }
+      if (hit) { if (cur && s - cur.b <= st * 1.5) cur.b = s; else out.push(cur = { a: s, b: s }); }
+    }
+    return (r._rawJ = out);
+  };
+  const inJF = (r, s, pad) => rawJ(r).some(j => s > j.a - pad - 1.0 && s < j.b + pad + 1.0);
   const Rg = C.mulberry32(seed * 7919 + 17);
   const pickPaint = (Rr) => Math.floor(Rr() * 64);
   const CAR_MIX = { sedan: 26, suv: 18, hatchback: 10, pickup: 12, minivan: 10, coupe: 5, taxi: 3, panel_van: 5, box_truck: 2.5, delivery_van: 2.5, semi: 1.2, city_bus: 0.5, school_bus: 0.5 };
@@ -834,7 +853,7 @@ function trafficKit(K) {
     while (!end(s)) {
       const p = rho(s);
       if (p < 0.05) { s += d * 8; continue; }
-      if (inJ(r, s, 0.4)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
+      if (inJF(r, s, 0.4)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
       if (Rr() > p) { s += d * (2 + Rr() * 6); continue; }
       if (opt.gapEvery && run >= opt.gapEvery) { run = 0; s += d * (6 + Rr() * 4); continue; }       // passable gap
       const kind = vehKind(Rr, opt.mix);
@@ -846,7 +865,7 @@ function trafficKit(K) {
       const V = vehicle(kind, { ps: Math.floor(Rr() * 64), seed: vs, state: st, doors });
       const half = (V.bb.x1 - V.bb.x0) / 2;
       const sc = s + d * half;
-      if (end(sc + d * half) || inJ(r, sc, half + 0.4)) { s = sc + d * 1; continue; }
+      if (end(sc + d * half) || inJF(r, sc, half + 0.4)) { s = sc + d * 1; continue; }
       let u = uC + (Rr() - 0.5) * (opt.jitU || 0);
       if (opt.curb) u = opt.curb.u - opt.curb.sg * ((V.bb.z1 - V.bb.z0) / 2 + 0.22 + Rr() * 0.12);
       const yaw = laneHeading(r, sc, u, half, d) + (abandoned ? (Rr() < 0.5 ? 1 : -1) * (0.3 + Rr() * 0.4) : (Rr() - 0.5) * (opt.jitYaw || 0));
@@ -859,38 +878,35 @@ function trafficKit(K) {
     }
     return count;
   };
-  // 1. roads that leave the map: every lane is an outbound queue, facing the exit
+  // 1-2. through traffic follows the evacuation: lanes whose direction leads away from the centre (or towards the
+  //    map exit) are one still queue; the lanes leading into town are nearly empty - a few stalled / abandoned cars
+  //    and wrecks (emergency vehicles heading in are added below). The main arterials through the centre (Broadway
+  //    and the like) carry the densest queue, with buses, taxis, delivery vans, box trucks and police in the mix.
+  const MAIN_MIX = { sedan: 22, suv: 15, hatchback: 7, pickup: 8, minivan: 8, coupe: 3, taxi: 9, panel_van: 7, delivery_van: 5, box_truck: 4, city_bus: 2.2, school_bus: 0.8, police: 1.5, semi: 0.8 };
+  const coreDist = (r) => { if (r._cd !== undefined) return r._cd; let m = 1e9; for (let s = 0; s < r.len; s += 10) m = Math.min(m, radial(r, s).dist); return (r._cd = m); };
+  const isMain = (r) => r.P.cls === 'arterial' && coreDist(r) < 160;
   const filled = new Set();
-  for (const r of roads) {
-    const ex = exitDir(r); if (!ex) continue;
+  for (const r of through.concat(roads.filter(r => exitDir(r) && !through.includes(r)))) {
     filled.add(r.id);
+    const ex = exitDir(r), main = isMain(r), dt = downtown(r);
     for (const e of laneEdges(r)) {
-      const Rr = C.mulberry32(hashS('exit' + r.id + ':' + e.left) ^ seed);
-      const rb = r._roadblock;
-      stats.exit += fillLane(r, (e.left + e.right) / 2, ex, (s) => rb && (ex > 0 ? s > rb.s - 4 : s < rb.s + 4) ? 0.15 : 0.97,
-        { tag: 'exit', R: Rr, jitU: 0.4, jitYaw: 0.08, doors: 0.12, abandon: 0.03, gap: 0.2, g0: 0.45, g1: 0.7 });
-    }
-  }
-  // 2. arterials and collectors: congested both ways, heavier outbound; the downtown core lighter with a lane and
-  //    gaps kept free
-  for (const r of through) {
-    if (filled.has(r.id)) continue;
-    const lanes = laneEdges(r);
-    const dt = downtown(r);
-    // downtown: the lane nearest the centre line of direction +1 stays empty (a passable lane)
-    const plus = lanes.filter(e => (e.dir || 1) > 0).sort((a, c) => Math.abs((a.left + a.right) / 2) - Math.abs((c.left + c.right) / 2));
-    const keep = dt && lanes.length >= 2 ? (plus[0] || lanes[0]) : null;
-    for (const e of lanes) {
-      if (e === keep) continue;
-      const d = e.dir || 1, Rr = C.mulberry32(hashS('art' + r.id + ':' + e.left) ^ seed);
-      const rho = (s) => {
-        const q = radial(r, s), out = outDensity(r, s, d);
-        let p = 0.72 + 0.28 * out;
-        p *= 0.72 + 0.28 * sstep(60, 220, q.dist);          // outer and middle city heavy, the core lighter
-        if (dt) p *= 0.8;
-        return p;
+      const d = e.dir || 1, Rr = C.mulberry32(hashS('flow' + r.id + ':' + e.left) ^ seed), rb = r._roadblock;
+      const outP = (s) => ex ? (ex === d ? 1 : 0) : outDensity(r, s, d);
+      const rhoOut = (s) => {
+        if (outP(s) < 0.5) return 0;
+        if (rb && rb.d === d && (d > 0 ? s > rb.s - 4 : s < rb.s + 4)) return 0.12;      // past the roadblock line
+        const q = radial(r, s);
+        return main ? 0.98 : (0.9 + 0.08 * sstep(60, 220, q.dist)) * (dt ? 0.9 : 1);
       };
-      stats.arterial += fillLane(r, (e.left + e.right) / 2, d, rho, { tag: 'art', R: Rr, jitU: 0.4, jitYaw: 0.1, doors: 0.08, abandon: 0.02, gap: 0.2, g0: 0.5, g1: 0.9, gapEvery: dt ? 4 : 0 });
+      const n1 = fillLane(r, (e.left + e.right) / 2, d, rhoOut, { tag: main ? 'main' : ex ? 'exit' : 'art', R: Rr, mix: main ? MAIN_MIX : null,
+        jitU: 0.35, jitYaw: 0.07, doors: 0.1, abandon: 0.02, gap: 0.2, g0: 0.45, g1: 0.7, gapEvery: dt || main ? 7 : 0 });
+      // inbound: sparse, still - stalled, abandoned at an angle, some wrecked
+      const n2 = fillLane(r, (e.left + e.right) / 2, d, (s) => outP(s) < 0.5 ? (main ? 0.1 : 0.06) : 0, { tag: 'inbound', R: Rr, mix: PARK_MIX,
+        jitU: 0.5, jitYaw: 0.12, doors: 0.4, abandon: 0.3, gap: 0.25, g0: 6, g1: 30,
+        state: (R2) => { const t = R2(); return t < 0.12 ? 'damaged' : t < 0.2 ? 'crashed' : t < 0.26 ? 'burnt' : 'ok'; } });
+      if (ex) stats.exit += n1; else stats.arterial += n1;
+      stats.inbound = (stats.inbound || 0) + n2;
+      if (main) stats.mainRoads = (stats.mainRoads || 0) + n1 + n2;
     }
   }
   // 4. local residential streets: stalled and abandoned cars in the lanes
