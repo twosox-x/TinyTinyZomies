@@ -10,7 +10,11 @@
   const { S, U, C, world, geometryFrom, MAT_CITY, MAT_BLOCKS, persp, renderer, addProps, $ } = window.CL;
   const CLc = window.CL;
   const TILE = +(Q.get('tile') || 128), RTS = { minD: 30, maxD: 300, minPitch: 35, maxPitch: 70 }, LRU = +(Q.get('lru') || 80);
-  const ST = window.STREAM = { tiles: new Map(), pending: new Map(), queue: [], cuts: [], workers: [], ready: 0, t0: performance.now(), firstFrame: 0, built: 0, buildMs: [], rts: true, planMs: 0 };
+  // far LOD: tiles whose nearest point is beyond FAR from the camera are built with lod 'far' (sub-pixel quads dropped,
+  // city_arch FAR_LOD_MIN 0.35 m ~ 1 px there at 1080p / 45 deg fov); at the 30 m min zoom nothing in the ring is far,
+  // at the 300 m max zoom the pivot tiles (camera 300 m away) stay full. Upgraded to full when they come within NEAR.
+  const FAR = +(Q.get('far') || 420), NEAR = FAR - 40;
+  const ST = window.STREAM = { tiles: new Map(), pending: new Map(), queue: [], cuts: [], workers: [], ready: 0, t0: performance.now(), firstFrame: 0, built: 0, buildMs: [], fieldMs: [], workerMem: {}, rts: true, planMs: 0 };
   // ---- RTS rig: OrbitControls clamped (pivot on the ground, pitch 35-70 deg, distance 30-300 m); the dev camera
   // (key V or STREAM.setDev(true)) restores the free orbit / plan / street views for tooling
   function applyRig() {
@@ -69,12 +73,14 @@
   }
   function onTile(d) {
     const t = ST.pending.get(d.key); ST.pending.delete(d.key);
-    ST.cuts = ST.cuts.concat(d.cuts); hideOnCuts(d.cuts);
+    const old = ST.tiles.get(d.key);
+    if (old) { world.remove(old.g); old.g.traverse(c => c.geometry && c.geometry.dispose()); ST.upgraded = (ST.upgraded || 0) + 1; }
+    else { ST.cuts = ST.cuts.concat(d.cuts); hideOnCuts(d.cuts); }
     const g = new THREE.Group(), r = mesh(d.road, MAT_CITY), b = mesh(d.bld, d.bld.nvec ? MAT_BLOCKS : MAT_CITY);
     if (r) g.add(r); if (b) g.add(b);
     world.add(g);
-    ST.tiles.set(d.key, { g, used: performance.now(), tris: (d.road.idx.length + d.bld.idx.length) / 3, ij: t });
-    ST.built++; ST.buildMs.push(d.ms);
+    ST.tiles.set(d.key, { g, used: performance.now(), tris: (d.road.idx.length + d.bld.idx.length) / 3, ij: t, lod: d.lod });
+    ST.built++; ST.buildMs.push(d.ms); ST.fieldMs.push(d.fieldMs); if (d.mem) ST.workerMem[d.w] = Math.max(ST.workerMem[d.w] || 0, d.mem);
     if (!ST.firstFrame && !ST.pending.size) ST.firstFrame = performance.now() - ST.t0;
     // LRU: dispose GPU geometry of the least recently needed tiles beyond the cache size
     if (ST.tiles.size > LRU) {
@@ -83,6 +89,31 @@
     }
     if (CLc.traffic) CLc.updateTrafficLOD(true);
   }
+  // the planner's kit mesh (service yards, parks) stays on the page, binned on a 64 m grid; each tile request carries
+  // the slice within KIT_PAD of the tile (buildTile takes kit quads within its halo of the tile's buildings)
+  const KG = 64, KIT_PAD = 72;
+  function binKit(cp) {
+    const K = cp.kit, B = cp.kitB, v = S.voxel, bins = new Map();
+    for (let q = 0; q < K.quads; ++q) {
+      const gx0 = Math.floor(B[q * 4] * v / KG), gz0 = Math.floor(B[q * 4 + 1] * v / KG), gx1 = Math.floor(B[q * 4 + 2] * v / KG), gz1 = Math.floor(B[q * 4 + 3] * v / KG);
+      for (let gz = gz0; gz <= gz1; ++gz) for (let gx = gx0; gx <= gx1; ++gx) { const k = gx + ',' + gz; let L = bins.get(k); if (!L) bins.set(k, L = []); L.push(q); }
+    }
+    ST.kit = { K, B, bins };
+  }
+  function kitFor(x0, z0, x1, z1) {
+    const { K, B, bins } = ST.kit, v = S.voxel, set = new Set();
+    for (let gz = Math.floor((z0 - KIT_PAD) / KG); gz <= Math.floor((z1 + KIT_PAD) / KG); ++gz)
+      for (let gx = Math.floor((x0 - KIT_PAD) / KG); gx <= Math.floor((x1 + KIT_PAD) / KG); ++gx) {
+        const L = bins.get(gx + ',' + gz); if (!L) continue;
+        for (const q of L) if (B[q * 4 + 2] * v >= x0 - KIT_PAD && B[q * 4] * v <= x1 + KIT_PAD && B[q * 4 + 3] * v >= z0 - KIT_PAD && B[q * 4 + 1] * v <= z1 + KIT_PAD) set.add(q);
+      }
+    return window.CityArch.kitSlice(K, Int32Array.from(set).sort());
+  }
+  function lodOf(i, j) {                               // distance from the camera to the tile's nearest ground point
+    const c = CLc.camera.position, x0 = ST.bounds.x0 + i * TILE, z0 = ST.bounds.z0 + j * TILE;
+    const dx = Math.max(x0 - c.x, 0, c.x - x0 - TILE), dz = Math.max(z0 - c.z, 0, c.z - z0 - TILE);
+    return Math.hypot(dx, dz, c.y);
+  }
   function pump() {
     if (ST.ready < ST.workers.length) return;
     const need = footprint(), now = performance.now(), p = CLc.controls.target;
@@ -90,11 +121,17 @@
     const miss = need.filter(([i, j]) => !ST.tiles.has(key(i, j)) && !ST.pending.has(key(i, j)));
     const cx = (i) => ST.bounds.x0 + (i + 0.5) * TILE, cz = (j) => ST.bounds.z0 + (j + 0.5) * TILE;
     miss.sort((a, b) => Math.hypot(cx(a[0]) - p.x, cz(a[1]) - p.z) - Math.hypot(cx(b[0]) - p.x, cz(b[1]) - p.z));
+    for (const t of miss) t.lod = lodOf(t[0], t[1]) > FAR ? 'far' : 'full';
+    // far tiles that came within NEAR: rebuilt full (after every missing tile)
+    if (!ST.noLod) for (const [i, j] of need) { const T = ST.tiles.get(key(i, j)); if (T && T.lod === 'far' && !ST.pending.has(key(i, j)) && lodOf(i, j) < NEAR) { const u = [i, j]; u.lod = 'full'; miss.push(u); } }
+    if (ST.noLod) for (const t of miss) t.lod = 'full';
     for (const w of ST.workers) {
       if (w.busy >= 2 || !miss.length) continue;
-      const [i, j] = miss.shift(), k = key(i, j), x0 = ST.bounds.x0 + i * TILE, z0 = ST.bounds.z0 + j * TILE;
+      const t = miss.shift(), [i, j] = t, k = key(i, j), x0 = ST.bounds.x0 + i * TILE, z0 = ST.bounds.z0 + j * TILE;
       ST.pending.set(k, [i, j]); w.busy++;
-      w.postMessage({ cmd: 'stile', key: k, rect: [x0, z0, x0 + TILE, z0 + TILE], cuts: ST.cuts });
+      const kit = kitFor(x0, z0, x0 + TILE, z0 + TILE);
+      const tb = [kit.pos.buffer, kit.mat.buffer, kit.nrm.buffer].concat(kit.nvec ? [kit.nvec.buffer] : []);
+      w.postMessage({ cmd: 'stile', key: k, rect: [x0, z0, x0 + TILE, z0 + TILE], cuts: ST.cuts, lod: t.lod, kit }, tb);
     }
   }
   ST.stats = () => {
@@ -104,6 +141,8 @@
     const ms = ST.buildMs.slice().sort((a, b) => a - b);
     return { tiles: ST.tiles.size, pending: ST.pending.size, built: ST.built, visibleCalls: calls, visibleTris: tris, planMs: Math.round(ST.planMs), firstFrameMs: Math.round(ST.firstFrame),
       scale: ST.scale, trafficMs: Math.round(ST.trafficMs || 0), cars: CLc.traffic ? { count: CLc.traffic.T.count, hidden: ST.carsHidden || 0, tris: CLc.traffic.tris } : null,
+      far: [...ST.tiles.values()].filter(T => T.lod === 'far').length, upgraded: ST.upgraded || 0, initMs: Math.round(ST.initMs || 0), planHeapMB: ST.planMem, workerHeapMB: Object.assign({}, ST.workerMem),
+      fieldMsMedian: Math.round(ST.fieldMs.slice().sort((a, b) => a - b)[ST.fieldMs.length >> 1] || 0),
       tileMsMedian: Math.round(ms[ms.length >> 1] || 0), tileMsMax: Math.round(ms[ms.length - 1] || 0), info: Object.assign({}, renderer.info.render), heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null };
   };
   ST.start = (seed) => {
@@ -116,8 +155,14 @@
       const w = new Worker('city_worker.js'); w.busy = 0; ST.workers.push(w);
       w.onmessage = (e) => {
         const d = e.data;
-        if (d.type === 'splanned') { ST.ready++; ST.planMs = Math.max(ST.planMs, d.ms); S.hs = d.hs; if (d.kitCuts) ST.cuts = ST.cuts.concat(i === 0 ? d.kitCuts : []); if (d.props && typeof addProps === 'function') addProps(d.props); }
-        else if (d.type === 'stile') { w.busy--; onTile(d); }
+        if (d.type === 'splanned') {
+          ST.planMs = d.ms; ST.planMem = d.mem; S.hs = d.hs; ST.cuts = ST.cuts.concat(d.kitCuts); if (d.props && typeof addProps === 'function') addProps(d.props);
+          binKit(d.cp);
+          const cp = Object.assign({}, d.cp, { kit: null, kitB: null, kitC: null });
+          for (const ww of ST.workers) ww.postMessage({ cmd: 'sinit', seed: seed || 1, voxel: S.voxel, scale: ST.scale, cp });
+        }
+        else if (d.type === 'sready') { ST.ready++; ST.initMs = Math.max(ST.initMs || 0, d.ms); }
+        else if (d.type === 'stile') { w.busy--; d.w = i; onTile(d); }
         else if (d.type === 'traffic') {
           ST.trafficMs = d.ms; CLc.addTraffic(d.traffic);
           const tr = CLc.traffic; tr.hidden = new Uint8Array(d.traffic.count);
@@ -125,7 +170,7 @@
           hideOnCuts(ST.cuts);
         }
       };
-      w.postMessage({ cmd: 'splan', seed: seed || 1, voxel: S.voxel, props: i === 0, scale: ST.scale });
+      if (i === 0) w.postMessage({ cmd: 'splan', seed: seed || 1, voxel: S.voxel, props: true, scale: ST.scale });
     }
     ST.view(0, 0, 160, 50, 30); applyRig();
     (function loop() { requestAnimationFrame(loop); pump(); })();

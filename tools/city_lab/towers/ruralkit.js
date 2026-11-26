@@ -22,7 +22,8 @@ const BV = 0.25;
 const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]];
 const CACHE = new Map();
 const cached = (key, make) => { let v = CACHE.get(key); if (!v) { v = make(); CACHE.set(key, v); } return v; };
-const SLOTS = []; for (let s = 0; s < 28; ++s) SLOTS.push((3 + 4.1 * s) / 1000);
+// 1 + 4k mm (1..101 mm): never equal to the park kit's 3 + 4k mm slots (in-town woods meet parks), yard-kit phase skipped like there
+const SLOTS = []; for (let s = 0; s < 26; ++s) { const mm = 1 + 4 * s, ph = ((mm % 15.625) + 15.625) % 15.625; if (Math.abs(ph - 7.8125) > 1.6) SLOTS.push(mm / 1000); }
 
 function oct(M, cx, cz, r, y0, y1, m) {
   if (y1 <= y0) return;
@@ -153,9 +154,8 @@ function ruralKit(K0) {
   const sink = (x, z, r, h) => {
     const taken = new Set(), gx = Math.floor(x / 16), gz = Math.floor(z / 16);
     for (let dz = -1; dz <= 1; ++dz) for (let dx = -1; dx <= 1; ++dx) for (const o of grid.get((gx + dx) + ',' + (gz + dz)) || []) if (Math.hypot(o[0] - x, o[1] - z) < r + o[2] + 0.3) taken.add(o[3]);
-    const st = Math.floor(h * SLOTS.length);
-    let si = st;
-    for (let i = 0; i < SLOTS.length; ++i) { const k = (st + i) % SLOTS.length; if (!taken.has(k)) { si = k; break; } }
+    const st = Math.floor(h * SLOTS.length) % SLOTS.length;
+    const si = L.sinkPick(SLOTS, taken, st);
     const key = gx + ',' + gz; let a = grid.get(key); if (!a) grid.set(key, a = []); a.push([x, z, r, si]);
     return -SLOTS[si];
   };

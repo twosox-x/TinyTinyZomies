@@ -46,9 +46,13 @@ self.onmessage = (e) => {
       quads: m.quads, ms: performance.now() - t, cut: !!ctx.R.cuts }, [m.pos.buffer, m.mat.buffer, m.nrm.buffer, m.idx.buffer]);
   }
 };
-// ---- streaming (city_stream.js): every worker plans the whole map once (geometry-free), then builds 128 m tiles
-// on demand: road raster of the tile (with the curb cuts known so far) + buildTile() (buildings, yards, kit quads).
+// ---- streaming (city_stream.js). Worker 0 plans the whole map once (global fields, plots, planAll, props,
+// traffic) and exports a compact plan (CityArch.exportPlan: jobs, kit mesh, block classes); the page hands it to every
+// worker ('sinit', the planner too, which then drops its whole-map data). A tile = road raster + buildTile() on
+// fields sampled for the tile window only (FieldSampler win, bit-identical to the whole-map fields), so a tile
+// worker's memory does not grow with the map. lod 'far': buildTile drops sub-pixel quads (see city_stream.js).
 let SP = null;
+const TILE_MARGIN = 48;                                // field window beyond the tile: halo buildings + their curb probes
 self.addEventListener('message', (e) => {
   const d = e.data, C = self.CityCore, A = self.CityArch;
   if (d.cmd === 'splan') {
@@ -57,13 +61,12 @@ self.addEventListener('message', (e) => {
     const sctx = C.prepareBuild(net, d.voxel);
     const PL = new C.Plots(net, sctx.F, sctx.R, 0.5, net.seed || 1); PL.build();
     const plan = A.planAll(PL, sctx.R, d.voxel, C);
-    SP = { ctx: sctx, plan, voxel: d.voxel };
-    const msg = { type: 'splanned', ms: performance.now() - t0, hs: sctx.R.hs, bounds: net.bounds, kitCuts: plan.kitCuts.map(c => Object.assign({}, c)) };
+    const cp = A.exportPlan(plan), tr = cp.transfer; delete cp.transfer;
+    const msg = { type: 'splanned', ms: performance.now() - t0, hs: sctx.R.hs, bounds: net.bounds, kitCuts: plan.kitCuts.map(c => Object.assign({}, c)), cp };
     if (d.props) { sctx.footprints = plan.blockJobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind })); sctx.R.setCuts(plan.kitCuts); msg.props = C.placeProps(sctx); sctx.R.setCuts(null); }
-    self.postMessage(msg);
-    // traffic (towers/traffickit.js) once on the global plan, after the plan is announced (tiles are not held up):
-    // block footprints + kit curb cuts; driveway cuts of houses arrive later with their tiles and the page hides
-    // the cars they overlap. The page culls the instances to the tile ring and keeps the near/far vehicle LOD.
+    msg.mem = self.performance && performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+    self.postMessage(msg, tr);
+    // traffic (towers/traffickit.js) once on the global plan, after the plan is announced (tiles are not held up)
     if (d.props && A.lib.trafficKit) {
       const tt = performance.now();
       sctx.R.setCuts(plan.kitCuts);
@@ -76,16 +79,27 @@ self.addEventListener('message', (e) => {
         self.postMessage({ type: 'traffic', traffic: T, ms: performance.now() - tt }, tb);
       }
     }
+  } else if (d.cmd === 'sinit') {                       // tile worker: road network + the compact plan
+    const t0 = performance.now();
+    const net = C.generateCity(d.seed, { scale: d.scale || 1 });
+    new C.FieldSampler(net, 0.5, [0, 0, 1, 1]).computeJunctions();
+    SP = { net, voxel: d.voxel, plan: A.importPlan(d.cp, net, C), grid: C.chunkGrid(net, d.voxel) };
+    self.postMessage({ type: 'sready', ms: performance.now() - t0 });
   } else if (d.cmd === 'stile' && SP) {
-    const t0 = performance.now(), v = SP.voxel, [x0, z0, x1, z1] = d.rect;
-    const r = A.buildTile(SP.plan, x0, z0, x1, z1);
+    const t0 = performance.now(), v = SP.voxel, [x0, z0, x1, z1] = d.rect, M = TILE_MARGIN;
+    const F = new C.FieldSampler(SP.net, 0.5, [x0 - M, z0 - M, x1 + M, z1 + M]); F.build(null, true);
+    const R = new C.Rasterizer(SP.net, F, v); R.useBlockClasses(SP.plan.bc);
+    const fieldMs = performance.now() - t0;
+    SP.plan.R = R; A.setKit(SP.plan, d.kit);
+    const r = A.buildTile(SP.plan, x0, z0, x1, z1, { lod: d.lod });
+    SP.plan.R = null; SP.plan.kit = SP.plan.kitC = SP.plan.kitB = null;
     const B = r.mb.finish(0.002);
     const t1 = performance.now();
-    SP.ctx.R.setCuts(d.cuts.concat(r.cuts));
+    R.setCuts(d.cuts.concat(r.cuts));
     const ox = Math.round(x0 / v), oz = Math.round(z0 / v);
-    const m = C.buildChunk(SP.ctx, { ox, oz, w: Math.round((x1 - x0) / v), d: Math.round((z1 - z0) / v) });
-    SP.ctx.R.setCuts(null);
-    self.postMessage({ type: 'stile', key: d.key, bld: B, road: m, cuts: r.cuts.map(c => Object.assign({}, c)), ms: performance.now() - t0, roadMs: performance.now() - t1, halo: r.halo },
+    const m = C.buildChunk(Object.assign({ net: SP.net, voxel: v, F, R }, SP.grid), { ox, oz, w: Math.round((x1 - x0) / v), d: Math.round((z1 - z0) / v) });
+    const mem = self.performance && performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+    self.postMessage({ type: 'stile', key: d.key, lod: d.lod || 'full', bld: B, road: m, cuts: r.cuts.map(c => Object.assign({}, c)), ms: performance.now() - t0, roadMs: performance.now() - t1, fieldMs, halo: r.halo, mem },
       [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer, m.pos.buffer, m.mat.buffer, m.nrm.buffer, m.idx.buffer].concat(B.nvec ? [B.nvec.buffer] : []));
   }
 });

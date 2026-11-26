@@ -42,8 +42,9 @@ const hash = (s) => { let h = 2166136261; for (let i = 0; i < s.length; ++i) { h
 const pick = (R, a) => a[Math.floor(R() * a.length) % a.length];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const faceYaw = (fx, fz) => Math.atan2(-fx, fz);        // yaw turning a model's +z towards (fx, fz)
-const SLOTS = [];                                         // copy offsets (m), see sink() in parkKit
-for (let s = 0; s < 30; ++s) { const mm = 3 + 4 * s, ph = ((mm % 15.625) + 15.625) % 15.625; if (Math.abs(ph - 7.8125) > 1.6) SLOTS.push(mm / 1000); }
+const SLOTS = [];                                         // copy offsets (m), see sink() in parkKit; 3..103 mm: a one-voxel (12.5 cm) part
+                                                          // resting on the ground keeps its top >= 2 cm above the ground (groundfight)
+for (let s = 0; s < 26; ++s) { const mm = 3 + 4 * s, ph = ((mm % 15.625) + 15.625) % 15.625; if (Math.abs(ph - 7.8125) > 1.6) SLOTS.push(mm / 1000); }
 const CACHE = new Map();
 L.debugParkCache = CACHE;                                  // dev/overlap.js names placed models
 const cached = (key, make) => { let v = CACHE.get(key); if (!v) { v = make(); CACHE.set(key, v); } return v; };
@@ -326,7 +327,7 @@ function parkKit(K0) {
   const seed0 = (PL.seed || 1) >>> 0;
   const stats = { regions: 0, park: 0, grove: 0, wedge: 0, plaza: 0, buffer: 0, trees: 0, bushes: 0, items: 0, quads: 0, ms: 0, area: 0 };
   const regionsOut = [];
-  const allTrees = [], allBushes = [];             // every component's trees / bushes (beds on a wedge nose reach past their component)
+  const allTrees = [], allBushes = [], allSlots = Object.assign(new Map(), { maxR: 0 });   // allSlots: placed copies by 16 m cell (see sink)             // every component's trees / bushes (beds on a wedge nose reach past their component)
 
   // ---- emission: mesh m (meshVoxels3D, PV units) at world (x, y above yard level, z), yaw, voxel sizes sh / sv (m)
   const quadW = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, Nx, Ny, Nz) => {
@@ -417,7 +418,7 @@ function parkKit(K0) {
     const used = new Uint8Array(N);                       // 1 path / pad / item footprint
     const kAt = (x, z) => { const i = Math.floor((x - PL.x0) / cell) - i0, j = Math.floor((z - PL.z0) / cell) - j0; return i < 0 || j < 0 || i >= W || j >= H ? -1 : j * W + i; };
     let plazaDone = false;
-    const slots = [];                                    // per block: offsets of the placed copies (see sink)
+    const slots = allSlots;                              // offsets of the placed copies (see sink), shared by every block: crowns and beds reach over block edges
     comps.sort((p, q) => q.cells.length - p.cells.length);
     for (const cp of comps) {
       const area = cp.cells.length * cell * cell;
@@ -489,15 +490,16 @@ function parkKit(K0) {
   // ---------------------------------------------------------------------------------- helpers on a component
   // Vertical offset of a placed copy (m, <= 0: sunk into the ground). Every model face lies at offset + k * 12.5 cm,
   // so two overlapping copies must not share an offset (their horizontal faces would be coplanar): each copy takes
-  // the first free slot (4 mm apart, 3..119 mm deep) among the copies it overlaps; slots in phase with the yard kit
+  // the first free slot (4 mm apart, 3..103 mm deep) among the copies it overlaps, preferring one >= 2.1 cm (mod 12.5 cm)
+  // from all of them (low bush / bed tops of crowded copies stay outside groundfight's 2 cm, L.sinkPick); slots in phase with the yard kit
   // (k / 16 + 1 / 32 voxel = 7.8 mm mod 15.6 mm) are skipped, so crowns reaching over a lot line stay clear of it too.
   function sink(S, x, z, r) {
-    const taken = new Set();
-    for (const o of S.slots) if (Math.abs(o[0] - x) < r + o[2] + 0.3 && Math.abs(o[1] - z) < r + o[2] + 0.3) taken.add(o[3]);
-    const st = Math.floor(S.R() * SLOTS.length);
-    let si = st;
-    for (let i = 0; i < SLOTS.length; ++i) { const k = (st + i) % SLOTS.length; if (!taken.has(k)) { si = k; break; } }
-    S.slots.push([x, z, r, si]);
+    const taken = new Set(), G = S.slots, gx = Math.floor(x / 16), gz = Math.floor(z / 16), e = Math.ceil((r + G.maxR + 0.3) / 16);
+    for (let dz = -e; dz <= e; ++dz) for (let dx = -e; dx <= e; ++dx) for (const o of G.get((gx + dx) + ',' + (gz + dz)) || [])
+      if (Math.abs(o[0] - x) < r + o[2] + 0.3 && Math.abs(o[1] - z) < r + o[2] + 0.3) taken.add(o[3]);
+    const st = Math.floor(S.R() * SLOTS.length), si = L.sinkPick(SLOTS, taken, st), key = gx + ',' + gz;
+    let a = G.get(key); if (!a) G.set(key, a = []);
+    a.push([x, z, r, si]); G.maxR = Math.max(G.maxR, r);
     return -SLOTS[si];
   }
   function roadNear(x, z) {                          // id of the street next to a block-edge point (-1: none)
@@ -602,7 +604,8 @@ function parkKit(K0) {
   function candidates(S, step, filter) {
     const out = [], R = S.R;
     const xs = S.cp.cells.map(k => S.X(k % S.W)), zs = S.cp.cells.map(k => S.Z((k / S.W) | 0));
-    const xa = Math.min(...xs), xb = Math.max(...xs), za = Math.min(...zs), zb = Math.max(...zs);
+    let xa = Infinity, xb = -Infinity, za = Infinity, zb = -Infinity;                 // no spread: huge components (scale 5) overflow the stack
+    for (let i = 0; i < xs.length; ++i) { if (xs[i] < xa) xa = xs[i]; if (xs[i] > xb) xb = xs[i]; if (zs[i] < za) za = zs[i]; if (zs[i] > zb) zb = zs[i]; }
     for (let z = za; z <= zb; z += step) for (let x = xa; x <= xb; x += step) {
       const px = x + (R() - 0.5) * step * 0.9, pz = z + (R() - 0.5) * step * 0.9, k = S.kAt(px, pz);
       if (k < 0 || S.comp[k] !== S.cp.id) continue;

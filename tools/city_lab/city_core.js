@@ -1581,13 +1581,22 @@ function generateTestArea() {
 //   sw    sidewalk width (blended between roads at corners)
 //   road2, s2  second-nearest road and its arc length (corner plots)
 class FieldSampler {
-  constructor(net, cell) {
+  // win = [x0, z0, x1, z1] (m, optional): sample only that window of the global grid (same cell origin, same segment
+  // buckets, so every sample equals the global one); streaming tile workers keep a few MB instead of whole-map fields
+  constructor(net, cell, win) {
     this.net = net;
     this.cell = cell;
     const b = net.bounds;
-    this.x0 = b.x0 - 6; this.z0 = b.z0 - 6;
-    this.nx = Math.ceil((b.x1 - b.x0 + 12) / cell) + 2;
-    this.nz = Math.ceil((b.z1 - b.z0 + 12) / cell) + 2;
+    this.x0 = this.bX0 = b.x0 - 6; this.z0 = this.bZ0 = b.z0 - 6;
+    this.nx = this.gnx = Math.ceil((b.x1 - b.x0 + 12) / cell) + 2;
+    this.nz = this.gnz = Math.ceil((b.z1 - b.z0 + 12) / cell) + 2;
+    this.oix = 0; this.oiz = 0;                                    // window offset in cells (grid coords from the global origin: bit-identical samples)
+    if (win) {
+      const ix0 = clamp(Math.floor((win[0] - this.bX0) / cell), 0, this.gnx - 1), ix1 = clamp(Math.ceil((win[2] - this.bX0) / cell), 0, this.gnx - 1);
+      const iz0 = clamp(Math.floor((win[1] - this.bZ0) / cell), 0, this.gnz - 1), iz1 = clamp(Math.ceil((win[3] - this.bZ0) / cell), 0, this.gnz - 1);
+      this.x0 = this.bX0 + ix0 * cell; this.z0 = this.bZ0 + iz0 * cell; this.nx = ix1 - ix0 + 1; this.nz = iz1 - iz0 + 1; this.win = win;
+      this.oix = ix0; this.oiz = iz0;
+    }
     const n = this.nx * this.nz;
     this.car = new Float32Array(n); this.oth = new Float32Array(n); this.sw = new Float32Array(n);
     this.u = new Float32Array(n); this.s = new Float32Array(n); this.s2 = new Float32Array(n);
@@ -1618,13 +1627,13 @@ class FieldSampler {
     // segment buckets
     const B = 16;
     this.B = B;
-    this.bx = Math.ceil(this.nx * this.cell / B) + 1;
-    this.bz = Math.ceil(this.nz * this.cell / B) + 1;
+    this.bx = Math.ceil(this.gnx * this.cell / B) + 1;
+    this.bz = Math.ceil(this.gnz * this.cell / B) + 1;
     this.buckets = Array.from({ length: this.bx * this.bz }, () => []);
     this.segs.forEach((sg, i) => {
       const reach = sg.half + PROFILES[roads[sg.road].profile].sidewalk + 12 + 34;   // + plot depth for road2/s2
-      const x0 = Math.floor((Math.min(sg.ax, sg.bx) - reach - this.x0) / B), x1 = Math.floor((Math.max(sg.ax, sg.bx) + reach - this.x0) / B);
-      const z0 = Math.floor((Math.min(sg.az, sg.bz) - reach - this.z0) / B), z1 = Math.floor((Math.max(sg.az, sg.bz) + reach - this.z0) / B);
+      const x0 = Math.floor((Math.min(sg.ax, sg.bx) - reach - this.bX0) / B), x1 = Math.floor((Math.max(sg.ax, sg.bx) + reach - this.bX0) / B);
+      const z0 = Math.floor((Math.min(sg.az, sg.bz) - reach - this.bZ0) / B), z1 = Math.floor((Math.max(sg.az, sg.bz) + reach - this.bZ0) / B);
       for (let z = Math.max(0, z0); z <= Math.min(this.bz - 1, z1); ++z)
         for (let x = Math.max(0, x0); x <= Math.min(this.bx - 1, x1); ++x) this.buckets[z * this.bx + x].push(i);
     });
@@ -1638,7 +1647,7 @@ class FieldSampler {
   // evaluate one point (full precision)
   evalPoint(px, pz, out, skipAlleys) {
     const roads = this.net.roads;
-    const bi = clamp(Math.floor((px - this.x0) / this.B), 0, this.bx - 1) + clamp(Math.floor((pz - this.z0) / this.B), 0, this.bz - 1) * this.bx;
+    const bi = clamp(Math.floor((px - this.bX0) / this.B), 0, this.bx - 1) + clamp(Math.floor((pz - this.bZ0) / this.B), 0, this.bz - 1) * this.bx;
     const list = this.buckets[bi];
     const dR = this._d || (this._d = new Float64Array(this.nRoads).fill(1e9));
     const sR = this._s || (this._s = new Float64Array(this.nRoads));
@@ -1784,13 +1793,13 @@ class FieldSampler {
     }
     return [best, ahead, bestJ];
   }
-  build(onProgress) {
-    this.computeJunctions();
+  build(onProgress, skipJunctions) {
+    if (!skipJunctions) this.computeJunctions();             // windowed tile fields: junctions once per worker
     const o = {};
     for (let z = 0; z < this.nz; ++z) {
       for (let x = 0; x < this.nx; ++x) {
         const i = z * this.nx + x;
-        this.evalPoint(this.x0 + x * this.cell, this.z0 + z * this.cell, o);
+        this.evalPoint(this.bX0 + (this.oix + x) * this.cell, this.bZ0 + (this.oiz + z) * this.cell, o);
         this.car[i] = o.car; this.oth[i] = o.oth; this.sw[i] = o.sw; this.u[i] = o.u; this.s[i] = o.s; this.s2[i] = o.s2;
         this.road[i] = o.road; this.road2[i] = o.road2; this.ahead[i] = o.ahead;
       }
@@ -1857,16 +1866,16 @@ class FieldSampler {
     }
   }
   isFilled(px, pz) {
-    const ix = clamp(Math.round((px - this.x0) / this.cell), 0, this.nx - 1), iz = clamp(Math.round((pz - this.z0) / this.cell), 0, this.nz - 1);
+    const ix = clamp(Math.round((px - this.bX0) / this.cell) - this.oix, 0, this.nx - 1), iz = clamp(Math.round((pz - this.bZ0) / this.cell) - this.oiz, 0, this.nz - 1);
     return this.filled[iz * this.nx + ix] === 1;
   }
   blockAt(px, pz) {
-    const ix = clamp(Math.round((px - this.x0) / this.cell), 0, this.nx - 1), iz = clamp(Math.round((pz - this.z0) / this.cell), 0, this.nz - 1);
+    const ix = clamp(Math.round((px - this.bX0) / this.cell) - this.oix, 0, this.nx - 1), iz = clamp(Math.round((pz - this.bZ0) / this.cell) - this.oiz, 0, this.nz - 1);
     return this.comp[iz * this.nx + ix];
   }
   // bilinear sample (u, s exact only when all four corners agree on the nearest road)
   sample(px, pz, o) {
-    const gx = (px - this.x0) / this.cell, gz = (pz - this.z0) / this.cell;
+    const gx = (px - this.bX0) / this.cell - this.oix, gz = (pz - this.bZ0) / this.cell - this.oiz;
     let ix = Math.floor(gx), iz = Math.floor(gz);
     ix = clamp(ix, 0, this.nx - 2); iz = clamp(iz, 0, this.nz - 2);
     const fx = gx - ix, fz = gz - iz;
@@ -1957,6 +1966,41 @@ class Rasterizer {
         if (urban && (area < 900 || (fill < 0.62 && area < 3500) || (fill < 0.78 && b.maxd < 12.5) || b.maxd < 8)) { this.blockArea.set(c, 'pocket'); this.pocket++; }
       }
     }
+  }
+  // Streaming: per-cell block classes (blockArea kind, suburb) of the whole map as row runs over the field grid, a
+  // few MB at scale 5. A tile worker's windowed fields take them (useBlockClasses) instead of the global block labels.
+  blockClasses() {
+    if (!this.blockArea) this.blockAreas();
+    const F = this.F, table = [], idx = new Map(), comps = new Map();
+    const codeOf = (c) => {
+      let k = comps.get(c); if (k !== undefined) return k;
+      const kind = this.blockArea.get(c) || null, sub = !!(this.suburb && this.suburb.has(c)), key = kind + '|' + sub;
+      k = idx.get(key); if (k === undefined) { k = table.length; idx.set(key, k); table.push({ kind, sub }); }
+      comps.set(c, k); return k;
+    };
+    const runs = [], rowAt = new Uint32Array(F.nz + 1);
+    for (let iz = 0; iz < F.nz; ++iz) {
+      rowAt[iz] = runs.length >> 1; let cur = -2, len = 0;
+      for (let ix = 0; ix < F.nx; ++ix) { const c = F.comp[iz * F.nx + ix], k = c < 0 ? 65535 : codeOf(c); if (k === cur) ++len; else { if (len) runs.push(cur, len); cur = k; len = 1; } }
+      runs.push(cur, len);
+    }
+    rowAt[F.nz] = runs.length >> 1;
+    return { table, runs: Uint32Array.from(runs), rowAt, pocket: this.pocket || 0 };
+  }
+  useBlockClasses(BC) {
+    const F = this.F, ox = Math.round((F.x0 - F.bX0) / F.cell), oz = Math.round((F.z0 - F.bZ0) / F.cell), RU = BC.runs;
+    for (let z = 0; z < F.nz; ++z) {
+      let r = BC.rowAt[oz + z], pos = 0;
+      const r1 = BC.rowAt[oz + z + 1];
+      for (let x = 0; x < F.nx; ++x) {
+        const gx = ox + x;
+        while (r < r1 - 1 && pos + RU[2 * r + 1] <= gx) { pos += RU[2 * r + 1]; ++r; }
+        const i = z * F.nx + x, k = RU[2 * r];
+        if (F.comp[i] >= 0) F.comp[i] = k === 65535 ? -1 : k;
+      }
+    }
+    this.blockArea = new Map(); this.suburb = new Set(); this.pocket = BC.pocket;
+    BC.table.forEach((t, k) => { if (t.kind) this.blockArea.set(k, t.kind); if (t.sub) this.suburb.add(k); });
   }
   areaAt(x, z, road, u) {
     if (!this.blockArea) this.blockAreas();
@@ -2170,7 +2214,7 @@ class Plots {
     // the same order as r.pts, so the nearest one found there is the global nearest when it lies within that reach
     const F = this.F;
     if (F && F.buckets && !r.zeroSeg && r.P) {
-      const bi = clamp(Math.floor((x - F.x0) / F.B), 0, F.bx - 1) + clamp(Math.floor((z - F.z0) / F.B), 0, F.bz - 1) * F.bx;
+      const bi = clamp(Math.floor((x - F.bX0) / F.B), 0, F.bx - 1) + clamp(Math.floor((z - F.bZ0) / F.B), 0, F.bz - 1) * F.bx;
       const list = F.buckets[bi];
       let bd = 1e9, bs = null;
       for (let k = 0; k < list.length; ++k) {
@@ -3954,6 +3998,7 @@ function placeProps(ctx) {
     }
     out.length = 0; out.push(...keep);
   }
+  const BOXP = { bags1: [1.5, 0.65], bags2: [1.5, 0.65], bags3: [1.5, 0.65] };      // half extents (m) of wide piles, model frame
   if (ctx.footprints) {
     // drop furniture that would stand on a building, its stoop or entrance steps: within 2.4 m in front of
     // (or anywhere inside) a building footprint (footprints: origin O, axes e1 along / e2 into the lot, w x d metres)
@@ -3969,6 +4014,17 @@ function placeProps(ctx) {
         const a = dx * f.e1[0] + dz * f.e1[1], b = dx * f.e2[0] + dz * f.e2[1];
         const fr = (!infra && f.type === 'prewar_apartment') ? 8 : reach;      // entrance canopy on posts out to the curb
         if (a > -(infra ? reach : 0.6) && a < f.w + (infra ? reach : 0.6) && b > -fr && b < f.d + (infra ? reach : 0.3)) { hit = true; break; }
+        // wide piles (bag piles, 2.9 x 1.2 m): their whole box clear of the building (a lot on a curved street can
+        // bow out over a narrow stretch of sidewalk, past the centre-point test above; 0.6 m for bulkheads / sills in front)
+        if (BOXP[p.type] && Math.abs(a - f.w / 2) < f.w / 2 + 3 && Math.abs(b - f.d / 2) < f.d / 2 + 3) {
+          const [ex, ez] = BOXP[p.type], c = Math.cos(p.yaw), sn = Math.sin(p.yaw);
+          for (let i = -2; i <= 2 && !hit; ++i) for (let k = -2; k <= 2; ++k) {
+            const lx = ex * i / 2, lz = ez * k / 2, qx = p.x + c * lx + sn * lz - f.O[0], qz = p.z - sn * lx + c * lz - f.O[1];
+            const qa = qx * f.e1[0] + qz * f.e1[1], qb = qx * f.e2[0] + qz * f.e2[1];
+            if (qa > -0.05 && qa < f.w + 0.05 && qb > -0.6 && qb < f.d + 0.05) { hit = true; break; }
+          }
+          if (hit) break;
+        }
       }
       if (!hit) keep.push(p);
     }

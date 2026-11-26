@@ -168,6 +168,26 @@ function cropModel(M) {
   return K;
 }
 
+// Sink slot shared by the dressing kits (parkkit, ruralkit): copies of kit models are sunk a few mm, one slot per copy,
+// so overlapping copies never share a horizontal face plane. slots: offsets (m); taken: Set of slot indices used by the
+// copies this one overlaps; st: start index (the copy's hash). Takes the first slot from st that is >= 2.1 cm from every
+// taken one modulo 12.5 cm (model faces lie on 12.5 / 25 cm steps, so low tops of overlapping copies stay clear of the
+// 2 cm depth tolerance, dev/groundfight.js), else the first free one (distinct: never coplanar), else st.
+function sinkPick(slots, taken, st) {
+  const n = slots.length;
+  if (!taken.size) return st;
+  let free = -1;
+  for (let i = 0; i < n; ++i) {
+    const k = (st + i) % n;
+    if (taken.has(k)) continue;
+    if (free < 0) free = k;
+    let ok = true;
+    for (const t of taken) { const d = Math.abs(slots[k] - slots[t]) % 0.125; if (Math.min(d, 0.125 - d) < 0.021) { ok = false; break; } }
+    if (ok) return k;
+  }
+  return free < 0 ? st : free;
+}
+
 // ------------------------------------------------------------------------------------------------ mesh analysis
 // Plane of quad q of a MeshBuffer with explicit normals (nvec): normal, offset d = n.p, and a key nk for the normal
 // quantised to 1e-3. Used by cullHidden() (build) and by the dev checks (dev/regress.js, dev/zfight.js).
@@ -208,7 +228,10 @@ function coplanarPairs(mb, q0, q1, same, tol, minExt, fn) {
     const Vx = ny * Uz - nz * Uy, Vy = nz * Ux - nx * Uz, Vz = nx * Uy - ny * Ux;
     const all = B ? A.concat(B) : A, nA = A.length, n = all.length;
     const d = new Float64Array(n);
-    for (let i = 0; i < n; ++i) { const o = all[i] * 12; d[i] = nx * P[o] + ny * P[o + 1] + nz * P[o + 2]; }
+    // plane offset from each quad's own normal: a group shares a quantised normal only, and on a rotated frame (streets
+    // at arbitrary angles) the normals of different buildings differ in the 4th decimal: measuring every quad with the
+    // first one's normal put two coplanar faces of one wall up to ~1 mm per 10 m of wall apart and missed the pair
+    for (let i = 0; i < n; ++i) { const o = all[i] * 12; d[i] = (B && i >= nA ? -1 : 1) * (N[o] * P[o] + N[o + 1] * P[o + 1] + N[o + 2] * P[o + 2]); }
     const ord = new Int32Array(n); for (let i = 0; i < n; ++i) ord[i] = i;
     ord.sort((a, b) => d[a] - d[b]);
     for (let i = 0; i < n;) {
@@ -3337,6 +3360,7 @@ function copyQuads(src, dst, q0, q1) {
 }
 // The tile's buildings (+ halo) emitted in global order, kit quads near the tile after them, one z-fight pass, own quads
 // kept. Returns { mb (unfinished MeshBuffer), jobs (own, with q0/q1 in mb), cuts, kitQuads, ms }
+const FAR_LOD_MIN = 0.35;                               // m: ~1 px at the far-LOD switch distance (city_stream.js)
 function buildTile(plan, x0, z0, x1, z1, opts) {
   opts = opts || {};
   const t0 = Date.now(), { C, R, voxel, hs } = plan, v = voxel;
@@ -3370,16 +3394,66 @@ function buildTile(plan, x0, z0, x1, z1, opts) {
   // kit quads after the cull: cullHidden keeps the order of surviving quads and appends split pieces of quad q
   // in place of q (src maps output -> input quad), so ownership follows the source quad
   const out = new C.MeshBuffer(), jobs = [], cuts = [];
+  // far LOD (streaming, tiles beyond FAR_LOD_DIST of the camera): quads under FAR_LOD_MIN in both directions are
+  // dropped (trim, sills, small props, kit dressing details: under a pixel at that distance); everything else stays
+  const far = opts.lod === 'far', lim2 = (FAR_LOD_MIN / v) * (FAR_LOD_MIN / v);
+  const keepQ = (q) => {
+    const P = mb.pos, o = q * 12;
+    const ax = P[o + 3] - P[o], ay = P[o + 4] - P[o + 1], az = P[o + 5] - P[o + 2], bx = P[o + 9] - P[o], by = P[o + 10] - P[o + 1], bz = P[o + 11] - P[o + 2];
+    return ax * ax + ay * ay + az * az >= lim2 || bx * bx + by * by + bz * bz >= lim2;
+  };
+  const copy = (q0, q1) => { if (!far) return copyQuads(mb, out, q0, q1); for (let q = q0; q < q1; ++q) if (keepQ(q)) copyQuads(mb, out, q, q + 1); };
   for (const s of segs) if (s.own) {
-    const a = out.quads; copyQuads(mb, out, s.q0, s.q1);
+    const a = out.quads; copy(s.q0, s.q1);
     jobs.push(Object.assign(s.J, { q0: a, q1: out.quads, tris: 2 * (s.q1 - s.q0) }));
     for (let c = s.c0; c < s.c1; ++c) cuts.push(CUTS[c]);
   }
   const ka = cr.marks[2 * segs.length], kb = cr.marks[2 * segs.length + 1];
   const kitStart = out.quads;
-  for (let q = ka; q < kb; ++q) { const sq = cr.src ? cr.src[q] - kq0 : q - ka; if (sq >= 0 && sq < kown.length ? kown[sq] : true) copyQuads(mb, out, q, q + 1); }
+  for (let q = ka; q < kb; ++q) { const sq = cr.src ? cr.src[q] - kq0 : q - ka; if (sq >= 0 && sq < kown.length ? kown[sq] : true) copy(q, q + 1); }
   CUTS = []; CUT_R = null; if (R.setCuts) R.setCuts(cutsBefore || null);
   return { mb: out, jobs, cuts, kitQuads: out.quads - kitStart, ms: Date.now() - t0, halo: sel.length - jobs.length };
+}
+// Streaming hand-off: the planner worker exports what buildTile needs (jobs, suburban core, kit mesh + bins, kit curb
+// cuts, the block classes of the road raster) as plain data + typed arrays; the tile workers rebuild only the road
+// network and sample their fields per tile window (FieldSampler win), so their memory does not grow with the map.
+function exportPlan(plan) {
+  const K = plan.kit, strip = (J) => {
+    const o = Object.assign({}, J); delete o.type;
+    if (J.pre) o.pre = { mi: J.pre.m ? MIDS.indexOf(J.pre.m) : -1, ti: J.pre.t ? TOWERS.indexOf(J.pre.t) : -1 };   // registry index (same plug-ins everywhere)
+    return o;
+  };
+  const kit = { quads: K.quads, pos: Float64Array.from(K.pos), mat: Uint16Array.from(K.mat), nrm: Uint8Array.from(K.nrm), nvec: K.nvec ? Float64Array.from(K.nvec) : null };
+  const jobs = plan.jobs.map(strip);
+  // suburban lots: only what emitSuburbs / the yard kit read (the lot's face graph stays with the planner)
+  for (const J of jobs) if (J.L) { const L = J.L; J.L = { H: L.H, O: L.O, e1: L.e1, e2: L.e2, w: L.w, d: L.d, cornerL: L.cornerL, cornerR: L.cornerR, nb: L.nb, seed: L.seed, use: L.use }; }
+  const out = { jobs, core: plan.sub ? plan.sub.core : null, kit, kitC: plan.kitC, kitB: plan.kitB, kitCuts: plan.kitCuts.map(c => Object.assign({}, c)),
+    hs: plan.hs, voxel: plan.voxel, bc: plan.R.blockClasses(), counts: { jobs: plan.jobs.length, kitQuads: K.quads } };
+  out.transfer = [kit.pos.buffer, kit.mat.buffer, kit.nrm.buffer, out.kitC.buffer, out.kitB.buffer, out.bc.runs.buffer, out.bc.rowAt.buffer].concat(kit.nvec ? [kit.nvec.buffer] : []);
+  return out;
+}
+// the kit quads of one tile request (the page bins the planner's kit mesh and sends each tile its slice, in global order)
+function kitSlice(kit, idx) {
+  const n = idx.length, o = { quads: n, pos: new Float64Array(n * 12), mat: new Uint16Array(n * 4), nrm: new Uint8Array(n * 4), nvec: kit.nvec ? new Float64Array(n * 12) : null };
+  for (let k = 0; k < n; ++k) {
+    const q = idx[k];
+    o.pos.set(kit.pos.subarray(q * 12, q * 12 + 12), k * 12); o.mat.set(kit.mat.subarray(q * 4, q * 4 + 4), k * 4); o.nrm.set(kit.nrm.subarray(q * 4, q * 4 + 4), k * 4);
+    if (o.nvec) o.nvec.set(kit.nvec.subarray(q * 12, q * 12 + 12), k * 12);
+  }
+  return o;
+}
+function setKit(plan, K) {
+  const n = K.quads, KC = new Float32Array(n * 2), KB = new Float32Array(n * 4);
+  for (let q = 0; q < n; ++q) {
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let k = 0; k < 4; ++k) { const x = K.pos[q * 12 + k * 3], z = K.pos[q * 12 + k * 3 + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+    KC[q * 2] = (x0 + x1) / 2; KC[q * 2 + 1] = (z0 + z1) / 2; KB[q * 4] = x0; KB[q * 4 + 1] = z0; KB[q * 4 + 2] = x1; KB[q * 4 + 3] = z1;
+  }
+  plan.kit = K; plan.kitC = KC; plan.kitB = KB;
+}
+function importPlan(cp, net, C) {
+  for (const J of cp.jobs) if (J.pre) { const p = {}; if (J.pre.mi >= 0) p.m = MIDS[J.pre.mi]; if (J.pre.ti >= 0) p.t = TOWERS[J.pre.ti]; J.pre = p; }
+  return { C, voxel: cp.voxel, hs: cp.hs, jobs: cp.jobs, sub: { core: cp.core }, kit: cp.kit, kitC: cp.kitC, kitB: cp.kitB, kitCuts: cp.kitCuts, bc: cp.bc, R: null };
 }
 function buildAll(PL, R, voxel, C, opts) {
   opts = opts || {};
@@ -3727,7 +3801,7 @@ function cutWorld(ax, az, bx, bz, nx, nz, kind) {
 }
 
 const LIB = {
-  curbOK, curbFit, driveway, cutWorld, curbOKSide, drivewaySide, cutWhy: () => CUT_WHY,
+  sinkPick, curbOK, curbFit, driveway, cutWorld, curbOKSide, drivewaySide, cutWhy: () => CUT_WHY,
   BV, BM, FH, BASE, Relief, bays, H2, pick, glassMat, facades, prism, roofMask, buildTiers, soffit, inset, rectMask, rotated, flatRoof,
   facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
   skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,
@@ -3754,6 +3828,6 @@ function previewTower(name, Wm, Dm, floors, seed, C) {
   t.fn(E, C, W, D, { seed, floors, party: {} }, C.mulberry32(seed), LIB);
   return mb.finish(0.002);
 }
-const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, planAll, buildTile, TILE_HALO, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
+const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, planAll, buildTile, exportPlan, importPlan, kitSlice, setKit, TILE_HALO, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityArch; else root.CityArch = CityArch;
 })(typeof self !== 'undefined' ? self : this);
