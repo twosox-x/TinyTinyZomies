@@ -30,7 +30,7 @@ bool outsideWorld(vec2 xz) {
 
 // Smoke merging: as a cloud ages, a growing fraction of its cubes dies and the survivors grow (particle.vert scales them
 // by smokeMergeGrow), so lingering columns cost fewer and fewer voxels. Shared with particle.vert through ptHash.
-float smokeMergeFrac(float age) { return clamp((age - 1.5) * 0.12, 0.0, 0.75); }
+float smokeMergeFrac(float age) { return clamp((age - 0.8) * 0.2, 0.0, 0.8); }
 
 void updateParticle(uint i) {
     Particle pt = particles[i];
@@ -47,18 +47,19 @@ void updateParticle(uint i) {
         // fireball voxel: a fast radial burst killed by drag, then hot buoyant gas; the rising core pushes the top
         // outward (a rolling cap: mushrooming for big blasts); after ~1/4 of its life it is a cooling smoke puff
         float hot = 1.0 - smoothstep(0.15, 0.35, age / life0);
-        v.y += (2.2 + 5.0 * hot) * (0.6 + 0.8 * h) * exp(-age * 0.2) * dt;
+        v.y += (4.0 + 4.0 * hot) * (0.7 + 0.6 * h) * dt;               // plume: keeps rising
         float sp = length(v.xz);
         if (sp > 1e-3 && v.y > 1.0) v.xz += v.xz / sp * min(v.y, 6.0) * 0.4 * hot * dt;   // roll outward under the cap
-        v.xz *= exp(-dt * mix(1.2, 3.4, hot));
-        v.y *= exp(-dt * mix(0.8, 2.0, hot));
-        v += (wind * (1.0 - hot) + vec3(sin(timeP.y * 1.3 + h * 40.0), 0.0, cos(timeP.y * 1.1 + h2 * 30.0)) * 0.4) * dt;
+        v.xz *= exp(-dt * mix(2.5, 3.4, hot));                          // little lateral spread once cool
+        v.y *= exp(-dt * 1.0);
+        v += (wind * 0.5 * (1.0 - hot) + vec3(sin(timeP.y * 1.3 + h * 40.0), 0.0, cos(timeP.y * 1.1 + h2 * 30.0)) * 0.25) * dt;
         if (smokeMergeFrac(age) > h2) life = 0.0;
     } else if (type == PT_SMOKE) {
         // the lingering column: rises (less and less), drifts with the wind, wobbles; cubes merge as they age
-        v.y += (2.0 * exp(-age * 0.25) + 1.0) * (0.6 + 0.8 * h) * dt;
-        v *= exp(-dt * 0.9);
-        v += (wind * 1.2 + vec3(sin(timeP.y * 0.9 + h * 50.0), 0.0, cos(timeP.y * 0.7 + h2 * 40.0)) * 0.45) * dt;
+        v.y += 4.5 * (0.7 + 0.6 * h) * dt;                              // a plume: rises ~4 m/s, drifts up and away
+        v.xz *= exp(-dt * 2.5);
+        v.y *= exp(-dt * 1.0);
+        v += (wind * 0.6 + vec3(sin(timeP.y * 0.9 + h * 50.0), 0.0, cos(timeP.y * 0.7 + h2 * 40.0)) * 0.25) * dt;
         if (smokeMergeFrac(age) > h2) life = 0.0;
     } else if (type == PT_DUST) {
         v *= exp(-dt * 3.2);                                           // pushed out by the blast, stopped by drag
@@ -193,18 +194,18 @@ void updateGib(uint i) {
 
 // Explosion effects, one thread per voxel (1024 threads per explosion; the counts scale with the effect size s):
 //   flash  8 s       white-hot core cubes, 0.1 s
-//   fire   100 s     fireball voxels: burst out, rise and roll, cool through orange / red into black smoke (3-6 s)
-//   smoke  60 s      the lingering column (6-15 s): appears as the fireball cools, rises, drifts, merges
+//   fire   100 s     fireball voxels: burst out, rise and roll, cool through orange / red into a grey plume (2-4 s x sqrt s)
+//   smoke  30 s      the plume (4.5-6.5 s, tanker ~9 s): rises ~4 m/s, merges into fewer cubes, dissolves
 //   debris 80 s      asphalt / concrete / metal / glass chunks on ballistic arcs; bounce, settle, rest
 //   sparks 70 s      sparks (ballistic streaks) and embers (buoyant)
 //   dust   40 s      grey voxels pushed out along the ground (the blast wave, low and subtle)
-// car (s = 1) ~ 358 voxels, truck (1.5) ~ 537, fuel tanker (2.2) ~ 787. The pool is a ring buffer (goreCap.x): chains
+// car (s = 1) ~ 328 voxels, truck (1.5) ~ 492, fuel tanker (2.2) ~ 721. The pool is a ring buffer (goreCap.x): chains
 // overwrite the oldest particles, so any number of blasts stays bounded.
 void spawnFx(uint t, vec3 c, float s, uint e, inout uint rng) {
     vec3 d = randDir(rng);
     float r1 = rand01(rng), r2 = rand01(rng), r3 = rand01(rng);
     float ss = sqrt(s);
-    uint nFlash = uint(8.0 * s), nFire = nFlash + uint(100.0 * s), nSmoke = nFire + uint(60.0 * s),
+    uint nFlash = uint(8.0 * s), nFire = nFlash + uint(100.0 * s), nSmoke = nFire + uint(30.0 * s),
          nDebris = nSmoke + uint(80.0 * s), nSpark = nDebris + uint(70.0 * s), nDust = nSpark + uint(40.0 * s);
     if (t < nFlash) {
         spawnParticle(c + d * 0.4 * ss + vec3(0.0, 0.5, 0.0), vec3(0.0), 0.125, PT_FLASH, (0.45 + 0.35 * r1) * min(ss, 1.4));
@@ -218,11 +219,11 @@ void spawnFx(uint t, vec3 c, float s, uint e, inout uint rng) {
         float sb = pow(s, 0.8);
         spawnParticle(c + o * (0.15 + 0.85 * sqrt(r1)) * sb + vec3(0.0, 0.5, 0.0),
                       d * (1.5 + 4.5 * r2 * r2) * sb + vec3(0.0, (1.0 + 3.0 * (1.0 - r1)) * (0.6 + 0.4 * r3), 0.0) * sb,
-                      (2.6 + 2.4 * rand01(rng)) * ss, PT_FIRE, (0.3 + 0.22 * rand01(rng)) * min(ss, 1.35));
+                      (2.2 + 1.6 * rand01(rng)) * ss, PT_FIRE, (0.3 + 0.22 * rand01(rng)) * min(ss, 1.35));
     } else if (t < nSmoke) {
         d.y = abs(d.y) * 0.5 + 0.2;
-        spawnParticle(c + d * (0.3 + 1.0 * r1) * ss + vec3(0.0, 0.8 + 1.2 * r3, 0.0) * ss, (d * (1.0 + 2.5 * r2) + vec3(0.0, 2.0, 0.0)) * ss,
-                      (6.0 + 6.0 * rand01(rng)) * ss, PT_SMOKE, (0.3 + 0.2 * rand01(rng)) * min(ss, 1.35));
+        spawnParticle(c + d * (0.3 + 1.0 * r1) * ss + vec3(0.0, 0.8 + 1.2 * r3, 0.0) * ss, (d * (0.5 + 1.0 * r2) + vec3(0.0, 3.5, 0.0)) * ss,
+                      (4.5 + 2.0 * rand01(rng)) * min(ss, 1.4), PT_SMOKE, 0.3 + 0.1 * rand01(rng));
     } else if (t < nDebris) {
         d.y = abs(d.y) + 0.35;
         d = normalize(d);
@@ -255,8 +256,8 @@ void explosionFx(uint e, uint t) {
             spawnParticle(c + o + vec3(0.0, -0.2, 0.0), vec3(d.x * 0.5, 0.8 + 1.6 * rand01(rng), d.z * 0.5), 0.35 + 0.5 * rand01(rng),
                           PT_FLAME, 0.1 + 0.2 * rand01(rng));
         else if (t < 10u)                                               // thick black smoke
-            spawnParticle(c + o * 0.6 + vec3(0.0, 0.6, 0.0), vec3(d.x * 0.4, 1.8 + 1.2 * rand01(rng), d.z * 0.4), 4.0 + 3.0 * rand01(rng),
-                          PT_SMOKE, 0.3 + 0.15 * rand01(rng));
+            spawnParticle(c + o * 0.6 + vec3(0.0, 0.6, 0.0), vec3(d.x * 0.3, 3.0 + 1.5 * rand01(rng), d.z * 0.3), 3.0 + 1.5 * rand01(rng),
+                          PT_SMOKE, 0.25 + 0.1 * rand01(rng));
         else if (t == 10u && rand01(rng) < 0.3)                        // an ember now and then
             spawnParticle(c + o, vec3(d.x, 2.0 + 2.0 * rand01(rng), d.z), 1.5 + rand01(rng), PT_SPARK, 0.05);
         return;

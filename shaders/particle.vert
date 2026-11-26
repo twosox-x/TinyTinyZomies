@@ -12,6 +12,7 @@ layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) flat out vec4 vColor;      // rgb linear albedo (or emission), a = 1 emissive / 0 lit
 layout(location = 3) flat out vec3 vGlow;       // lit voxels: added self-glow (hot soot, glowing debris)
+layout(location = 4) flat out float vFade;      // 1 solid .. 0 gone: ordered-dither dissolve in particle.frag
 const vec3 NRM[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
 const ivec3 CORNER[24] = ivec3[24](ivec3(1, 0, 0), ivec3(1, 1, 0), ivec3(1, 1, 1), ivec3(1, 0, 1),
                                    ivec3(0, 0, 1), ivec3(0, 1, 1), ivec3(0, 1, 0), ivec3(0, 0, 0),
@@ -20,7 +21,7 @@ const ivec3 CORNER[24] = ivec3[24](ivec3(1, 0, 0), ivec3(1, 1, 0), ivec3(1, 1, 1
                                    ivec3(1, 0, 1), ivec3(1, 1, 1), ivec3(0, 1, 1), ivec3(0, 0, 1),
                                    ivec3(0, 0, 0), ivec3(0, 1, 0), ivec3(1, 1, 0), ivec3(1, 0, 0));
 const int QUAD[6] = int[6](0, 1, 2, 0, 2, 3);
-float smokeMergeFrac(float age) { return clamp((age - 1.5) * 0.12, 0.0, 0.75); }   // = gore_update.comp
+float smokeMergeFrac(float age) { return clamp((age - 0.8) * 0.2, 0.0, 0.8); }   // = gore_update.comp
 // fire palette over a 0..1 cooling parameter: white-yellow core -> orange -> deep red -> soot (linear, emissive scale)
 vec3 firePalette(float k) {
     vec3 c = mix(vec3(9.0, 8.0, 5.5), vec3(6.0, 2.6, 0.45), smoothstep(0.0, 0.3, k));
@@ -47,12 +48,13 @@ void main() {
         vNormal = qrot(q, NRM[f]);
         vColor = vec4(col, 0.0);
         vGlow = vec3(0.0);
+        vFade = 1.0;
         gl_Position = viewProj * vec4(vWorld, 1.0);
         return;
     }
     // Explosion voxels: axis-aligned cubes, size quantised to multiples of a world voxel grid and snapped to it
     // (5 cm for sparks / small debris like the props, 10 cm for flames / fire / dust, 25 cm for big smoke cubes).
-    float grow = 1.0;
+    float grow = 1.0, fade = 1.0;
     if (type == PT_FIRE) {
         // fireball voxel: flash-white for ~0.08 s, orange, deep red, then soot that keeps growing (lit by fire / moon)
         float fireT = 0.25 * life0;                                   // fire phase (see gore_update.comp)
@@ -64,19 +66,20 @@ void main() {
             grow = 0.55 + 0.7 * smoothstep(0.0, 0.12, age) + 0.4 * k;   // flash-expands in the first ~0.1 s
         } else {
             float sk = clamp((age - fireT) / (life0 - fireT), 0.0, 1.0);
-            col = mix(vec3(0.022, 0.019, 0.017), vec3(0.05, 0.048, 0.048), sk) * (0.75 + 0.5 * h);
+            // dark soot near the fire, greying as it rises away; dissolves (dither) over the second half
+            col = mix(vec3(0.03, 0.026, 0.024), vec3(0.16, 0.155, 0.15), smoothstep(0.0, 0.5, sk)) * (0.8 + 0.4 * h);
             glow = vec3(1.2, 0.25, 0.04) * (1.0 - smoothstep(0.0, 0.18, sk)) * 1.5;   // embers glowing inside fresh soot
-            grow = 1.6 + 1.0 * sk;
+            grow = 1.3 + 0.4 * sk;
+            fade = 1.0 - smoothstep(0.35, 1.0, sk);
         }
-        grow /= pow(1.0 - smokeMergeFrac(age), 0.25);
-        grow *= min(1.0, life * 1.5);                                  // dissolve at the end of life (quantised)
+        grow /= pow(1.0 - smokeMergeFrac(age), 0.2);
     } else if (type == PT_SMOKE) {
         // lingering column: hidden inside the fireball at first, then grows into big dark billows
         float sk = clamp(age / life0, 0.0, 1.0);
-        col = mix(vec3(0.018, 0.016, 0.015), vec3(0.055, 0.052, 0.052), sk) * (0.75 + 0.5 * h);
+        col = mix(vec3(0.03, 0.027, 0.025), vec3(0.17, 0.165, 0.16), smoothstep(0.0, 0.45, sk)) * (0.8 + 0.4 * h);
         glow = vec3(0.9, 0.22, 0.04) * (1.0 - smoothstep(0.3, 1.2, age)) * 0.8;
-        grow = smoothstep(0.15, 0.9, age) * (1.0 + 1.6 * sqrt(sk)) / pow(1.0 - smokeMergeFrac(age), 0.25);   // thins as it merges
-        grow *= min(1.0, life * 0.7);
+        grow = smoothstep(0.15, 0.6, age) * (1.0 + 0.4 * sk) / pow(1.0 - smokeMergeFrac(age), 0.2);
+        fade = 1.0 - smoothstep(0.3, 1.0, sk);
     } else if (type == PT_DEBRIS) {
         // material voxels: asphalt, concrete, car metal / paint, glass, charcoal; fresh chunks glow hot for a moment
         float m = fract(h * 5.31);
@@ -96,7 +99,8 @@ void main() {
         // ground dust: grey-brown voxels billowing out low; they grow and dissolve
         float k = clamp(age / life0, 0.0, 1.0);
         col = vec3(0.1, 0.095, 0.09) * (0.8 + 0.4 * h);
-        grow = (1.0 + 1.2 * k) * (1.0 - smoothstep(0.45, 1.0, k));
+        grow = 1.0 + 0.8 * k;
+        fade = 1.0 - smoothstep(0.3, 1.0, k);
     } else if (type == PT_FLAME) {
         float k = clamp(age / life0, 0.0, 1.0);
         col = firePalette(0.15 + 0.85 * k) * (0.75 + 0.5 * fract(h * 29.0 + floor(camPos.w * 20.0) * 0.43));
@@ -115,6 +119,7 @@ void main() {
         grow = h < drop ? 0.0 : grow * pow(1.0 / (1.0 - drop), 0.3333);
     }
     float sz = size * grow;
+    if (type == PT_FIRE || type == PT_SMOKE || type == PT_DUST) sz = min(sz, 0.5);   // gas cubes: at most 50 cm
     float g = sz < 0.14 ? 0.05 : (sz < 0.6 ? 0.1 : 0.25);
     float n = floor(sz / g + 0.5);                                    // whole voxels (0 = gone)
     float S = n * g;
@@ -123,5 +128,6 @@ void main() {
     vNormal = NRM[f];
     vColor = vec4(col, emissive);
     vGlow = glow;
-    gl_Position = n > 0.0 ? viewProj * vec4(vWorld, 1.0) : vec4(0.0, 0.0, -2.0, 1.0);
+    vFade = fade;
+    gl_Position = n > 0.0 && fade > 0.02 ? viewProj * vec4(vWorld, 1.0) : vec4(0.0, 0.0, -2.0, 1.0);
 }

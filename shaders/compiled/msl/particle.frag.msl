@@ -1,9 +1,48 @@
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
 
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
 
 struct Frame
 {
@@ -24,6 +63,8 @@ struct Frame
     float4 blastsP[8];
 };
 
+constant spvUnsafeArray<float, 16> _476 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
+
 struct main0_out
 {
     float4 outColor [[color(0)]];
@@ -35,6 +76,7 @@ struct main0_in
     float3 vNormal [[user(locn1)]];
     float4 vColor [[user(locn2), flat]];
     float3 vGlow [[user(locn3), flat]];
+    float vFade [[user(locn4), flat]];
 };
 
 static inline __attribute__((always_inline))
@@ -142,9 +184,17 @@ float3 shade(thread const float3& albedo, thread const float3& N, thread const f
     return shadeV(param, param_1, param_2, param_3, param_4, _65);
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _65 [[buffer(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _65 [[buffer(0)]], float4 gl_FragCoord [[position]])
 {
     main0_out out = {};
+    if (in.vFade < 0.999000012874603271484375)
+    {
+        int2 q = (int2(gl_FragCoord.xy) / int2(2)) & int2(3);
+        if (((_476[(q.y * 4) + q.x] + 0.5) / 16.0) > in.vFade)
+        {
+            discard_fragment();
+        }
+    }
     if (in.vColor.w > 0.5)
     {
         float3 param = in.vColor.xyz;

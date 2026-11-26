@@ -127,9 +127,9 @@ struct SimUniforms
     float4 goreQ;
 };
 
-constant spvUnsafeArray<int3, 24> _264 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
-constant spvUnsafeArray<int, 6> _272 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
-constant spvUnsafeArray<float3, 6> _414 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+constant spvUnsafeArray<int3, 24> _263 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _271 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
+constant spvUnsafeArray<float3, 6> _412 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
 
 struct main0_out
 {
@@ -137,6 +137,7 @@ struct main0_out
     float3 vNormal [[user(locn1)]];
     float4 vColor [[user(locn2)]];
     float3 vGlow [[user(locn3)]];
+    float vFade [[user(locn4)]];
     float4 gl_Position [[position]];
 };
 
@@ -203,16 +204,16 @@ float3 firePalette(thread const float& k)
 static inline __attribute__((always_inline))
 float smokeMergeFrac(thread const float& age)
 {
-    return fast::clamp((age - 1.5) * 0.119999997317790985107421875, 0.0, 0.75);
+    return fast::clamp((age - 0.800000011920928955078125) * 0.20000000298023223876953125, 0.0, 0.800000011920928955078125);
 }
 
-vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particles& _215 [[buffer(1)]], const device PList& _202 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particles& _214 [[buffer(1)]], const device PList& _201 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
-    uint idx = _202.plist[int(gl_InstanceIndex)];
+    uint idx = _201.plist[int(gl_InstanceIndex)];
     Particle pt;
-    pt.pos = _215.particles[idx].pos;
-    pt.vel = _215.particles[idx].vel;
+    pt.pos = _214.particles[idx].pos;
+    pt.vel = _214.particles[idx].vel;
     Particle param = pt;
     uint type = uint(ptType(param));
     Particle param_1 = pt;
@@ -222,7 +223,7 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
     float life0 = ptLife0(param_2);
     float age = fast::max(life0 - life, 0.0);
     int f = int(gl_VertexIndex) / 6;
-    float3 c = float3(_264[(f * 4) + _272[spvSMod(int(gl_VertexIndex), 6)]]) - float3(0.5);
+    float3 c = float3(_263[(f * 4) + _271[spvSMod(int(gl_VertexIndex), 6)]]) - float3(0.5);
     uint param_3 = idx;
     uint param_4 = ptHash(param_3);
     float h = hash01(param_4);
@@ -248,14 +249,16 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
         float3 param_8 = c * scale3;
         out.vWorld = pt.pos.xyz + qrot(param_7, param_8);
         float4 param_9 = q;
-        float3 param_10 = _414[f];
+        float3 param_10 = _412[f];
         out.vNormal = qrot(param_9, param_10);
         out.vColor = float4(col, 0.0);
         out.vGlow = float3(0.0);
+        out.vFade = 1.0;
         out.gl_Position = _446.viewProj * float4(out.vWorld, 1.0);
         return out;
     }
     float grow = 1.0;
+    float fade = 1.0;
     if (type == 1u)
     {
         float fireT = 0.25 * life0;
@@ -271,34 +274,34 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
         else
         {
             float sk = fast::clamp((age - fireT) / (life0 - fireT), 0.0, 1.0);
-            col = mix(float3(0.02199999988079071044921875, 0.01899999938905239105224609375, 0.0170000009238719940185546875), float3(0.0500000007450580596923828125, 0.048000000417232513427734375, 0.048000000417232513427734375), float3(sk)) * (0.75 + (0.5 * h));
+            col = mix(float3(0.02999999932944774627685546875, 0.026000000536441802978515625, 0.0240000002086162567138671875), float3(0.1599999964237213134765625, 0.1550000011920928955078125, 0.1500000059604644775390625), float3(smoothstep(0.0, 0.5, sk))) * (0.800000011920928955078125 + (0.4000000059604644775390625 * h));
             glow = (float3(1.2000000476837158203125, 0.25, 0.039999999105930328369140625) * (1.0 - smoothstep(0.0, 0.180000007152557373046875, sk))) * 1.5;
-            grow = 1.60000002384185791015625 + (1.0 * sk);
+            grow = 1.2999999523162841796875 + (0.4000000059604644775390625 * sk);
+            fade = 1.0 - smoothstep(0.3499999940395355224609375, 1.0, sk);
         }
         float param_12 = age;
-        grow /= powr(1.0 - smokeMergeFrac(param_12), 0.25);
-        grow *= fast::min(1.0, life * 1.5);
+        grow /= powr(1.0 - smokeMergeFrac(param_12), 0.20000000298023223876953125);
     }
     else
     {
         if (type == 2u)
         {
             float sk_1 = fast::clamp(age / life0, 0.0, 1.0);
-            col = mix(float3(0.017999999225139617919921875, 0.01600000075995922088623046875, 0.014999999664723873138427734375), float3(0.054999999701976776123046875, 0.05200000107288360595703125, 0.05200000107288360595703125), float3(sk_1)) * (0.75 + (0.5 * h));
+            col = mix(float3(0.02999999932944774627685546875, 0.02700000070035457611083984375, 0.02500000037252902984619140625), float3(0.17000000178813934326171875, 0.16500000655651092529296875, 0.1599999964237213134765625), float3(smoothstep(0.0, 0.449999988079071044921875, sk_1))) * (0.800000011920928955078125 + (0.4000000059604644775390625 * h));
             glow = (float3(0.89999997615814208984375, 0.2199999988079071044921875, 0.039999999105930328369140625) * (1.0 - smoothstep(0.300000011920928955078125, 1.2000000476837158203125, age))) * 0.800000011920928955078125;
             float param_13 = age;
-            grow = (smoothstep(0.1500000059604644775390625, 0.89999997615814208984375, age) * (1.0 + (1.60000002384185791015625 * sqrt(sk_1)))) / powr(1.0 - smokeMergeFrac(param_13), 0.25);
-            grow *= fast::min(1.0, life * 0.699999988079071044921875);
+            grow = (smoothstep(0.1500000059604644775390625, 0.60000002384185791015625, age) * (1.0 + (0.4000000059604644775390625 * sk_1))) / powr(1.0 - smokeMergeFrac(param_13), 0.20000000298023223876953125);
+            fade = 1.0 - smoothstep(0.300000011920928955078125, 1.0, sk_1);
         }
         else
         {
             if (type == 3u)
             {
                 float m = fract(h * 5.309999942779541015625);
-                float3 _627;
+                float3 _628;
                 if (m < 0.3499999940395355224609375)
                 {
-                    _627 = float3(0.04500000178813934326171875, 0.04500000178813934326171875, 0.0500000007450580596923828125);
+                    _628 = float3(0.04500000178813934326171875, 0.04500000178813934326171875, 0.0500000007450580596923828125);
                 }
                 else
                 {
@@ -329,9 +332,9 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
                         }
                         _636 = _647;
                     }
-                    _627 = _636;
+                    _628 = _636;
                 }
-                col = _627;
+                col = _628;
                 col *= (0.800000011920928955078125 + (0.4000000059604644775390625 * h2));
                 if (h2 < 0.20000000298023223876953125)
                 {
@@ -344,18 +347,18 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
                 if (type == 4u)
                 {
                     float k_1 = fast::clamp(age / life0, 0.0, 1.0);
-                    float3 _708;
+                    float3 _710;
                     if (h < 0.449999988079071044921875)
                     {
                         float param_14 = 0.449999988079071044921875 + (0.4000000059604644775390625 * k_1);
-                        _708 = firePalette(param_14) * (0.60000002384185791015625 + (0.60000002384185791015625 * fract((h * 17.0) + (floor(_446.camPos.w * 18.0) * 0.4099999964237213134765625))));
+                        _710 = firePalette(param_14) * (0.60000002384185791015625 + (0.60000002384185791015625 * fract((h * 17.0) + (floor(_446.camPos.w * 18.0) * 0.4099999964237213134765625))));
                     }
                     else
                     {
                         float param_15 = k_1 * 0.800000011920928955078125;
-                        _708 = firePalette(param_15) * 1.2000000476837158203125;
+                        _710 = firePalette(param_15) * 1.2000000476837158203125;
                     }
-                    col = _708;
+                    col = _710;
                     emissive = 1.0;
                     grow = fast::min(1.0, life * 4.0);
                 }
@@ -365,7 +368,8 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
                     {
                         float k_2 = fast::clamp(age / life0, 0.0, 1.0);
                         col = float3(0.100000001490116119384765625, 0.0949999988079071044921875, 0.0900000035762786865234375) * (0.800000011920928955078125 + (0.4000000059604644775390625 * h));
-                        grow = (1.0 + (1.2000000476837158203125 * k_2)) * (1.0 - smoothstep(0.449999988079071044921875, 1.0, k_2));
+                        grow = 1.0 + (0.800000011920928955078125 * k_2);
+                        fade = 1.0 - smoothstep(0.300000011920928955078125, 1.0, k_2);
                     }
                     else
                     {
@@ -393,45 +397,50 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
     if ((((type == 2u) || (type == 1u)) || (type == 5u)) && (dist > 70.0))
     {
         float drop = fast::clamp((dist - 70.0) / 60.0, 0.0, 0.5);
-        float _854;
+        float _856;
         if (h < drop)
         {
-            _854 = 0.0;
+            _856 = 0.0;
         }
         else
         {
-            _854 = grow * powr(1.0 / (1.0 - drop), 0.33329999446868896484375);
+            _856 = grow * powr(1.0 / (1.0 - drop), 0.33329999446868896484375);
         }
-        grow = _854;
+        grow = _856;
     }
     float sz = size * grow;
-    float _874;
+    if (((type == 1u) || (type == 2u)) || (type == 5u))
+    {
+        sz = fast::min(sz, 0.5);
+    }
+    float _888;
     if (sz < 0.14000000059604644775390625)
     {
-        _874 = 0.0500000007450580596923828125;
+        _888 = 0.0500000007450580596923828125;
     }
     else
     {
-        _874 = (sz < 0.60000002384185791015625) ? 0.100000001490116119384765625 : 0.25;
+        _888 = (sz < 0.60000002384185791015625) ? 0.100000001490116119384765625 : 0.25;
     }
-    float g = _874;
+    float g = _888;
     float n = floor((sz / g) + 0.5);
     float S = n * g;
     float3 lo = floor(((pt.pos.xyz - float3(0.5 * S)) / float3(g)) + float3(0.5)) * g;
     out.vWorld = lo + ((c + float3(0.5)) * S);
-    out.vNormal = _414[f];
+    out.vNormal = _412[f];
     out.vColor = float4(col, emissive);
     out.vGlow = glow;
-    float4 _928;
-    if (n > 0.0)
+    out.vFade = fade;
+    float4 _946;
+    if ((n > 0.0) && (fade > 0.0199999995529651641845703125))
     {
-        _928 = _446.viewProj * float4(out.vWorld, 1.0);
+        _946 = _446.viewProj * float4(out.vWorld, 1.0);
     }
     else
     {
-        _928 = float4(0.0, 0.0, -2.0, 1.0);
+        _946 = float4(0.0, 0.0, -2.0, 1.0);
     }
-    out.gl_Position = _928;
+    out.gl_Position = _946;
     return out;
 }
 
