@@ -1175,9 +1175,9 @@ const toTorso = (torso, gripB, Wb) => { const tRT = mT(eulerMat(torso)); return 
 // aim posture parameters per class (exaggerated for RTS readability). rootYaw turns the whole body (bladed stance); the
 // weapon still points along the agent heading (+Z). MG: hip fire, leaning into the gun.
 const AIM = {
-  rifleman: { rootYaw: -0.45, torsoX: 0.13, head: [0.2, 0.9, 0.05], footL: [1.2, 0, 2.3], footR: [-2.3, 0, -1.5], pelvis: [0, -0.45, 0] },
-  mg: { rootYaw: -0.45, torsoX: 0.25, head: [0.12, 0.45, 0.0], hip: true, footL: [1.9, 0, 2.6], footR: [-2.6, 0, -2.0], pelvis: [0, -0.95, 0] },
-  sniper: { rootYaw: -0.45, torsoX: 0.13, head: [0.26, 0.9, 0.1], footL: [1.2, 0, 2.4], footR: [-2.4, 0, -1.6], pelvis: [0, -0.5, 0] },
+  rifleman: { rootYaw: -0.45, torsoX: 0.16, head: [0.2, 0.9, 0.05], footL: [1.6, 0, 3.0], footR: [-2.8, 0, -2.2], pelvis: [0, -0.85, 0] },
+  mg: { rootYaw: -0.45, torsoX: 0.4, head: [-0.05, 0.45, 0.0], hip: true, footL: [2.5, 0, 3.3], footR: [-3.0, 0, -2.7], pelvis: [0, -1.55, 0] },
+  sniper: { rootYaw: -0.45, torsoX: 0.18, head: [0.26, 0.9, 0.1], footL: [1.6, 0, 3.2], footR: [-2.8, 0, -2.4], pelvis: [0, -0.95, 0] },
 };
 function initPostures() {
   for (const cls of ANIM_CLASSES) {
@@ -1448,10 +1448,10 @@ function authorClass(cls, model, add) {
       } }));
   };
   // walk: weapon in the class carry; run: weapon tucked higher (port arms), bigger lean and arm pump
-  loco("walk", 1.30, 0.92, 0.6, 1.6, 7.92, 0.07, 0.05, (torso, u) => kickPlacement(carryT, [0, 0.03 * Math.sin(u * Math.PI * 4), 0.04 * Math.sin(u * Math.PI * 2), 0.12 * Math.sin(u * Math.PI * 4)]));
+  loco("walk", 1.30, 0.92, 0.6, 1.4, 7.92, 0.02, 0.05, (torso, u) => kickPlacement(carryT, [0, 0.03 * Math.sin(u * Math.PI * 4), 0.04 * Math.sin(u * Math.PI * 2), 0.12 * Math.sin(u * Math.PI * 4)]));
   const runT = blendPlacement(carryT, aimPlacement(cls, carryTorso), 0.15);
   runT.W = mmul(runT.W, wMat([0.25, -0.35, 0])); runT.gripT = vadd(runT.gripT, [0.3, -0.4, -0.6]);
-  loco("run", 3.60, 0.64, 0.36, 3.2, 7.6, 0.3, 0.1, (torso, u) => kickPlacement(runT, [0, 0.06 * Math.sin(u * Math.PI * 4), 0.08 * Math.sin(u * Math.PI * 2), 0.25 * Math.sin(u * Math.PI * 4)]));
+  loco("run", 3.80, 0.72, 0.33, 4.4, 7.3, 0.48, 0.1, (torso, u) => kickPlacement(runT, [0, 0.06 * Math.sin(u * Math.PI * 4), 0.08 * Math.sin(u * Math.PI * 2), 0.25 * Math.sin(u * Math.PI * 4)]));
 
   // ---- turn in place (root yaw +-90 deg, two steps)
   for (const dir of [1, -1]) {
@@ -1485,22 +1485,22 @@ function authorClass(cls, model, add) {
   if (cls === "rifleman") {   // 3 aimed shots per 0.9 s loop: short sharp kick
     const shots = [0, 0.3, 0.6];
     add(cls, "fire", { duration: 0.9, loop: true, rate: 3.33, events: shots.flatMap(s => [{ t: s, type: "muzzle_flash", fx }, { t: s, type: "shell_eject", fx }, { t: s, type: "recoil", kick: 0.12 }]),
-      gen: t => { let k = 0; for (const s of shots) { const d = t - s; if (d >= 0 && d < 0.3) k = Math.max(k, d < 0.033 ? d / 0.033 : Math.exp(-(d - 0.033) * 22)); }
-        const S = aimSpec(0, [0.55 * k, 0.16 * k, 0.02 * k, 0.15 * k]); S.torso = [S.torso[0] - 0.05 * k, S.torso[1], S.torso[2]]; S.wpn = aimP(S.torso, [0.55 * k, 0.16 * k, 0.02 * k, 0.15 * k]); S.head = [A.head[0] - 0.05 * k, A.head[1], A.head[2]]; return S; } });
+      gen: t => { let k = 0; for (const s of shots) { const d = t - s; if (d >= 0 && d < 0.3) k = Math.max(k, d < 0.033 ? d / 0.033 : Math.exp(-(d - 0.033) * 12)); }
+        const S = aimSpec(0, [0.8 * k, 0.24 * k, 0.03 * k, 0.2 * k]); S.torso = [S.torso[0] - 0.08 * k, S.torso[1], S.torso[2]]; S.wpn = aimP(S.torso, [0.8 * k, 0.24 * k, 0.03 * k, 0.2 * k]); S.head = [A.head[0] - 0.05 * k, A.head[1], A.head[2]]; return S; } });
   } else if (isMG) {         // sustained burst: 12 rounds/s rattle, tracer every 4th, body shakes with the gun
     const n = 12, dur = 1.0, shots = Array.from({ length: n }, (_, i) => i * dur / n);
     add(cls, "fire", { duration: dur, loop: true, rate: n / dur, events: shots.flatMap((s, i) => [{ t: +s.toFixed(4), type: "muzzle_flash", fx, round: i }, { t: +s.toFixed(4), type: "shell_eject", fx }].concat(i % 4 === 0 ? [{ t: +s.toFixed(4), type: "tracer", fx }] : [])),
       gen: t => { const i = Math.floor(t * n / dur), d = t - i * dur / n, k = d < 0.02 ? 1 : Math.exp(-(d - 0.02) * 30);
-        const kick = [0.4 + 0.35 * k, 0.05 + 0.07 * k * (0.6 + 0.4 * hnoise(i, 1)), 0.04 * hnoise(i, 2) * k, 0.12 * k];
-        const jit = [0.03 * k + 0.02, 0.025 * hnoise(i, 3) * k];
+        const kick = [0.5 + 0.55 * k, 0.06 + 0.12 * k * (0.6 + 0.4 * hnoise(i, 1)), 0.06 * hnoise(i, 2) * k, 0.18 * k];
+        const jit = [0.05 * k + 0.02, 0.04 * hnoise(i, 3) * k];
         const S = aimSpec(0, kick, jit); S.pelvis = [0.08 * hnoise(i, 5) * k, A.pelvis[1] - 0.08 * k, 0]; S.head = [A.head[0] + 0.03 * hnoise(i, 4) * k, A.head[1], A.head[2]]; return S; } });
   } else {                   // one heavy suppressed shot + bolt cycle (left hand works the bolt)
     const dur = 1.9;
     add(cls, "fire", { duration: dur, loop: true, rate: 1 / dur,
       events: [{ t: 0, type: "suppressed", fx }, { t: 0, type: "muzzle_flash", fx }, { t: 0, type: "recoil", kick: 0.5 }, { t: 0.78, type: "bolt" }, { t: 0.9, type: "shell_eject", fx }, { t: 1.12, type: "bolt" }],
       gen: t => {
-        const k = t < 0.04 ? t / 0.04 : Math.exp(-(t - 0.04) * 6.5);
-        const kick = [1.0 * k, 0.42 * k, 0.05 * k, 0.35 * k];
+        const k = t < 0.04 ? t / 0.04 : Math.exp(-(t - 0.04) * 4.0);   // heavy, held kick (readable at range)
+        const kick = [1.1 * k, 0.55 * k, 0.05 * k, 0.4 * k];
         const S = aimSpec(0, kick, [-0.16 * k, 0.06 * k]);
         S.head = [A.head[0] - 0.2 * k, A.head[1], A.head[2]];
         S.pelvis = [0, A.pelvis[1], -0.35 * k];
@@ -1575,8 +1575,8 @@ function authorClass(cls, model, add) {
       // lowered / canted weapon: muzzle down-left, pulled in to the chest (MG: to the hip, muzzle up)
       const torso = [AT[0] + (isMG ? 0.12 : 0.1) * low, AT[1], AT[2]];
       let wpn = aimP(torso);
-      wpn = kickPlacement(wpn, isMG ? [1.2 * low, 0.45 * low, 0.25 * low, -0.3 * low] : [1.6 * low, -0.4 * low, 0.35 * low, -1.2 * low]);
-      wpn.W = mmul(wpn.W, eulerMat([0, 0, (isMG ? 0.25 : 0.55) * low]));
+      wpn = kickPlacement(wpn, isMG ? [1.5 * low, 0.7 * low, 0.35 * low, -0.5 * low] : [2.0 * low, -0.7 * low, 0.5 * low, -1.6 * low]);
+      wpn.W = mmul(wpn.W, eulerMat([0, 0, (isMG ? 0.3 : 0.8) * low]));
       const S = Object.assign({ torso, head: [A.head[0] + 0.3 * low, A.head[1] * (1 - 0.5 * low), 0], pelvis: A.pelvis, wpn, item: u < 0.5 ? a[3] : b[3] }, aimLegs);
       // left hand: both keys in weapon space -> pure support-target interpolation; mixed -> weight blend
       if (a[1] === "w" && b[1] === "w") { S.sw = 1; S.st = vlerp(a[2], b[2], u); }
@@ -1596,8 +1596,8 @@ function authorClass(cls, model, add) {
 
   // ---- deaths
   // A: shot in the chest, knees buckle, falls backwards onto the back, arms flung
-  add(cls, "death_a", { duration: 1.6, loop: false, rootMotion: true, events: [{ t: 0.95, type: "body_fall" }], gen: t => {
-    const k1 = smooth(t / 0.35), k2 = smooth((t - 0.25) / 0.7), k3 = smooth((t - 0.95) / 0.25);
+  add(cls, "death_a", { duration: 1.2, loop: false, rootMotion: true, events: [{ t: 0.6, type: "body_fall" }], gen: t => {
+    const k1 = smooth(t / 0.25), k2 = smooth((t - 0.15) / 0.45), k3 = smooth((t - 0.6) / 0.2);
     const torso = [carryTorso[0] - 0.5 * k1 + 0.4 * k2 - 0.2 * k3, carryTorso[1] * (1 - k2), 0.1 * k1];
     return { torso, head: [-0.5 * k1 + 0.3 * k3, 0.3 * k2, 0.2 * k2], pelvis: [0, -1.5 * k1, -2.6 * k2], rootRot: [-1.5 * k2 - 0.07 * k3, 0.2 * k2, 0.1 * k2],
       legs: { L: { thigh: [-0.3 * k1 - 0.5 * k2 + 0.4 * k3, 0, 0.15 * k2], shin: [0.9 * k1 - 0.3 * k2, 0, 0] }, R: { thigh: [-0.1 * k1 - 0.2 * k2, 0, -0.25 * k2], shin: [0.7 * k1 + 0.2 * k2, 0, 0] } },
@@ -1605,8 +1605,8 @@ function authorClass(cls, model, add) {
       poleR: [-1, 0.5, -0.4], ground: k3 };
   } });
   // B: crumples forward: knees, then face down, weapon falls in front
-  add(cls, "death_b", { duration: 1.8, loop: false, rootMotion: true, events: [{ t: 0.55, type: "body_fall" }, { t: 1.15, type: "body_fall" }], gen: t => {
-    const k1 = smooth(t / 0.55), k2 = smooth((t - 0.6) / 0.55), k3 = smooth((t - 1.1) / 0.3);
+  add(cls, "death_b", { duration: 1.4, loop: false, rootMotion: true, events: [{ t: 0.4, type: "body_fall" }, { t: 0.8, type: "body_fall" }], gen: t => {
+    const k1 = smooth(t / 0.4), k2 = smooth((t - 0.4) / 0.4), k3 = smooth((t - 0.8) / 0.25);
     const torso = [carryTorso[0] + 0.5 * k1 - 0.3 * k2, carryTorso[1] * (1 - k1) - 0.2 * k2, 0.15 * k2];
     return { torso, head: [0.4 * k1 - 0.6 * k2, -0.3 * k2, 0.1], pelvis: [0, -3.7 * k1 + 1.5 * k2, 1.6 * k2], rootRot: [1.35 * k2 + 0.1 * k3, -0.25 * k2, 0.1 * k2],
       legs: { L: { thigh: [-0.15 * k1 + 0.3 * k2, 0, 0.1 * k2], shin: [1.6 * k1 - 1.3 * k2, 0, 0] }, R: { thigh: [0.1 * k1 + 0.2 * k2, 0, -0.15 * k2], shin: [1.5 * k1 - 1.1 * k2, 0, 0] } },
@@ -1614,8 +1614,8 @@ function authorClass(cls, model, add) {
       ground: 0.5 * k1 + 0.5 * k3 + (k3 > 0.99 ? 0 : 0) };
   } });
   // C: spun by a hit to the shoulder, falls on the side
-  add(cls, "death_c", { duration: 1.5, loop: false, rootMotion: true, events: [{ t: 0.85, type: "body_fall" }], gen: t => {
-    const k1 = smooth(t / 0.45), k2 = smooth((t - 0.3) / 0.6), k3 = smooth((t - 0.85) / 0.3);
+  add(cls, "death_c", { duration: 1.2, loop: false, rootMotion: true, events: [{ t: 0.65, type: "body_fall" }], gen: t => {
+    const k1 = smooth(t / 0.35), k2 = smooth((t - 0.2) / 0.45), k3 = smooth((t - 0.65) / 0.25);
     const torso = [carryTorso[0] + 0.25 * k1, carryTorso[1] + 0.9 * k1, -0.3 * k2];
     return { torso, head: [0.2, 0.4 * k1, -0.4 * k2], pelvis: [1.5 * k2, -2.2 * k1, 0], rootRot: [0, 1.4 * k1, 1.45 * k2 + 0.08 * k3],
       legs: { L: { thigh: [-0.6 * k2, 0, 0.2 * k2], shin: [1.0 * k1 - 0.2 * k2, 0, 0] }, R: { thigh: [0.3 * k1, 0, -0.1], shin: [0.9 * k1, 0, 0] } },
@@ -2317,7 +2317,7 @@ function animUpdate(dt) {
     }
   } else if (anim.scene === "rts") {
     for (const a of actors) {
-      const clip = CLIP[a.cls + "/" + a.fixedAction]; const t = clip.loop ? T + a.phase * clip.duration : Math.min(clip.duration, (T + a.phase * 3) % (clip.duration + 1.5));
+      const clip = CLIP[a.cls + "/" + a.fixedAction]; const t = clip.loop ? T + a.phase * clip.duration : a.fixedAction.startsWith("death") ? (a.phase < 0.3 ? clip.duration : Math.min(clip.duration, T)) : (T + a.phase * clip.duration) % clip.duration;
       poseActor(a, clip, t, dt); drawFx(a, clip, clipTime(clip, t));
       if (a.canopy) { const cf = sampleTrack(clip, "canopy", t); if (cf) deformCanopy(a.canopy, cf, () => -100); }
     }

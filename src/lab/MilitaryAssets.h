@@ -43,9 +43,9 @@ struct MilAttachment {
 
 // Authored clips (docs/MILITARY_ANIMS.md, assets/military/anims.{json,bin}): dense 30 Hz frames, linear interpolation.
 // body frame (44 floats): rot[10][3] (Euler XYZ, zombie slot order), rootPos[3], rootRot[3], weaponMount[3], supportW,
-// supportTarget[3], flags. canopy frame (12): pos[3], rot[3], radial, height, clamp, visible, slack, -. crate (6): pos, rot.
+// supportTarget[3], flags. canopy frame (12): pos[3], rot[3], radial, height, clamp, visible, shear x, z. crate (6): pos, rot.
 enum { MB_ROT = 0, MB_ROOTPOS = 30, MB_ROOTROT = 33, MB_MOUNT = 36, MB_SUPPORTW = 39, MB_SUPPORT = 40, MB_FLAGS = 43, MB_STRIDE = 44 };
-enum { MC_POS = 0, MC_ROT = 3, MC_RADIAL = 6, MC_HEIGHT = 7, MC_CLAMP = 8, MC_VISIBLE = 9, MC_SLACK = 10, MC_STRIDE = 12 };
+enum { MC_POS = 0, MC_ROT = 3, MC_RADIAL = 6, MC_HEIGHT = 7, MC_CLAMP = 8, MC_VISIBLE = 9, MC_SHEAR = 10, MC_STRIDE = 12 };
 struct MilFxEvent {
     float t = 0.f;
     std::string type;                             // muzzle_flash, tracer, shell_eject, suppressed, footstep, ...
@@ -106,6 +106,8 @@ struct MilitaryLibrary {
     std::vector<MilInfantry> infantry;
     std::vector<MilProp> props;
     std::vector<MilKeyClip> keyClips;
+    struct Slung { std::string cls; float grip[3]; float rot[3]; };
+    std::vector<Slung> slungMounts;   // anims.json slungMount[class]: weapon on the torso while flag bit 6 is set
     std::string animSource;           // anims.json status
     int findClip(const std::string& cls, const std::string& action) const;
     bool loadAnims(const std::string& dir);   // assets/military/anims.{json,bin}: per-class clips appended to the infantry

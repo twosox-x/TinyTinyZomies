@@ -28,7 +28,8 @@ void main() {
     if (mode.x == 1u) {
         Inst I = inst[mode.y + uint(gl_InstanceIndex)];
         if (I.pos.w > 1.5) {   // deformed prop (parachute canopy, docs/MILITARY_ANIMS.md 2.3): xz radial / y height scale
-            p = I.pos.xyz + qrot(I.quat, p * vec3(I.paint.x, I.paint.y, I.paint.x));
+            vec2 sh = unpackHalf2x16(floatBitsToUint(I.paint.z));   // shear x, z (collapse drift), proportional to height
+            p = I.pos.xyz + qrot(I.quat, vec3(p.x * I.paint.x + sh.x * p.y, p.y * I.paint.y, p.z * I.paint.x + sh.y * p.y));
             float x = (p.y - I.paint.w) / 0.08;   // soft ground clamp (paint.w = surface height, < -1000 off)
             if (I.paint.w > -1000.0 && x < 20.0) p.y = I.paint.w + 0.08 * log(1.0 + exp(x));
         } else p = I.pos.xyz + qrot(I.quat, p);

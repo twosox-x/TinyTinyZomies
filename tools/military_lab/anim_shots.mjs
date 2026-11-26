@@ -22,7 +22,7 @@ const strip = (act, times, view) => JOBS.push([`cls_${act}_${view}`, { mode: "an
 for (const [act, n, view] of [["walk", 8, "side"], ["run", 8, "side"], ["fire", 8, "persp"], ["reload", 10, "persp"], ["death_a", 8, "persp"], ["death_b", 8, "persp"], ["death_c", 6, "persp"],
   ["idle", 4, "persp"], ["aim", 2, "front"], ["crouch_fire", 6, "persp"], ["hit", 6, "persp"], ["turn_l", 6, "persp"], ["collect_ammo", 10, "side"], ["enter_building", 8, "side"], ["exit_building", 8, "side"],
   ["stairs_up", 6, "side"], ["stairs_down", 6, "side"], ["para_descent", 4, "front"], ["para_land", 8, "persp"], ["para_recover", 10, "persp"], ["walk", 6, "front"], ["fire", 6, "side"]]) {
-  const durs = { walk: 0.92, run: 0.64, fire: 1.9, reload: 4.2, death_a: 1.6, death_b: 1.8, death_c: 1.5, idle: 3, aim: 2, crouch_fire: 1.9, hit: 0.6, turn_l: 0.8, collect_ammo: 3.2, enter_building: 2.4, exit_building: 2.4, stairs_up: 1, stairs_down: 1, para_descent: 4.8, para_land: 1.5, para_recover: 3.2 };
+  const durs = { walk: 0.92, run: 0.72, fire: 1.9, reload: 4.2, death_a: 1.2, death_b: 1.4, death_c: 1.2, idle: 3, aim: 2, crouch_fire: 1.9, hit: 0.6, turn_l: 0.8, collect_ammo: 3.2, enter_building: 2.4, exit_building: 2.4, stairs_up: 1, stairs_down: 1, para_descent: 4.8, para_land: 1.5, para_recover: 3.2 };
   const D = durs[act], loop = ["walk", "run", "idle", "aim", "stairs_up", "stairs_down", "para_descent"].includes(act);
   strip(act, Array.from({ length: n }, (_, i) => +(loop ? i * D / n : i * D / (n - 1)).toFixed(3)), view);
 }
@@ -35,7 +35,7 @@ JOBS.push(["travel_run", { mode: "anim", view: "side", light: "neutral" }, { sce
 JOBS.push(["para_demo", { mode: "anim", view: "persp", light: "neutral" }, { scene: "para", travel: false }, [0.5, 3, 5.5, 6.05, 6.4, 7.0, 7.6, 8.05, 8.5, 9.0, 9.6, 10.5, 11.5, 12.5, 13.5, 15.5], 1280, 720]);
 JOBS.push(["crate_demo", { mode: "anim", view: "persp", light: "neutral" }, { scene: "crate", travel: false }, [5.0, 6.4, 6.72, 6.85, 7.1, 7.6, 8.2, 8.8, 9.5, 10.5], 1000, 640]);
 // RTS distances (night + neutral)
-for (const d of [45, 110, 300]) for (const L of ["night", "neutral"]) JOBS.push([`rts_${d}m_${L}`, { mode: "anim", light: L }, { scene: "rts", rtsDist: d, rtsPitch: 50, fx: true }, [0.0, 0.45, 1.2], 1600, 900]);
+for (const d of [45, 110, 300]) for (const L of ["night", "neutral"]) JOBS.push([`rts_${d}m_${L}`, { mode: "anim", light: L }, { scene: "rts", rtsDist: d, rtsPitch: 50, fx: true }, [0.0, 0.2, 0.6, 1.0, 1.4, 2.0], 1600, 900]);
 
 const browser = await pw.chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const ctx = await browser.newContext({ deviceScaleFactor: 1 });

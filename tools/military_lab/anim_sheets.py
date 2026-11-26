@@ -26,4 +26,9 @@ for job in idx:
     if job["name"].startswith(("para_demo", "crate_demo", "travel_", "cls_walk_side", "cls_run_side", "cls_fire_persp", "cls_reload")):
         g = [im.resize((int(w * 0.6), int(h * 0.6)), Image.LANCZOS) for im in ims]
         g[0].save(os.path.join(out, job["name"] + ".gif"), save_all=True, append_images=g[1:], duration=350 if big else 120, loop=0)
+    if job["name"].startswith("rts_"):   # 1:1 pixel crops of the crowd centre (what the player actually sees)
+        cw, ch = 640, 300
+        crop = Image.new("RGB", (cw * 2, ch * ((len(ims) + 1) // 2)), (0, 0, 0))
+        for i, im in enumerate(ims): crop.paste(im.crop((w // 2 - cw // 2, h // 2 - ch // 2, w // 2 + cw // 2, h // 2 + ch // 2)), ((i % 2) * cw, (i // 2) * ch))
+        crop.save(os.path.join(out, job["name"] + "_crop1to1.png"))
     print("sheet", job["name"])

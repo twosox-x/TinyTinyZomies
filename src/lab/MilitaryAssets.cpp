@@ -559,6 +559,11 @@ bool MilitaryLibrary::loadAnims(const std::string& dir) {
     const json::Value& cj = j["clips"];
     if (cj.type == json::Value::Array) for (const json::Value& c : cj.arr) list.push_back(&c);
     else if (cj.type == json::Value::Object) for (auto& [k, c] : cj.obj) list.push_back(&c);
+    for (auto& [cls, v] : j["slungMount"].obj) {
+        Slung sm{cls, {}, {}};
+        for (int a = 0; a < 3; ++a) { sm.grip[a] = (float)v["gripFromTorsoPivot"][(size_t)a].n(); sm.rot[a] = (float)v["rot"][(size_t)a].n(); }
+        slungMounts.push_back(sm);
+    }
     int loaded = 0;
     for (const json::Value* cp : list) {
         const json::Value& c = *cp;

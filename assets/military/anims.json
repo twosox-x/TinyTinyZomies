@@ -10,7 +10,7 @@
   "crate": 6
  },
  "dataOffsetBytes": 32,
- "floatCount": 177384,
+ "floatCount": 173424,
  "slots": [
   "head",
   "torso",
@@ -602,12 +602,12 @@
    "name": "rifleman/run",
    "class": "rifleman",
    "action": "run",
-   "duration": 0.64,
-   "frames": 19,
+   "duration": 0.72,
+   "frames": 22,
    "loop": true,
    "rootMotion": false,
-   "speed": 3.6,
-   "stride": 2.304,
+   "speed": 3.8,
+   "stride": 2.736,
    "phase0": "L heel strike",
    "events": [
     {
@@ -616,7 +616,7 @@
      "foot": "L"
     },
     {
-     "t": 0.32,
+     "t": 0.36,
      "type": "footstep",
      "foot": "R"
     }
@@ -626,13 +626,13 @@
      "type": "body",
      "offset": 5192,
      "stride": 44,
-     "frames": 19
+     "frames": 22
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.019,
-    "footSlide": 0.005
+    "minY": -0.021,
+    "footSlide": 0.0077
    }
   },
   {
@@ -664,7 +664,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 6028,
+     "offset": 6160,
      "stride": 44,
      "frames": 25
     }
@@ -704,7 +704,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 7128,
+     "offset": 7260,
      "stride": 44,
      "frames": 25
     }
@@ -727,14 +727,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 8228,
+     "offset": 8360,
      "stride": 44,
      "frames": 60
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.031,
+    "minY": -0.04,
     "footSlide": 0
    }
   },
@@ -797,14 +797,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 10868,
+     "offset": 11000,
      "stride": 44,
      "frames": 27
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.031,
+    "minY": -0.04,
     "footSlide": 0
    }
   },
@@ -820,7 +820,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 12056,
+     "offset": 12188,
      "stride": 44,
      "frames": 60
     }
@@ -875,7 +875,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 14696,
+     "offset": 14828,
      "stride": 44,
      "frames": 27
     }
@@ -911,14 +911,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 15884,
+     "offset": 16016,
      "stride": 44,
      "frames": 73
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.031,
+    "minY": -0.04,
     "footSlide": 0
    }
   },
@@ -939,7 +939,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 19096,
+     "offset": 19228,
      "stride": 44,
      "frames": 19
     }
@@ -954,8 +954,8 @@
    "name": "rifleman/death_a",
    "class": "rifleman",
    "action": "death_a",
-   "duration": 1.6,
-   "frames": 49,
+   "duration": 1.2,
+   "frames": 37,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -966,16 +966,16 @@
    ],
    "events": [
     {
-     "t": 0.95,
+     "t": 0.6,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 19932,
+     "offset": 20064,
      "stride": 44,
-     "frames": 49
+     "frames": 37
     }
    ],
    "check": {
@@ -988,8 +988,8 @@
    "name": "rifleman/death_b",
    "class": "rifleman",
    "action": "death_b",
-   "duration": 1.8,
-   "frames": 55,
+   "duration": 1.4,
+   "frames": 43,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -1000,20 +1000,20 @@
    ],
    "events": [
     {
-     "t": 0.55,
+     "t": 0.4,
      "type": "body_fall"
     },
     {
-     "t": 1.15,
+     "t": 0.8,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 22088,
+     "offset": 21692,
      "stride": 44,
-     "frames": 55
+     "frames": 43
     }
    ],
    "check": {
@@ -1026,8 +1026,8 @@
    "name": "rifleman/death_c",
    "class": "rifleman",
    "action": "death_c",
-   "duration": 1.5,
-   "frames": 46,
+   "duration": 1.2,
+   "frames": 37,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -1038,16 +1038,16 @@
    ],
    "events": [
     {
-     "t": 0.85,
+     "t": 0.65,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 24508,
+     "offset": 23584,
      "stride": 44,
-     "frames": 46
+     "frames": 37
     }
    ],
    "check": {
@@ -1077,7 +1077,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 26532,
+     "offset": 25212,
      "stride": 44,
      "frames": 97
     }
@@ -1132,7 +1132,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 30800,
+     "offset": 29480,
      "stride": 44,
      "frames": 73
     }
@@ -1177,7 +1177,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 34012,
+     "offset": 32692,
      "stride": 44,
      "frames": 73
     }
@@ -1221,7 +1221,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 37224,
+     "offset": 35904,
      "stride": 44,
      "frames": 30
     }
@@ -1265,7 +1265,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 38544,
+     "offset": 37224,
      "stride": 44,
      "frames": 30
     }
@@ -1289,13 +1289,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 39864,
+     "offset": 38544,
      "stride": 44,
      "frames": 144
     },
     {
      "type": "canopy",
-     "offset": 46200,
+     "offset": 44880,
      "stride": 12,
      "frames": 144
     }
@@ -1337,13 +1337,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 47928,
+     "offset": 46608,
      "stride": 44,
      "frames": 46
     },
     {
      "type": "canopy",
-     "offset": 49952,
+     "offset": 48632,
      "stride": 12,
      "frames": 46
     }
@@ -1381,13 +1381,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 50504,
+     "offset": 49184,
      "stride": 44,
      "frames": 97
     },
     {
      "type": "canopy",
-     "offset": 54772,
+     "offset": 53452,
      "stride": 12,
      "frames": 97
     }
@@ -1410,7 +1410,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 55936,
+     "offset": 54616,
      "stride": 44,
      "frames": 90
     }
@@ -1447,7 +1447,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 59896,
+     "offset": 58576,
      "stride": 44,
      "frames": 28
     }
@@ -1462,12 +1462,12 @@
    "name": "mg/run",
    "class": "mg",
    "action": "run",
-   "duration": 0.64,
-   "frames": 19,
+   "duration": 0.72,
+   "frames": 22,
    "loop": true,
    "rootMotion": false,
-   "speed": 3.6,
-   "stride": 2.304,
+   "speed": 3.8,
+   "stride": 2.736,
    "phase0": "L heel strike",
    "events": [
     {
@@ -1476,7 +1476,7 @@
      "foot": "L"
     },
     {
-     "t": 0.32,
+     "t": 0.36,
      "type": "footstep",
      "foot": "R"
     }
@@ -1484,15 +1484,15 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 61128,
+     "offset": 59808,
      "stride": 44,
-     "frames": 19
+     "frames": 22
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.019,
-    "footSlide": 0.005
+    "minY": -0.021,
+    "footSlide": 0.0077
    }
   },
   {
@@ -1524,7 +1524,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 61964,
+     "offset": 60776,
      "stride": 44,
      "frames": 25
     }
@@ -1564,7 +1564,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 63064,
+     "offset": 61876,
      "stride": 44,
      "frames": 25
     }
@@ -1587,14 +1587,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 64164,
+     "offset": 62976,
      "stride": 44,
      "frames": 60
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.037,
+    "minY": -0.048,
     "footSlide": 0
    }
   },
@@ -1759,15 +1759,15 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 66804,
+     "offset": 65616,
      "stride": 44,
      "frames": 30
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.037,
-    "footSlide": 0.0004
+    "minY": -0.049,
+    "footSlide": 0.0007
    }
   },
   {
@@ -1782,7 +1782,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 68124,
+     "offset": 66936,
      "stride": 44,
      "frames": 60
     }
@@ -1954,7 +1954,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 70764,
+     "offset": 69576,
      "stride": 44,
      "frames": 30
     }
@@ -2002,14 +2002,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 72084,
+     "offset": 70896,
      "stride": 44,
      "frames": 127
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.037,
+    "minY": -0.048,
     "footSlide": 0
    }
   },
@@ -2030,7 +2030,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 77672,
+     "offset": 76484,
      "stride": 44,
      "frames": 19
     }
@@ -2045,8 +2045,8 @@
    "name": "mg/death_a",
    "class": "mg",
    "action": "death_a",
-   "duration": 1.6,
-   "frames": 49,
+   "duration": 1.2,
+   "frames": 37,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -2057,16 +2057,16 @@
    ],
    "events": [
     {
-     "t": 0.95,
+     "t": 0.6,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 78508,
+     "offset": 77320,
      "stride": 44,
-     "frames": 49
+     "frames": 37
     }
    ],
    "check": {
@@ -2079,8 +2079,8 @@
    "name": "mg/death_b",
    "class": "mg",
    "action": "death_b",
-   "duration": 1.8,
-   "frames": 55,
+   "duration": 1.4,
+   "frames": 43,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -2091,20 +2091,20 @@
    ],
    "events": [
     {
-     "t": 0.55,
+     "t": 0.4,
      "type": "body_fall"
     },
     {
-     "t": 1.15,
+     "t": 0.8,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 80664,
+     "offset": 78948,
      "stride": 44,
-     "frames": 55
+     "frames": 43
     }
    ],
    "check": {
@@ -2117,8 +2117,8 @@
    "name": "mg/death_c",
    "class": "mg",
    "action": "death_c",
-   "duration": 1.5,
-   "frames": 46,
+   "duration": 1.2,
+   "frames": 37,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -2129,16 +2129,16 @@
    ],
    "events": [
     {
-     "t": 0.85,
+     "t": 0.65,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 83084,
+     "offset": 80840,
      "stride": 44,
-     "frames": 46
+     "frames": 37
     }
    ],
    "check": {
@@ -2168,7 +2168,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 85108,
+     "offset": 82468,
      "stride": 44,
      "frames": 97
     }
@@ -2223,7 +2223,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 89376,
+     "offset": 86736,
      "stride": 44,
      "frames": 73
     }
@@ -2268,7 +2268,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 92588,
+     "offset": 89948,
      "stride": 44,
      "frames": 73
     }
@@ -2312,7 +2312,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 95800,
+     "offset": 93160,
      "stride": 44,
      "frames": 30
     }
@@ -2356,7 +2356,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 97120,
+     "offset": 94480,
      "stride": 44,
      "frames": 30
     }
@@ -2380,13 +2380,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 98440,
+     "offset": 95800,
      "stride": 44,
      "frames": 144
     },
     {
      "type": "canopy",
-     "offset": 104776,
+     "offset": 102136,
      "stride": 12,
      "frames": 144
     }
@@ -2428,13 +2428,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 106504,
+     "offset": 103864,
      "stride": 44,
      "frames": 46
     },
     {
      "type": "canopy",
-     "offset": 108528,
+     "offset": 105888,
      "stride": 12,
      "frames": 46
     }
@@ -2472,13 +2472,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 109080,
+     "offset": 106440,
      "stride": 44,
      "frames": 97
     },
     {
      "type": "canopy",
-     "offset": 113348,
+     "offset": 110708,
      "stride": 12,
      "frames": 97
     }
@@ -2501,7 +2501,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 114512,
+     "offset": 111872,
      "stride": 44,
      "frames": 90
     }
@@ -2538,7 +2538,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 118472,
+     "offset": 115832,
      "stride": 44,
      "frames": 28
     }
@@ -2553,12 +2553,12 @@
    "name": "sniper/run",
    "class": "sniper",
    "action": "run",
-   "duration": 0.64,
-   "frames": 19,
+   "duration": 0.72,
+   "frames": 22,
    "loop": true,
    "rootMotion": false,
-   "speed": 3.6,
-   "stride": 2.304,
+   "speed": 3.8,
+   "stride": 2.736,
    "phase0": "L heel strike",
    "events": [
     {
@@ -2567,7 +2567,7 @@
      "foot": "L"
     },
     {
-     "t": 0.32,
+     "t": 0.36,
      "type": "footstep",
      "foot": "R"
     }
@@ -2575,15 +2575,15 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 119704,
+     "offset": 117064,
      "stride": 44,
-     "frames": 19
+     "frames": 22
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.019,
-    "footSlide": 0.005
+    "minY": -0.021,
+    "footSlide": 0.0077
    }
   },
   {
@@ -2615,7 +2615,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 120540,
+     "offset": 118032,
      "stride": 44,
      "frames": 25
     }
@@ -2655,7 +2655,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 121640,
+     "offset": 119132,
      "stride": 44,
      "frames": 25
     }
@@ -2678,14 +2678,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 122740,
+     "offset": 120232,
      "stride": 44,
      "frames": 60
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.032,
+    "minY": -0.042,
     "footSlide": 0
    }
   },
@@ -2731,15 +2731,15 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 125380,
+     "offset": 122872,
      "stride": 44,
      "frames": 57
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.032,
-    "footSlide": 0.0012
+    "minY": -0.042,
+    "footSlide": 0.0008
    }
   },
   {
@@ -2754,7 +2754,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 127888,
+     "offset": 125380,
      "stride": 44,
      "frames": 60
     }
@@ -2801,7 +2801,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 130528,
+     "offset": 128020,
      "stride": 44,
      "frames": 57
     }
@@ -2841,14 +2841,14 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 133036,
+     "offset": 130528,
      "stride": 44,
      "frames": 88
     }
    ],
    "check": {
     "supportError": 0,
-    "minY": -0.032,
+    "minY": -0.042,
     "footSlide": 0
    }
   },
@@ -2869,7 +2869,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 136908,
+     "offset": 134400,
      "stride": 44,
      "frames": 19
     }
@@ -2884,8 +2884,8 @@
    "name": "sniper/death_a",
    "class": "sniper",
    "action": "death_a",
-   "duration": 1.6,
-   "frames": 49,
+   "duration": 1.2,
+   "frames": 37,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -2896,16 +2896,16 @@
    ],
    "events": [
     {
-     "t": 0.95,
+     "t": 0.6,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 137744,
+     "offset": 135236,
      "stride": 44,
-     "frames": 49
+     "frames": 37
     }
    ],
    "check": {
@@ -2918,8 +2918,8 @@
    "name": "sniper/death_b",
    "class": "sniper",
    "action": "death_b",
-   "duration": 1.8,
-   "frames": 55,
+   "duration": 1.4,
+   "frames": 43,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -2930,20 +2930,20 @@
    ],
    "events": [
     {
-     "t": 0.55,
+     "t": 0.4,
      "type": "body_fall"
     },
     {
-     "t": 1.15,
+     "t": 0.8,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 139900,
+     "offset": 136864,
      "stride": 44,
-     "frames": 55
+     "frames": 43
     }
    ],
    "check": {
@@ -2956,8 +2956,8 @@
    "name": "sniper/death_c",
    "class": "sniper",
    "action": "death_c",
-   "duration": 1.5,
-   "frames": 46,
+   "duration": 1.2,
+   "frames": 37,
    "loop": false,
    "rootMotion": true,
    "delta": [
@@ -2968,16 +2968,16 @@
    ],
    "events": [
     {
-     "t": 0.85,
+     "t": 0.65,
      "type": "body_fall"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 142320,
+     "offset": 138756,
      "stride": 44,
-     "frames": 46
+     "frames": 37
     }
    ],
    "check": {
@@ -3007,7 +3007,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 144344,
+     "offset": 140384,
      "stride": 44,
      "frames": 97
     }
@@ -3062,7 +3062,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 148612,
+     "offset": 144652,
      "stride": 44,
      "frames": 73
     }
@@ -3107,7 +3107,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 151824,
+     "offset": 147864,
      "stride": 44,
      "frames": 73
     }
@@ -3151,7 +3151,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 155036,
+     "offset": 151076,
      "stride": 44,
      "frames": 30
     }
@@ -3195,7 +3195,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 156356,
+     "offset": 152396,
      "stride": 44,
      "frames": 30
     }
@@ -3219,13 +3219,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 157676,
+     "offset": 153716,
      "stride": 44,
      "frames": 144
     },
     {
      "type": "canopy",
-     "offset": 164012,
+     "offset": 160052,
      "stride": 12,
      "frames": 144
     }
@@ -3267,13 +3267,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 165740,
+     "offset": 161780,
      "stride": 44,
      "frames": 46
     },
     {
      "type": "canopy",
-     "offset": 167764,
+     "offset": 163804,
      "stride": 12,
      "frames": 46
     }
@@ -3311,13 +3311,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 168316,
+     "offset": 164356,
      "stride": 44,
      "frames": 97
     },
     {
      "type": "canopy",
-     "offset": 172584,
+     "offset": 168624,
      "stride": 12,
      "frames": 97
     }
@@ -3341,13 +3341,13 @@
    "tracks": [
     {
      "type": "canopy",
-     "offset": 173748,
+     "offset": 169788,
      "stride": 12,
      "frames": 96
     },
     {
      "type": "crate",
-     "offset": 174900,
+     "offset": 170940,
      "stride": 6,
      "frames": 96
     }
@@ -3383,13 +3383,13 @@
    "tracks": [
     {
      "type": "canopy",
-     "offset": 175476,
+     "offset": 171516,
      "stride": 12,
      "frames": 106
     },
     {
      "type": "crate",
-     "offset": 176748,
+     "offset": 172788,
      "stride": 6,
      "frames": 106
     }

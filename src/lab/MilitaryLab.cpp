@@ -29,6 +29,15 @@ void qrotv(const float q[4], const float v[3], float out[3]) {
     std::memcpy(out, r, sizeof(r));
 }
 void yawQuat(float yaw, float q[4]) { q[0] = 0; q[1] = std::sin(0.5f * yaw); q[2] = 0; q[3] = std::cos(0.5f * yaw); }
+uint16_t packHalf(float f) {   // float -> IEEE half (round toward zero; small values flush to 0)
+    uint32_t x;
+    std::memcpy(&x, &f, 4);
+    uint32_t sign = (x >> 16) & 0x8000u, e = (x >> 23) & 0xFFu, m = x & 0x7FFFFFu;
+    int he = (int)e - 127 + 15;
+    if (e == 0 || he <= 0) return (uint16_t)sign;
+    if (he >= 31) return (uint16_t)(sign | 0x7C00u);
+    return (uint16_t)(sign | ((uint32_t)he << 10) | (m >> 13));
+}
 float length(V3 a) { return std::sqrt(dot(a, a)); }
 float hashf(uint32_t x) { x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16; return (x & 0xFFFFFF) / 16777216.f; }
 // zombie body standard joints (zombie_parts.glsl ZP_PIVOT / ZP_SLOT_PARENT)
@@ -345,6 +354,7 @@ void MilitaryLab::sampleSoldier(const Soldier& so, CharU& C, float mountQ[4], in
             eulerXYZToQuat(&B[MB_ROOTROT], C.rootQ);
             for (int k = 0; k < 3; ++k) C.rootPos[k] = B[MB_ROOTPOS + k];
             eulerXYZToQuat(&B[MB_MOUNT], mountQ);
+            C.anim[3] = B[MB_FLAGS];   // explicit poses: flags (bit 6 weapon slung)
             return;
         }
     }
@@ -426,7 +436,7 @@ void MilitaryLab::soldierEvent(const Soldier& so, const CharU& C, const MilFxEve
             if (flashes_.size() < 64) flashes_.push_back({mp, 1.f / 30.f, 2.f});
         }
     } else if (e.type == "tracer") {
-        spawnFx(M[MilitaryLibrary::FX_TRACER], mp + dir * 0.6f, dir * 600.f, wq, 0.5f, 3);
+        spawnFx(M[MilitaryLibrary::FX_TRACER], mp + dir * 0.6f, dir * 600.f, wq, 0.07f, 3);   // a streak that persists ~4 frames
     } else if (e.type == "shell_eject") {
         float port[3], pv[3];
         ejectPort(kind, port);
@@ -484,6 +494,14 @@ void MilitaryLab::pushSoldier(const Soldier& so, int lod, CharU* out) {
         O.info[0] = ci; O.info[1] = (uint32_t)A.slot;
         std::memcpy(O.offset, A.offset, sizeof(A.offset));
         std::memcpy(O.quat, (int)a == inf.weaponAtt ? mountQ : A.quat, sizeof(float) * 4);
+        if ((int)a == inf.weaponAtt && C.anim[0] > 8.5f && (((int)C.anim[3]) & 64)) {   // slung: torso * T(grip) * R(rot)
+            for (const MilitaryLibrary::Slung& sm : lib_.slungMounts)
+                if (sm.cls == inf.cls) {
+                    O.info[1] = 1;
+                    for (int k = 0; k < 3; ++k) O.offset[k] = sm.grip[k] / bodyVoxel_;
+                    eulerXYZToQuat(sm.rot, O.quat);
+                }
+        }
         attBuckets_[(size_t)A.model].push_back(O);
     }
     ++st_.lod[std::min(lod, 2)];
@@ -584,7 +602,10 @@ void MilitaryLab::drawDrop(const Drop& d) {
     qmul(qy, qr, q);
     qrotv(qy, &Cn[MC_POS], pr);
     V3 pivot{origin.x + pr[0], origin.y + pr[1], origin.z + pr[2]};
-    float paint[4] = {Cn[MC_RADIAL], Cn[MC_HEIGHT], 0.f, Cn[MC_CLAMP] > 0.5f ? d.xz.y : -1e4f};
+    uint32_t sh = (uint32_t)packHalf(Cn[10]) | ((uint32_t)packHalf(Cn[11]) << 16);   // shear x, z (half2)
+    float shf;
+    std::memcpy(&shf, &sh, 4);
+    float paint[4] = {Cn[MC_RADIAL], Cn[MC_HEIGHT], shf, Cn[MC_CLAMP] > 0.5f ? d.xz.y : -1e4f};
     if (para) for (const auto& [m, pv] : para->parts) putInst(m, pivot, q, nullptr, 2, paint);
     else putInst(lib_.chuteOpenModel, pivot, q);
 }
