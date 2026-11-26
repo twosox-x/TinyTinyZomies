@@ -3134,6 +3134,8 @@ function placeBlocks(PL, C, occ, addJob) {
 function buildAll(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
   towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = []; HOUSE_LOG = [];
+  CUTS = []; CUT_WHY = {}; CUT_R = R && R.F ? R : null;                           // driveway curb cuts, see curbProbe()
+  if (CUT_R && CUT_R.setCuts) CUT_R.setCuts(null);
   const mb = new C.MeshBuffer();
   const hs = R.hs * voxel;
   const counts = {};
@@ -3262,6 +3264,15 @@ function buildAll(PL, R, voxel, C) {
   emitJobs();
   // back-of-house dressing (towers/servicekit.js): service courts, gaps between buildings, alleys
   if (LIB.serviceKit) counts.service = LIB.serviceKit({ PL, R, C, occ, blocks, jobs, hs, voxel, mb });
+  // leftover suburban block land (not in any lot): parks, groves, wedge memorials, pocket plazas (towers/parkkit.js).
+  // Emitted after every building: cullHidden() groups faces by quantised normal and measures planes with the first
+  // face of each group, so these freely rotated parts must not come first in a group the buildings use
+  if (sub && LIB.parkKit) { const tp = Date.now(); sub.leftovers = LIB.parkKit({ PL, C, R, blocks, sub, mb, hs, voxel }); counts.parkMs = Date.now() - tp; }
+  // every curb cut is known now: the rasterizer drops the curbs (the page re-meshes the road chunks they touch)
+  const cuts = CUTS; CUT_R = null; CUTS = [];
+  if (R && R.setCuts) R.setCuts(cuts);
+  if (LIB.onCuts) LIB.onCuts(cuts);
+  counts.cuts = cuts.length; counts.cutRefused = CUT_WHY;
   cullPass();
   const res = mb.finish(0.002);
   res.counts = counts;
@@ -3269,12 +3280,154 @@ function buildAll(PL, R, voxel, C) {
   res.mids = MID_LOG;
   res.houses = HOUSE_LOG;
   res.blocks = blocks ? blocks.stats : null;
+  res.cuts = cuts;
   res.footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1, use: J.use }));
   res.suburbs = sub ? Object.assign({}, sub.stats, { ms: counts.suburbMs, lots: sub.lots.map(L => ({ O: L.O, e1: L.e1, e2: L.e2, w: L.w, d: L.d, use: L.use, nb: L.nb })) }) : null;
+  res.leftovers = sub && sub.leftovers ? sub.leftovers : null;          // debugging: leftover regions and what fills them
   return res;
 }
 
+// ------------------------------------------------------------------------------------------------ driveway curb cuts
+// Every parking lot, garage portal, drive-through, loading bay and house driveway meets its street across the
+// sidewalk at a curb cut. Plug-ins (and the yard / service kits) work in their lot frame (an Emitter: O, e1 along
+// the frontage, e2 into the lot, front at z = 0 = the lot line) and ask:
+//   L.curbOK(E, x0, x1)                 can a drive of local x range [x0, x1) (voxels) cross the sidewalk here?
+//   L.curbFit(E, x0, x1, lo, hi)        the nearest valid placement of that width inside [lo, hi], or null
+//   L.driveway(E, x0, x1, kind)         register the curb cut (returns false where none is possible)
+//   L.cutWorld(ax, az, bx, bz, nx, nz, kind)  the same from a world segment on the lot line and normal to the street
+//   L.curbOKSide / L.drivewaySide(E, 'l' | 'r', W, z0, z1, kind)  a drive across a side line onto a side street
+// A cut is valid where the sidewalk in front is a plain stretch of one (non-alley) street: the carriageway edge
+// within 9 m everywhere from 3 m before to 3 m past the cut, one street all along with a smoothly changing curb
+// (no corner curb return), only lot / sidewalk / curb on the way, carriageway in front and no crosswalk in front
+// of the cut or its wings. Refusals are counted by reason in res.counts.cutRefused.
+// buildAll returns the cuts as res.cuts and hands them to the rasterizer (city_core Rasterizer.setCuts), which
+// drops the curb and paves the apron; placeProps keeps street furniture off them. Without a road raster (single
+// building preview) everything is allowed and nothing is registered.
+let CUTS = [], CUT_R = null, CUT_WHY = {};
+const CUT_MAT_OK = new Set([7, 8, 6]);              // city_core MAT: SIDEWALK, SIDEWALK_JOINT, CURB
+const CUT_XWALK = 24, CUT_PLAZA = new Set([12, 13]);  // MAT.CROSSWALK, PLAZA / PLAZA_JOINT
+const CUT_CARRIAGE = new Set([0, 1, 2, 3, 4, 5, 23]);  // asphalt, gutter, paint, parking lane
+const cutNo = (why) => { CUT_WHY[why] = (CUT_WHY[why] || 0) + 1; return null; };
+// from a point on the lot line, walk towards the street to the carriageway edge: { depth, road, s } or null
+// loose: a fixed opening near a corner, where the nearest street may change on the way (only the curb counts)
+function curbProbe(X, Z, nx, nz, loose) {
+  const R = CUT_R, F = R.F, o = {}, cls = [0, 0];
+  let road = -1, prevCar = 1e9;
+  for (let d = 0.05; d < 9; d += 0.1) {
+    const x = X + nx * d, z = Z + nz * d;
+    F.sample(x, z, o);
+    if (o.road < 0) return cutNo('no road');
+    const car = o.car / (o.g || 1);
+    if (road < 0 || loose) road = o.road;
+    if (o.road !== road) return cutNo('two streets');
+    if (car <= 0) {
+      const r = R.roads[road];
+      if (!r || r.P.id === 'alley') return cutNo('alley');
+      if (prevCar > 1e8) return cutNo('lot line on the carriageway');
+      // just behind the curb: a sidewalk / curb of this road (not a crosswalk landing, plaza, median)
+      R.classify(x - nx * 0.3, z - nz * 0.3, o, cls);
+      if (o.road !== road || !CUT_MAT_OK.has(cls[1])) return cutNo('not a sidewalk');
+      return { depth: d, road, s: o.s, u: o.u, x, z };
+    }
+    // nothing but lot, sidewalk and curb on the way (a plaza, park or square in front is no driveway)
+    if (d > 0.5 && prevCar < 1e8) { R.classify(x, z, o, cls); if (CUT_PLAZA.has(cls[1])) return cutNo('plaza'); }
+    prevCar = car;
+  }
+  return cutNo('no street within 9 m');
+}
+// world segment on the lot line (a -> b) and normal to the street: the cut, or null
+function cutFor(ax, az, bx, bz, nx, nz, margin) {
+  if (!CUT_R) return null;
+  const L = Math.hypot(bx - ax, bz - az);
+  if (L < 0.5) return null;
+  const ux = (bx - ax) / L, uz = (bz - az) / L;
+  // walk the curb from mg before to mg past the cut, probing from the lot line every 0.5 m: one street all along,
+  // the curb depth changing smoothly (a gentle curve such as a cul-de-sac bulb is fine; a corner's curb return
+  // swings away: the probe meets the cross street, or the depth jumps), sidewalk behind the curb, carriageway in
+  // front, and no crosswalk in front of the cut and its wings. A fixed opening (a downtown garage portal, a
+  // loading gap) keeps 1 m clear and only its own width off crosswalks; drives a plug-in can still move keep 3 m.
+  const fixed = margin !== undefined, mg = fixed ? margin : 3, xw = fixed ? 0.1 : 1.6;
+  const o = {}, cls = [0, 0];
+  let road = -1, prev = -1, dmax = 0, s0 = 1e9, s1 = -1e9, side = 0;
+  for (let t = -mg; t <= L + mg + 1e-6; t += 0.5) {
+    const tt = Math.min(Math.max(t, t < 0 || t > L ? t : 0.1), t > L ? t : L - 0.1), px = ax + ux * tt, pz = az + uz * tt;
+    let q;
+    if (fixed && (t < 0 || t > L) && prev >= 0) {                 // a fixed opening's wings: sidewalk at the same depth
+      q = { x: px + nx * prev, z: pz + nz * prev, depth: prev, road };
+      CUT_R.classify(q.x - nx * 0.35, q.z - nz * 0.35, o, cls);
+      if (o.road !== road || !CUT_MAT_OK.has(cls[1])) return cutNo('corner');
+    } else q = curbProbe(px, pz, nx, nz, fixed);
+    if (!q) return t < 0 || t > L ? cutNo('corner') : null;
+    if (road < 0) road = q.road;
+    if (q.road !== road) return cutNo('two streets');
+    if (prev >= 0 && Math.abs(q.depth - prev) > 0.6) return cutNo('corner');
+    prev = q.depth;
+    if (t >= 0 && t <= L) { dmax = Math.max(dmax, q.depth); if (q.s !== undefined) { s0 = Math.min(s0, q.s); s1 = Math.max(s1, q.s); side = q.u; } }
+    CUT_R.classify(q.x + nx * 0.6, q.z + nz * 0.6, o, cls);
+    if (!CUT_CARRIAGE.has(cls[1]) && !(fixed && cls[1] === CUT_XWALK)) return cutNo(cls[1] === CUT_XWALK ? 'crosswalk' : 'corner');
+    if (t > -xw && t < L + xw) for (let e = 0.6; e < 4.6; e += 0.5) { CUT_R.classify(q.x + nx * e, q.z + nz * e, o, cls); if (cls[1] === CUT_XWALK) return cutNo('crosswalk'); }
+  }
+  // a movable drive also keeps 6.5 m from the junction (crosswalk, stop line, the signal mast or stop sign on the
+  // approach); intervals longer than 40 m are merged junction clusters along an avenue, measured by the curb walk
+  if (s1 >= s0) for (const j of CUT_R.roads[road].junctions || []) {
+    if (!j.major) continue;
+    if (!fixed && j.b - j.a <= 40 && s1 > j.a - 6.5 && s0 < j.b + 6.5) return cutNo('junction');
+    // where placeProps puts the approach's signal mast / stop sign (5.2 m before the interval, right-hand side)
+    if ((side < 0 && s1 > j.a - 5.2 - 1.6 && s0 < j.a - 5.2 + 1.6) || (side > 0 && s1 > j.b + 5.2 - 1.6 && s0 < j.b + 5.2 + 1.6)) return cutNo('junction');
+  }
+  return { ax, az, bx, bz, nx, nz, depth: dmax + 0.05, road };
+}
+// fixed openings that cannot move (a downtown garage portal, a loading gap between buildings) only need their
+// wings clear of the corner (1 m); drives a plug-in can still place keep 3 m
+const CUT_MARGIN = { garage: 1, loading: 1 };
+function cutLocal(E, x0, x1, kind) {
+  const O = E.O, e1 = E.e1, e2 = E.e2;
+  return cutFor(O[0] + e1[0] * x0 * BV, O[1] + e1[1] * x0 * BV, O[0] + e1[0] * x1 * BV, O[1] + e1[1] * x1 * BV, -e2[0], -e2[1], CUT_MARGIN[kind]);
+}
+function curbOK(E, x0, x1) { return !CUT_R || !!cutLocal(E, x0, x1); }
+// a drive across a SIDE line of a corner lot onto the side street: side 'l' (x = 0) or 'r' (x = xs, the lot width),
+// local z range [z0, z1)
+function cutSide(E, side, xs, z0, z1, kind) {
+  const O = E.O, e1 = E.e1, e2 = E.e2, x = side === 'l' ? 0 : xs, sg = side === 'l' ? -1 : 1;
+  const P = (z) => [O[0] + (e1[0] * x + e2[0] * z) * BV, O[1] + (e1[1] * x + e2[1] * z) * BV];
+  const [ax, az] = P(side === 'l' ? z1 : z0), [bx, bz] = P(side === 'l' ? z0 : z1);
+  return cutFor(ax, az, bx, bz, sg * e1[0], sg * e1[1], CUT_MARGIN[kind]);
+}
+function curbOKSide(E, side, xs, z0, z1) { return !CUT_R || !!cutSide(E, side, xs, z0, z1); }
+function drivewaySide(E, side, xs, z0, z1, kind) {
+  if (!CUT_R) return false;
+  const c = cutSide(E, side, xs, z0, z1, kind);
+  if (!c) return false;
+  c.kind = kind || 'drive'; CUTS.push(c);
+  return true;
+}
+function curbFit(E, x0, x1, lo, hi) {
+  if (!CUT_R) return [x0, x1];
+  const w = x1 - x0;
+  for (let k = 0; k <= Math.max(0, hi - lo); k += 2) for (const s of [-1, 1]) {
+    const a = x0 + s * k;
+    if (a < lo || a + w > hi) continue;
+    if (cutLocal(E, a, a + w)) return [a, a + w];
+    if (!k) break;
+  }
+  return null;
+}
+function driveway(E, x0, x1, kind) {
+  if (!CUT_R) return false;
+  const c = cutLocal(E, x0, x1, kind);
+  if (!c) return false;
+  c.kind = kind || 'drive'; CUTS.push(c);
+  return true;
+}
+function cutWorld(ax, az, bx, bz, nx, nz, kind) {
+  const c = cutFor(ax, az, bx, bz, nx, nz, CUT_MARGIN[kind]);
+  if (!c) return false;
+  c.kind = kind || 'drive'; CUTS.push(c);
+  return true;
+}
+
 const LIB = {
+  curbOK, curbFit, driveway, cutWorld, curbOKSide, drivewaySide, cutWhy: () => CUT_WHY,
   BV, BM, FH, BASE, Relief, bays, H2, pick, glassMat, facades, prism, roofMask, buildTiers, soffit, inset, rectMask, rotated, flatRoof,
   facadeMid, facadeGlassFloor, waterTank, skinPodium, skinDeco, skinDecoBase, skinCurtain, skinBronze, skinPilotis, skinFins, skinPomo,
   skinArcade, skinPrecast, skinLouver, decoCrownModel, lanternModel, mastsModel, craneModel, pyramidModel, pedimentModel, plazaModel,

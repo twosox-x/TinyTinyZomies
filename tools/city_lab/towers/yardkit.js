@@ -695,6 +695,9 @@
       paint(Math.max(1, dr.x0 - 0.5), 1.5, Math.min(w - 1, dr.x1 + 0.5), 2.5, DRIVE, fm, isLawn);
       omark(dr.x0 - 1, 0, dr.x1 + 1, driveEnd + 1, 1);
       omark(dr.x0 - 2, 0, dr.x1 + 2, 3, 1);
+      // the drive meets the street at a curb cut (dropped curb, concrete apron across the sidewalk); none where a
+      // corner curb return or a crosswalk is too close
+      if (L.driveway) L.driveway(E, dr.x0, dr.x1, 'house');
     }
 
     // ---- front walk

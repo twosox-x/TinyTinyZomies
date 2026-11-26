@@ -675,16 +675,18 @@ const MAT = {
   ASPHALT: 0, ASPHALT_B: 1, ASPHALT_C: 2, GUTTER: 3, PAINT_WHITE: 4, PAINT_YELLOW: 5, CURB: 6, SIDEWALK: 7, SIDEWALK_JOINT: 8,
   MEDIAN_CURB: 9, MEDIAN_GRASS: 10, PLOT: 11, PLAZA: 12, PLAZA_JOINT: 13, PARK: 14, ALLEY: 15, YARD: 16, LOT: 17, PARK_PATH: 18,
   BUILDING_A: 19, BUILDING_B: 20, BUILDING_C: 21, BUILDING_ROOF: 22, PARKING: 23, CROSSWALK: 24,
-  BUILDING_D: 25, BUILDING_E: 26, BUILDING_F: 27, ROOF_B: 28
+  BUILDING_D: 25, BUILDING_E: 26, BUILDING_F: 27, ROOF_B: 28, DRIVE: 29
 };
 // muted, slightly washed-out palette (sRGB 0..255); renderer converts to linear
 const PALETTE = [
   [118, 116, 118], [111, 110, 114], [124, 121, 120], [98, 97, 101], [206, 202, 190], [204, 170, 92], [196, 192, 182], [184, 180, 170], [170, 166, 157],
   [190, 186, 176], [128, 150, 104], [194, 186, 168], [198, 188, 170], [178, 168, 151], [138, 160, 110], [142, 138, 136], [154, 168, 124], [176, 166, 146], [196, 184, 158],
   [216, 206, 190], [196, 194, 190], [226, 220, 206], [168, 164, 158], [128, 126, 128], [210, 206, 194],
-  [206, 184, 168], [186, 196, 202], [214, 198, 168], [156, 160, 164]
+  [206, 184, 168], [186, 196, 202], [214, 198, 168], [156, 160, 164],
+  [160, 156, 149]                                      // DRIVE: driveway apron concrete at a curb cut
 ];
 const MAT_NAMES = Object.keys(MAT);
+const CUT_FLARE = 0.6;                                 // driveway apron wings beyond each end of a curb cut (m)
 const BUILDING_TONES = [19, 20, 21, 25, 26, 27];
 
 class Rasterizer {
@@ -745,6 +747,40 @@ class Rasterizer {
     const c = this.F.blockAt(x, z);
     if (c >= 0 && this.blockArea.has(c)) return this.blockArea.get(c);
     for (const a of this.areas) if (a.shape === 'side' && road === a.road && u * a.side > 0) return a.kind;
+    return null;
+  }
+  // Driveway curb cuts (registered by the building placement, CityArch.buildAll -> res.cuts): each is a segment on
+  // the lot line (a -> b, metres), the unit normal n towards the street, the depth from the lot line to the
+  // carriageway edge and the road it crosses. Inside a cut the sidewalk becomes driveway concrete: the curb is
+  // dropped to the gutter, a half-height step behind it, then the apron at sidewalk height up to the lot line;
+  // short flared wings (lowered curb, a concrete triangle) on both sides. Outside the cuts nothing changes.
+  setCuts(cuts) {
+    this.cuts = cuts && cuts.length ? cuts : null;
+    this.cutGrid = new Map();
+    if (!this.cuts) return;
+    const G = 8;
+    this.cuts.forEach((c) => {
+      const dx = c.bx - c.ax, dz = c.bz - c.az;
+      c.len = Math.hypot(dx, dz); c.ux = dx / c.len; c.uz = dz / c.len;
+      const pts = [[c.ax, c.az], [c.bx, c.bz], [c.ax + c.nx * c.depth, c.az + c.nz * c.depth], [c.bx + c.nx * c.depth, c.bz + c.nz * c.depth]];
+      const pad = CUT_FLARE + 0.5;
+      const xs = pts.map(p => p[0]), zs = pts.map(p => p[1]);
+      for (let gz = Math.floor((Math.min(...zs) - pad) / G); gz <= Math.floor((Math.max(...zs) + pad) / G); ++gz)
+        for (let gx = Math.floor((Math.min(...xs) - pad) / G); gx <= Math.floor((Math.max(...xs) + pad) / G); ++gx) {
+          const k = gx + ',' + gz; let L = this.cutGrid.get(k); if (!L) this.cutGrid.set(k, L = []); L.push(c);
+        }
+    });
+  }
+  // the cut covering (x, z) beside road `road` (outside the carriageway), or null; t / d / over in metres
+  cutAt(x, z, road) {
+    const L = this.cutGrid.get(Math.floor(x / 8) + ',' + Math.floor(z / 8));
+    if (!L) return null;
+    for (const c of L) {
+      if (c.road !== road) continue;
+      const rx = x - c.ax, rz = z - c.az, t = rx * c.ux + rz * c.uz, d = rx * c.nx + rz * c.nz;
+      if (d < -0.02 || d > c.depth + 0.4 || t < -CUT_FLARE || t > c.len + CUT_FLARE) continue;
+      return { c, t, d, over: t < 0 ? -t : t > c.len ? t - c.len : 0 };
+    }
     return null;
   }
   // classify one column -> [height in voxels, material]
@@ -834,6 +870,20 @@ class Rasterizer {
       return;
     }
     // outside the carriageway: curb, sidewalk, block
+    if (this.cuts) {
+      const k = this.cutAt(x, z, o.road);
+      if (k) {
+        const curbW = Math.max(0.16, v * 1.6), lo = Math.floor(hs / 2);
+        if (k.over === 0) {                                        // the cut: dropped curb, step, apron
+          out[1] = MAT.DRIVE;
+          out[0] = car < curbW ? 0 : car < curbW + 0.45 ? lo : hs;
+          return;
+        }
+        const f = k.over / CUT_FLARE;                              // wings: lowered curb, concrete triangle
+        if (car < curbW) { out[0] = f < 0.55 ? lo : hs; out[1] = f < 0.55 ? MAT.DRIVE : MAT.CURB; return; }
+        if (car < curbW + 0.9 * (1 - f) && car < o.sw) { out[0] = hs; out[1] = MAT.DRIVE; return; }
+      }
+    }
     if (P.id === 'alley' && car < 0.6 && o.road2 >= 0 && o.oth > 0.6) { out[0] = hs; out[1] = MAT.CURB; return; }
     if (car < Math.max(0.16, v * 1.6)) { out[0] = hs; out[1] = MAT.CURB; return; }
     const area = this.areaAt(x, z, o.road, o.u);
@@ -1221,13 +1271,30 @@ function prepareBuild(net, voxel, opts) {
   const F = new FieldSampler(net, opts.fieldCell || 0.5);
   F.build();
   const R = new Rasterizer(net, F, voxel, opts);
+  const { chunks, VX0, VZ0, VX1, VZ1 } = chunkGrid(net, voxel, opts);
+  return { net, voxel, F, R, chunks, VX0, VZ0, VX1, VZ1 };
+}
+function chunkGrid(net, voxel, opts) {
   const b = net.bounds;
   const VX0 = Math.floor(b.x0 / voxel), VZ0 = Math.floor(b.z0 / voxel), VX1 = Math.ceil(b.x1 / voxel), VZ1 = Math.ceil(b.z1 / voxel);
-  const CH = opts.chunk || Math.max(128, Math.round(48 / voxel));   // ~48 m chunks
+  const CH = (opts && opts.chunk) || Math.max(128, Math.round(48 / voxel));   // ~48 m chunks
   const chunks = [];
   for (let oz = VZ0; oz < VZ1; oz += CH)
     for (let ox = VX0; ox < VX1; ox += CH) chunks.push({ ox, oz, w: Math.min(CH, VX1 - ox), d: Math.min(CH, VZ1 - oz) });
-  return { net, voxel, F, R, chunks, VX0, VZ0, VX1, VZ1 };
+  return { chunks, VX0, VZ0, VX1, VZ1 };
+}
+// indices of the chunks (incl. their 1-column apron) that a list of curb cuts touches: they are meshed again
+// once the cuts are known (the cuts come from the building placement, after the first road pass)
+function chunksForCuts(chunks, cuts, voxel) {
+  const out = [];
+  if (!cuts || !cuts.length) return out;
+  const boxes = cuts.map((c) => {
+    const pts = [[c.ax, c.az], [c.bx, c.bz], [c.ax + c.nx * c.depth, c.az + c.nz * c.depth], [c.bx + c.nx * c.depth, c.bz + c.nz * c.depth]];
+    const pad = CUT_FLARE + 1;
+    return [Math.min(...pts.map(p => p[0])) - pad, Math.min(...pts.map(p => p[1])) - pad, Math.max(...pts.map(p => p[0])) + pad, Math.max(...pts.map(p => p[1])) + pad].map(v => v / voxel);
+  });
+  chunks.forEach((c, i) => { if (boxes.some(b => b[2] > c.ox - 1 && b[0] < c.ox + c.w + 1 && b[3] > c.oz - 1 && b[1] < c.oz + c.d + 1)) out.push(i); });
+  return out;
 }
 // voxel columns + greedy surface mesh of one chunk
 function buildChunk(ctx, c) {
@@ -1396,6 +1463,8 @@ function* buildCity(net, voxel, opts) {
   timing.roads = Date.now() - t1;
   const t2 = Date.now();
   const blocks = buildBlocks(ctx);
+  // the building placement registered driveway curb cuts: mesh the chunks they touch again
+  for (const i of chunksForCuts(ctx.chunks, ctx.R.cuts, voxel)) { const c = ctx.chunks[i]; quads -= c.mesh.quads; c.mesh = buildChunk(ctx, c); quads += c.mesh.quads; }
   const props = placeProps(ctx);
   timing.buildings = Date.now() - t2;
   timing.total = Date.now() - t0;
@@ -1959,6 +2028,29 @@ function placeProps(ctx) {
     }
   }
   placeStreetFurniture(ctx, out);
+  // nothing on a driveway curb cut or its wings: furniture keeps 0.8 m clear of them. A lamp or hydrant in the way
+  // moves along the curb to just past the cut (if that spot is plain sidewalk of its street), the rest is dropped;
+  // signal masts and stop signs belong to the junction and stay unless they stand on the cut itself
+  if (R.cuts) {
+    const hit = (x, z, pad) => R.cuts.find((c) => {
+      const rx = x - c.ax, rz = z - c.az, t = rx * c.ux + rz * c.uz, d = rx * c.nx + rz * c.nz;
+      return t > -CUT_FLARE - pad && t < c.len + CUT_FLARE + pad && d > -0.5 && d < c.depth + 0.8;
+    });
+    const keep = [];
+    for (const p of out) {
+      const junction = p.type.startsWith('signal') || p.type === 'stop';
+      const c = hit(p.x, p.z, junction ? -CUT_FLARE : 0.8);
+      if (!c) { keep.push(p); continue; }
+      if (p.type !== 'lamp' && p.type !== 'hydrant') continue;
+      const t = (p.x - c.ax) * c.ux + (p.z - c.az) * c.uz;
+      for (const nt of (t < c.len / 2 ? [-CUT_FLARE - 1, c.len + CUT_FLARE + 1] : [c.len + CUT_FLARE + 1, -CUT_FLARE - 1])) {
+        const x = p.x + (nt - t) * c.ux, z = p.z + (nt - t) * c.uz;
+        if (Math.abs(nt - t) > 6.5 || hit(x, z, 0.8) || !okAt(x, z, p.road)) continue;
+        keep.push(Object.assign({}, p, { x, z })); break;
+      }
+    }
+    out.length = 0; out.push(...keep);
+  }
   if (ctx.footprints) {
     // drop furniture that would stand on a building, its stoop or entrance steps: within 2.4 m in front of
     // (or anywhere inside) a building footprint (footprints: origin O, axes e1 along / e2 into the lot, w x d metres)
@@ -2220,6 +2312,6 @@ function exportNetwork(net) {
   };
 }
 
-const CityCore = { pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

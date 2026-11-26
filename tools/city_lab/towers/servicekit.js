@@ -383,6 +383,8 @@ function serviceKit(K) {
               put(vm, ox, oz, -S.f.a[0], -S.f.a[1], S.f.b[0], S.f.b[1], yG);
               mark(S.f, 0, cu + Lm / 2 + 0.6, 0.1, gw - 0.1);
               cnt(truck ? 'truck' : 'van', ox, oz);
+              // the vehicle drives in over a curb cut across the sidewalk at the gap's mouth
+              if (L.cutWorld) { const [ax, az] = S.f.at(0, 0.1), [bx, bz] = S.f.at(0, gw - 0.1); L.cutWorld(ax, az, bx, bz, -S.f.a[0], -S.f.a[1], 'loading'); }
               // dock door on the wall behind the vehicle's rear
               const du = cu + Lm / 2 + 0.4;
               if (du + 3.6 < S.len && rectAll(S.f, du, du + 3.4, 0.1, 1.2, free)) {

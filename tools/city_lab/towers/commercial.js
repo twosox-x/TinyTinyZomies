@@ -296,6 +296,8 @@
       else { rows.push({ z0: z - 19, nose: -1, dbl: false }); z -= 19; break; }
     }
     const isl = 10, bay = o.bay || 12;
+    // o.lanes: [x0, x1] drive lanes kept open through every row (no stalls or islands there)
+    const inLane = (a, b) => (o.lanes || []).some(([p, q]) => b > p - 1 && a < q + 1);
     let lampK = 0, adaDone = !o.ada;
     for (const rw of rows) {
       const d = rw.dbl ? 38 : 19;
@@ -315,18 +317,20 @@
       const xs = a0 + ((a1 - a0 - n * 10) >> 1);
       segs.forEach(([s0, s1], si) => {
         const x0 = xs + s0 * 10, x1 = xs + s1 * 10;
+        // the front row, with no aisle between it and the front strip, leaves the driveway openings free
+        const fsk = rw.z0 - zA < 14 ? o.skip : null, lsk = o.lanes ? (a, b) => inLane(a, b) || !!(fsk && fsk(a, b)) : fsk;
         if (rw.dbl) {
-          stallRow(M, x0, x1, rw.z0 + 19, 0 - 1, R, occ, {});
-          stallRow(M, x0, x1, rw.z0, 1, R, occ, {});
-          if (si < segs.length - 1) {                                                         // island between bays
+          stallRow(M, x0, x1, rw.z0 + 19, 0 - 1, R, occ, o.lanes ? { skip: lsk } : {});
+          stallRow(M, x0, x1, rw.z0, 1, R, occ, o.lanes ? { skip: lsk } : {});
+          if (si < segs.length - 1 && !inLane(x1, xs + segs[si + 1][0] * 10)) {             // island between bays
             const ix0 = x1, ix1 = xs + segs[si + 1][0] * 10;
             bed(M, ix0 + 1, rw.z0 + 1, ix1 - 1, rw.z0 + 37, R, { tree: 18, shrubs: 0.6 });
             if (lampK++ % 2 === 0) lamp(M, (ix0 + ix1) >> 1, rw.z0 + 19, 30, ['z+', 'z-'], 2);
           }
         } else {
-          stallRow(M, x0, x1, rw.z0, rw.nose, R, occ, { ada: !adaDone, adaRight: o.adaRight, skip: rw.z0 <= zA + 1 ? o.skip : null });
+          stallRow(M, x0, x1, rw.z0, rw.nose, R, occ, { ada: !adaDone, adaRight: o.adaRight, skip: lsk });
           adaDone = true;
-          if (si < segs.length - 1) bed(M, x1 + 1, rw.z0 + 1, xs + segs[si + 1][0] * 10 - 1, rw.z0 + 18, R, { tree: 18, shrubs: 0.5 });
+          if (si < segs.length - 1 && !inLane(x1, xs + segs[si + 1][0] * 10)) bed(M, x1 + 1, rw.z0 + 1, xs + segs[si + 1][0] * 10 - 1, rw.z0 + 18, R, { tree: 18, shrubs: 0.5 });
         }
       });
       if (o.endIslands !== false && a1 - a0 >= 10 && rw.dbl) {
@@ -348,15 +352,49 @@
     for (const [a, b] of segs) bed(M, a, 0, b, depth, R, { tree: o.tree || 0, shrubs: o.shrubs === undefined ? 0.6 : o.shrubs, clear: o.clear });
     return segs;
   }
-  function dumpsterPen(M, x, z, w, d, wallM, gateM) {          // 3 masonry walls + steel gates facing -z
+  // 3 masonry walls + steel gates over [x, x + w) x [z, z + d); the gates face dir ('z-' default, 'z+', 'x-', 'x+'),
+  // towards the drive aisle the refuse truck comes along
+  function dumpsterPen(M, x, z, w, d, wallM, gateM, dir) {
     M.box(x, 0, z, x + w, 8, z + d, wallM);
     M.box(x + 1, 1, z + 1, x + w - 1, 8, z + d - 1, -1);
     M.box(x + 1, 1, z + 1, x + w - 1, 2, z + d - 1, BM.CONCRETE);
     M.box(x + 2, 2, z + 2, x + w - 2, 7, z + d - 2, BM.SHUTTER_GREEN);
-    M.box(x + 1, 1, z, x + w - 1, 7, z + 1, gateM || BM.STEEL_DARK);
-    M.box((x + x + w) >> 1, 1, z - 1, ((x + x + w) >> 1) + 1, 7, z, BM.METAL);
+    const g = gateM || BM.STEEL_DARK, xm = (x + x + w) >> 1, zm = (z + z + d) >> 1;
+    if (dir === 'z+') { M.box(x + 1, 1, z + d - 1, x + w - 1, 7, z + d, g); M.box(xm, 1, z + d, xm + 1, 7, z + d + 1, BM.METAL); }
+    else if (dir === 'x-') { M.box(x, 1, z + 1, x + 1, 7, z + d - 1, g); M.box(x - 1, 1, zm, x, 7, zm + 1, BM.METAL); }
+    else if (dir === 'x+') { M.box(x + w - 1, 1, z + 1, x + w, 7, z + d - 1, g); M.box(x + w, 1, zm, x + w + 1, 7, zm + 1, BM.METAL); }
+    else { M.box(x + 1, 1, z, x + w - 1, 7, z + 1, g); M.box(xm, 1, z - 1, xm + 1, 7, z, BM.METAL); }
     M.box(x, 8, z, x + w, 9, z + d, BM.CONCRETE);
     M.box(x + 1, 8, z + 1, x + w - 1, 9, z + d - 1, -1);
+  }
+  // ---- vehicle access. Every opening in a lot's front strip lands where the sidewalk can take a curb cut
+  // (CityArch.lib.curbOK: a plain stretch of one street, clear of corners and crosswalks) and registers it
+  // (L.driveway), so the city drops the curb and paves the apron there. fitOpen: the nearest valid position of the
+  // opening [a, b) inside [lo, hi] that avoid(x0, x1) does not reject, or null (no road raster, e.g. the single
+  // building preview: everything fits where it was asked for)
+  function fitOpen(E, a, b, lo, hi, avoid) {
+    const w = b - a;
+    for (let k = 0; k <= hi - lo; k += 2) for (const sgn of k ? [-1, 1] : [1]) {
+      const x = a + sgn * k;
+      if (x < lo || x + w > hi || (avoid && avoid(x, x + w))) continue;
+      if (!L.curbOK || L.curbOK(E, x, x + w)) return [x, x + w];
+    }
+    return null;
+  }
+  // registers the cut, and the opening gets a ramp from the sidewalk up the 25 cm lot slab (voxLot)
+  const cutAt = (E, a, b, kind) => { (E._ramps || (E._ramps = [])).push([a, b]); return L.driveway && L.driveway(E, a, b, kind || 'lot'); };
+  // the lot model, with a sloped concrete ramp over the first 50 cm of every driveway opening (the slab is carved
+  // there): a plane through the slab's front edge at sidewalk height and its top 2 voxels in, closed at both sides
+  function voxLot(E, C, M) {
+    const rs = E._ramps || [];
+    for (const [a, b] of rs) M.box(a, 0, 0, b, 1, 2, -1);
+    E.vox(C, M, 0, 0, 0);
+    for (const [a, b] of rs) {
+      E.quad([a, 0, 0], [b, 0, 0], [b, 1, 2], [a, 1, 2], BM.CONCRETE, [0, 0.894, -0.447]);
+      E.quad([a, 0, 0], [a, 0, 2], [a, 1, 2], [a, 0, 0], BM.CONCRETE, [-1, 0, 0]);
+      E.quad([b, 0, 0], [b, 1, 2], [b, 0, 2], [b, 0, 0], BM.CONCRETE, [1, 0, 0]);
+    }
+    E._ramps = null;
   }
   function newsBoxes(M, x, y, z, n, dirZ) {                     // a row of newspaper boxes along x, facing -z (dirZ<0)
     const cols = [BM.AWNING_BLUE, BM.PAINT_YELLOW, BM.AWNING_RED, BM.TRIM, BM.AWNING_GREEN, BM.DOOR_NAVY];
@@ -529,10 +567,39 @@
       if (b > pyx0 - 3 && a < pyx0 + pw + 3) { if (pyS === 'l') { const s = pyx0 + pw + 3 - a; a += s; b += s; } else { const s = b - (pyx0 - 3); a -= s; b -= s; } }
       return [Math.max(sl, a), Math.min(W - sr, b)];
     });
-    if (opens[1][0] < opens[0][1] + 8) opens = [[opens[0][0], Math.max(opens[0][1], opens[1][1])]];
+    // an entrance and an exit, each over its own curb cut: clear of the price pylon and of each other, moved
+    // along the front where a corner or a crosswalk is too close; a second one anywhere along the front if needed
+    { const lamp0 = pyS === 'l' ? W - sr - 8 : sl + 8, fixed = [];
+      const avoid = (a, b) => (b > pyx0 - 3 && a < pyx0 + pw + 3) || (b > lamp0 - 3 && a < lamp0 + 4) || fixed.some(([p, q]) => b > p - 8 && a < q + 8);
+      for (const [a, b] of opens) { const f = fitOpen(E, Math.max(sl, Math.min(W - sr - 26, a)), Math.max(sl, Math.min(W - sr - 26, a)) + 26, sl, W - sr, avoid); if (f) fixed.push(f); }
+      for (const w of [26, 22, 20]) if (fixed.length < 2) { const f = fitOpen(E, sl, sl + w, sl, W - sr, avoid); if (f) fixed.push(f); }
+      if (fixed.length === 1 && fixed[0][1] - fixed[0][0] === 26) {             // two narrower drives instead of one
+        const f0 = fixed[0]; fixed.length = 0;
+        for (const w of [20, 20]) { const f = fitOpen(E, f0[0], f0[0] + w, sl, W - sr, avoid); if (f) fixed.push(f); }
+        if (fixed.length < 2) { fixed.length = 0; fixed.push(f0); }
+      }
+      if (fixed.length) opens = fixed.sort((p, q) => p[0] - q[0]);
+      for (const [a, b] of opens) cutAt(E, a, b, 'gas'); }
+    // a corner station with room for only one drive on its front takes the second from the side street, beside
+    // the canopy (the lane between the canopy and the store, or the canopy's own depth)
+    let sideOp = null;
+    if (opens.length < 2 && L.curbOKSide) for (const sd of ['l', 'r']) {
+      if (party[sd] || sideOp) continue;
+      for (const z0 of [cz1 + 2, cz0, sz0 - 32, fz + 2]) {
+        if (z0 < fz || z0 + 26 > sz0 - 7 + 1 || (sd === 'l' ? storeLeft && z0 + 26 > sz0 : !storeLeft && z0 + 26 > sz0)) continue;
+        if (L.curbOKSide(E, sd, W, z0, z0 + 26)) { sideOp = { sd, z0, z1: z0 + 26 }; L.drivewaySide(E, sd, W, z0, z0 + 26, 'gas'); break; }
+      }
+    }
     frontStrip(M, sl, W - sr, fz, opens, R, { shrubs: 0.7, tree: 30, clear: [[pyx0, 0, pyx0 + pw, 6]] });
-    if (!party.l) bed(M, 0, 0, sl, D, R, { tree: 34, shrubs: 0.4 });
-    if (!party.r) bed(M, W - sr, 0, W, D, R, { tree: 34, shrubs: 0.4 });
+    for (const sd of ['l', 'r']) {
+      if (party[sd]) continue;
+      const bx = sd === 'l' ? 0 : W - sr, bw = sd === 'l' ? sl : sr;
+      if (sideOp && sideOp.sd === sd) {
+        bed(M, bx, 0, bx + bw, sideOp.z0, R, { tree: 34, shrubs: 0.4 }); bed(M, bx, sideOp.z1, bx + bw, D, R, { tree: 34, shrubs: 0.4 });
+        M.box(bx, 0, sideOp.z0, bx + bw, 1, sideOp.z1, BM.CONCRETE);
+        arrow(M, sd === 'l' ? 2 : W - 2, sideOp.z0 + 6, sd === 'l' ? 'x+' : 'x-'); arrow(M, sd === 'l' ? 10 : W - 10, sideOp.z1 - 7, sd === 'l' ? 'x-' : 'x+');
+      } else bed(M, bx, 0, bx + bw, D, R, { tree: 34, shrubs: 0.4 });
+    }
     if (!party.b) bed(M, 0, D - sb, W, D, R, { tree: 40, shrubs: 0.5 });
     for (const [a, b] of opens) { arrow(M, a + 6, 2, 'z+'); arrow(M, b - 7, 10, 'z-'); }
     // stalls in front of the store if the lane allows
@@ -545,12 +612,14 @@
     // dumpster pen and air pump on the canopy side at the back
     { const dx = storeLeft ? W - sr - 18 : sl + 2, dz = D - sb - 13;
       if (dx > wx1 + 2 || dx + 16 < wx0 - 2 || !wash) { if (lane >= 6 && dz > cz1 + 4 && (storeLeft ? dx > sx1 + (wash ? ww : 0) + 2 : dx + 16 < sx0 - (wash ? ww : 0) - 2)) dumpsterPen(M, dx, dz, 16, 12, wallM); }
-      const ax = storeLeft ? W - sr - 4 : sl + 2, az = cz0 + 4;
+      const ax = storeLeft ? W - sr - 4 : sl + 2, inOp = (z) => sideOp && sideOp.sd === (storeLeft ? 'r' : 'l') && z > sideOp.z0 - 4 && z < sideOp.z1 + 3;
+      const az = inOp(cz0 + 4) ? Math.min(D - sb - 16, sideOp.z1 + 4) : cz0 + 4;
       M.box(ax, 1, az, ax + 2, 9, az + 2, BM.DOOR_RED); M.box(ax, 6, az - 1, ax + 2, 8, az, BM.LED); M.box(ax - 1, 1, az - 1, ax + 3, 2, az + 3, BM.CONCRETE); }
     // light poles in the strips
-    lamp(M, pyS === 'l' ? W - sr - 8 : sl + 8, 3, 28, ['z+'], 2);
-    if (!party.l) lamp(M, 3, (cz1 + sz0) >> 1, 28, ['x+'], 2);
-    if (!party.r) lamp(M, W - 4, (cz1 + sz0) >> 1, 28, ['x-'], 2);
+    if (!opens.some(([a, b]) => { const lx = pyS === 'l' ? W - sr - 8 : sl + 8; return b > lx - 2 && a < lx + 3; })) lamp(M, pyS === 'l' ? W - sr - 8 : sl + 8, 3, 28, ['z+'], 2);
+    { const lz = (cz1 + sz0) >> 1, clear = (sd) => !(sideOp && sideOp.sd === sd && lz > sideOp.z0 - 3 && lz < sideOp.z1 + 2);
+      if (!party.l && clear('l')) lamp(M, 3, lz, 28, ['x+'], 2);
+      if (!party.r && clear('r')) lamp(M, W - 4, lz, 28, ['x-'], 2); }
     // ---- price pylon
     { const yB = 8, rowsP = R() < 0.5 ? 3 : 4, ph = 6, yb = yB + rowsP * ph;
       const bwid = Math.max(pw + 2, textW(B.name, true) + 6), bx0 = pyx0 + ((pw - bwid) >> 1);
@@ -573,7 +642,7 @@
         }
       }
     }
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     L.roofKit && L.roofKit(E, C, sx0 + 1, sz0 + 1, sx1 - 1, sz1 - 1, deckY, R, { style: 'industrial', floors: 1, avoid: [] });
   }
   reg('gas_station', gasStation, { zones: ['commercial'], minW: 24, maxW: 52, minFloors: 1, maxFloors: 3 });
@@ -591,9 +660,11 @@
     const asph = pick(R, ASPH);
     const M = VM(W, 64, D + 8, 0, 8);
     M.box(0, 0, 0, W, 1, D, asph);
-    const sl = party.l ? 0 : 6, sr = party.r ? 0 : 6, sb = party.b ? 0 : (D >= 150 ? 18 : 6), fz = 7;
+    const sl = party.l ? 0 : 6, sr = party.r ? 0 : 6, sb = party.b ? 0 : (D >= 150 ? 26 : 6), fz = 7;
     const bd = clamp(Math.round(D * 0.38), 40, 64), bz1 = D - sb, bz0 = bz1 - bd, wd = 9, zW = bz0 - wd;
-    const bx0 = sl, bx1 = W - sr, bw = bx1 - bx0;
+    // a deep lot has a service lane behind the shops: the trucks get there along a free side of the building
+    const svc = sb >= 16 ? (!party.r ? 'r' : !party.l ? 'l' : null) : null;
+    const bx0 = sl + (svc === 'l' ? 16 : 0), bx1 = W - sr - (svc === 'r' ? 16 : 0), bw = bx1 - bx0;
     const style = pick(R, ['mansard', 'flat', 'awning', 'flat', 'mansard', 'awning']);
     const wallM = pick(R, [BM.BUFF, BM.BRICK_RED, BM.PAINT_CREAM, BM.TRIM, BM.BRICK_BROWN, BM.PRECAST, BM.PAINT_SALMON, BM.PAINT_SAGE]);
     const trimM = pick(R, [BM.TRIM, BM.TRIM_DARK, BM.BRONZE, BM.STEEL_DARK]);
@@ -723,7 +794,8 @@
         const u = F.u(s.x0) + 4;
         F.box(u, 1, u + 4, 10, 0, 1, BM.METAL); F.box(u + 1, 11, u + 3, 12, -1, 0, BM.LED);
       }
-      if (sb >= 16) for (let x = bx0 + 20; x < bx1 - 20; x += 70) dumpsterPen(M, x, bz1 + 3, 16, 12, wallM);
+      if (svc) for (let x = bx0 + 20; x < bx1 - 20; x += 70) dumpsterPen(M, x, D - 14, 16, 8, wallM);
+      else if (sb >= 16) bed(M, bx0, bz1, bx1, D - Math.min(sb, 6), R, { tree: 30, shrubs: 0.5 });
     }
     // ---- parking field, front strip, pylon
     const lx0 = party.l ? 0 : 6, lx1 = W - (party.r ? 0 : 6);
@@ -731,9 +803,13 @@
     if (!party.r) bed(M, W - 6, 0, W, D, R, { tree: 30, shrubs: 0.4 });
     if (!party.b) bed(M, 0, D - Math.min(sb, 6), W, D, R, { tree: 36, shrubs: 0.4 });
     const ow = 28, nOp = W > 200 ? 2 : 1;
-    const opens = nOp === 2 ? [[Math.round(W * 0.25) - 14, Math.round(W * 0.25) + 14], [Math.round(W * 0.72) - 14, Math.round(W * 0.72) + 14]] : [[(W >> 1) - 14 + Math.round((R() - 0.5) * W * 0.3), 0]];
+    let opens = nOp === 2 ? [[Math.round(W * 0.25) - 14, Math.round(W * 0.25) + 14], [Math.round(W * 0.72) - 14, Math.round(W * 0.72) + 14]] : [[(W >> 1) - 14 + Math.round((R() - 0.5) * W * 0.3), 0]];
     if (nOp === 1) opens[0][1] = opens[0][0] + ow;
-    parkField(M, lx0, lx1, fz, zW - 1, R, { occ: 0.5 + R() * 0.25, ada: true, skip: (a, b) => opens.some(([p, q]) => b > p - 1 && a < q + 1) });
+    { const fixed = [];                                               // driveways where the sidewalk takes a curb cut
+      for (const [a, b] of opens) { const f = fitOpen(E, a, b, lx0 + 2, lx1 - 2, (p, q) => fixed.some(([u, v]) => q > u - 12 && p < v + 12)); if (f) fixed.push(f); }
+      if (fixed.length) opens = fixed;
+      for (const [a, b] of opens) cutAt(E, a, b, 'strip'); }
+    parkField(M, svc === 'l' ? bx0 : lx0, svc === 'r' ? bx1 : lx1, fz, zW - 1, R, { occ: 0.5 + R() * 0.25, ada: true, skip: (a, b) => opens.some(([p, q]) => b > p - 1 && a < q + 1) });
     // tenant pylon at a front corner
     const pl = R() < 0.5, ten = shops.filter((s) => s.name && !s.vacant).slice(0, W > 160 ? 4 : 3), pname = fitName(R, PLAZAS, 40, true);
     const pw = clamp(Math.max(textW(pname, true) + 6, ...ten.map((s) => textW(s.name, true) + 4)), 24, 40), px0 = pl ? W - (party.r ? 2 : 4) - pw : (party.l ? 2 : 4);
@@ -759,7 +835,7 @@
         }
       }
     }
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     const avoid = anchor ? [[anchor.x0, bz0 - 2, anchor.x1, bz1]] : [];
     if (anchor) {
       const ra = anchor.x0 === bx0 ? [anchor.x1 + 1, bz0 + 1, bx1 - 1, bz1 - 1] : [bx0 + 1, bz0 + 1, anchor.x0 - 1, bz1 - 1];
@@ -849,11 +925,13 @@
       newsBoxes(M, hugL ? tx0 - 14 : tx0 + tw + 3, 2, bz0 - 4, 3, -1);
       { const ax = hugL ? bx0 + 6 : bx1 - 10; M.box(ax, 2, bz0 - 5, ax + 4, 11, bz0 - 2, BM.STEEL_DARK); M.box(ax, 9, bz0 - 6, ax + 4, 11, bz0 - 2, BM.AWNING_BLUE); M.box(ax + 1, 6, bz0 - 6, ax + 3, 8, bz0 - 5, BM.LED); }
       bench(M, hugL ? bx0 + 14 : bx1 - 26, 2, bz0 - 4, 10, true);
-      // drive-thru: lane along the open side wall, window with a canopy, an island to the parking
+      // drive-thru: lane along the open side wall, window with a canopy, an island to the parking; the island
+      // stops short of the back so cars reach the lane's entry along a cross aisle behind the side parking
       let px0 = hugL ? bx1 + 2 : sl, px1 = hugL ? W - sr : bx0 - 2;
+      const back = dt ? 16 : 0;
       if (dt) {
         const lx0 = hugL ? bx1 : bx0 - lane, ix = hugL ? bx1 + lane : bx0 - lane - 4;
-        bed(M, ix, bz0 + 4, ix + 4, D - sb, R, { shrubs: 0.5 });
+        bed(M, ix, bz0 + 4, ix + 4, D - sb - back, R, { shrubs: 0.5 });
         const wz = bz0 + Math.round(bd * 0.55);
         const Fs = S.F[openS]; const wu = Fs.u(wz);
         win(Fs, wu - 4, 5, wu + 4, 12, BM.GLASS_DARK_LIT, { frame: BM.METAL });
@@ -871,9 +949,10 @@
       // parking: the side field and a row in front of the store
       if (px1 - px0 >= 22) {
         const nose = hugL ? -1 : 1;
-        if (px1 - px0 >= 60) parkField(M, px0, px1, bz0 - 7, D - sb, R, { occ: 0.5, endIslands: false });
-        else stallCol(M, hugL ? px1 - 19 : px0, bz0 + 2, D - sb - 2, hugL ? 1 : -1, R, 0.5);
+        if (px1 - px0 >= 60) parkField(M, px0, px1, bz0 - 7, D - sb - back, R, { occ: 0.5, endIslands: false });
+        else if (px1 - px0 >= 19 + 14) stallCol(M, hugL ? px1 - 19 : px0, bz0 + 2, D - sb - 2 - back, hugL ? 1 : -1, R, 0.5);
       }
+      { const f = fitOpen(E, opA[0], opA[1], sl, W - sr); if (f) { opA[0] = f[0]; opA[1] = f[1]; } cutAt(E, opA[0], opA[1], 'store'); }
       parkField(M, sl, W - sr, fz, bz0 - 7, R, { occ: 0.55, ada: true, adaRight: !hugL, skip: (a, b) => b > opA[0] - 1 && a < opA[1] + 1 });
       roofArgs = [bx0 + 1, bz0 + 1, bx1 - 1, bz1 - 1, S.deck, { style: 'industrial', floors: 1, avoid: [[tx0, tz0, tx0 + tw, tz1]] }];
     } else {
@@ -924,21 +1003,29 @@
         say(F, pick(R, ['COLD BEER', 'ICE', 'LOTTO', 'SNACKS', 'OPEN 24']), bd / 2, 7, -2, BM.SHUTTER_BLACK, true);
         F.box(F.len - 6, 1, F.len - 2, 11, 0, 1, BM.STEEL_DARK);
       }
-      const px0 = hugL ? bx1 + 2 : sl, px1 = hugL ? W - sr : bx0 - 2;
-      if (px1 - px0 >= 8) {                                                                 // driveway to the side lot
-        const a = px0 + Math.max(0, ((px1 - px0 - 26) >> 1)), b = Math.min(px1, a + 26);
-        frontStrip(M, px0, px1, fz, b - a >= 20 ? [[a, b]] : [], R, { shrubs: 0.5 });
-        if (b - a >= 20) { arrow(M, a + 5, 2, 'z+'); arrow(M, b - 6, 10, 'z-'); }
+      // the side lot: a driveway over a curb cut, stall columns either side of a 4 m aisle, the dumpster pen at
+      // the aisle's end; a row behind the store only on deep lots, reached by a cross aisle behind the building.
+      // A side lot the street cannot reach (corner, crosswalk) or too narrow for an aisle is planted instead.
+      const px0 = hugL ? bx1 + 2 : sl, px1 = hugL ? W - sr : bx0 - 2, pw = px1 - px0;
+      let op = null;
+      if (pw >= 20) {
+        const a = px0 + Math.max(0, ((pw - 26) >> 1)), b = Math.min(px1, a + 26);
+        op = fitOpen(E, a, b, px0, px1);
       }
-      if (px1 - px0 >= 19) {
-        const cols = px1 - px0 >= 60 ? 2 : 1;
-        stallCol(M, hugL ? bx1 + 2 : px1 - 19, fz + 16, D - sb - 2, hugL ? -1 : 1, R, 0.55);
+      const rearRow = !!op && D - sb - bz1 >= 41, cols = !op ? 0 : pw >= 19 * 2 + 16 ? 2 : pw >= 19 + 16 ? 1 : 0;
+      if (op) {
+        cutAt(E, op[0], op[1], 'store');
+        frontStrip(M, px0, px1, fz, [op], R, { shrubs: 0.5 });
+        arrow(M, op[0] + 5, 2, 'z+'); arrow(M, op[1] - 6, 10, 'z-');
+        const ax0 = hugL ? px0 + (cols ? 19 : 0) : px0 + (cols === 2 ? 19 : 0), ax1 = hugL ? px1 - (cols === 2 ? 19 : 0) : px1 - (cols ? 19 : 0);
+        if (cols) stallCol(M, hugL ? bx1 + 2 : px1 - 19, fz + 16, rearRow ? D - sb - 41 : D - sb - 2, hugL ? -1 : 1, R, 0.55);
         if (cols === 2) stallCol(M, hugL ? px1 - 19 : px0, fz + 16, D - sb - 2, hugL ? 1 : -1, R, 0.45);
-        lamp(M, (px0 + px1) >> 1, D - sb - 3, 26, ['z-'], 1);
-      }
-      // behind the store: parking or yard
-      if (D - sb - bz1 >= 24) stallRow(M, bx0 + 2, bx1 - 2, D - sb - 19, 1, R, 0.4, {});
-      if (D - sb - bz1 >= 12) dumpsterPen(M, hugL ? bx0 + 2 : bx1 - 18, bz1 + 2, 16, 10, wall);
+        if (cols && ax1 - ax0 >= 18) dumpsterPen(M, ((ax0 + ax1) >> 1) - 8, D - sb - 11, 16, 9, wall);
+        if (!party.b) lamp(M, hugL ? px1 - 3 : px0 + 2, D - 3, 26, [hugL ? 'x-' : 'x+'], 1);
+      } else if (pw >= 4) bed(M, px0, fz, px1, D - sb, R, { tree: 24, shrubs: 0.6 });
+      // behind the store: parking reached from the side lot, else a planted yard
+      if (rearRow) stallRow(M, bx0 + 2, bx1 - 2, D - sb - 19, 1, R, 0.4, {});
+      else if (D - sb - bz1 >= 6) bed(M, bx0, bz1, bx1, D - sb, R, { tree: 26, shrubs: 0.5 });
       roofArgs = [bx0 + 1, bz0 + 1, bx1 - 1, bz1 - 1, S.deck, { style: 'residential', floors: two ? 2 : 1, avoid: [] }];
     }
     // front strip, side and back beds
@@ -946,7 +1033,7 @@
     if (!party.l) bed(M, 0, pharm ? 0 : 12, sl, D, R, { tree: 30 });
     if (!party.r) bed(M, W - sr, pharm ? 0 : 12, W, D, R, { tree: 30 });
     if (!party.b) bed(M, 0, D - sb, W, D, R, { tree: 34 });
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     if (roofArgs && L.roofKit) L.roofKit(E, C, roofArgs[0], roofArgs[1], roofArgs[2], roofArgs[3], roofArgs[4], R, roofArgs[5]);
   }
   reg('corner_store', cornerStore, { zones: ['commercial'], minW: 18, maxW: 44, minFloors: 1, maxFloors: 3 });
@@ -973,7 +1060,10 @@
       const c = pick(R, [BM.AWNING_RED, BM.AWNING_BLUE, BM.SHUTTER_GREEN, BM.DOOR_RED, BM.DOOR_NAVY]);
       const dl = clamp(Math.round(W * 0.55), 52, 92), dd = 26;
       const dx0 = clamp(Math.round((W - dl) / 2 + (R() - 0.5) * 16), sl + 12, Math.max(sl + 12, W - sr - 12 - dl)), dx1 = dx0 + dl;
-      const dz0 = Math.min(fz + 14 + 19 + 9, D - sb - dd - 16), dz1 = dz0 + dd;
+      // a shallow lot keeps a 4 m drive between the front strip and the diner's walk (and gives up the annex)
+      let dz0 = Math.min(fz + 14 + 19 + 9, D - sb - dd - 16);
+      if (dz0 - 9 - fz < 16) dz0 = Math.min(fz + 25, D - sb - dd - 2);
+      const dz1 = dz0 + dd;
       // body: ribbed stainless, enamel bands, ribbon windows, stepped crown, rounded corners
       M.box(dx0, 0, dz0, dx1, 15, dz1, BM.METAL);
       for (let y = 1; y < 4; ++y) ring(M, dx0, y, dz0, dx1, y + 1, dz1, y % 2 ? BM.TRIM : BM.METAL);
@@ -1015,15 +1105,23 @@
         M.box(kx0 + 6, K.deck + 5, dz1 + 5, kx0 + 8, K.deck + 8, dz1 + 7, BM.STEEL_DARK);
       }
       // parking: a row facing the diner, columns on the sides
-      stallRow(M, dx0 - 4, ex0 - 2, dz0 - 28, 1, R, 0.55, {}); stallRow(M, ex1 + 2, dx1 + 4, dz0 - 28, 1, R, 0.55, { ada: true });
-      if (dx0 - sl >= 24) stallCol(M, sl + 1, dz0 - 4, D - sb - 2, -1, R, 0.5);
-      if (W - sr - dx1 >= 24) stallCol(M, W - sr - 20, dz0 - 4, D - sb - 2, 1, R, 0.5);
+      // the row facing the diner only where a 3.5 m aisle stays between it and the front strip (shallow lots: the
+      // forecourt is a drive-up apron and the parking is on the sides)
+      if (dz0 - 28 >= fz + 14) { stallRow(M, dx0 - 4, ex0 - 2, dz0 - 28, 1, R, 0.55, {}); stallRow(M, ex1 + 2, dx1 + 4, dz0 - 28, 1, R, 0.55, { ada: true }); }
+      // side columns only where a 4 m aisle stays open beside the diner (the way to the kitchen and its dumpsters)
+      if (dx0 - sl >= 21 + 16) stallCol(M, sl + 1, dz0 - 4, D - sb - 2, -1, R, 0.5);
+      if (W - sr - dx1 >= 21 + 16) stallCol(M, W - sr - 20, dz0 - 4, D - sb - 2, 1, R, 0.5);
       if (kd >= 8 && D - sb - dz1 - kd >= 0) dumpsterPen(M, kx1 + 4, D - sb - 12, 14, 10, BM.BRICK_BROWN);
-      lamp(M, dx0 - 8, dz0 + 4, 26, ['x+'], 1); lamp(M, dx1 + 7, dz0 + 4, 26, ['x-'], 1);
+      if (dx0 - sl >= 18) lamp(M, dx0 - 3, dz0 + 4, 26, ['x-'], 1);                       // not in a narrow side drive
+      if (W - sr - dx1 >= 18) lamp(M, dx1 + 2, dz0 + 4, 26, ['x+'], 1);
       bench(M, ex1 + 3, 2, dz0 - 8, 8, true);
-      const op = [[sl + 4, sl + 30], [W - sr - 30, W - sr - 4]];
+      // entrance and exit at the two ends of the front, each over a curb cut (moved inward off a corner)
+      let op = [[sl + 4, sl + 30], [W - sr - 30, W - sr - 4]];
+      { const f0 = fitOpen(E, op[0][0], op[0][1], sl, W - sr), f1 = fitOpen(E, op[1][0], op[1][1], sl, W - sr, (a, b) => f0 && b > f0[0] - 8 && a < f0[1] + 8);
+        op = [f0, f1].filter(Boolean).sort((p, q) => p[0] - q[0]); if (!op.length) op = [[sl + 4, sl + 30]];
+        for (const [a, b] of op) cutAt(E, a, b, 'diner'); }
       frontStrip(M, sl, W - sr, fz, op, R, { tree: 26 });
-      arrow(M, sl + 10, 2, 'z+'); arrow(M, W - sr - 11, 10, 'z-');
+      arrow(M, op[0][0] + 6, 2, 'z+'); arrow(M, op[op.length - 1][1] - 7, 10, 'z-');
     } else {
       // fast food with a wrap-around drive-thru lane
       const B = pick(R, FAST), lane = 14;
@@ -1081,7 +1179,9 @@
       if (R() < 0.7) car(M, lx0 + 4, 1, bz0 + 4, 0, R());
       if (R() < 0.6) car(M, lr ? bx0 + 12 : bx1 - 30, 1, bz1 + 4, lr ? 3 : 2, R());
       // playground (fenced, mulch, a tower with a slide) on the side away from the lane, if there is room
-      const gx0 = lr ? sl + 2 : bx1 + 4, gx1 = lr ? bx0 - 4 : W - sr - 2;
+      // the drive to the lane's entry runs beside the building on this side: the playground or the stall column
+      // keeps a 4 m aisle clear of the wall
+      const gx0 = lr ? sl + 2 : bx1 + 18, gx1 = lr ? bx0 - 18 : W - sr - 2;
       const pgz0 = bz0 - 2, pgz1 = Math.min(bz1, pgz0 + 34);
       if (gx1 - gx0 >= 28 && R() < 0.75) {
         M.box(gx0, 0, pgz0, gx1, 2, pgz1, BM.WOOD);
@@ -1097,13 +1197,18 @@
         for (let k = 0; k < 6; ++k) M.box(tx + 8, 2 + k, tz + 3, tx + 10 + (k >> 2), 3 + k, tz + 5, BM.AWNING_GREEN);
         const sx = tx + 14; if (sx + 10 < gx1) { M.box(sx, 2, tz + 2, sx + 1, 10, tz + 3, BM.STEEL_DARK); M.box(sx + 9, 2, tz + 2, sx + 10, 10, tz + 3, BM.STEEL_DARK); M.box(sx, 10, tz + 2, sx + 10, 11, tz + 3, BM.STEEL_DARK); M.box(sx + 2, 4, tz + 2, sx + 4, 5, tz + 3, BM.AWNING_RED); M.box(sx + 6, 4, tz + 2, sx + 8, 5, tz + 3, BM.AWNING_BLUE); }
         bench(M, gx1 - 12, 2, pgz1 - 4, 8, true);
-      } else if (gx1 - gx0 >= 19) stallCol(M, lr ? gx1 - 19 : gx0, bz0 - 2, bz1 + lane - 2, lr ? 1 : -1, R, 0.5);
+      } else if (gx1 - gx0 >= 19) stallCol(M, lr ? gx0 : gx1 - 19, bz0 - 2, bz1 - 2, lr ? -1 : 1, R, 0.5);
       { const rx0 = lr ? bx1 + lane + 4 : sl, rx1 = lr ? W - sr : bx0 - lane - 4;                 // beyond the lane island
-        if (rx1 - rx0 >= 19) stallCol(M, lr ? rx1 - 19 : rx0, bz0 - 2, bz1 + lane - 2, lr ? 1 : -1, R, 0.5);
-        if (rx1 - rx0 >= 44) stallCol(M, lr ? rx0 + 1 : rx1 - 20, bz0 - 2, bz1 + lane - 2, lr ? -1 : 1, R, 0.4); }
+        if (rx1 - rx0 >= 19 + 14) stallCol(M, lr ? rx1 - 19 : rx0, bz0 - 2, bz1 + lane - 2, lr ? 1 : -1, R, 0.5);
+        if (rx1 - rx0 >= 19 * 2 + 16) stallCol(M, lr ? rx0 + 1 : rx1 - 20, bz0 - 2, bz1 + lane - 2, lr ? -1 : 1, R, 0.4); }
       // front parking, strip and pole sign
-      const opA = lr ? [sl + 2, sl + 30] : [W - sr - 30, W - sr - 2], opB = [lx0 - 2, lx0 + lane + 6];
-      parkField(M, sl, W - sr, fz, bz0 - 7, R, { occ: 0.5, ada: true, adaRight: lr, skip: (a, b) => (b > opA[0] - 1 && a < opA[1] + 1) || (b > opB[0] - 1 && a < opB[1] + 1) });
+      let opA = lr ? [sl + 2, sl + 30] : [W - sr - 30, W - sr - 2], opB = [lx0 - 2, lx0 + lane + 6];
+      // the entrance on the far side, the drive-thru exit at the lane: both over curb cuts
+      { const fA = fitOpen(E, opA[0], opA[1], sl, W - sr, (a, b) => b > opB[0] - 10 && a < opB[1] + 10), fB = fitOpen(E, opB[0], opB[1], sl, W - sr, (a, b) => fA && b > fA[0] - 10 && a < fA[1] + 10);
+        if (fA) opA = fA; if (fB) opB = fB; cutAt(E, opA[0], opA[1], 'diner'); cutAt(E, opB[0], opB[1], 'drive-thru'); }
+      // the field leaves two lanes open to the back: the drive-thru entry beside the building and the lane's exit
+      parkField(M, sl, W - sr, fz, bz0 - 7, R, { occ: 0.5, ada: true, adaRight: lr, skip: (a, b) => (b > opA[0] - 1 && a < opA[1] + 1) || (b > opB[0] - 1 && a < opB[1] + 1),
+        lanes: [lr ? [bx0 - 18, bx0] : [bx1, bx1 + 18], [lx0 - 1, lx0 + lane + 1]] });
       const px = lr ? W - sr - 8 : sl + 8;
       frontStrip(M, sl, W - sr, fz, [opA, opB], R, { tree: 26, clear: [[px - 10, 0, px + 10, 6]] });
       poleSign(M, px, 3, 34, B.name, B.c1, B.c2, B.lm, R);
@@ -1112,7 +1217,7 @@
     if (!party.l) bed(M, 0, 0, sl, D, R, { tree: 32 });
     if (!party.r) bed(M, W - sr, 0, W, D, R, { tree: 32 });
     if (!party.b) bed(M, 0, D - sb, W, D, R, { tree: 34 });
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     for (const r of roofs) if (L.roofKit) { if (r[5]) L.roofKit(E, C, r[5][0] + 1, r[5][1] + 1, r[5][2] - 1, r[5][3] - 1, r[4], R, { style: 'industrial', floors: 1, avoid: [] }); else L.roofKit(E, C, r[0], r[1], r[2], r[3], r[4], R, { style: 'industrial', floors: 1, avoid: [] }); }
   }
   reg('diner_fastfood', eatery, { zones: ['commercial'], minW: 22, maxW: 48, minFloors: 1, maxFloors: 3 });
@@ -1179,11 +1284,12 @@
       // customer parking and the open side
       const px0 = hugL ? bx1 + 2 : sl, px1 = hugL ? W - sr : bx0 - 2;
       if (px1 - px0 >= 19) stallCol(M, hugL ? px1 - 19 : px0, bz0 - 4, D - sb - 2, hugL ? 1 : -1, R, 0.6);
-      const opA = [(W >> 1) - 14, (W >> 1) + 14];
+      let opA = [(W >> 1) - 14, (W >> 1) + 14];
+      { const f = fitOpen(E, opA[0], opA[1], sl, W - sr); if (f) opA = f; cutAt(E, opA[0], opA[1], 'auto'); }
       parkField(M, sl, W - sr, fz, bz0 - 27, R, { occ: 0.5, endIslands: false, skip: (a, b) => b > opA[0] - 1 && a < opA[1] + 1 });
-      frontStrip(M, sl, W - sr, fz, [[(W >> 1) - 14, (W >> 1) + 14]], R, { tree: 0 });
+      frontStrip(M, sl, W - sr, fz, [opA], R, { tree: 0 });
       const psx = hugL ? W - sr - 8 : sl + 8;
-      if (psx > (W >> 1) + 22 || psx < (W >> 1) - 22) poleSign(M, psx, 3, 22, fitName(R, ['TIRES', 'BRAKES', 'LUBE', 'OIL', 'SMOG', 'ALIGN'], 20, true) || 'AUTO', accent, BM.TRIM, accent === BM.PAINT_YELLOW ? BM.NEON : BM.LED, R);
+      if (psx > opA[1] + 8 || psx < opA[0] - 8) poleSign(M, psx, 3, 22, fitName(R, ['TIRES', 'BRAKES', 'LUBE', 'OIL', 'SMOG', 'ALIGN'], 20, true) || 'AUTO', accent, BM.TRIM, accent === BM.PAINT_YELLOW ? BM.NEON : BM.LED, R);
       roof = [bx0 + 1, bz0 + 1, bx1 - 1, bz1 - 1, S.deck];
     } else {
       // bank branch: classical portico, drive-up lanes under a canopy
@@ -1240,7 +1346,8 @@
       bed(M, hugL ? cx1 : cx0 - 6, cz0 - 2, hugL ? cx1 + 6 : cx0, D - sb, R, { shrubs: 0.5 });
       // parking in front, foundation planting
       bed(M, bx0, bz0 - 4, p0 - 4, bz0, R, { shrubs: 0.9 }); bed(M, p1 + 4, bz0 - 4, bx1, bz0, R, { shrubs: 0.9 });
-      const opA = hugL ? [W - sr - 32, W - sr - 4] : [sl + 4, sl + 32];
+      let opA = hugL ? [W - sr - 32, W - sr - 4] : [sl + 4, sl + 32];
+      { const f = fitOpen(E, opA[0], opA[1], sl, W - sr); if (f) opA = f; cutAt(E, opA[0], opA[1], 'bank'); }
       parkField(M, sl, W - sr, fz, bz0 - 15, R, { occ: 0.45, ada: true, adaRight: !hugL, skip: (a, b) => b > opA[0] - 1 && a < opA[1] + 1 });
       frontStrip(M, sl, W - sr, fz, [opA], R, { tree: 24 });
       // flag pole
@@ -1250,7 +1357,7 @@
     if (!party.l) bed(M, 0, 0, sl, D, R, { tree: 30 });
     if (!party.r) bed(M, W - sr, 0, W, D, R, { tree: 30 });
     if (!party.b) bed(M, 0, D - sb, W, D, R, { tree: 34 });
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     if (roof && L.roofKit) L.roofKit(E, C, roof[0], roof[1], roof[2], roof[3], roof[4], R, { style: auto ? 'industrial' : 'office', floors: 1, avoid: [] });
   }
   reg('auto_bank', autoBank, { zones: ['commercial'], minW: 22, maxW: 48, minFloors: 1, maxFloors: 3 });
@@ -1445,13 +1552,16 @@
     const sl = party.l ? 0 : ri(R, 6, 10), sr = party.r ? 0 : ri(R, 6, 10), sb = party.b ? 0 : 6;
     const bd = ri(R, 40, 46), gs = ri(R, 16, 24);
     const freeS = [!party.l ? 'l' : null, !party.r ? 'r' : null].filter(Boolean);
-    const driveS = freeS.length ? pick(R, freeS) : null;
+    const dw = 22, driveX = (sd) => (sd === 'l' ? sl : W - sr - dw);
+    // the drive to a rear parking court runs along a free side and needs a curb cut there (else the other free
+    // side, else the parking goes in front or the lot keeps its lawns)
+    let driveS = freeS.length ? pick(R, freeS) : null;
+    if (driveS && L.curbOK) driveS = [driveS].concat(freeS.filter((x) => x !== driveS)).find((sd) => L.curbOK(E, driveX(sd), driveX(sd) + dw)) || null;
     const rearPark = D - gs - bd - sb >= 48 && driveS && W >= 100;
     const frontPark = !rearPark && D - bd - sb - 10 - 7 >= 41;
     const bz0 = frontPark ? D - sb - bd - 2 : gs, bz1 = bz0 + bd;
-    const dw = 22;
     let bx0 = sl, bx1 = W - sr;
-    if (rearPark) { if (driveS === 'l') bx0 = Math.max(bx0, dw + 4); else bx1 = Math.min(bx1, W - dw - 4); }
+    if (rearPark) { if (driveS === 'l') bx0 = Math.max(bx0, sl + dw + 4); else bx1 = Math.min(bx1, W - sr - dw - 4); }
     const blocks = bx1 - bx0 > 220 ? [[bx0, ((bx0 + bx1) >> 1) - 9], [((bx0 + bx1) >> 1) + 9, bx1]] : [[bx0, bx1]];
     const roofs = [], entries = [];
     for (const [x0, x1] of blocks) {
@@ -1524,12 +1634,14 @@
       const carport = R() < 0.6;
       if (carport) { const z0 = D - sb - 20, roofM = pick(R, [BM.METAL, BM.SHINGLE_GRAY, BM.DOOR_NAVY]); M.box(px0 + 2, 10, z0, px1 - 2, 11, D - sb - 1, roofM); for (let x = px0 + 2; x < px1 - 2; x += 30) M.box(x, 1, D - sb - 3, x + 1, 10, D - sb - 2, BM.STEEL_DARK); M.box(px1 - 3, 1, D - sb - 3, px1 - 2, 10, D - sb - 2, BM.STEEL_DARK); }
       arrow(M, dx0 + 5, 4, 'z+'); arrow(M, dx0 + dw - 6, 14, 'z-');
-      dumpsterPen(M, driveS === 'l' ? px1 - 18 : px0 + 2, bz1 + 1, 16, 7 > 0 ? 7 : 7, S.low);
-      lamp(M, driveS === 'l' ? dx0 + dw + 2 : dx0 - 3, bz1 + 4, 24, [driveS === 'l' ? 'x-' : 'x+'], 1);
+      dumpsterPen(M, driveS === 'l' ? dx0 + dw + 1 : dx0 - 17, bz1 + 1, 16, 7, S.low, null, driveS === 'l' ? 'x-' : 'x+');
+      cutAt(E, dx0, dx0 + dw, 'apartments');
+      lamp(M, driveS === 'l' ? dx0 + dw + 2 : dx0 - 3, (bz0 + bz1) >> 1, 24, [driveS === 'l' ? 'x-' : 'x+'], 1);
     } else if (frontPark) {
       const lx0 = party.l ? 0 : 4, lx1 = W - (party.r ? 0 : 4);
       M.box(lx0, 0, 7, lx1, 1, bz0 - 10, BM.GRANITE_DARK);
-      const op = [(W >> 1) - 13 + Math.round((R() - 0.5) * W * 0.3), 0]; op[1] = op[0] + 26;
+      let op = [(W >> 1) - 13 + Math.round((R() - 0.5) * W * 0.3), 0]; op[1] = op[0] + 26;
+      { const f = fitOpen(E, op[0], op[1], lx0 + 2, lx1 - 2); if (f) op = f; cutAt(E, op[0], op[1], 'apartments'); }
       parkField(M, lx0, lx1, 7, bz0 - 10, R, { occ: 0.55, ada: true, skip: (a, b) => b > op[0] - 1 && a < op[1] + 1 });
       frontStrip(M, 0, W, 7, [op], R, { tree: 26 });
       M.box(sl, 0, bz0 - 10, W - sr, 2, bz0 - 8, BM.CONCRETE);
@@ -1554,7 +1666,7 @@
       }
     }
     if (!party.b && !rearPark) for (let x = 6; x < W - 6; x += 26) if (D - bz1 > 12) tree(M, x + Math.floor(R() * 8), 1, D - 6, R, 0.9);
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     if (L.roofKit) for (const r of roofs) L.roofKit(E, C, r[0], r[1], r[2], r[3], r[4], R, { style: 'residential', floors: fl, avoid: [] });
   }
   reg('garden_apartments', gardenApts, { zones: ['transition'], minW: 22, maxW: 70, minFloors: 2, maxFloors: 3 });
@@ -1566,11 +1678,36 @@
     const party = spec.party, seed = spec.seed, fl = spec.floors;
     const M = VM(W, 80, D + 8, 0, 8);
     const gH = 17, UH = 13;
-    const bdp = D <= 104 ? D : clamp(ri(R, 60, 84), 40, D - 24), rear = D - bdp;
-    M.box(0, 0, 0, W, 1, D, rear >= 22 ? pick(R, ASPH) : BM.CONCRETE);
+    // the rear: a parking lot needs a 4 m aisle in front of its stall row and a way in from the street. On a free
+    // side a 3.5 m drive runs past the end building (the side wall with its ghost sign faces the drive); between
+    // attached neighbours a carriage arch opens through the ground storey of a wide building; where neither is
+    // possible (or no curb cut fits, near a corner or a crosswalk) the rear is a fenced garden instead
+    const deep = D > 104, dw = 14;
+    let bdp = !deep ? D : clamp(ri(R, 60, 84), 40, D - 24);
+    if (deep && D - 41 >= 40) bdp = Math.min(bdp, D - 41);
+    const rear = D - bdp;
+    let driveS = null;
+    if (rear >= 22) for (const sd of (H2(seed, 3, 17) < 0.5 ? ['l', 'r'] : ['r', 'l'])) {
+      if (party[sd] || W - dw < 36) continue;
+      const a = sd === 'l' ? 0 : W - dw;
+      if (!L.curbOK || L.curbOK(E, a, a + dw)) { driveS = sd; break; }
+    }
+    const xb0 = driveS === 'l' ? dw : 0, xb1 = driveS === 'r' ? W - dw : W, Wb = xb1 - xb0;
+    const asph = rear >= 22 ? pick(R, ASPH) : BM.CONCRETE;
+    M.box(0, 0, 0, W, 1, D, asph);
     // split the frontage into 1-3 buildings
-    const nP = W < 72 ? 1 : W < 130 ? (R() < 0.55 ? 2 : 1) : ri(R, 2, 3);
-    const cuts = [0]; { const wts = []; for (let i = 0; i < nP; ++i) wts.push(0.75 + R() * 0.5); const t = wts.reduce((a, b) => a + b, 0); let acc = 0; for (let i = 0; i < nP - 1; ++i) { acc += wts[i]; cuts.push(Math.round(W * acc / t)); } cuts.push(W); }
+    const nP = Wb < 72 ? 1 : Wb < 130 ? (R() < 0.55 ? 2 : 1) : ri(R, 2, 3);
+    const cuts = [xb0]; { const wts = []; for (let i = 0; i < nP; ++i) wts.push(0.75 + R() * 0.5); const t = wts.reduce((a, b) => a + b, 0); let acc = 0; for (let i = 0; i < nP - 1; ++i) { acc += wts[i]; cuts.push(xb0 + Math.round(Wb * acc / t)); } cuts.push(xb1); }
+    // carriage arch: through the widest building, if the drive cannot go past the end
+    let arch = null;
+    if (rear >= 22 && !driveS) {
+      let bp = -1; for (let p = 0; p < nP; ++p) if (cuts[p + 1] - cuts[p] >= 48 && (bp < 0 || cuts[p + 1] - cuts[p] > cuts[bp + 1] - cuts[bp])) bp = p;
+      if (bp >= 0) {
+        const c0 = (cuts[bp] + cuts[bp + 1] - dw) >> 1, f = fitOpen(E, c0, c0 + dw, cuts[bp] + 12, cuts[bp + 1] - 12);
+        if (f) arch = { p: bp, x0: f[0], x1: f[1] };
+      }
+    }
+    const parking = rear >= 22 && (!!driveS || !!arch);
     const mats = colours(R, [BM.BRICK_RED, BM.BRICK_BROWN, BM.BRICK_DARK, BM.BUFF, BM.PAINT_CREAM, BM.PAINT_SALMON, BM.PAINT_SAGE, BM.LIMESTONE, BM.BRICK_RED], nP);
     const roofs = [];
     for (let p = 0; p < nP; ++p) {
@@ -1662,7 +1799,7 @@
       roofs.push([x0 + 1, 1, x1 - 1, bdp - 1, deck, pf]);
       // ---- free side walls and the back
       for (const s of ['l', 'r']) {
-        if ((s === 'l' && (x0 !== 0 || party.l)) || (s === 'r' && (x1 !== W || party.r))) continue;
+        if ((s === 'l' && (x0 !== xb0 || party.l)) || (s === 'r' && (x1 !== xb1 || party.r))) continue;
         const Fs = face(M, x0, 0, x1, bdp, s), ghost = R() < 0.5, gu1 = Math.min(bdp - 6, 60);
         for (let f = 1; f < pf; ++f) for (let u = 6; u + 4 < bdp - 4; u += 11) if (!(ghost && u + 5 > 19 && u < gu1 + 1)) win(Fs, u, gH + (f - 1) * UH + 3, u + 4, gH + (f - 1) * UH + 11, L.glassMat(seed, x0 + u + 400, f, 0.3), { sill: trim, lintel: trim });
         win(Fs, 3, 3, 14, 12, L.glassMat(seed, x0, 3, 0.85), { mull: 5, mullM: trim });
@@ -1679,19 +1816,45 @@
         }
       }
     }
-    // ---- the rear: parking (with a dumpster) or a fenced yard
-    if (rear >= 22) {
-      stallRow(M, party.l ? 2 : 4, W - (party.r ? 2 : 4), D - (party.b ? 0 : 3) - 19, 1, R, 0.5, {});
-      dumpsterPen(M, W - 20, bdp + 1, 16, 7, mats[0]);
+    // ---- the drive in: past the end building or through the arch, over a curb cut
+    if (parking) {
+      const a = driveS === 'l' ? 0 : driveS === 'r' ? W - dw : arch.x0, b = a + dw;
+      if (arch) {                                                                         // the passage: ground storey carved out, lintel, lamp
+        M.box(a, 1, -8, b, gH - 3, 0, -1);
+        M.box(a, 0, 0, b, gH - 3, bdp, -1);
+        M.box(a, 0, 0, b, 1, bdp, asph);
+        M.box(a - 1, gH - 3, -1, b + 1, gH - 2, 0, mats[arch.p] === BM.LIMESTONE ? BM.LIMESTONE_DARK : BM.LIMESTONE);
+        M.box(((a + b) >> 1) - 1, gH - 4, 2, ((a + b) >> 1) + 1, gH - 3, 4, BM.LED);
+      }
+      M.box(a, 0, 0, b, 1, 3, BM.CONCRETE);
+      arrow(M, a + 4, 5, 'z+'); arrow(M, b - 5, 16, 'z-');
+      cutAt(E, a, b, 'mixed');
+    }
+    // ---- the rear: parking (stall row along the back, aisle in front of it, dumpster pen at the far end) or a
+    // fenced garden
+    if (parking) {
+      const zr = D - (party.b ? 0 : 3) - 19, px = driveS === 'l' ? W - 20 : 4;
+      stallRow(M, party.l ? 2 : 4, W - (party.r ? 2 : 4), zr, 1, R, 0.5, { skip: (a, b) => b > px - 1 && a < px + 17 });
+      dumpsterPen(M, px, zr + 4, 16, 9, mats[0]);
       if (!party.b) M.box(0, 1, D - 2, W, 6, D - 1, BM.WOOD);
-      lamp(M, (W >> 1), bdp + 2, 22, ['z+'], 1);
+      const lx = [W >> 1, 24, W - 25].find((x) => !arch || x < arch.x0 - 4 || x > arch.x1 + 3);
+      if (lx !== undefined) lamp(M, lx, bdp + 2, 22, ['z+'], 1);
+    } else if (rear >= 22) {
+      M.box(0, 0, bdp, W, 1, D, BM.GRASS);
+      if (!party.b) M.box(0, 1, D - 2, W, 7, D - 1, BM.WOOD);
+      if (!party.l) M.box(0, 1, bdp, 1, 7, D - 1, BM.WOOD); else M.box(1, 1, bdp + 1, 2, 7, D - 2, BM.WOOD);
+      if (!party.r) M.box(W - 1, 1, bdp, W, 7, D - 1, BM.WOOD);
+      M.box(4, 0, bdp, 8, 1, D - 4, BM.CONCRETE);                                        // a path to the back gate
+      M.box(W - 14, 1, bdp + 3, W - 4, 8, bdp + 10, pick(R, [BM.WOOD, BM.SIDING_GRAY, BM.SHUTTER_GREEN]));
+      M.box(W - 15, 8, bdp + 2, W - 3, 9, bdp + 11, BM.SHINGLE_GRAY);
+      for (let x = 14; x < W - 18; x += 22) tree(M, x + Math.floor(R() * 6), 1, bdp + 10 + Math.floor(R() * Math.max(1, rear - 18)), R, 0.9);
     } else if (rear > 0) {
       if (!party.b) M.box(0, 1, D - 2, W, 7, D - 1, BM.WOOD);
       if (!party.l) M.box(0, 1, bdp, 1, 7, D - 1, BM.WOOD);
       if (!party.r) M.box(W - 1, 1, bdp, W, 7, D - 1, BM.WOOD);
       if (rear > 8) M.box(4, 1, bdp + 2, 12, 5, bdp + 6, BM.SHUTTER_GREEN);
     }
-    E.vox(C, M, 0, 0, 0);
+    voxLot(E, C, M);
     if (L.roofKit) for (const r of roofs) L.roofKit(E, C, r[0], r[1], r[2], r[3], r[4], R, { style: 'residential', floors: r[5], avoid: [] });
   }
   reg('main_street_mixed', mainStreet, { zones: ['transition'], minW: 8, maxW: 40, minFloors: 2, maxFloors: 3 });

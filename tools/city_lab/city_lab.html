@@ -325,11 +325,15 @@ function clearWorld() {
   roadMeshes = []; buildingMesh = null; plotMesh = null; figureMesh = null; propMeshes = []; lampHeads = [];
 }
 function addRoadChunk(m) {
+  // a chunk meshed again (curb cuts known) replaces its first mesh
+  const old = m.index !== undefined && S.roadByIndex ? S.roadByIndex.get(m.index) : null;
+  if (old) { world.remove(old); old.geometry.dispose(); roadMeshes = roadMeshes.filter(x => x !== old); S.roadByIndex.delete(m.index); }
   if (!m.idx.length) return;
   const mesh = new THREE.Mesh(geometryFrom(m), MAT_CITY);
   mesh.castShadow = true; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
   mesh.scale.setScalar(S.voxel); mesh.updateMatrix();
   world.add(mesh); roadMeshes.push(mesh);
+  if (m.index !== undefined && S.roadByIndex) S.roadByIndex.set(m.index, mesh);
 }
 
 // ------------------------------------------------------------------------------------------------ lighting
@@ -377,6 +381,9 @@ function generate() {
   // dynamic scheduling: every worker builds the fields, then pulls chunks one at a time; worker 0 first builds
   // the plots, buildings and street furniture
   S.nextChunk = 0;
+  // driveway curb cuts arrive from worker 0 midway through the buildings; road chunks they touch that were
+  // meshed without them are queued again (S.redo) and replace their first mesh
+  S.roadByIndex = new Map(); S.cutChunks = null; S.redo = []; S.redoQueued = new Set(); S.redoBusy = 0; S.chunkGot = new Set(); S.chunkCut = new Set();
   ws.forEach((w, part) => {
     w.onmessage = (e) => onWorker(e.data, w);
     w.onerror = () => { if (job === S.job && !fallbackRunning) { ws.forEach(x => x.terminate()); workers.length = 0; clearWorld(); runFallback(job); } };
@@ -385,6 +392,16 @@ function generate() {
 }
 function feed(w) {
   if (S.nextChunk < S.stats.chunksTotal) w.postMessage({ cmd: 'chunk', index: S.nextChunk++, job: S.job });
+  else if (S.redo.length) { const i = S.redo.shift(); S.redoBusy++; w.postMessage({ cmd: 'chunk', index: i, job: S.job }); }
+}
+function queueRedo(i) { if (!S.redoQueued.has(i)) { S.redoQueued.add(i); S.redo.push(i); } }
+function onCuts(cuts) {
+  if (!cuts.length) return;
+  for (const w of workers) w.postMessage({ cmd: 'cuts', cuts, job: S.job });
+  S.cutChunks = new Set(C.chunksForCuts(C.chunkGrid(S.net, S.voxel).chunks, cuts, S.voxel));
+  for (const i of S.cutChunks) if (S.chunkGot.has(i) && !S.chunkCut.has(i)) queueRedo(i);
+  // idle workers start on them at once (worker 0 is still busy with the buildings)
+  workers.forEach((w, i) => { if (i || workers.length === 1) for (let k = 0; k < 2 && S.redo.length && S.nextChunk >= S.stats.chunksTotal; ++k) feed(w); });
 }
 function onWorker(d, w) {
   if (d.job !== S.job) return;
@@ -392,16 +409,26 @@ function onWorker(d, w) {
   if (d.type === 'begin') { st.chunksTotal = d.chunks; st.fieldsMs = Math.max(st.fieldsMs, d.fieldsMs); S.hs = d.hs; }
   else if (d.type === 'ready') { for (let k = 0; k < 6; ++k) feed(w); }   // several chunks in flight per worker
   else if (d.type === 'chunk') {
+    if (S.chunkGot.has(d.index)) {                                    // a chunk meshed again with the curb cuts
+      S.redoBusy--; if (d.cut) S.chunkCut.add(d.index); else { S.redoQueued.delete(d.index); queueRedo(d.index); }
+      const old = S.roadByIndex.get(d.index);
+      if (old) st.quads -= old.geometry.index.count / 6;
+      addRoadChunk(d); st.quads += d.quads; st.roadsMs += d.ms;
+      feed(w); maybeFinish(); return;
+    }
+    S.chunkGot.add(d.index); if (d.cut) S.chunkCut.add(d.index);
+    if (!d.cut && S.cutChunks && S.cutChunks.has(d.index)) queueRedo(d.index);
     addRoadChunk(d); st.chunksDone++; st.quads += d.quads; st.cells += d.w * d.d; st.roadsMs += d.ms;
     showProgress(st.chunksDone / Math.max(1, st.chunksTotal), `Voxelising streets · chunk ${st.chunksDone} of ${st.chunksTotal}`);
     feed(w);
     maybeFinish();
   } else if (d.type === 'blocks') { addBlocks(d); st.blocksMs = d.blocksMs; buildNetworkOverlay(d.junctions); st.blocksDone = true; maybeFinish(); }
   else if (d.type === 'props') addProps(d.props);
+  else if (d.type === 'cuts') onCuts(d.cuts);
 }
 function maybeFinish() {
   const st = S.stats;
-  if (st.blocksDone && st.chunksTotal && st.chunksDone === st.chunksTotal && !st.totalMs) finishBuild();
+  if (st.blocksDone && st.chunksTotal && st.chunksDone === st.chunksTotal && !S.redo.length && !S.redoBusy && !st.totalMs) finishBuild();
 }
 function runFallback(job) {                 // no workers (e.g. opened from disk): build on the main thread in slices
   fallbackRunning = true;

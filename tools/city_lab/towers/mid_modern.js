@@ -214,6 +214,7 @@
       for (let y = 1; y < 13; y += 2) G.box(bx, y, D - 1, bx + 14, y + 1, D, BM.STEEL_DARK); }
     G.box(tx0, 0, 0, tx1, gT + 1, sd, -1);
     E.vox(C, G, 0, 0, 0);
+    if (L.driveway) L.driveway(E, p0, p1, 'garage');                                 // curb cut in front of the portal
 
     // ---- one parking level (or the roof deck)
     const level = (i, roof) => {
