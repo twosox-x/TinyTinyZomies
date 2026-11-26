@@ -140,6 +140,7 @@ private:
     uint32_t shadowSize_ = 0, shadowDraws_ = 0;
     void ensureShadowMap(uint32_t size);
     SDL_GPUBuffer* shadowExt_ = nullptr;
+    SDL_GPUBuffer* lampDummy_ = nullptr;   // empty street-lamp grid (no city)
     SDL_GPUBuffer* shadow() const { return shadowExt_ ? shadowExt_ : shadowH_; }
     SDL_GPUTexture *palette_ = nullptr, *colorMS_ = nullptr, *depth_ = nullptr, *resolved_ = nullptr;
     SDL_GPUSampler* nearest_ = nullptr;

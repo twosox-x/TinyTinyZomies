@@ -63,8 +63,8 @@ inline TimeOfDayLight evalTimeOfDay(const TimeOfDaySettings& s) {
     // colour keys by sun elevation (degrees): deep night, blue hour, twilight, sunrise, golden hour, afternoon, noon
     // (sun = colour x intensity; ambient kept low against the sun for strong, blue-tinted shadows)
     static const Key keys[] = {
-        {-12.f, {0, 0, 0}, {0.026f, 0.034f, 0.070f}, {0.010f, 0.011f, 0.017f}, {0.016f, 0.022f, 0.046f}, 1.30f, 1.0f},
-        {-6.f, {0, 0, 0}, {0.055f, 0.062f, 0.130f}, {0.022f, 0.020f, 0.030f}, {0.070f, 0.068f, 0.135f}, 1.28f, 0.95f},
+        {-12.f, {0, 0, 0}, {0.0045f, 0.0065f, 0.016f}, {0.0015f, 0.0015f, 0.0025f}, {0.004f, 0.0055f, 0.012f}, 1.00f, 1.0f},
+        {-6.f, {0, 0, 0}, {0.022f, 0.026f, 0.058f}, {0.008f, 0.007f, 0.011f}, {0.035f, 0.034f, 0.070f}, 1.10f, 0.95f},
         {-2.f, {0, 0, 0}, {0.100f, 0.090f, 0.160f}, {0.045f, 0.034f, 0.036f}, {0.300f, 0.180f, 0.180f}, 1.20f, 0.65f},
         {2.f, {0.95f, 0.34f, 0.11f}, {0.085f, 0.085f, 0.150f}, {0.060f, 0.042f, 0.030f}, {0.480f, 0.290f, 0.200f}, 1.15f, 0.25f},
         {12.f, {1.45f, 0.72f, 0.30f}, {0.095f, 0.110f, 0.190f}, {0.070f, 0.055f, 0.038f}, {0.580f, 0.460f, 0.360f}, 1.08f, 0.0f},
@@ -97,7 +97,7 @@ inline TimeOfDayLight evalTimeOfDay(const TimeOfDaySettings& s) {
         float mel = s.moonMaxElevation * std::pow(sp, 0.7f);
         o.dir = dirFrom(kPi + kPi * std::clamp(psi, 0.f, 1.f) + s.sunAzimuthOffset * kDeg + 0.5f, std::max(mel, 0.5f) * kDeg);
         float moonI = (psi > 0.f && psi < 1.f ? smooth(0.f, 10.f, mel) : 0.f) * smooth(-1.f, -6.f, elev);
-        o.color = V3{0.100f, 0.130f, 0.235f} * (moonI * s.nightBrightness);
+        o.color = V3{0.018f, 0.026f, 0.056f} * (moonI * s.nightBrightness);   // dim blue: silhouettes, not a second sun
         o.moon = true;
         const float nb = 1.f + (s.nightBrightness - 1.f) * o.night;
         o.sky = o.sky * nb;

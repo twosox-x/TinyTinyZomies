@@ -4,6 +4,7 @@
 #extension GL_GOOGLE_include_directive : require
 #define FRAME_SET 3
 #include "frame.glsl"
+#define LAMP_GRID_BINDING 0
 #include "lighting.glsl"
 layout(location = 0) in vec3 vWorld;
 layout(location = 1) in float vShore;
@@ -39,7 +40,7 @@ void main() {
     vec3 body = mix(shallow, deep, sqrt(depth));
     vec3 col = body * (mix(groundColor.rgb, skyColor.rgb, 0.7) + sunColor.rgb * 0.25 * max(dot(N, sunDir.xyz), 0.0));
     // diffuse lamp light on the water body (weak)
-    col += body * pointLights(vWorld, vec3(0, 1, 0)) * 0.6;
+    col += body * (pointLights(vWorld, vec3(0, 1, 0)) + lampLights(vWorld, vec3(0, 1, 0))) * 0.6;
     // Fresnel sky reflection
     vec3 R = reflect(-V, N);
     vec3 sky = mix(fogColor.rgb * 1.1, skyColor.rgb * 1.5, clamp(R.y * 1.6, 0.0, 1.0));

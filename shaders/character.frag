@@ -6,6 +6,7 @@
 #define FRAME_SET 3
 #include "common.glsl"
 #include "frame.glsl"
+#define LAMP_GRID_BINDING 4
 #include "lighting.glsl"
 #include "zombie_parts.glsl"
 layout(location = 0) in vec3 vWorld;

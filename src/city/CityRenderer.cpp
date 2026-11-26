@@ -183,6 +183,8 @@ void CityRenderer::shutdown() {
     quadIBQuads_ = 0;
     gpu_->releaseBuffer(instances_);
     gpu_->releaseBuffer(dummy_);
+    gpu_->releaseBuffer(lampGrid_);
+    lampSig_ = 0;
     if (indirect_) gpu_->releaseBuffer(indirect_);
     if (indirectTB_) SDL_ReleaseGPUTransferBuffer(d, indirectTB_);
     indirect_ = nullptr;
@@ -452,6 +454,7 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
         SDL_EndGPUCopyPass(cp);
     }
     evict(frame);
+    rebuildLampGrid(cmd);
 
     // visibility + LOD (hysteresis) + per-chunk ranges + instance gathering
     stats_.visible = stats_.lod1Tiles = stats_.lod2Tiles = stats_.visibleChunks = stats_.lod1Chunks = stats_.tileDraws = 0;
@@ -683,12 +686,13 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
             if (g.visible) vis.push_back(k);
         auto boxVis = [this](const float* mn, const float* mx) { return boxVisible(mn, mx); };
         const float eye[3] = {eye_.x, eye_.y, eye_.z};
+        foliage.lampGrid = water.lampGrid = lampGrid();
         foliage.draw(pass, cmd, eye, vis, materials_, boxVis);
         water.draw(pass, cmd, quadIB_, boxVis);
     }
     SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);
-    SDL_GPUBuffer* fb[4] = {materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_};
-    SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 4);
+    SDL_GPUBuffer* fb[5] = {materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_, lampGrid()};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 5);
     bindShadowMap(pass);
     SDL_BindGPUVertexStorageBuffers(pass, 0, &instances_, 1);
     // front to back (early depth rejection)
@@ -754,8 +758,9 @@ void CityRenderer::drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* c
                                 SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH, SDL_GPUBuffer* corpseH, const std::vector<ExtDraw>& draws) {
     if (draws.empty() || !insts || !pipe_) return;
     SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);
-    SDL_GPUBuffer* fb[4] = {materials ? materials : materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_};
-    SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 4);
+    SDL_GPUBuffer* fb[5] = {materials ? materials : materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_,
+                            lampGrid()};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 5);
     bindShadowMap(pass);
     SDL_BindGPUVertexStorageBuffers(pass, 0, &insts, 1);
     for (const ExtDraw& d : draws) {
@@ -859,6 +864,103 @@ void CityRenderer::drawExternalShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuf
         SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
         SDL_DrawGPUIndexedPrimitives(pass, m.idxCount, d.count, 0, 0, 0);
     }
+}
+
+// Street-lamp light grid (std430 uint array, read by lampLights() in shaders/include/lighting.glsl):
+//   [0..11]  header: grid w, h, lamp offset, index offset, origin x, origin z (float bits), 1 / cell (float), radius (float),
+//            intensity (float), lamp count, 0, 0
+//   [12..]   per cell (row-major): first index, count
+//   lamps:   4 words each: x, y, z (float bits), rgba8 colour (a = relative intensity)
+//   indices: lamp ids per cell
+// Every lamp of every resident tile is in it (residency covers the view footprint + a tile ring), so lamps never
+// switch on or off with distance or count; rebuilt only when the resident set or the lamp settings change.
+void CityRenderer::rebuildLampGrid(SDL_GPUCommandBuffer* cmd) {
+    if (asset_->lampProp < 0) return;
+    uint64_t sig = 1469598103934665603ull;
+    {
+        std::vector<int> keys;
+        keys.reserve(tiles_.size());
+        for (auto& [k, g] : tiles_) keys.push_back(k);
+        std::sort(keys.begin(), keys.end());
+        for (int k : keys) sig = (sig ^ (uint64_t)(k + 1)) * 1099511628211ull;
+        uint32_t bits[3];
+        std::memcpy(&bits[0], &settings.lampRadius, 4);
+        std::memcpy(&bits[1], &settings.lampIntensity, 4);
+        std::memcpy(&bits[2], &settings.lampLedShare, 4);
+        for (uint32_t b : bits) sig = (sig ^ b) * 1099511628211ull;
+    }
+    if (sig == lampSig_) return;
+    lampSig_ = sig;
+    const size_t model = asset_->variants.size() + (size_t)asset_->lampProp;
+    const float top = model < models_[0].size() ? std::max(2.5f, models_[0][model].top - 0.4f) : 5.5f;
+    struct L { float x, y, z; uint32_t rgba; };
+    std::vector<L> lamps;
+    float mnx = 1e30f, mnz = 1e30f, mxx = -1e30f, mxz = -1e30f;
+    for (auto& [k, g] : tiles_)
+        for (const CityInstance& v : g.instances)
+            if (v.kind == 1 && (int)v.variant == asset_->lampProp) {
+                // sodium (warm orange) or LED (cool white) by a position hash; slight per-lamp intensity variation
+                uint32_t h = (uint32_t)((int32_t)std::floor(v.x * 2.f) * 73856093) ^ (uint32_t)((int32_t)std::floor(v.z * 2.f) * 19349663);
+                h = (h ^ (h >> 13)) * 1274126177u;
+                const float r = (float)(h & 0xffff) / 65535.f, r2 = (float)((h >> 16) & 0xff) / 255.f;
+                const bool led = r < settings.lampLedShare;
+                const float c[4] = {led ? 0.86f : 1.00f, led ? 0.92f : 0.58f, led ? 1.00f : 0.26f, 0.85f + 0.15f * r2};
+                uint32_t rgba = 0;
+                for (int i = 0; i < 4; ++i) rgba |= (uint32_t)std::lround(std::clamp(c[i], 0.f, 1.f) * 255.f) << (8 * i);
+                lamps.push_back({v.x, v.y + top, v.z, rgba});
+                mnx = std::min(mnx, v.x); mxx = std::max(mxx, v.x);
+                mnz = std::min(mnz, v.z); mxz = std::max(mxz, v.z);
+            }
+    const float R = std::max(2.f, settings.lampRadius), cell = 8.f;
+    std::vector<uint32_t> buf(12, 0);
+    uint32_t W = 0, H = 0;
+    if (!lamps.empty()) {
+        const float ox = std::floor((mnx - R) / cell) * cell, oz = std::floor((mnz - R) / cell) * cell;
+        W = (uint32_t)std::ceil((mxx + R - ox) / cell) + 1;
+        H = (uint32_t)std::ceil((mxz + R - oz) / cell) + 1;
+        std::vector<std::vector<uint32_t>> cells((size_t)W * H);
+        for (uint32_t i = 0; i < (uint32_t)lamps.size(); ++i) {
+            const L& l = lamps[i];
+            int x0 = (int)std::floor((l.x - R - ox) / cell), x1 = (int)std::floor((l.x + R - ox) / cell);
+            int z0 = (int)std::floor((l.z - R - oz) / cell), z1 = (int)std::floor((l.z + R - oz) / cell);
+            for (int z = std::max(z0, 0); z <= std::min(z1, (int)H - 1); ++z)
+                for (int x = std::max(x0, 0); x <= std::min(x1, (int)W - 1); ++x) {
+                    // cell rectangle within R of the lamp (xz)
+                    float cx = std::clamp(l.x, ox + x * cell, ox + (x + 1) * cell), cz = std::clamp(l.z, oz + z * cell, oz + (z + 1) * cell);
+                    if ((cx - l.x) * (cx - l.x) + (cz - l.z) * (cz - l.z) <= R * R) cells[(size_t)z * W + x].push_back(i);
+                }
+        }
+        const uint32_t lampOff = 12 + 2 * W * H, idxOff = lampOff + 4 * (uint32_t)lamps.size();
+        buf.resize(idxOff, 0);
+        uint32_t next = 0;
+        for (size_t c = 0; c < cells.size(); ++c) {
+            buf[12 + 2 * c] = next;
+            buf[12 + 2 * c + 1] = (uint32_t)cells[c].size();
+            next += (uint32_t)cells[c].size();
+        }
+        for (size_t i = 0; i < lamps.size(); ++i) std::memcpy(&buf[lampOff + 4 * i], &lamps[i], 16);
+        for (auto& c : cells) buf.insert(buf.end(), c.begin(), c.end());
+        const float inv = 1.f / cell, gain = settings.lampIntensity;
+        buf[0] = W; buf[1] = H; buf[2] = lampOff; buf[3] = idxOff;
+        std::memcpy(&buf[4], &ox, 4); std::memcpy(&buf[5], &oz, 4); std::memcpy(&buf[6], &inv, 4); std::memcpy(&buf[7], &R, 4);
+        std::memcpy(&buf[8], &gain, 4);
+        buf[9] = (uint32_t)lamps.size();
+    }
+    lampCount_ = (uint32_t)lamps.size();
+    const uint32_t bytes = (uint32_t)(buf.size() * 4);
+    gpu_->releaseBuffer(lampGrid_);   // deferred by SDL until frames in flight are done with it
+    lampGrid_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, bytes, "cityLampGrid");
+    SDL_GPUDevice* d = gpu_->device();
+    SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
+    SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(d, &tci);
+    std::memcpy(SDL_MapGPUTransferBuffer(d, tb, false), buf.data(), bytes);
+    SDL_UnmapGPUTransferBuffer(d, tb);
+    SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTransferBufferLocation src{tb, 0};
+    SDL_GPUBufferRegion dst{lampGrid_, 0, bytes};
+    SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+    SDL_EndGPUCopyPass(cp);
+    SDL_ReleaseGPUTransferBuffer(d, tb);
 }
 
 } // namespace ttz

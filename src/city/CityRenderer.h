@@ -54,6 +54,11 @@ struct CitySettings {
     uint64_t uploadBudgetBytes = 8ull << 20;        // per frame
     int maxResident = 96;
     bool backfaceCull = true;
+    // Street-lamp light pools: every lamp of the resident tiles lights the city through a world-space light grid
+    // (lampGrid(), shaders/include/lighting.glsl lampLights); radius / intensity of each lamp's downward pool.
+    bool lamps = true;                              // off: empty grid (studio lighting)
+    float lampRadius = 18.f, lampIntensity = 1.0f;
+    float lampLedShare = 0.2f;                      // fraction of cool-white LED lamps (the rest sodium)
 };
 
 class CityVehicles;
@@ -86,6 +91,10 @@ public:
     uint32_t shadowDrawCalls() const { return shadowCalls_; }
     // Highest static top (m) near (x, z) from resident tiles (4 m cells; camera obstacle avoidance), 0 if unknown.
     float heightAt(float x, float z) const;
+    // World-space light grid of every street lamp in the resident tiles (rebuilt when residency changes; 8 m cells
+    // listing the lamps whose pool reaches them). Never null after init (all-zero header = no lamps).
+    SDL_GPUBuffer* lampGrid() const { return lampGrid_ && settings.lamps ? lampGrid_ : dummy_; }
+    uint32_t lampCount() const { return lampCount_; }
     // Street-lamp point lights nearest to (x, z) among visible tiles.
     void nearestLamps(float x, float z, int maxCount, std::vector<PointLight>& out) const;
     // Blocks until every wanted tile is resident (benchmarks / headless screenshots).
@@ -163,6 +172,10 @@ private:
     bool shadowCull_ = false;
     uint32_t shadowCalls_ = 0;
     ShadowMapBinding shadowMap_;
+    SDL_GPUBuffer* lampGrid_ = nullptr;
+    uint32_t lampCount_ = 0;
+    uint64_t lampSig_ = 0;
+    void rebuildLampGrid(SDL_GPUCommandBuffer* cmd);
     void bindShadowMap(SDL_GPURenderPass* pass) const;
     SDL_GPUBuffer *materials_ = nullptr, *instances_ = nullptr, *dummy_ = nullptr;
     SDL_GPUBuffer* quadIB_ = nullptr;            // shared u32 index buffer of the implicit quad pattern

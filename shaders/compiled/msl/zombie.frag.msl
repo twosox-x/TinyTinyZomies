@@ -41,102 +41,110 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _65)
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _69)
 {
     float3 c = float3(0.0);
-    for (uint i = 0u; i < _65.gridDim.z; i++)
+    for (uint i = 0u; i < _69.gridDim.z; i++)
     {
-        float3 L = _65.lightPos[i].xyz - P;
+        float3 L = _69.lightPos[i].xyz - P;
         float d = length(L);
-        float att = fast::clamp(1.0 - (d / _65.lightPos[i].w), 0.0, 1.0);
+        float att = fast::clamp(1.0 - (d / _69.lightPos[i].w), 0.0, 1.0);
         att *= att;
-        c += (((_65.lightCol[i].xyz * _65.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        c += (((_69.lightCol[i].xyz * _69.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
-    float _190;
+    float _194;
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
-        float age = _65.blasts[i_1].w;
-        float s = fast::max(_65.blastsP[i_1].x, 0.100000001490116119384765625);
+        float age = _69.blasts[i_1].w;
+        float s = fast::max(_69.blastsP[i_1].x, 0.100000001490116119384765625);
         float ss = sqrt(s);
         float fireDur = 1.60000002384185791015625 * ss;
         if ((age < 0.0) || (age > fireDur))
         {
             continue;
         }
-        float3 L_1 = (_65.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float3 L_1 = (_69.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
         float d_1 = length(L_1);
         if (age < 0.100000001490116119384765625)
         {
-            _190 = 1.0 - (age / 0.100000001490116119384765625);
+            _194 = 1.0 - (age / 0.100000001490116119384765625);
         }
         else
         {
-            _190 = 0.0;
+            _194 = 0.0;
         }
-        float flash = _190;
+        float flash = _194;
         float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
         fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
         float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
         float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
         float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
-        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _65.todP.y);
+        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _69.todP.y);
     }
     return c;
 }
 
 static inline __attribute__((always_inline))
-float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _65)
+float3 lampLights(thread const float3& P, thread const float3& N)
 {
-    float3 hemi = mix(_65.groundColor.xyz, _65.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
-    float3 key = (_65.sunColor.xyz * fast::max(dot(N, _65.sunDir.xyz), 0.0)) * vis;
-    float3 param = P;
-    float3 param_1 = N;
-    return albedo * ((hemi + key) + pointLights(param, param_1, _65));
+    return float3(0.0);
 }
 
 static inline __attribute__((always_inline))
-float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _65)
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _69)
+{
+    float3 hemi = mix(_69.groundColor.xyz, _69.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 key = (_69.sunColor.xyz * fast::max(dot(N, _69.sunDir.xyz), 0.0)) * vis;
+    float3 param = P;
+    float3 param_1 = N;
+    float3 param_2 = P;
+    float3 param_3 = N;
+    return albedo * (((hemi + key) + pointLights(param, param_1, _69)) + lampLights(param_2, param_3));
+}
+
+static inline __attribute__((always_inline))
+float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _69)
 {
     float3 param = albedo;
     float3 param_1 = N;
     float3 param_2 = P;
     float param_3 = ao;
     float param_4 = 1.0;
-    return shadeV(param, param_1, param_2, param_3, param_4, _65);
+    return shadeV(param, param_1, param_2, param_3, param_4, _69);
 }
 
 static inline __attribute__((always_inline))
-float3 finish(thread float3& col, thread const float3& P, constant Frame& _65)
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _69)
 {
-    float d = length(P - _65.camPos.xyz);
-    float f = (1.0 - exp((-_65.fogColor.w) * fast::max(d - _65.groundColor.w, 0.0))) * 0.699999988079071044921875;
-    col = mix(col, _65.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _383;
-    if (_65.sunColor.w > 0.0)
+    float d = length(P - _69.camPos.xyz);
+    float f = (1.0 - exp((-_69.fogColor.w) * fast::max(d - _69.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    col = mix(col, _69.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _395;
+    if (_69.sunColor.w > 0.0)
     {
-        _383 = _65.sunColor.w;
+        _395 = _69.sunColor.w;
     }
     else
     {
-        _383 = 1.0;
+        _395 = 1.0;
     }
-    col *= _383;
+    col *= _395;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
 
 static inline __attribute__((always_inline))
-float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _65)
+float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _69)
 {
-    float d = fast::max(length(P - _65.camPos.xyz), 0.001000000047497451305389404296875);
-    float coc = fast::clamp((_65.skyColor.w * (d - _65.sunDir.w)) / d, -1.0, 1.0);
+    float d = fast::max(length(P - _69.camPos.xyz), 0.001000000047497451305389404296875);
+    float coc = fast::clamp((_69.skyColor.w * (d - _69.sunDir.w)) / d, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _432 = finish(param, param_1, _65);
-    return float4(_432, 0.5 + (0.5 * coc));
+    float3 _444 = finish(param, param_1, _69);
+    return float4(_444, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _65 [[buffer(0)]], texture2d<float> palette [[texture(0)]], sampler paletteSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _69 [[buffer(0)]], texture2d<float> palette [[texture(0)]], sampler paletteSmplr [[sampler(0)]])
 {
     main0_out out = {};
     float3 albedo = palette.sample(paletteSmplr, in.vUv).xyz;
@@ -146,12 +154,12 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _65 [[buffer(
     float3 param_1 = N;
     float3 param_2 = in.vWorld;
     float param_3 = in.vAo;
-    float3 col = shade(param, param_1, param_2, param_3, _65);
-    float3 V = fast::normalize(_65.camPos.xyz - in.vWorld);
+    float3 col = shade(param, param_1, param_2, param_3, _69);
+    float3 V = fast::normalize(_69.camPos.xyz - in.vWorld);
     col += ((float3(0.100000001490116119384765625, 0.119999997317790985107421875, 0.2199999988079071044921875) * powr(1.0 - fast::max(dot(N, V), 0.0), 3.0)) * in.vAo);
     float3 param_4 = col;
     float3 param_5 = in.vWorld;
-    out.outColor = finishA(param_4, param_5, _65);
+    out.outColor = finishA(param_4, param_5, _69);
     return out;
 }
 

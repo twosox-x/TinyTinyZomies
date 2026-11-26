@@ -29,11 +29,47 @@ vec3 pointLights(vec3 P, vec3 N) {
     }
     return c;
 }
+// Street lamps (CityRenderer::rebuildLampGrid): every lamp of the resident city tiles, looked up in a world-space grid of
+// 8 m cells. A lamp is a downward pool (sodium orange / LED white): smooth inverse-square falloff windowed to the grid
+// radius, a soft cone (bright under the head, dimmer sideways onto lower facades), on with the night factor todP.x.
+// Shaders opt in with #define LAMP_GRID_BINDING <set 2 storage binding> before including this file.
+#ifdef LAMP_GRID_BINDING
+layout(std430, set = 2, binding = LAMP_GRID_BINDING) readonly buffer LampGrid { uint lampGrid[]; };
+vec3 lampLights(vec3 P, vec3 N) {
+    uint W = lampGrid[0], H = lampGrid[1];
+    if (W == 0u || todP.x <= 0.002) return vec3(0.0);
+    vec2 o = vec2(uintBitsToFloat(lampGrid[4]), uintBitsToFloat(lampGrid[5]));
+    float inv = uintBitsToFloat(lampGrid[6]), R = uintBitsToFloat(lampGrid[7]), gain = uintBitsToFloat(lampGrid[8]);
+    ivec2 c = ivec2(floor((P.xz - o) * inv));
+    if (c.x < 0 || c.y < 0 || c.x >= int(W) || c.y >= int(H)) return vec3(0.0);
+    uint ci = 12u + 2u * (uint(c.y) * W + uint(c.x));
+    uint first = lampGrid[ci], cnt = min(lampGrid[ci + 1u], 32u);
+    uint lampOff = lampGrid[2], idxOff = lampGrid[3];
+    vec3 acc = vec3(0.0);
+    for (uint k = 0u; k < cnt; ++k) {
+        uint li = lampOff + 4u * lampGrid[idxOff + first + k];
+        vec3 Lp = vec3(uintBitsToFloat(lampGrid[li]), uintBitsToFloat(lampGrid[li + 1u]), uintBitsToFloat(lampGrid[li + 2u]));
+        vec4 col = unpackUnorm4x8(lampGrid[li + 3u]);
+        vec3 L = Lp - P;
+        float d2 = dot(L, L);
+        float x = d2 / (R * R);
+        if (x >= 1.0) continue;
+        float win = (1.0 - x * x);
+        float att = win * win * 26.0 / (d2 + 5.0);                   // ~ inverse square, soft core (lamp ~5.5 m up)
+        vec3 l = L * inversesqrt(max(d2, 1e-4));
+        float cone = mix(0.07, 1.0, smoothstep(0.35, 0.9, l.y));     // l.y: how far the lamp is above the point (pool ~6 m)
+        acc += col.rgb * (col.a * att * cone * (0.15 + 0.85 * max(dot(N, l), 0.0)));
+    }
+    return acc * gain * todP.x;
+}
+#else
+vec3 lampLights(vec3 P, vec3 N) { return vec3(0.0); }
+#endif
 // vis: key-light visibility (1 lit, 0 in shadow), see shadow.glsl
 vec3 shadeV(vec3 albedo, vec3 N, vec3 P, float ao, float vis) {
     vec3 hemi = mix(groundColor.rgb, skyColor.rgb, N.y * 0.5 + 0.5) * ao;
     vec3 key = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0) * vis;
-    return albedo * (hemi + key + pointLights(P, N));
+    return albedo * (hemi + key + pointLights(P, N) + lampLights(P, N));
 }
 vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) { return shadeV(albedo, N, P, ao, 1.0); }
 // Fog (fogColor.w density per metre, starting groundColor.w metres from the eye, capped so distant blocks keep their

@@ -116,6 +116,7 @@ void CityWater::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPU
     lastTris = 0;
     if (!enabled || !pipe_ || !quadIB || tiles_.empty()) return;
     SDL_BindGPUGraphicsPipeline(pass, pipe_);
+    if (lampGrid) SDL_BindGPUFragmentStorageBuffers(pass, 0, &lampGrid, 1);
     SDL_GPUBufferBinding ib{quadIB, 0};
     SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
     for (auto& [k, t] : tiles_) {
@@ -221,7 +222,8 @@ void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const
                 if (b <= a || !m.vb) continue;
                 if (!bound) {
                     SDL_BindGPUGraphicsPipeline(pass, pipe_);
-                    SDL_BindGPUFragmentStorageBuffers(pass, 0, &materials, 1);
+                    SDL_GPUBuffer* fsb[2] = {materials, lampGrid ? lampGrid : materials};
+                    SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 2);
                     bound = true;
                 }
                 if (!tileBound) { SDL_BindGPUVertexStorageBuffers(pass, 0, &t.inst, 1); tileBound = true; }

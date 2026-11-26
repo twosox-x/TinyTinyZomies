@@ -470,19 +470,11 @@ void App::frame(double dt) {
             s.cityRenderer.setShadowCaster(sm ? lightVP.m : nullptr);
         }
         s.cityRenderer.update(cmd, s.camera, (float)w / (float)std::max(1u, h), s.frameIndex);
+        // street lamps are lit by the city's lamp grid (all resident lamps, CityRenderer::lampGrid); the dynamic point
+        // lights are left to burning vehicles (+ lab lights); explosions have their own flash / fire lights
         std::vector<PointLight> lamps;
         V3 p = s.camera.target();
-        s.cityRenderer.nearestLamps(p.x, p.z, kMaxLights, lamps);
-        if (!s.renderSettings.studioLighting) {   // street lamps fade on at dusk, off by day (fire lights below stay)
-            const float on = s.renderer.lightAt(s.renderSettings).night;
-            for (PointLight& l : lamps) l.intensity *= on;
-        }
-        std::vector<PointLight> fires;   // burning vehicles take the place of the farthest lamps
-        s.vehicles.fireLights(p.x, p.z, s.renderTime, 8, fires);
-        if (!fires.empty()) {
-            lamps.resize(std::min(lamps.size(), (size_t)kMaxLights - fires.size()));
-            lamps.insert(lamps.begin(), fires.begin(), fires.end());
-        }
+        s.vehicles.fireLights(p.x, p.z, s.renderTime, 16, lamps);
         if (s.lab) s.lab->injectLights(lamps);
         s.renderer.setLights(lamps);
         std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns

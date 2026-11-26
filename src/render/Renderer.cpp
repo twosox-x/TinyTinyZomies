@@ -143,6 +143,11 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
         shadowCmp_ = SDL_CreateGPUSampler(d, &sci);
     }
     ensureShadowMap(2048);
+    lampDummy_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, 64, "lampGridEmpty");
+    {
+        std::vector<uint32_t> z(16, 0);
+        gpu.uploadNow(lampDummy_, z.data(), 64);
+    }
 
     zombieIndexCount_ = (uint32_t)zombie.indices.size();
     variantRows_ = zombie.variantRows;
@@ -275,7 +280,7 @@ void Renderer::shutdown() {
     for (auto p : {pBoxShadow_, pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pFx_, pFxNear_, pDofPre_, pDofTile_, pDofDilate_, pDofGather_,
                    pDofFill_, pComposite_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
-    for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_, &shadowH_}) gpu_->releaseBuffer(*b);
+    for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_, &shadowH_, &lampDummy_}) gpu_->releaseBuffer(*b);
     for (auto t : {palette_, colorMS_, depth_, resolved_, dofPre_, dofBgA_, dofFgA_, dofBgB_, dofFgB_, dofTile_, dofTileD_, final_})
         if (t) SDL_ReleaseGPUTexture(d, t);
     if (nearest_) SDL_ReleaseGPUSampler(d, nearest_);
@@ -493,6 +498,9 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const ShadowMapBinding smb{shadowTex_, shadowCmp_};
     if (city_) city_->setShadowMap(smb);
     if (chars) chars->setShadowMap(smb);
+    if (city_) city_->settings.lamps = !rs.studioLighting;
+    SDL_GPUBuffer* lampGrid = city_ && !rs.studioLighting ? city_->lampGrid() : lampDummy_;
+    if (chars) chars->setLampGrid(lampGrid);
     shadowDraws_ = 0;
     if (shadowMap) {   // key-light depth pass: the scene's vertex stages with the light's view-projection
         FrameUniforms su = fu;
@@ -552,8 +560,9 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     // ground + debug overlays
     if (rs.drawGround) {
         SDL_BindGPUGraphicsPipeline(pass, pGround_);
-        SDL_GPUBuffer* gb[7] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist(), sim.decals(), shadow()};
-        SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 7);
+        SDL_GPUBuffer* gb[8] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist(), sim.decals(), shadow(),
+                                lampGrid};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 8);
         SDL_GPUTextureSamplerBinding sb{shadowTex_, shadowCmp_};
         SDL_BindGPUFragmentSamplers(pass, 0, &sb, 1);
         SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
@@ -567,8 +576,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_GPUBufferBinding ib{cubeIB_, 0};
         SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
         SDL_BindGPUVertexStorageBuffers(pass, 0, &boxes_, 1);
-        SDL_GPUBuffer* fb[2] = {sim.decals(), shadow()};
-        SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 2);
+        SDL_GPUBuffer* fb[3] = {sim.decals(), shadow(), lampGrid};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 3);
         SDL_GPUTextureSamplerBinding sb{shadowTex_, shadowCmp_};
         SDL_BindGPUFragmentSamplers(pass, 0, &sb, 1);
         SDL_DrawGPUIndexedPrimitives(pass, 36, boxCount_, 0, 0, 0);

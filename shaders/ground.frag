@@ -2,6 +2,7 @@
 #extension GL_GOOGLE_include_directive : require
 #define FRAME_SET 3
 #include "frame.glsl"
+#define LAMP_GRID_BINDING 8
 #include "lighting.glsl"
 layout(std430, set = 2, binding = 1) readonly buffer StaticH { float staticH[]; };
 layout(std430, set = 2, binding = 2) readonly buffer CorpseH { int corpseH[]; };

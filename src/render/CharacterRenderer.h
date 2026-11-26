@@ -46,6 +46,7 @@ public:
     void setOccluders(const std::vector<float>& boxesMinMax);
     void setShadowField(SDL_GPUBuffer* b) { shadowField_ = b; }   // owned by the Renderer
     void setShadowMap(const ShadowMapBinding& b) { shadowMap_ = b; }   // key-light shadow map (owned by the Renderer)
+    void setLampGrid(SDL_GPUBuffer* b) { lampGrid_ = b; }              // street-lamp light grid (CityRenderer), null = none
     // Records the draws inside the scene render pass (frame uniforms already pushed to slot 0).
     void draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs,
               bool depthOnly = false);
@@ -77,6 +78,7 @@ private:
     SDL_GPUBuffer* shadowField_ = nullptr;
     ShadowMapBinding shadowMap_;
     SDL_GPUGraphicsPipeline* pShadow_ = nullptr;
+    SDL_GPUBuffer *lampGrid_ = nullptr, *zero64_ = nullptr;   // zero64_: empty lamp grid (all-zero header)
     struct ClassSet { std::vector<uint32_t> maxVerts; SDL_GPUBuffer* meshInfo = nullptr; SDL_GPUBuffer* classInfo = nullptr; };
     bool loadAsset(const std::string& path);
     void buildQuads();

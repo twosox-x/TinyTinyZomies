@@ -19,6 +19,7 @@ using BoxVisibleFn = std::function<bool(const float* mn, const float* mx)>;
 
 class CityWater {
 public:
+    SDL_GPUBuffer* lampGrid = nullptr;   // street-lamp light grid (CityRenderer), fragment storage slot 0
     bool init(GpuContext& gpu, SDL_GPUSampleCount samples, SDL_GPUTextureFormat color, SDL_GPUTextureFormat depth);
     void shutdown();
     uint32_t upload(SDL_GPUCopyPass* cp, int key, const TileCPU& t);   // returns quads (for the shared index buffer)
@@ -38,6 +39,7 @@ struct FoliageStats { uint64_t instances = 0, triangles = 0; uint32_t draws = 0;
 
 class CityFoliage {
 public:
+    SDL_GPUBuffer* lampGrid = nullptr;   // street-lamp light grid (CityRenderer), fragment storage slot 1
     bool init(GpuContext& gpu, const CityAsset& asset, SDL_GPUSampleCount samples, SDL_GPUTextureFormat color, SDL_GPUTextureFormat depth);
     void shutdown();
     void upload(SDL_GPUCopyPass* cp, int key, const TileCPU& t, float tileX0, float tileZ0);

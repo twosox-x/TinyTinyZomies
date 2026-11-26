@@ -249,6 +249,11 @@ bool CharacterRenderer::init(GpuContext& gpu, const SimParams& p, const std::str
                                                                                                                  : SDL_GPU_SAMPLECOUNT_1;
     pDraw_ = SDL_CreateGPUGraphicsPipeline(gpu.device(), &ci);
     pShadow_ = makeShadowPipeline(gpu, ci);
+    zero64_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, 64, "charZeroLampGrid");
+    {
+        std::vector<uint32_t> z(16, 0);
+        gpu.uploadNow(zero64_, z.data(), 64);
+    }
     SDL_ReleaseGPUShader(gpu.device(), vs);
     SDL_ReleaseGPUShader(gpu.device(), fs);
     if (!pDraw_) { SDL_Log("character pipeline: %s", SDL_GetError()); return false; }
@@ -273,6 +278,7 @@ void CharacterRenderer::shutdown() {
     for (auto p : {pCull_, pPrefix_, pPose_, pLib_}) if (p) SDL_ReleaseGPUComputePipeline(d, p);
     if (pDraw_) SDL_ReleaseGPUGraphicsPipeline(d, pDraw_);
     if (pShadow_) SDL_ReleaseGPUGraphicsPipeline(d, pShadow_);
+    gpu_->releaseBuffer(zero64_);
     pShadow_ = nullptr;
     if (zeros_) SDL_ReleaseGPUTransferBuffer(d, zeros_);
     gpu_ = nullptr;
@@ -330,8 +336,8 @@ void CharacterRenderer::draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
     SDL_BindGPUVertexStorageBuffers(pass, 0, vsb, 7);
     if (quads) { SDL_GPUBufferBinding ib{quadIndex_, 0}; SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT); }
     if (!depthOnly) {
-        SDL_GPUBuffer* fsb[3] = {meshVoxBuf_, tagBuf_, shadowField_ ? shadowField_ : tagBuf_};
-        SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 3);
+        SDL_GPUBuffer* fsb[4] = {meshVoxBuf_, tagBuf_, shadowField_ ? shadowField_ : tagBuf_, lampGrid_ ? lampGrid_ : zero64_};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 4);
         if (shadowMap_.valid()) { SDL_GPUTextureSamplerBinding b{shadowMap_.texture, shadowMap_.sampler}; SDL_BindGPUFragmentSamplers(pass, 0, &b, 1); }
     }
     for (uint32_t c = 0; c < set.maxVerts.size(); ++c) {
@@ -359,8 +365,8 @@ void CharacterRenderer::drawExternal(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPas
     SDL_GPUBuffer* vsb[7] = {segs, verts_, set.meshInfo, extCounters_, sim.agents(), sim.corpses(), poseLib_};
     SDL_BindGPUVertexStorageBuffers(pass, 0, vsb, 7);
     if (!depthOnly) {
-        SDL_GPUBuffer* fsb[3] = {meshVoxBuf_, tagBuf_, shadowField_ ? shadowField_ : tagBuf_};
-        SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 3);
+        SDL_GPUBuffer* fsb[4] = {meshVoxBuf_, tagBuf_, shadowField_ ? shadowField_ : tagBuf_, lampGrid_ ? lampGrid_ : zero64_};
+        SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 4);
         if (shadowMap_.valid()) { SDL_GPUTextureSamplerBinding b{shadowMap_.texture, shadowMap_.sampler}; SDL_BindGPUFragmentSamplers(pass, 0, &b, 1); }
     }
     CharDraw d{};

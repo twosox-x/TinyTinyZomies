@@ -133,6 +133,13 @@ void drawDebugUI(AppState& s) {
         ImGui::SliderFloat("shadow range (m)", &rs.shadowRange, 40.f, 400.f, "%.0f");
         ImGui::SliderFloat("shadow softness (texels)", &rs.shadowSoftness, 0.25f, 3.f);
         ImGui::Text("shadow pass: %u draw calls", s.renderer.shadowDrawCalls());
+        if (s.cityMode) {
+            CitySettings& c = s.cityRenderer.settings;
+            ImGui::SliderFloat("lamp intensity", &c.lampIntensity, 0.f, 3.f);
+            ImGui::SliderFloat("lamp radius (m)", &c.lampRadius, 6.f, 40.f, "%.0f");
+            ImGui::SliderFloat("LED lamp share", &c.lampLedShare, 0.f, 1.f);
+            ImGui::Text("street lamps lit: %u (all resident)", s.cityRenderer.lampCount());
+        }
     }
 
     if (ImGui::CollapsingHeader("Look (fog, exposure, miniature)")) {

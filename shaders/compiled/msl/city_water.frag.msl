@@ -66,9 +66,14 @@ struct Frame
     float4 shadowP;
 };
 
-constant spvUnsafeArray<float2, 5> _443 = spvUnsafeArray<float2, 5>({ float2(0.939999997615814208984375, 0.3400000035762786865234375), float2(-0.449999988079071044921875, 0.88999998569488525390625), float2(0.709999978542327880859375, -0.699999988079071044921875), float2(0.20000000298023223876953125, 0.980000019073486328125), float2(-0.86000001430511474609375, -0.5099999904632568359375) });
-constant spvUnsafeArray<float, 5> _456 = spvUnsafeArray<float, 5>({ 0.550000011920928955078125, 0.89999997615814208984375, 1.60000002384185791015625, 2.7000000476837158203125, 4.099999904632568359375 });
-constant spvUnsafeArray<float, 5> _483 = spvUnsafeArray<float, 5>({ 0.039999999105930328369140625, 0.0280000008642673492431640625, 0.017999999225139617919921875, 0.00999999977648258209228515625, 0.006000000052154064178466796875 });
+struct LampGrid
+{
+    uint lampGrid[1];
+};
+
+constant spvUnsafeArray<float2, 5> _684 = spvUnsafeArray<float2, 5>({ float2(0.939999997615814208984375, 0.3400000035762786865234375), float2(-0.449999988079071044921875, 0.88999998569488525390625), float2(0.709999978542327880859375, -0.699999988079071044921875), float2(0.20000000298023223876953125, 0.980000019073486328125), float2(-0.86000001430511474609375, -0.5099999904632568359375) });
+constant spvUnsafeArray<float, 5> _696 = spvUnsafeArray<float, 5>({ 0.550000011920928955078125, 0.89999997615814208984375, 1.60000002384185791015625, 2.7000000476837158203125, 4.099999904632568359375 });
+constant spvUnsafeArray<float, 5> _723 = spvUnsafeArray<float, 5>({ 0.039999999105930328369140625, 0.0280000008642673492431640625, 0.017999999225139617919921875, 0.00999999977648258209228515625, 0.006000000052154064178466796875 });
 
 struct main0_out
 {
@@ -87,54 +92,137 @@ float2 waveGrad(thread const float2& p, thread const float& t)
     float2 g = float2(0.0);
     for (int i = 0; i < 5; i++)
     {
-        float ph = (dot(_443[i], p) * _456[i]) + ((t * sqrt(9.80000019073486328125 * _456[i])) * 0.550000011920928955078125);
-        g += (_443[i] * ((_483[i] * _456[i]) * cos(ph)));
+        float ph = (dot(_684[i], p) * _696[i]) + ((t * sqrt(9.80000019073486328125 * _696[i])) * 0.550000011920928955078125);
+        g += (_684[i] * ((_723[i] * _696[i]) * cos(ph)));
     }
     return g;
 }
 
 static inline __attribute__((always_inline))
-float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _64)
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _68)
 {
     float3 c = float3(0.0);
-    for (uint i = 0u; i < _64.gridDim.z; i++)
+    for (uint i = 0u; i < _68.gridDim.z; i++)
     {
-        float3 L = _64.lightPos[i].xyz - P;
+        float3 L = _68.lightPos[i].xyz - P;
         float d = length(L);
-        float att = fast::clamp(1.0 - (d / _64.lightPos[i].w), 0.0, 1.0);
+        float att = fast::clamp(1.0 - (d / _68.lightPos[i].w), 0.0, 1.0);
         att *= att;
-        c += (((_64.lightCol[i].xyz * _64.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        c += (((_68.lightCol[i].xyz * _68.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
-    float _189;
+    float _193;
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
-        float age = _64.blasts[i_1].w;
-        float s = fast::max(_64.blastsP[i_1].x, 0.100000001490116119384765625);
+        float age = _68.blasts[i_1].w;
+        float s = fast::max(_68.blastsP[i_1].x, 0.100000001490116119384765625);
         float ss = sqrt(s);
         float fireDur = 1.60000002384185791015625 * ss;
         if ((age < 0.0) || (age > fireDur))
         {
             continue;
         }
-        float3 L_1 = (_64.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float3 L_1 = (_68.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
         float d_1 = length(L_1);
         if (age < 0.100000001490116119384765625)
         {
-            _189 = 1.0 - (age / 0.100000001490116119384765625);
+            _193 = 1.0 - (age / 0.100000001490116119384765625);
         }
         else
         {
-            _189 = 0.0;
+            _193 = 0.0;
         }
-        float flash = _189;
+        float flash = _193;
         float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
         fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
         float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
         float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
         float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
-        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _64.todP.y);
+        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _68.todP.y);
     }
     return c;
+}
+
+static inline __attribute__((always_inline))
+float3 lampLights(thread const float3& P, thread const float3& N, constant Frame& _68, const device LampGrid& _299)
+{
+    uint W = _299.lampGrid[0];
+    uint H = _299.lampGrid[1];
+    bool _306 = W == 0u;
+    bool _314;
+    if (!_306)
+    {
+        _314 = _68.todP.x <= 0.00200000009499490261077880859375;
+    }
+    else
+    {
+        _314 = _306;
+    }
+    if (_314)
+    {
+        return float3(0.0);
+    }
+    float2 o = float2(as_type<float>(_299.lampGrid[4]), as_type<float>(_299.lampGrid[5]));
+    float inv = as_type<float>(_299.lampGrid[6]);
+    float R = as_type<float>(_299.lampGrid[7]);
+    float gain = as_type<float>(_299.lampGrid[8]);
+    int2 c = int2(floor((P.xz - o) * inv));
+    bool _355 = c.x < 0;
+    bool _362;
+    if (!_355)
+    {
+        _362 = c.y < 0;
+    }
+    else
+    {
+        _362 = _355;
+    }
+    bool _371;
+    if (!_362)
+    {
+        _371 = c.x >= int(W);
+    }
+    else
+    {
+        _371 = _362;
+    }
+    bool _380;
+    if (!_371)
+    {
+        _380 = c.y >= int(H);
+    }
+    else
+    {
+        _380 = _371;
+    }
+    if (_380)
+    {
+        return float3(0.0);
+    }
+    uint ci = 12u + (2u * ((uint(c.y) * W) + uint(c.x)));
+    uint first = _299.lampGrid[ci];
+    uint cnt = min(_299.lampGrid[ci + 1u], 32u);
+    uint lampOff = _299.lampGrid[2];
+    uint idxOff = _299.lampGrid[3];
+    float3 acc = float3(0.0);
+    for (uint k = 0u; k < cnt; k++)
+    {
+        uint li = lampOff + (4u * _299.lampGrid[(idxOff + first) + k]);
+        float3 Lp = float3(as_type<float>(_299.lampGrid[li]), as_type<float>(_299.lampGrid[li + 1u]), as_type<float>(_299.lampGrid[li + 2u]));
+        float4 col = unpack_unorm4x8_to_float(_299.lampGrid[li + 3u]);
+        float3 L = Lp - P;
+        float d2 = dot(L, L);
+        float x = d2 / (R * R);
+        if (x >= 1.0)
+        {
+            continue;
+        }
+        float win = 1.0 - (x * x);
+        float att = ((win * win) * 26.0) / (d2 + 5.0);
+        float3 l = L * rsqrt(fast::max(d2, 9.9999997473787516355514526367188e-05));
+        float cone = mix(0.070000000298023223876953125, 1.0, smoothstep(0.3499999940395355224609375, 0.89999997615814208984375, l.y));
+        acc += (col.xyz * (((col.w * att) * cone) * (0.1500000059604644775390625 + (0.85000002384185791015625 * fast::max(dot(N, l), 0.0)))));
+    }
+    return (acc * gain) * _68.todP.x;
 }
 
 static inline __attribute__((always_inline))
@@ -159,43 +247,43 @@ float vnoise2(thread const float2& p)
 }
 
 static inline __attribute__((always_inline))
-float3 finish(thread float3& col, thread const float3& P, constant Frame& _64)
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _68)
 {
-    float d = length(P - _64.camPos.xyz);
-    float f = (1.0 - exp((-_64.fogColor.w) * fast::max(d - _64.groundColor.w, 0.0))) * 0.699999988079071044921875;
-    col = mix(col, _64.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _326;
-    if (_64.sunColor.w > 0.0)
+    float d = length(P - _68.camPos.xyz);
+    float f = (1.0 - exp((-_68.fogColor.w) * fast::max(d - _68.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    col = mix(col, _68.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _569;
+    if (_68.sunColor.w > 0.0)
     {
-        _326 = _64.sunColor.w;
+        _569 = _68.sunColor.w;
     }
     else
     {
-        _326 = 1.0;
+        _569 = 1.0;
     }
-    col *= _326;
+    col *= _569;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
 
 static inline __attribute__((always_inline))
-float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _64)
+float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _68)
 {
-    float d = fast::max(length(P - _64.camPos.xyz), 0.001000000047497451305389404296875);
-    float coc = fast::clamp((_64.skyColor.w * (d - _64.sunDir.w)) / d, -1.0, 1.0);
+    float d = fast::max(length(P - _68.camPos.xyz), 0.001000000047497451305389404296875);
+    float coc = fast::clamp((_68.skyColor.w * (d - _68.sunDir.w)) / d, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _377 = finish(param, param_1, _64);
-    return float4(_377, 0.5 + (0.5 * coc));
+    float3 _618 = finish(param, param_1, _68);
+    return float4(_618, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _64 [[buffer(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _68 [[buffer(0)]], const device LampGrid& _299 [[buffer(1)]])
 {
     main0_out out = {};
-    float t = _64.camPos.w;
+    float t = _68.camPos.w;
     float sd = in.vShore;
-    float3 V = fast::normalize(_64.camPos.xyz - in.vWorld);
-    float dist = length(_64.camPos.xyz - in.vWorld);
+    float3 V = fast::normalize(_68.camPos.xyz - in.vWorld);
+    float dist = length(_68.camPos.xyz - in.vWorld);
     float2 param = in.vWorld.xz;
     float param_1 = t;
     float2 g = waveGrad(param, param_1) * mix(1.0, 0.3499999940395355224609375, fast::clamp(dist / 250.0, 0.0, 1.0));
@@ -204,39 +292,41 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _64 [[buffer(
     float3 shallow = float3(0.07500000298023223876953125, 0.085000000894069671630859375, 0.054999999701976776123046875);
     float3 deep = float3(0.01200000010430812835693359375, 0.02999999932944774627685546875, 0.04500000178813934326171875);
     float3 body = mix(shallow, deep, float3(sqrt(depth)));
-    float3 col = body * (mix(_64.groundColor.xyz, _64.skyColor.xyz, float3(0.699999988079071044921875)) + ((_64.sunColor.xyz * 0.25) * fast::max(dot(N, _64.sunDir.xyz), 0.0)));
+    float3 col = body * (mix(_68.groundColor.xyz, _68.skyColor.xyz, float3(0.699999988079071044921875)) + ((_68.sunColor.xyz * 0.25) * fast::max(dot(N, _68.sunDir.xyz), 0.0)));
     float3 param_2 = in.vWorld;
     float3 param_3 = float3(0.0, 1.0, 0.0);
-    col += ((body * pointLights(param_2, param_3, _64)) * 0.60000002384185791015625);
+    float3 param_4 = in.vWorld;
+    float3 param_5 = float3(0.0, 1.0, 0.0);
+    col += ((body * (pointLights(param_2, param_3, _68) + lampLights(param_4, param_5, _68, _299))) * 0.60000002384185791015625);
     float3 R = reflect(-V, N);
-    float3 sky = mix(_64.fogColor.xyz * 1.10000002384185791015625, _64.skyColor.xyz * 1.5, float3(fast::clamp(R.y * 1.60000002384185791015625, 0.0, 1.0)));
+    float3 sky = mix(_68.fogColor.xyz * 1.10000002384185791015625, _68.skyColor.xyz * 1.5, float3(fast::clamp(R.y * 1.60000002384185791015625, 0.0, 1.0)));
     float fr = 0.0199999995529651641845703125 + (0.980000019073486328125 * powr(1.0 - fast::max(dot(N, V), 0.0), 5.0));
     col = mix(col, sky, float3(fast::clamp(fr, 0.0, 0.85000002384185791015625)));
-    float sp = powr(fast::max(dot(R, fast::normalize(_64.sunDir.xyz)), 0.0), 180.0);
-    col += ((_64.sunColor.xyz * sp) * 2.5);
-    for (uint i = 0u; i < _64.gridDim.z; i++)
+    float sp = powr(fast::max(dot(R, fast::normalize(_68.sunDir.xyz)), 0.0), 180.0);
+    col += ((_68.sunColor.xyz * sp) * 2.5);
+    for (uint i = 0u; i < _68.gridDim.z; i++)
     {
-        float3 L = _64.lightPos[i].xyz - in.vWorld;
+        float3 L = _68.lightPos[i].xyz - in.vWorld;
         float d = length(L);
-        float att = fast::clamp(1.0 - (d / (_64.lightPos[i].w * 3.0)), 0.0, 1.0);
+        float att = fast::clamp(1.0 - (d / (_68.lightPos[i].w * 3.0)), 0.0, 1.0);
         if (att <= 0.0)
         {
             continue;
         }
         float3 H = fast::normalize((L / float3(d)) + V);
-        col += ((((_64.lightCol[i].xyz * _64.lightCol[i].w) * att) * powr(fast::max(dot(N, H), 0.0), 90.0)) * 1.60000002384185791015625);
+        col += ((((_68.lightCol[i].xyz * _68.lightCol[i].w) * att) * powr(fast::max(dot(N, H), 0.0), 90.0)) * 1.60000002384185791015625);
     }
-    float2 param_4 = (in.vWorld.xz * 1.2999999523162841796875) + float2(t * 0.25, t * 0.100000001490116119384765625);
-    float2 param_5 = (in.vWorld.xz * 3.7000000476837158203125) - float2(t * 0.4000000059604644775390625, 0.0);
-    float n = (vnoise2(param_4) * 0.60000002384185791015625) + (vnoise2(param_5) * 0.4000000059604644775390625);
+    float2 param_6 = (in.vWorld.xz * 1.2999999523162841796875) + float2(t * 0.25, t * 0.100000001490116119384765625);
+    float2 param_7 = (in.vWorld.xz * 3.7000000476837158203125) - float2(t * 0.4000000059604644775390625, 0.0);
+    float n = (vnoise2(param_6) * 0.60000002384185791015625) + (vnoise2(param_7) * 0.4000000059604644775390625);
     float band = 1.0 - smoothstep(-0.20000000298023223876953125, 0.89999997615814208984375 + (0.60000002384185791015625 * n), sd);
     float foam = band * smoothstep(0.3499999940395355224609375, 0.75, n + (band * 0.3499999940395355224609375));
-    float3 param_6 = in.vWorld;
-    float3 param_7 = float3(0.0, 1.0, 0.0);
-    col = mix(col, (float3(0.4199999868869781494140625, 0.449999988079071044921875, 0.4600000083446502685546875) * ((_64.skyColor.xyz * 2.0) + (_64.sunColor.xyz * 0.60000002384185791015625))) + (pointLights(param_6, param_7, _64) * 0.3499999940395355224609375), float3(foam * 0.75));
-    float3 param_8 = col;
-    float3 param_9 = in.vWorld;
-    out.outColor = finishA(param_8, param_9, _64);
+    float3 param_8 = in.vWorld;
+    float3 param_9 = float3(0.0, 1.0, 0.0);
+    col = mix(col, (float3(0.4199999868869781494140625, 0.449999988079071044921875, 0.4600000083446502685546875) * ((_68.skyColor.xyz * 2.0) + (_68.sunColor.xyz * 0.60000002384185791015625))) + (pointLights(param_8, param_9, _68) * 0.3499999940395355224609375), float3(foam * 0.75));
+    float3 param_10 = col;
+    float3 param_11 = in.vWorld;
+    out.outColor = finishA(param_10, param_11, _68);
     return out;
 }
 
