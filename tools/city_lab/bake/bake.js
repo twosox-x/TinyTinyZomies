@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 // Offline city bake (FORMAT.md): node bake.js --seed=1 --scale=5 --out=assets/city/seed1 [--jobs=3] [--tiles=i0,j0,i1,j1]
+//   [--level=19 | --no-compress] [--no-chunks]
+// End to end: tiles -> LOD1 order + LOD2 + sub-tile chunks + zstd sections (lod.js processTile, the same code as
+// relod.js), file format v2.
 // Regional path (CityArch.planPage / pagesPlan / buildTile, like city_worker.js 'rpage' / 'rtile'): memory bounded by
 // the pages around a tile, tiles baked in parallel with worker_threads. Run with --max-old-space-size=6000 or more
 // (the script re-launches itself with it).
@@ -202,6 +205,7 @@ async function main() {
   }
   const seed = +(a.seed || 1), scale = +(a.scale || 5), out = path.resolve(a.out || 'assets/city/seed' + seed);
   const jobs = +(a.jobs || Math.max(1, Math.min(4, os.cpus().length - 1)));
+  const level = a['no-compress'] ? 0 : +(a.level || 19), chunks = !a['no-chunks'];
   const t0 = Date.now();
   const { C, A, L } = B.loadCity();
   const net = C.generateCity(seed, { scale }), b = net.bounds;
@@ -271,8 +275,10 @@ async function main() {
         secs.push(['VEHI', w.done()]); nVeh += own.length;
       }
     }
-    const file0 = B.writeFile('TTZT', i | j << 16, secs), file = LOD.relodTile(file0) || file0;   // stricter LOD1 + LOD2 (lod.js)
-    { const ff = B.readFile(file), r = res.get(ij.join(',')); r.tris1 = 2 * B.readMesh(ff.sections.get('MESH') || Buffer.alloc(72)).lod1Quads; r.tris2 = ff.sections.has('LOD2') ? 2 * B.readMesh(ff.sections.get('LOD2')).quads : 0; }
+    // stricter LOD1 + LOD2 + chunks + compression (lod.js)
+    const file = LOD.processTile(B.writeFile('TTZT', i | j << 16, secs), { force: true, zstd: level, chunks });
+    { const ff = B.readFile(file), r = res.get(ij.join(',')); r.tris1 = 2 * B.readMesh(ff.sections.get('MESH') || Buffer.alloc(72)).lod1Quads; r.tris2 = ff.sections.has('LOD2') ? 2 * B.readMesh(ff.sections.get('LOD2')).quads : 0;
+      r.rawBytes = Object.values(ff.stored).reduce((s, x) => s + x.raw, 0); }
     fs.writeFileSync(path.join(out, 'tiles', `${i}_${j}.bin`), file); fs.unlinkSync(fp); bytes += file.length;
     res.get(ij.join(',')).bytes = file.length;
   }
@@ -283,9 +289,9 @@ async function main() {
     vsecs.push(['V' + id, B.meshSection([Object.assign({ unit: 1, paint: paintPH }, v.hi)], 'auto', 'auto', [0, 0, 0])]);
     if (v.lo && v.lo.quads) vsecs.push(['W' + id, B.meshSection([Object.assign({ unit: 1, paint: paintPH }, v.lo)], 'auto', 'auto', [0, 0, 0])]);
   });
-  const vfile = B.writeFile('TTZV', 0, vsecs); fs.writeFileSync(path.join(out, 'vehicles.bin'), vfile); bytes += vfile.length;
+  const vfile = B.writeFile('TTZV', 0, vsecs, { v2: true, zstd: level }); fs.writeFileSync(path.join(out, 'vehicles.bin'), vfile); bytes += vfile.length;
   const pm = C.buildPropMeshes(), psecs = propTypes.map((t, n) => ['P' + String(n).padStart(3, '0'), B.meshSection([Object.assign({ unit: 1, quads: pm[t].pos.length / 12 }, pm[t])], 'auto', 'auto', [0, 0, 0])]);
-  const pfile = B.writeFile('TTZP', 0, psecs); fs.writeFileSync(path.join(out, 'props.bin'), pfile); bytes += pfile.length;
+  const pfile = B.writeFile('TTZP', 0, psecs, { v2: true, zstd: level }); fs.writeFileSync(path.join(out, 'props.bin'), pfile); bytes += pfile.length;
   // ---- land use (8 m)
   const LC = 8, lnx = Math.ceil((b.x1 - b.x0) / LC), lnz = Math.ceil((b.z1 - b.z0) / LC), legend = ['unknown'], lcode = new Map();
   const lw = new B.W(20 + lnx * lnz + 4); lw.u32(lnx); lw.u32(lnz); lw.f32(LC); lw.f32(b.x0); lw.f32(b.z0);
@@ -296,15 +302,15 @@ async function main() {
     codes[z * lnx + x] = lcode.get(s);
   }
   lw.bytes(codes); lw.align();
-  const lfile = B.writeFile('TTZL', 0, [['LUSE', lw.done()]]); fs.writeFileSync(path.join(out, 'landuse.bin'), lfile); bytes += lfile.length;
+  const lfile = B.writeFile('TTZL', 0, [['LUSE', lw.done()]], { v2: true, zstd: level }); fs.writeFileSync(path.join(out, 'landuse.bin'), lfile); bytes += lfile.length;
   // ---- city.json
   const propCount = {}; for (const r of res.values()) for (const t of r.props) propCount[t] = (propCount[t] || 0) + 1;
   const sum = (f) => [...res.values()].reduce((s, r) => s + (f(r) || 0), 0);
   const tileMs = [...res.values()].map(r => r.ms).sort((x, y) => x - y);
   const city = {
-    format: 'ttz-city', version: 1, compression: 'none', seed, scale, generator: { urbanScale: 2, ruralScale: 3, voxel: V },
+    format: 'ttz-city', version: 1, compression: level ? 'zstd' : 'none', seed, scale, generator: { urbanScale: 2, ruralScale: 3, voxel: V },
     bounds: { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 },
-    tile: { size: TILE, ni, nj, lod2: true, files: 'tiles/{i}_{j}.bin', present: todo.map(([i, j]) => [i, j, res.get(i + ',' + j).bytes]) },
+    tile: { size: TILE, ni, nj, lod2: true, ...(chunks ? { chunks: { n: LOD.CH_N, size: LOD.CH_SIZE } } : {}), files: 'tiles/{i}_{j}.bin', present: todo.map(([i, j]) => [i, j, res.get(i + ',' + j).bytes]) },
     quantisation: 'per mesh: scale = finest power of two <= 1/512 m whose int16 range fits (mesh header)',
     palette: palette(C, A),
     vehicles: { paintPlaceholder: paintPH, variants: keys.map((k, n) => { const v = variantMesh.get(k); return { key: k, kind: v.kind, bb: v.bb, count: vCount[n], lod1: !!(v.lo && v.lo.quads) }; }) },
@@ -316,7 +322,7 @@ async function main() {
     }),
     landUse: { file: 'landuse.bin', cell: LC, nx: lnx, nz: lnz, legend },
     spawns: todo.flatMap(ij => res.get(ij.join(',')).spawns),
-    stats: { bakeSeconds: 0, bytes: 0, tiles: todo.length, tris0: sum(r => r.tris0), tris1: sum(r => r.tris1), tris2: sum(r => r.tris2 || 0), vehicles: nVeh, vehicleVariants: keys.length,
+    stats: { bakeSeconds: 0, bytes: 0, tiles: todo.length, tris0: sum(r => r.tris0), tris1: sum(r => r.tris1), tris2: sum(r => r.tris2 || 0), rawBytes: sum(r => r.rawBytes), vehicles: nVeh, vehicleVariants: keys.length,
       props: sum(r => r.props.length), tileMsMedian: tileMs[tileMs.length >> 1], tileMsMax: tileMs[tileMs.length - 1], clampedVerts: sum(r => r.clamped), quatMaxOrthoErr: +maxOrtho.toFixed(6), workers: jobs, workerHeapMaxMB: maxHeap }
   };
   const det = JSON.stringify(city);                    // timing-free copy for the digest

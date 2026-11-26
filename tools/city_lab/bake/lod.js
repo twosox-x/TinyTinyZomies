@@ -173,8 +173,75 @@ function lod2Mesh(buf) {
   return B.meshSection([{ pos: Float32Array.from(pos), mat: Uint8Array.from(mat), nvec: Float32Array.from(nvec), quads, unit: 1 }], 'auto', 'auto', m.origin.slice());
 }
 
-// tile file -> tile file with the stricter LOD1 order and a LOD2 section (skips tiles that have LOD2 unless force;
-// both are recomputed from MESH, whose quad order does not matter)
+// ---- sub-tile chunks (FORMAT.md 3, CHNK): MESH quads sorted by a CH_N x CH_N grid of CH_SIZE m cells from the tile
+// corner (a quad goes to the chunk of its centre, clamped to the grid), LOD1 quads first inside each chunk; per chunk
+// {firstQuad, lod1Quads, quads, aabb}.
+const CH_N = 4, CH_SIZE = 32, CH_REC = 40, CH_HEAD = 24;
+function readChunks(chnk) {
+  const n = chnk.readUInt32LE(0), out = [];
+  for (let c = 0; c < n; ++c) { const o = CH_HEAD + c * CH_REC; out.push({ first: chnk.readUInt32LE(o), n1: chnk.readUInt32LE(o + 4), n0: chnk.readUInt32LE(o + 8),
+    bmin: [0, 1, 2].map(k => chnk.readFloatLE(o + 16 + 4 * k)), bmax: [0, 1, 2].map(k => chnk.readFloatLE(o + 28 + 4 * k)) }); }
+  return { n, nx: chnk.readUInt32LE(4), nz: chnk.readUInt32LE(8), size: chnk.readFloatLE(12), x0: chnk.readFloatLE(16), z0: chnk.readFloatLE(20), chunks: out };
+}
+// chunk-ordered MESH -> v1 order (all LOD1 quads first), so relodMesh / lod2Mesh / chunkMesh can run again
+function unchunkMesh(mesh, chnk) {
+  const m = B.readMesh(mesh), out = Buffer.from(mesh), { chunks } = readChunks(chnk);
+  let w = m.vo;
+  for (const pass of [1, 0]) for (const c of chunks) {
+    const a = pass ? c.first : c.first + c.n1, b = pass ? c.first + c.n1 : c.first + c.n0;
+    mesh.copy(out, w, m.vo + a * 48, m.vo + b * 48); w += (b - a) * 48;
+  }
+  out.writeUInt32LE(m.flags & ~2, 12);
+  return out;
+}
+function chunkMesh(mesh) {
+  const m = B.readMesh(mesh), Q = m.quads, x0 = m.origin[0] - 64, z0 = m.origin[2] - 64, NC = CH_N * CH_N;
+  const lists = [...Array(NC)].map(() => [[], []]);
+  const box = [...Array(NC)].map(() => [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]);
+  for (let q = 0; q < Q; ++q) {
+    let sx = 0, sz = 0; const P = [];
+    for (let c = 0; c < 4; ++c) {
+      const o = m.vo + (q * 4 + c) * 12, x = m.origin[0] + mesh.readInt16LE(o) * m.sxz, y = m.origin[1] + mesh.readInt16LE(o + 2) * m.sy, z = m.origin[2] + mesh.readInt16LE(o + 4) * m.sxz;
+      sx += x; sz += z; P.push(x, y, z);
+    }
+    const cx = Math.min(CH_N - 1, Math.max(0, Math.floor((sx / 4 - x0) / CH_SIZE))), cz = Math.min(CH_N - 1, Math.max(0, Math.floor((sz / 4 - z0) / CH_SIZE)));
+    const c = cz * CH_N + cx, b = box[c];
+    lists[c][q < m.lod1Quads ? 0 : 1].push(q);
+    for (let k = 0; k < 12; k += 3) { b[0] = Math.min(b[0], P[k]); b[1] = Math.min(b[1], P[k + 1]); b[2] = Math.min(b[2], P[k + 2]); b[3] = Math.max(b[3], P[k]); b[4] = Math.max(b[4], P[k + 1]); b[5] = Math.max(b[5], P[k + 2]); }
+  }
+  const out = Buffer.from(mesh), ch = Buffer.alloc(CH_HEAD + NC * CH_REC);
+  ch.writeUInt32LE(NC, 0); ch.writeUInt32LE(CH_N, 4); ch.writeUInt32LE(CH_N, 8); ch.writeFloatLE(CH_SIZE, 12); ch.writeFloatLE(x0, 16); ch.writeFloatLE(z0, 20);
+  let w = 0;
+  for (let c = 0; c < NC; ++c) {
+    const o = CH_HEAD + c * CH_REC, [l1, l0] = lists[c];
+    ch.writeUInt32LE(w, o); ch.writeUInt32LE(l1.length, o + 4); ch.writeUInt32LE(l1.length + l0.length, o + 8);
+    const b = l1.length + l0.length ? box[c] : [0, 0, 0, 0, 0, 0];
+    for (let k = 0; k < 6; ++k) ch.writeFloatLE(b[k], o + 16 + 4 * k);
+    for (const q of l1.concat(l0)) { mesh.copy(out, m.vo + w * 48, m.vo + q * 48, m.vo + q * 48 + 48); ++w; }
+  }
+  out.writeUInt32LE(m.flags | 2, 12);
+  return { mesh: out, chnk: ch };
+}
+
+// tile file -> tile file (format v2): MESH in chunk order + CHNK, LOD1 order / LOD2 recomputed from MESH when LOD2 is
+// missing or opts.force, sections zstd-compressed when opts.zstd (level). Idempotent; reads v1 and v2 tiles.
+function processTile(fileBuf, opts) {
+  opts = opts || {};
+  const f = B.readFile(fileBuf), secs = [];
+  let mesh = f.sections.get('MESH'), l2 = f.sections.get('LOD2'), chnk = null;
+  if (mesh) {
+    if (f.sections.has('CHNK')) mesh = unchunkMesh(mesh, f.sections.get('CHNK'));
+    if (opts.force || !l2) { mesh = relodMesh(mesh); l2 = lod2Mesh(mesh); }
+    if (opts.chunks !== false) ({ mesh, chnk } = chunkMesh(mesh));
+    secs.push(['MESH', mesh]);
+    if (chnk) secs.push(['CHNK', chnk]);
+    if (l2) secs.push(['LOD2', l2]);
+  }
+  for (const t of f.order) if (!['MESH', 'CHNK', 'LOD2'].includes(t)) secs.push([t, f.sections.get(t)]);
+  return B.writeFile('TTZT', f.reserved, secs, { v2: true, zstd: opts.zstd });
+}
+
+// legacy entry point (v1 output, no chunks / compression)
 function relodTile(fileBuf, force) {
   const f = B.readFile(fileBuf);
   if ((f.sections.has('LOD2') && !force) || !f.sections.has('MESH')) return null;
@@ -189,4 +256,4 @@ function relodTile(fileBuf, force) {
   return B.writeFile('TTZT', f.reserved, secs);
 }
 
-module.exports = { relodMesh, lod2Mesh, relodTile };
+module.exports = { relodMesh, lod2Mesh, relodTile, processTile, chunkMesh, unchunkMesh, readChunks, CH_N, CH_SIZE };

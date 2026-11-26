@@ -66,10 +66,9 @@ bool App::init() {
     if (s_.cityMode) {
         if (!s_.cityRenderer.init(s_.gpu, s_.city, s_.renderer.msaaSamples() == 4 ? SDL_GPU_SAMPLECOUNT_4 : SDL_GPU_SAMPLECOUNT_1)) return false;
         s_.renderer.setCity(&s_.cityRenderer);
-        double t = nowMs();
-        s_.renderer.setShadowField(cityShadowField(s_.sandbox.heightOverride, s_.sandbox.gridW, s_.sandbox.gridH, s_.sandbox.cellSize,
-                                                   s_.sandbox.originX, s_.sandbox.originZ));
-        SDL_Log("city: moon shadow field %.0f ms", nowMs() - t);
+        s_.cityHome = s_.sandbox;
+        if (!s_.simWindow.init(s_.gpu, s_.city, s_.sandbox, s_.renderer)) return false;
+        s_.simWindow.enabled = o.cityFollow;
     }
     applyCameraRig();
     s_.renderSettings.debugFlags = o.debugFlags;
@@ -148,6 +147,11 @@ void App::loadScenario(int index, int count) {
         s_.sandbox.build(s_.params.cellSize, s_.params.gridW, s_.params.gridH, sc.map);
         s_.renderer.setSandbox(s_.sandbox);
         s_.chars.setOccluders(s_.sandbox.occluders());
+    }
+    if (s_.cityMode && s_.sandbox.map == MapKind::Baked && (s_.sandbox.originX != s_.cityHome.originX || s_.sandbox.originZ != s_.cityHome.originZ)) {
+        SDL_WaitForGPUIdle(s_.gpu.device());   // the scenario's spawns and goal are in the initial window
+        s_.sandbox = s_.cityHome;
+        s_.simWindow.resetTo(s_.sandbox, s_.renderer);
     }
     s_.staticHeights = s_.sandbox.rasterize();
     s_.sim.reset(s_.sandbox);
@@ -316,6 +320,12 @@ void App::frame(double dt) {
         mz += panDy_ * mpp / (speed * (float)dt) / std::sin(std::max(0.3f, s.camera.pitch()));
     }
     panDx_ = panDy_ = 0;
+    if (s.opt.panSpeed > 0 && (int)s.frameIndex >= s.opt.panStart) {   // scripted pan (headless window-follow test)
+        V3 p = s.camera.target();
+        float dx = s.opt.panX - p.x, dz = s.opt.panZ - p.z, d = std::sqrt(dx * dx + dz * dz), stepM = s.opt.panSpeed * (float)dt;
+        if (d > 1e-3f) s.camera.setImmediate({p.x + dx / d * std::min(d, stepM), p.y, p.z + dz / d * std::min(d, stepM)}, s.camera.yaw(),
+                                             s.camera.pitch(), s.camera.distance());
+    }
     if (s.opt.cityBench > 0) cityBenchStep();
     else s.camera.update((float)dt, mx, mz, wheel_, rotDx_ + turn * 300.f * (float)dt, rotDy_, boost);
     if (s.cityMode) {
@@ -355,6 +365,27 @@ void App::frame(double dt) {
     // fixed-timestep simulation, decoupled from rendering
     double t1 = nowMs();
     int steps = 0;
+    // the simulation window follows the camera pivot (heavy work on a worker; the move itself is GPU passes)
+    bool moved = false;
+    if (s.cityMode && !s.paused) {
+        V3 p = s.camera.target();
+        moved = s.simWindow.update(cmd, p.x, p.z, s.sim, s.renderer, s.sandbox);
+        if (moved && s.opt.shotsOnMove >= 0) {   // test: the last frame rendered before the move
+            char name[512];
+            std::snprintf(name, sizeof(name), "%s/move%02d_pre_f%05d.png", s.opt.shotDir.c_str(), moves_, (int)s.frameIndex - 1);
+            SDL_WaitForGPUIdle(s.gpu.device());
+            s.renderer.saveScreenshot(name);
+            postShots_.push_back({s.frameIndex + (uint64_t)s.opt.shotsOnMove, moves_});
+        }
+        moves_ += moved ? 1 : 0;
+    }
+    if (s.opt.panSpawnEvery > 0 && s.opt.panSpeed > 0 && (int)s.frameIndex >= s.opt.panStart) {
+        int k = ((int)s.frameIndex - s.opt.panStart) / s.opt.panSpawnEvery, r = ((int)s.frameIndex - s.opt.panStart) % s.opt.panSpawnEvery;
+        V3 p = s.camera.target();
+        float ax = p.x + 15.f * std::cos(k * 2.4f), az = p.z + 15.f * std::sin(k * 2.4f);
+        if (r == 0) s.sim.requestSpawn({ax - 40.f, az - 40.f, ax + 40.f, az + 40.f}, 400);   // lands on the streets in the rect
+        if (r == s.opt.panSpawnEvery / 2) { s.sim.requestExplosion(ax, 0.4f, az); s.renderer.addBlast(ax, 0.4f, az); }
+    }
     if (!s.paused) {
         s.simAccumulator += dt * s.simSpeed;
         const double fdt = s.sim.params().fixedDt;
@@ -416,6 +447,20 @@ void App::frame(double dt) {
     // Without a swapchain nothing paces the CPU: keep headless runs to one frame in flight.
     if (!s.window) SDL_WaitForGPUIdle(s.gpu.device());
     s.cpuFrame.add(nowMs() - t0);
+    if (s.opt.cityVerify > 0 && (moved || s.frameIndex % (uint64_t)s.opt.cityVerify == 0)) cityVerify(moved ? "after move" : "periodic");
+    for (auto& ps : postShots_)
+        if (ps.first == s.frameIndex) {
+            char name[512];
+            std::snprintf(name, sizeof(name), "%s/move%02d_post_f%05d.png", s.opt.shotDir.c_str(), ps.second, (int)s.frameIndex);
+            SDL_WaitForGPUIdle(s.gpu.device());
+            s.renderer.saveScreenshot(name);
+        }
+    if (std::find(s.opt.shotFrames.begin(), s.opt.shotFrames.end(), (int)s.frameIndex) != s.opt.shotFrames.end()) {
+        char name[512];
+        std::snprintf(name, sizeof(name), "%s/f%05d.png", s.opt.shotDir.c_str(), (int)s.frameIndex);
+        SDL_WaitForGPUIdle(s.gpu.device());
+        s.renderer.saveScreenshot(name);
+    }
     if (s.opt.cityBench > 0) {
         s.benchFrameMs.push_back(nowMs() - t0);
         const CityRenderStats& cs = s.cityRenderer.stats();
@@ -444,6 +489,41 @@ void App::cityBenchStep() {
     float dist = 120.f + 150.f * (0.5f - 0.5f * std::cos(t * 0.4f));
     float pitch = (35.f + 35.f * (0.5f + 0.5f * std::sin(t * 0.3f))) * 3.14159265f / 180.f;
     s.camera.setImmediate({gx + dirx / len * along, 0, gz + dirz / len * along}, 0.9f + 0.1f * t, pitch, dist);
+}
+
+// Test only (--city-verify): synchronous readback of the horde and the grid fields. Logs agents inside static
+// obstacles (feet below the obstacle top), outside the window, NaNs, parked agents and the blood in the window.
+void App::cityVerify(const char* why) {
+    AppState& s = s_;
+    SDL_WaitForGPUIdle(s.gpu.device());
+    const CrowdSim& sim = s.sim;
+    uint32_t c[C_COUNT];
+    s.gpu.downloadNow(sim.counters(), c, sizeof(c));
+    std::vector<GpuAgent> ag(c[C_LIVE]);
+    if (!ag.empty()) s.gpu.downloadNow(sim.agents(), ag.data(), (uint32_t)(ag.size() * sizeof(GpuAgent)));
+    const uint32_t W = (uint32_t)s.params.gridW, H = (uint32_t)s.params.gridH, n = W * H;
+    std::vector<float> st(n);
+    std::vector<uint32_t> dec(9u * n), pk(4);
+    s.gpu.downloadNow(sim.staticHeight(), st.data(), n * 4);
+    s.gpu.downloadNow(sim.decals(), dec.data(), 9u * n * 4);
+    s.gpu.downloadNow(sim.parkCounts(), pk.data(), 16);
+    const float ox = sim.originX(), oz = sim.originZ(), cs = s.params.cellSize;
+    int inside = 0, outside = 0, nan = 0, live = 0;
+    for (const GpuAgent& a : ag) {
+        if ((a.info.x & 0xFF) == ST_DEAD) continue;
+        ++live;
+        if (!std::isfinite(a.pos.x) || !std::isfinite(a.pos.y) || !std::isfinite(a.pos.z)) { ++nan; continue; }
+        int cx = (int)std::floor((a.pos.x - ox) / cs), cz = (int)std::floor((a.pos.z - oz) / cs);
+        if (cx < 0 || cz < 0 || cx >= (int)W || cz >= (int)H) { ++outside; continue; }
+        float top = st[(size_t)cz * W + cx];
+        if (top > 0 && a.pos.y < top - s.params.stepUp - 0.05f) ++inside;
+    }
+    double blood = 0;
+    for (uint32_t i = 0; i < 9u * n; ++i) blood += dec[i];
+    V3 p = s.camera.target();
+    SDL_Log("verify f%llu (%s): window (%.1f, %.1f) pivot (%.1f, %.1f) live %d parked %u inside-obstacles %d outside-window %d nan %d blood %.0f corpses %u",
+            (unsigned long long)s.frameIndex, why, ox, oz, p.x, p.z, live, std::min(pk[sim.parkedList()], 1u << 30), inside, outside, nan, blood,
+            std::min<uint32_t>(c[C_CORPSES], (uint32_t)s.params.corpseCapacity));
 }
 
 void App::printCityBench() {
@@ -521,6 +601,7 @@ void App::shutdown() {
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
     }
+    s_.simWindow.shutdown();
     s_.cityRenderer.shutdown();
     s_.renderer.shutdown();
     s_.chars.shutdown();

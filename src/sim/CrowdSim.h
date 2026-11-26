@@ -18,6 +18,7 @@ struct SimStats {
     uint32_t live = 0, corpses = 0, deaths = 0, climbing = 0, airborne = 0, elevated = 0, reactivated = 0;
     uint32_t corpseOverflow = 0;
     uint32_t particlesAlive = 0, gibsSpawned = 0, limbsSevered = 0, tornApart = 0;
+    uint32_t parked = 0, parkDropped = 0;   // moving window: agents waiting outside it / despawned (parked list full)
     float maxStackHeight = 0.f;
     uint64_t frameOfData = 0;
 };
@@ -75,6 +76,18 @@ public:
     uint32_t decalH() const { return (uint32_t)p_.gridH * kDecalScale; }
     void clearGore();                       // remove all blood, parts, particles and scorch marks
 
+    // Moving simulation window (city): moves the grid by (dx, dz) cells, recorded into cmd before the next step().
+    // Persistent grid fields (corpse heights, navigation distance, density, flow, blood / wall blood / scorch decals)
+    // are shifted on the GPU, newly exposed strips cleared; `staticHeights` (gridW x gridH, the new window) is
+    // uploaded; corpses re-splat their height into the exposed strips. Live agents leaving the window are parked
+    // (frozen, not drawn) in a GPU list and rejoin unchanged when the window covers them again.
+    void relocate(SDL_GPUCommandBuffer* cmd, int dx, int dz, const std::vector<float>& staticHeights);
+    float originX() const { return sandbox_.originX; }
+    float originZ() const { return sandbox_.originZ; }
+    SDL_GPUBuffer* parkedAgents() const { return park_[parkIn_]; }
+    SDL_GPUBuffer* parkCounts() const { return parkCnt_; }   // uint[0], [1]: list counts (parkedList() selects), [2]: dropped
+    uint32_t parkedList() const { return (uint32_t)parkIn_; }
+
     struct Timing { double cpuRecordMs = 0; };
 
 private:
@@ -89,14 +102,18 @@ private:
                            *pPredict_ = nullptr, *pScanLocal_ = nullptr, *pScanBlocks_ = nullptr, *pScanAdd_ = nullptr,
                            *pScatter_ = nullptr, *pCommitSort_ = nullptr, *pSolve_ = nullptr, *pFinalize_ = nullptr,
                            *pDensity_ = nullptr, *pNavRelax_ = nullptr, *pNavDir_ = nullptr, *pDrawArgs_ = nullptr,
-                           *pGore_ = nullptr;
+                           *pGore_ = nullptr, *pShift_ = nullptr, *pRelocate_ = nullptr;
 
     SDL_GPUBuffer *agentsA_ = nullptr, *agentsB_ = nullptr, *posP_ = nullptr, *posQ_ = nullptr, *prevS_ = nullptr,
                   *contactAux_ = nullptr, *cellLocal_ = nullptr, *cellCount_ = nullptr, *cellStart_ = nullptr,
                   *blockSums_ = nullptr, *density_ = nullptr, *staticH_ = nullptr, *corpseH_ = nullptr,
                   *navDist_[2] = {nullptr, nullptr}, *navDir_ = nullptr, *corpses_ = nullptr, *counters_ = nullptr,
                   *indirect_ = nullptr, *particles_ = nullptr, *particleList_ = nullptr, *gibs_ = nullptr, *gore_ = nullptr,
-                  *decals_ = nullptr;
+                  *decals_ = nullptr, *park_[2] = {nullptr, nullptr}, *parkCnt_ = nullptr, *shiftScratch_ = nullptr;
+    int parkIn_ = 0;
+    uint32_t parkCapacity_ = 0;
+    void shiftField(SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* buf, uint32_t w, uint32_t h, uint32_t words, uint32_t layers, int sx,
+                    int sz, uint32_t fill);
 
     std::vector<float> goals_;
     struct SpawnRequest { Rect rect; uint32_t count; uint32_t lookX = 0, lookY = 0; bool forced = false, corpse = false; };

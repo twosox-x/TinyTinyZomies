@@ -20,10 +20,10 @@ bool CrowdSim::createPipelines() {
         {&pScanBlocks_, "scan_blocks"}, {&pScanAdd_, "scan_add"}, {&pScatter_, "sim_scatter"},
         {&pCommitSort_, "sim_commit_sort"}, {&pSolve_, "sim_solve"}, {&pFinalize_, "sim_finalize"},
         {&pDensity_, "sim_density"}, {&pNavRelax_, "nav_relax"}, {&pNavDir_, "nav_dir"}, {&pDrawArgs_, "sim_draw_args"},
-        {&pGore_, "gore_update"}};
+        {&pGore_, "gore_update"}, {&pShift_, "grid_shift"}, {&pRelocate_, "sim_relocate"}};
     for (auto& e : list) {
         // every per-agent pass shares the 256-wide indirect dispatch args
-        *e.p = gpu_->loadCompute(e.n, std::string(e.n).rfind("nav_", 0) == 0 ? 16 : (std::string(e.n).find("commit") != std::string::npos || std::string(e.n) == "sim_draw_args") ? 1 : 256);
+        *e.p = gpu_->loadCompute(e.n, (std::string(e.n).rfind("nav_", 0) == 0 || std::string(e.n) == "grid_shift") ? 16 : (std::string(e.n).find("commit") != std::string::npos || std::string(e.n) == "sim_draw_args") ? 1 : 256);
         if (!*e.p) return false;
     }
     return true;
@@ -63,8 +63,13 @@ bool CrowdSim::init(GpuContext& gpu, const SimParams& p, const Sandbox& sb) {
     gibs_ = mk((uint32_t)p_.gibCapacity * kGibBytes, "gibs");
     gore_ = gpu_->createBuffer(kStorage | SDL_GPU_BUFFERUSAGE_INDIRECT, G_COUNT * 4, "goreCounters");
     decals_ = mk(3 * decalW() * decalH() * 4, "decals");
+    // moving window: parked agents (double-buffered list, a quarter of the agent capacity), shift scratch (lazy)
+    parkCapacity_ = std::max(1024u, cap / 4);
+    park_[0] = mk(parkCapacity_ * sizeof(GpuAgent), "parkedA");
+    park_[1] = mk(parkCapacity_ * sizeof(GpuAgent), "parkedB");
+    parkCnt_ = mk(16, "parkCounts");
     for (auto& r : rb_) {
-        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4 + 256 + 32, 0};
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4 + 256 + 32 + 16, 0};
         r.tb = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
     }
     if (!agentsA_ || !corpses_ || !indirect_) return false;
@@ -83,11 +88,12 @@ void CrowdSim::shutdown() {
     }
     SDL_GPUBuffer** bufs[] = {&agentsA_, &agentsB_, &posP_, &posQ_, &prevS_, &contactAux_, &cellLocal_, &cellCount_,
                               &cellStart_, &blockSums_, &density_, &staticH_, &corpseH_, &navDist_[0], &navDist_[1],
-                              &navDir_, &corpses_, &counters_, &indirect_, &particles_, &particleList_, &gibs_, &gore_, &decals_};
+                              &navDir_, &corpses_, &counters_, &indirect_, &particles_, &particleList_, &gibs_, &gore_, &decals_,
+                              &park_[0], &park_[1], &parkCnt_, &shiftScratch_};
     for (auto b : bufs) gpu_->releaseBuffer(*b);
     SDL_GPUComputePipeline** pipes[] = {&pSpawn_, &pCorpseBlast_, &pCommitAppend_, &pClear_, &pPredict_, &pScanLocal_,
                                         &pScanBlocks_, &pScanAdd_, &pScatter_, &pCommitSort_, &pSolve_, &pFinalize_,
-                                        &pDensity_, &pNavRelax_, &pNavDir_, &pDrawArgs_, &pGore_};
+                                        &pDensity_, &pNavRelax_, &pNavDir_, &pDrawArgs_, &pGore_, &pShift_, &pRelocate_};
     for (auto p : pipes) {
         if (*p) SDL_ReleaseGPUComputePipeline(d, *p);
         *p = nullptr;
@@ -112,6 +118,8 @@ void CrowdSim::reset(const Sandbox& sb) {
     ind[I_AGENT_DISPATCH] = ind[I_AGENT_DISPATCH + 1] = ind[I_AGENT_DISPATCH + 2] = 1;
     ind[I_CORPSE_DISPATCH] = ind[I_CORPSE_DISPATCH + 1] = ind[I_CORPSE_DISPATCH + 2] = 1;
     gpu_->uploadNow(indirect_, ind, sizeof(ind));
+    gpu_->uploadNow(parkCnt_, zeros.data(), 16);
+    parkIn_ = 0;
     clearGore();
     pendingSpawns_.clear();
     pendingExplosions_.clear();
@@ -279,6 +287,68 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
     ++stepIndex_;
 }
 
+// One layer of a grid field shifted through the scratch buffer (a compute pass cannot read and write the same
+// buffer at different offsets safely), then copied back in place.
+void CrowdSim::shiftField(SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* buf, uint32_t w, uint32_t h, uint32_t words, uint32_t layers,
+                          int sx, int sz, uint32_t fill) {
+    const uint32_t layerBytes = w * h * words * 4;
+    for (uint32_t l = 0; l < layers; ++l) {
+        struct { int32_t dims[4]; int32_t shift[4]; } u{{(int32_t)w, (int32_t)h, (int32_t)words, (int32_t)(l * w * h * words)},
+                                                        {sx, sz, (int32_t)fill, 0}};
+        dispatch(Dispatch{cmd, pShift_, {buf}, {shiftScratch_}, &u, sizeof(u)}, groups(w, 16), groups(h, 16));
+        SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUBufferLocation src{shiftScratch_, 0};
+        SDL_GPUBufferLocation dst{buf, l * layerBytes};
+        SDL_CopyGPUBufferToBuffer(cp, &src, &dst, layerBytes, false);
+        SDL_EndGPUCopyPass(cp);
+    }
+}
+
+void CrowdSim::relocate(SDL_GPUCommandBuffer* cmd, int dx, int dz, const std::vector<float>& staticHeights) {
+    const uint32_t cells = numCells(), W = (uint32_t)p_.gridW, H = (uint32_t)p_.gridH;
+    if (staticHeights.size() != cells) return;
+    if (!shiftScratch_) shiftScratch_ = gpu_->createBuffer(kStorage, std::max(cells * 16, decalW() * decalH() * 4), "shiftScratch");
+    float oldX = sandbox_.originX, oldZ = sandbox_.originZ;
+    sandbox_.originX += dx * p_.cellSize;
+    sandbox_.originZ += dz * p_.cellSize;
+    sandbox_.heightOverride = staticHeights;
+    // 1. grid fields: cell (x, z) of the new window was cell (x + dx, z + dz) of the old one
+    const uint32_t big = 0x4B18967Fu;   // 1.0e7f: unreached navigation distance
+    shiftField(cmd, corpseH_, W, H, 1, 1, dx, dz, 0);
+    shiftField(cmd, navDist_[0], W, H, 1, 1, dx, dz, big);
+    shiftField(cmd, density_, W, H, 4, 1, dx, dz, 0);
+    shiftField(cmd, navDir_, W, H, 2, 1, dx, dz, 0);
+    shiftField(cmd, decals_, decalW(), decalH(), 1, 3, dx * (int)kDecalScale, dz * (int)kDecalScale, 0);
+    // 2. new static heights (transfer buffer released by SDL once the command buffer has run)
+    {
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, cells * 4, 0};
+        SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
+        std::memcpy(SDL_MapGPUTransferBuffer(gpu_->device(), tb, false), staticHeights.data(), cells * 4);
+        SDL_UnmapGPUTransferBuffer(gpu_->device(), tb);
+        SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUTransferBufferLocation src{tb, 0};
+        SDL_GPUBufferRegion dst{staticH_, 0, cells * 4};
+        SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_ReleaseGPUTransferBuffer(gpu_->device(), tb);
+    }
+    // 3. agents and corpses (world = the new origin)
+    SimUniforms u = baseUniforms();
+    u.spawnRect = {oldX, oldZ, 0.f, 0.f};
+    u.forcedLook = {parkCapacity_, (uint32_t)parkIn_, (uint32_t)dx, (uint32_t)dz};
+    auto R = [&](uint32_t mode, uint32_t n) {
+        u.misc.y = mode;
+        dispatch(Dispatch{cmd, pRelocate_, {}, {agentsA_, counters_, park_[parkIn_], park_[1 - parkIn_], parkCnt_, corpses_, corpseH_},
+                          &u, sizeof(u)},
+                 groups(n, 256));
+    };
+    R(0, 1);
+    R(1, (uint32_t)p_.agentCapacity);
+    R(2, parkCapacity_);
+    if (p_.corpsesEnabled) R(3, (uint32_t)p_.corpseCapacity);
+    parkIn_ = 1 - parkIn_;
+}
+
 void CrowdSim::writeDrawArgs(SDL_GPUCommandBuffer* cmd, uint32_t zombieIndexCount) {
     SimUniforms u = baseUniforms();
     u.misc.z = zombieIndexCount;
@@ -290,10 +360,11 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
     // harvest finished slots
     for (auto& r : rb_) {
         if (r.recorded && r.fence && SDL_QueryGPUFence(d, r.fence)) {
-            uint32_t c[C_COUNT], g[8];
+            uint32_t c[C_COUNT], g[8], pk[4];
             void* p = SDL_MapGPUTransferBuffer(d, r.tb, false);
             std::memcpy(c, p, sizeof(c));
             std::memcpy(g, (uint8_t*)p + C_COUNT * 4 + 256, sizeof(g));
+            std::memcpy(pk, (uint8_t*)p + C_COUNT * 4 + 256 + 32, sizeof(pk));
             if (extraBytes_ && r.frame >= stats_.frameOfData) std::memcpy(extra_.data(), (uint8_t*)p + C_COUNT * 4, std::min<uint32_t>(extraBytes_, 256));
             SDL_UnmapGPUTransferBuffer(d, r.tb);
             if (r.frame >= stats_.frameOfData) {
@@ -310,6 +381,8 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
                 stats_.gibsSpawned = g[G_GIB_HEAD];
                 stats_.limbsSevered = g[G_SEVERED];
                 stats_.tornApart = g[G_GIBBED];
+                stats_.parked = std::min(pk[parkIn_], parkCapacity_);   // list index may lag one relocation: display only
+                stats_.parkDropped = pk[2];
                 stats_.frameOfData = r.frame;
             }
             SDL_ReleaseGPUFence(d, r.fence);
@@ -331,6 +404,11 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
         SDL_GPUBufferRegion srcG{gore_, 0, 32};
         SDL_GPUTransferBufferLocation dstG{r.tb, C_COUNT * 4 + 256};
         SDL_DownloadFromGPUBuffer(cp, &srcG, &dstG);
+    }
+    {
+        SDL_GPUBufferRegion srcP{parkCnt_, 0, 16};
+        SDL_GPUTransferBufferLocation dstP{r.tb, C_COUNT * 4 + 256 + 32};
+        SDL_DownloadFromGPUBuffer(cp, &srcP, &dstP);
     }
     if (extraBuf_) {
         SDL_GPUBufferRegion src2{extraBuf_, 0, std::min<uint32_t>(extraBytes_, 256)};

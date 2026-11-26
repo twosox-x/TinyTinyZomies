@@ -156,6 +156,7 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
 
 void Renderer::setSandbox(const Sandbox& sb) {
     sandbox_ = sb;
+    shadowExt_ = nullptr;
     std::vector<Vec4> data;
     int i = 0;
     for (const Box& b : sb.boxes) {
@@ -354,11 +355,11 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     // ground + debug overlays
     if (rs.drawGround) {
         SDL_BindGPUGraphicsPipeline(pass, pGround_);
-        SDL_GPUBuffer* gb[7] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist(), sim.decals(), shadowH_};
+        SDL_GPUBuffer* gb[7] = {sim.staticHeight(), sim.corpseHeight(), sim.density(), sim.navDir(), sim.navDist(), sim.decals(), shadow()};
         SDL_BindGPUFragmentStorageBuffers(pass, 0, gb, 7);
         SDL_DrawGPUPrimitives(pass, 6, 1, 0, 0);
     }
-    if (city_) city_->draw(pass, cmd, sim.decals(), shadowH_, sim.corpseHeight());
+    if (city_) city_->draw(pass, cmd, sim.decals(), shadow(), sim.corpseHeight());
 
     if (rs.drawBoxes && boxCount_) {
         SDL_BindGPUGraphicsPipeline(pass, pBox_);
@@ -367,7 +368,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_GPUBufferBinding ib{cubeIB_, 0};
         SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
         SDL_BindGPUVertexStorageBuffers(pass, 0, &boxes_, 1);
-        SDL_GPUBuffer* fb[2] = {sim.decals(), shadowH_};
+        SDL_GPUBuffer* fb[2] = {sim.decals(), shadow()};
         SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 2);
         SDL_DrawGPUIndexedPrimitives(pass, 36, boxCount_, 0, 0, 0);
     }
@@ -381,7 +382,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_GPUBufferBinding zvb{zombieVB_, 0};
     SDL_GPUBufferBinding zib{zombieIB_, 0};
     SDL_GPUTextureSamplerBinding pal{palette_, nearest_};
-    if (modular) { chars->setShadowField(shadowH_); chars->draw(cmd, pass, sim, time, rs.chars); }
+    if (modular) { chars->setShadowField(shadow()); chars->draw(cmd, pass, sim, time, rs.chars); }
     if (!modular && rs.drawCorpses) {
         SDL_BindGPUGraphicsPipeline(pass, pCorpse_);
         SDL_BindGPUVertexBuffers(pass, 0, &zvb, 1);

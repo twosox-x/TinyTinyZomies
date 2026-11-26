@@ -65,16 +65,23 @@ struct ModelVariant {
     CityMesh lod0, lod1;           // model space; lod1 may be empty (use lod0)
 };
 
+// Sub-tile chunk of the tile mesh (CHNK, FORMAT.md 3): quads [first, first + n0) of LOD0, its LOD1 = [first, first + n1).
+struct CityChunk {
+    uint32_t first = 0, n1 = 0, n0 = 0;
+    float bmin[3] = {0, 0, 0}, bmax[3] = {0, 0, 0};
+};
+
 struct TileCPU {
     int i = 0, j = 0;
     CityMesh lod[3];               // MESH (LOD0, LOD1 = its leading lod1Quads quads) / legacy MSH1 / LOD2 (far blocks)
+    std::vector<CityChunk> chunks;          // empty: v1 tile (LOD1 = leading lod1Quads quads of LOD0)
     std::vector<CityInstance> instances;   // vehicles then props
     // collision / height grid
     int gw = 0, gh = 0;            // cells
     float gx0 = 0, gz0 = 0, gcell = 0.5f;
     std::vector<int16_t> heightCm;
     std::vector<uint8_t> flags;
-    uint64_t fileBytes = 0;
+    uint64_t fileBytes = 0, rawBytes = 0;  // stored / decompressed section bytes
     double decodeMs = 0;
     bool ok = false;
 };

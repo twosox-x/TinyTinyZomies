@@ -1,0 +1,87 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct ShiftU
+{
+    int4 dims;
+    int4 shift;
+};
+
+struct Dst
+{
+    uint dst[1];
+};
+
+struct Src
+{
+    uint src[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(16u, 16u, 1u);
+
+kernel void main0(constant ShiftU& _26 [[buffer(0)]], device Src& _140 [[buffer(1)]], device Dst& _128 [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    int2 c = int2(gl_GlobalInvocationID.xy);
+    bool _31 = c.x >= _26.dims.x;
+    bool _41;
+    if (!_31)
+    {
+        _41 = c.y >= _26.dims.y;
+    }
+    else
+    {
+        _41 = _31;
+    }
+    if (_41)
+    {
+        return;
+    }
+    int2 s = c + _26.shift.xy;
+    bool _57 = s.x >= 0;
+    bool _63;
+    if (_57)
+    {
+        _63 = s.y >= 0;
+    }
+    else
+    {
+        _63 = _57;
+    }
+    bool _71;
+    if (_63)
+    {
+        _71 = s.x < _26.dims.x;
+    }
+    else
+    {
+        _71 = _63;
+    }
+    bool _79;
+    if (_71)
+    {
+        _79 = s.y < _26.dims.y;
+    }
+    else
+    {
+        _79 = _71;
+    }
+    bool inside = _79;
+    uint d = uint((c.y * _26.dims.x) + c.x) * uint(_26.dims.z);
+    uint o = uint(_26.dims.w) + (uint((s.y * _26.dims.x) + s.x) * uint(_26.dims.z));
+    uint _134;
+    for (int k = 0; k < _26.dims.z; k++)
+    {
+        if (inside)
+        {
+            _134 = _140.src[o + uint(k)];
+        }
+        else
+        {
+            _134 = uint(_26.shift.z);
+        }
+        _128.dst[d + uint(k)] = _134;
+    }
+}
+

@@ -57,6 +57,21 @@ FetchContent_Declare(stb
   GIT_TAG 6b5799bae8a1fe3792691ef4b72ae26434c3e799)
 FetchContent_MakeAvailable(stb)
 
+# ---- zstd (BSD-3-Clause): decoder only, for compressed city package sections (tools/city_lab/bake/FORMAT.md).
+# SOURCE_SUBDIR points at a directory without a CMakeLists.txt, so zstd's own build is not added; we compile the
+# decompression sources (C, no assembly) into a small static library.
+FetchContent_Declare(zstd
+  GIT_REPOSITORY https://github.com/facebook/zstd.git
+  GIT_TAG v1.5.7
+  GIT_SHALLOW TRUE
+  SOURCE_SUBDIR no-cmake)
+FetchContent_MakeAvailable(zstd)
+file(GLOB TTZ_ZSTD_SOURCES ${zstd_SOURCE_DIR}/lib/common/*.c ${zstd_SOURCE_DIR}/lib/decompress/*.c)
+add_library(ttz_zstd STATIC ${TTZ_ZSTD_SOURCES})
+target_include_directories(ttz_zstd PUBLIC ${zstd_SOURCE_DIR}/lib)
+target_compile_definitions(ttz_zstd PRIVATE ZSTD_DISABLE_ASM=1 ZSTD_LEGACY_SUPPORT=0 ZSTD_MULTITHREAD=0)
+set_target_properties(ttz_zstd PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # ---- engine ----------------------------------------------------------------------
 add_executable(ttz
   src/main.cpp
@@ -76,10 +91,11 @@ add_executable(ttz
   src/city/CityAssetFormat.cpp
   src/city/CityRenderer.cpp
   src/city/CityWorld.cpp
+  src/city/CitySimWindow.cpp
   src/debug/DebugUI.cpp
   src/debug/Profiler.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
-target_link_libraries(ttz PRIVATE SDL3::SDL3 imgui)
+target_link_libraries(ttz PRIVATE SDL3::SDL3 imgui ttz_zstd)
 target_compile_definitions(ttz PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 if(MSVC)
   target_compile_options(ttz PRIVATE /W4 /permissive-)
@@ -121,7 +137,7 @@ add_executable(ttz_selftest
   src/city/CityAssetFormat.cpp
   src/city/CityWorld.cpp)
 target_include_directories(ttz_selftest PRIVATE src)
-target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3)
+target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3 ttz_zstd)
 target_compile_definitions(ttz_selftest PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 enable_testing()

@@ -1,4 +1,4 @@
-# Baked city package — format v1
+# Baked city package — format v1 / v2
 
 Produced by `tools/city_lab/bake/bake.js` (offline; Node), read by the engine. Same inputs (seed, scale, code) give
 byte-identical files. Everything is **little endian**. World frame: metres, **x / z on the ground, y up**; the map is
@@ -13,9 +13,12 @@ flat (ground y = 0, sidewalks / curbs at +0.15 m). City Lab draws with the same 
   landuse.bin                coarse land-use grid (u8 codes, legend in city.json)
 ```
 
-`LOD2` and the LOD1 order are added to existing packages without a re-bake by `node relod.js <dir> [--force]`
-(seconds; bake.js runs the same code on new bakes). No compression in v1 (sizes are reported in `city.json.stats`). If a later version compresses, `city.json.compression`
-names it; v1 writes `"compression": "none"`.
+bake.js writes **file format v2** end to end: LOD1 order + `LOD2` + sub-tile chunks (`CHNK`) + zstd-compressed
+sections (`--level=19` default, `--no-compress`, `--no-chunks`). An existing package (v1 or v2) is repacked in place,
+without a re-bake, by `node relod.js <dir> [--force] [--level=N] [--no-compress] [--no-chunks]` (~40 s for seed 1 on
+4 cores; bake.js and relod.js share `lod.js processTile`, so both give byte-identical tiles). Readers accept v1 and v2
+files. `city.json.compression` is `"zstd"` when sections are compressed (`"none"` otherwise); seed 1: 755 MB of
+sections store as ~94 MB (8x).
 
 ## 1. Common: binary file layout
 
@@ -24,12 +27,22 @@ Every `.bin` starts with a 16-byte header and a section table; sections are 4-by
 | offset | type | field |
 |---|---|---|
 | 0 | char[4] | magic: `TTZT` tile, `TTZV` vehicles, `TTZP` props, `TTZL` land use |
-| 4 | u32 | format version = 1 |
+| 4 | u32 | format version: 1 or 2 |
 | 8 | u32 | section count `n` |
 | 12 | u32 | reserved (tile: `i | j << 16`; else 0) |
-| 16 | n x {char[4] tag, u32 offset, u32 bytes} | section table (offset from file start) |
+| 16 | v1: n x {char[4] tag, u32 offset, u32 bytes}; v2: n x {char[4] tag, u32 offset, u32 stored bytes, u32 raw bytes, u32 encoding} | section table (offset from file start) |
 
 Unknown tags must be skipped (forward compatible).
+
+**v2 section encoding** (per section; everything below this section describes the decoded bytes):
+
+| bits | meaning |
+|---|---|
+| 0-7 | codec: 0 = stored as is (stored = raw bytes), 1 = **zstd** frame (one frame, decompresses to `raw bytes`) |
+| 8 | `SHUF12`: after decompression, the vertex region of a mesh section, bytes `[72, 72 + 12 V)` (`V` = the decoded u32 at 0), is stored as 12 byte planes (plane `c` holds byte `c` of every vertex); un-transpose it. Set on mesh sections (`MESH`, `LOD2`, `V###`, `W###`, `P###`) |
+
+The bake compresses a section only when that makes it smaller (level 19, no checksum). Typical ratios: MESH ~11x
+(shuffled), HGT0 12-35x, VEHI / PROP ~2x. The engine decodes on its loader thread (vendored zstd decoder).
 
 ## 2. Mesh section (`MESH` in tiles; `V###` / `W###` / `P###` in vehicles.bin / props.bin)
 
@@ -45,7 +58,7 @@ Header (48 bytes):
 | 0 | u32 | vertex count `V` (= 4 * quads) |
 | 4 | u32 | index count (0: implicit quads) |
 | 8 | u32 | index size (0: implicit quads) |
-| 12 | u32 | flags: bit 0 = implicit quad list (always set in v1) |
+| 12 | u32 | flags: bit 0 = implicit quad list (always set); bit 1 = chunk ordered (tile MESH with a `CHNK` section) |
 | 16 | f32 | scale xz: metres per position unit for x and z |
 | 20 | f32 | scale y: metres per position unit for y |
 | 24 | f32 x 3 | origin (metres): world/model position of quantised (0,0,0) |
@@ -93,6 +106,22 @@ Sections, in this order (a section may be absent if empty):
   LOD0 + LOD1 (section 2). LOD1 (mid) = the leading `lod1Quads` quads: quads whose longest edge is >= 1 m, plus
   upward-facing quads (ground raster, decks, roofs) whose longest edge is >= 0.35 m, so ground and roofs stay closed
   (window reveals, sills, trim, small dressing are dropped). ~40-60 % of LOD0's quads (`lod.js relodMesh`).
+- `CHNK` — sub-tile chunks (v2; present when `MESH` flags bit 1 is set). `MESH` quads are then **sorted by chunk**: a
+  `nx x nz` grid (4 x 4) of `size` m cells (32 m) from the tile corner (`x0, z0` = MESH origin - 64 m); a quad goes to
+  the chunk of its centre (clamped to the grid; owned buildings past the tile edge go to the border chunks), and
+  inside each chunk the LOD1 quads come first. MESH header `lod1Quads` is then only the total; LOD1 is per chunk.
+  Layout: `u32 n (= nx * nz), u32 nx, u32 nz, f32 size, f32 x0, f32 z0`, then `n` records of 40 bytes (row = z):
+
+  | offset | type | field |
+  |---|---|---|
+  | 0 | u32 | first quad of the chunk in MESH (chunks are contiguous, in order) |
+  | 4 | u32 | LOD1 quads of the chunk (its leading quads) |
+  | 8 | u32 | quads of the chunk (LOD0) |
+  | 12 | u32 | reserved (0) |
+  | 16 | f32 x 3, f32 x 3 | AABB min / max (metres) of the chunk's quads (zeros when empty) |
+
+  Chunk LOD0 = quads `[first, first + quads)`, chunk LOD1 = `[first, first + lod1)`; an engine culls and picks the LOD
+  per chunk and merges contiguous ranges into one draw.
 - `LOD2` — far LOD (`lod.js lod2Mesh`), a mesh (section 2, `lod1Quads = quads`) derived from `MESH`: a 2.5D block
   model on a 2 m grid aligned to the tile corner. Upward surfaces are sampled every 0.5 m (highest one wins); a cell
   takes the median height of its 16 samples (empty when more than half are missing) and the majority material near
@@ -160,10 +189,10 @@ centres with `CityCore.landUseAt`. `city.json.landUse.legend` maps code -> name 
 
 ```jsonc
 {
-  "format": "ttz-city", "version": 1, "compression": "none",
+  "format": "ttz-city", "version": 1, "compression": "zstd",       // "none" when sections are stored as is
   "seed": 1, "scale": 5, "generator": { "urbanScale": 2, "ruralScale": 3, "voxel": 0.1 },
   "bounds": { "x0": .., "z0": .., "x1": .., "z1": .. },          // world metres
-  "tile": { "size": 128, "ni": 18, "nj": 16, "lod2": true, "files": "tiles/{i}_{j}.bin", "present": [[i, j, bytes], ...] },
+  "tile": { "size": 128, "ni": 18, "nj": 16, "lod2": true, "chunks": { "n": 4, "size": 32 }, "files": "tiles/{i}_{j}.bin", "present": [[i, j, bytes], ...] },
   "palette": [ {                                                  // index = material id (0..207)
       "id": 87, "name": "GLASS_LIT", "srgb": [r, g, b], "linear": [r, g, b],
       "roughness": 0.1, "gloss": 1.0,                             // gloss: City Lab's reflection weight (0..1)
@@ -178,7 +207,7 @@ centres with `CityCore.landUseAt`. `city.json.landUse.legend` maps code -> name 
                "carriageway": 17.1, "pts": [[x, z], ...] } ],                                    // centreline, 0.1 m
   "landUse": { "file": "landuse.bin", "cell": 8, "legend": ["unknown", "core", ...] },
   "spawns": [ [x, z], ... ],          // street points >= 6 m from any building cell, a few per tile
-  "stats": { "bakeSeconds": .., "bytes": .., "tiles": .., "tris0": .., "tris1": .., "tris2": .., "vehicles": .., "props": .. }
+  "stats": { "bakeSeconds": .., "bytes": .. /* on disk */, "rawBytes": .. /* tile sections decoded */, "tiles": .., "tris0": .., "tris1": .., "tris2": .., "vehicles": .., "props": .. }
 }
 ```
 
@@ -195,10 +224,12 @@ Emissive modes (mirror of City Lab's shader, `uNight` 0 day .. 1 night):
 
 ## 7. Engine notes
 
-- One draw per tile per LOD (single material reading the palette by vertex material id); vehicles / props instanced.
-  Implicit quad lists need no per-tile index data: one shared index buffer of the quad pattern + base vertex.
-- LOD switch (src/city/CityRenderer.h): distance from the eye to the tile AABB, LOD0 < 210 m, LOD1 < 420 m, LOD2
-  beyond, 20 m hysteresis back to the finer LOD. City Lab's RTS rig (pitch 35-70 deg, distance 30-300 m) never sees
+- Draws (single material reading the palette by vertex material id): per visible tile, the visible chunks' ranges
+  (merged when contiguous) through one shared index buffer of the quad pattern + base vertex; LOD2 one draw per tile.
+  Vehicles / props instanced, culled per instance (bounding sphere), full / mid (derived at load: quads >= 0.25 m +
+  emissive) / box LODs.
+- LOD switch (src/city/CityRenderer.h): tile LOD2 when the tile AABB is beyond 420 m; otherwise per chunk, by the
+  distance from the eye to the chunk AABB: LOD0 < 210 m, else LOD1; 20 m hysteresis back to the finer LOD. City Lab's RTS rig (pitch 35-70 deg, distance 30-300 m) never sees
   ground closer than ~190 m at LOD1.
 - Memory: load tiles in a ring around the camera; a tile is self-contained (no neighbour needed to draw it).
 - Determinism: the bake iterates tiles j-major, variants by key, props by type name; floats are written from the

@@ -83,12 +83,14 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, instCapacity_ * (uint32_t)sizeof(GpuInst), 0};
     instTB_ = SDL_CreateGPUTransferBuffer(d, &tci);
 
-    // instanced models: vehicle variants then prop types; LOD1 falls back to LOD0
+    // instanced models: vehicle variants then prop types: full, mid (derived), box (vehicle LOD1, baked)
     for (const auto* list : {&asset.variants, &asset.props})
         for (const ModelVariant& v : *list) {
             models_[0].push_back(uploadMesh(v.lod0, "cityModelLod0"));
-            models_[1].push_back(v.lod1.idx.empty() ? models_[0].back() : uploadMesh(v.lod1, "cityModelLod1"));
-            if (v.lod1.idx.empty()) models_[1].back().vb = nullptr;   // shared: drawn through models_[0]
+            CityMesh mid = midMesh(v.lod0, asset.materials);
+            models_[1].push_back(mid.quads ? uploadMesh(mid, "cityModelMid") : GpuMesh{});
+            models_[2].push_back(v.lod1.idx.empty() ? GpuMesh{} : uploadMesh(v.lod1, "cityModelLod1"));
+            for (int l = 1; l < 3; ++l) models_[l].back().radius = models_[0].back().radius;
         }
     if (const char* e = SDL_getenv("TTZ_CITY_LOD")) {   // "lod1Dist,lod2Dist" (comparisons / tuning)
         float a = 0, b = 0;
@@ -96,6 +98,37 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
     }
     asset.start();
     return true;
+}
+
+// Mid LOD of an instanced model: the quads whose longest edge is >= 0.25 m plus emissive / signal quads (lights stay
+// lit at night). Empty when it would keep more than 85 % of the quads.
+CityMesh CityRenderer::midMesh(const CityMesh& m, const std::vector<CityMaterial>& mats) {
+    CityMesh out;
+    if (!m.quads || m.verts.size() < (size_t)m.quads * 4) return out;
+    out.origin[0] = m.origin[0]; out.origin[1] = m.origin[1]; out.origin[2] = m.origin[2];
+    out.scaleXZ = m.scaleXZ; out.scaleY = m.scaleY;
+    std::memcpy(out.bmin, m.bmin, sizeof(out.bmin));
+    std::memcpy(out.bmax, m.bmax, sizeof(out.bmax));
+    const float e2min = 0.25f * 0.25f;
+    for (uint32_t q = 0; q < m.quads; ++q) {
+        const CityVertex* v = &m.verts[(size_t)q * 4];
+        auto d2 = [&](int a, int b) {
+            float x = (v[b].x - v[a].x) * m.scaleXZ, y = (v[b].y - v[a].y) * m.scaleY, z = (v[b].z - v[a].z) * m.scaleXZ;
+            return x * x + y * y + z * z;
+        };
+        const uint32_t f = v[0].mat < mats.size() ? mats[v[0].mat].flags : 0;
+        if (std::max(d2(0, 1), d2(1, 2)) < e2min && !(f & (MAT_EMISSIVE | MAT_SIGNAL))) continue;
+        out.verts.insert(out.verts.end(), v, v + 4);
+    }
+    out.quads = (uint32_t)(out.verts.size() / 4);
+    if (out.quads * 100 > m.quads * 85) return CityMesh{};
+    out.lod1Quads = out.quads;
+    out.idx.resize((size_t)out.quads * 6);
+    for (uint32_t q = 0; q < out.quads; ++q) {
+        uint32_t b0 = q * 4, *o = &out.idx[(size_t)q * 6];
+        o[0] = b0; o[1] = b0 + 1; o[2] = b0 + 2; o[3] = b0; o[4] = b0 + 2; o[5] = b0 + 3;
+    }
+    return out;
 }
 
 CityRenderer::GpuMesh CityRenderer::uploadMesh(const CityMesh& m, const char* name) {
@@ -109,11 +142,21 @@ CityRenderer::GpuMesh CityRenderer::uploadMesh(const CityMesh& m, const char* na
     g.origin[0] = m.origin[0]; g.origin[1] = m.origin[1]; g.origin[2] = m.origin[2]; g.origin[3] = 0;
     g.scale[0] = m.scaleXZ; g.scale[1] = m.scaleY; g.scale[2] = g.scale[3] = 0;
     g.top = m.bmax[1];
+    g.radius = 0.f;
+    for (int c = 0; c < 8; ++c) {
+        float x = c & 1 ? m.bmax[0] : m.bmin[0], y = c & 2 ? m.bmax[1] : m.bmin[1], z = c & 4 ? m.bmax[2] : m.bmin[2];
+        g.radius = std::max(g.radius, std::sqrt(x * x + y * y + z * z));
+    }
     return g;
 }
 
 void CityRenderer::shutdown() {
     if (!gpu_) return;
+    const CityRenderStats& c = stats_;
+    SDL_Log("city render: last frame %u tile draws (%u chunks visible, %u at LOD1; %u tiles at LOD1, %u at LOD2), %.2f M tile tris, "
+            "%.2f M total, %llu instances, %u draws; decoded %u tiles, decode ms avg %.2f max %.2f",
+            c.tileDraws, c.visibleChunks, c.lod1Chunks, c.lod1Tiles, c.lod2Tiles, c.tileTriangles / 1e6, c.triangles / 1e6,
+            (unsigned long long)c.vehicles, c.drawCalls, c.decodedTiles, c.decodedTiles ? c.decodeMsSum / c.decodedTiles : 0.0, c.decodeMsMax);
     if (asset_) asset_->stop();
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
@@ -122,7 +165,7 @@ void CityRenderer::shutdown() {
         if (t.ib) SDL_ReleaseGPUBuffer(d, t.ib);
     }
     tiles_.clear();
-    for (int l = 1; l >= 0; --l) {
+    for (int l = 2; l >= 0; --l) {
         for (GpuMesh& m : models_[l])
             if (m.vb) { gpu_->releaseBuffer(m.vb); gpu_->releaseBuffer(m.ib); }
         models_[l].clear();
@@ -133,6 +176,11 @@ void CityRenderer::shutdown() {
     quadIBQuads_ = 0;
     gpu_->releaseBuffer(instances_);
     gpu_->releaseBuffer(dummy_);
+    if (indirect_) gpu_->releaseBuffer(indirect_);
+    if (indirectTB_) SDL_ReleaseGPUTransferBuffer(d, indirectTB_);
+    indirect_ = nullptr;
+    indirectTB_ = nullptr;
+    indirectCap_ = 0;
     if (instTB_) SDL_ReleaseGPUTransferBuffer(d, instTB_);
     instTB_ = nullptr;
     for (auto p : {pipe_, pipeNoCull_})
@@ -228,6 +276,7 @@ void CityRenderer::upload(SDL_GPUCopyPass* cp, TileCPU& t) {
         g.lods[1] = g.lods[0];
         if (g.lods[0].shared) g.lods[1].count = t.lod[0].lod1Quads * 6;
     }
+    g.hasLod2 = has[2];
     if (!has[2]) g.lods[2] = g.lods[1];
     if (!has[0]) g.lods[0] = g.lods[1];
     if (maxQuads) ensureQuadIB(cp, maxQuads);
@@ -249,6 +298,13 @@ void CityRenderer::upload(SDL_GPUCopyPass* cp, TileCPU& t) {
                 c = std::max(c, t.heightCm[(size_t)z * t.gw + x] * 0.01f);
             }
     }
+    if (has[0] && g.lods[0].shared && !t.chunks.empty()) {
+        g.chunks = std::move(t.chunks);
+        g.chunkLod.assign(g.chunks.size(), 0);
+    }
+    stats_.decodedTiles++;
+    stats_.decodeMsSum += t.decodeMs;
+    stats_.decodeMsMax = std::max(stats_.decodeMsMax, t.decodeMs);
     g.instances = std::move(t.instances);
     for (const CityInstance& v : g.instances) {   // instances may stand on the tile edge: grow the bounds
         g.bmin[0] = std::min(g.bmin[0], v.x - 3.f); g.bmax[0] = std::max(g.bmax[0], v.x + 3.f);
@@ -320,6 +376,10 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
         frustum_[4][c] = row(2, c);
         frustum_[5][c] = row(3, c) - row(2, c);
     }
+    for (auto& p : frustum_) {   // normalised: sphere tests use true distances
+        float l = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+        if (l > 0) for (float& c : p) c /= l;
+    }
     computeWanted(cam, aspect, wanted_);
     // request missing tiles nearest first; drop queued requests that are no longer wanted
     for (auto& ij : asset_->cancelQueued()) pending_.erase(ij.second * asset_->ni + ij.first);
@@ -361,78 +421,149 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
     }
     evict(frame);
 
-    // visibility + LOD (hysteresis) + vehicle gathering
-    stats_.visible = stats_.lod1Tiles = stats_.lod2Tiles = 0;
+    // visibility + LOD (hysteresis) + per-chunk ranges + instance gathering
+    stats_.visible = stats_.lod1Tiles = stats_.lod2Tiles = stats_.visibleChunks = stats_.lod1Chunks = stats_.tileDraws = 0;
     stats_.triangles = stats_.tileTriangles = stats_.vehicles = stats_.gpuBytes = 0;
     const size_t nModels = models_[0].size(), nVeh = asset_->variants.size();
-    std::vector<std::vector<GpuInst>> byModel[2] = {std::vector<std::vector<GpuInst>>(nModels), std::vector<std::vector<GpuInst>>(nModels)};
+    std::vector<std::vector<GpuInst>> byModel[3];
+    for (auto& b : byModel) b.resize(nModels);
+    const float h = settings.lodHyst;
+    auto distTo = [&](const float* mn, const float* mx) {
+        float dx = std::max({mn[0] - eye_.x, 0.f, eye_.x - mx[0]});
+        float dy = std::max({mn[1] - eye_.y, 0.f, eye_.y - mx[1]});
+        float dz = std::max({mn[2] - eye_.z, 0.f, eye_.z - mx[2]});
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    auto pickLod = [&](float dist, int prev) {   // finer only once well inside the threshold (hysteresis)
+        int want = dist > settings.lod2Dist ? 2 : dist > settings.lod1Dist ? 1 : 0;
+        if (want < prev) want = std::max(want, dist > settings.lod2Dist - h ? 2 : dist > settings.lod1Dist - h ? 1 : 0);
+        return want;
+    };
     for (auto& [k, g] : tiles_) {
         stats_.gpuBytes += g.bytes;
-        bool vis = true;
-        for (auto& p : frustum_) {
-            float x = p[0] > 0 ? g.bmax[0] : g.bmin[0], y = p[1] > 0 ? g.bmax[1] : g.bmin[1], z = p[2] > 0 ? g.bmax[2] : g.bmin[2];
-            if (p[0] * x + p[1] * y + p[2] * z + p[3] < 0) { vis = false; break; }
-        }
-        g.visible = vis;
-        if (!vis) continue;
+        g.ranges.clear();
+        g.visible = boxVisible(g.bmin, g.bmax);
+        if (!g.visible) continue;
         g.lastUsed = frame;
-        float dx = std::max({g.bmin[0] - eye_.x, 0.f, eye_.x - g.bmax[0]});
-        float dy = std::max({g.bmin[1] - eye_.y, 0.f, eye_.y - g.bmax[1]});
-        float dz = std::max({g.bmin[2] - eye_.z, 0.f, eye_.z - g.bmax[2]});
-        float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-        int want = dist > settings.lod2Dist ? 2 : dist > settings.lod1Dist ? 1 : 0;
-        if (want < g.lod) {   // finer only once well inside the threshold (hysteresis)
-            float h = settings.lodHyst;
-            want = std::max(want, dist > settings.lod2Dist - h ? 2 : dist > settings.lod1Dist - h ? 1 : 0);
-        }
-        g.lod = want;
+        g.lod = pickLod(distTo(g.bmin, g.bmax), g.lod);
         stats_.visible++;
         stats_.lod1Tiles += g.lod == 1;
         stats_.lod2Tiles += g.lod == 2;
-        stats_.tileTriangles += g.lods[g.lod].count / 3;
-        stats_.triangles += g.lods[g.lod].count / 3;
+        auto addRange = [&](uint32_t firstIdx, uint32_t count) {
+            if (!count) return;
+            if (!g.ranges.empty() && g.ranges.back().first + g.ranges.back().second == firstIdx) g.ranges.back().second += count;
+            else g.ranges.push_back({firstIdx, count});
+            stats_.tileTriangles += count / 3;
+        };
+        if ((g.lod == 2 && g.hasLod2) || g.chunks.empty()) {
+            addRange(g.lods[g.lod].first, g.lods[g.lod].count);
+        } else {
+            // chunk ranges index the LOD0 quads (shared quad index buffer: index 6q = quad q)
+            for (size_t c = 0; c < g.chunks.size(); ++c) {
+                const CityChunk& ch = g.chunks[c];
+                if (!ch.n0) continue;
+                int lod = g.lod;
+                if (settings.chunks) {
+                    if (!boxVisible(ch.bmin, ch.bmax)) continue;
+                    lod = std::min(1, pickLod(distTo(ch.bmin, ch.bmax), g.chunkLod[c]));
+                }
+                g.chunkLod[c] = (uint8_t)lod;
+                stats_.visibleChunks++;
+                stats_.lod1Chunks += lod == 1;
+                addRange(g.lods[0].first + ch.first * 6, (lod ? ch.n1 : ch.n0) * 6);
+            }
+        }
+        stats_.tileDraws += (uint32_t)g.ranges.size();
         for (const CityInstance& v : g.instances) {
             size_t model = v.kind == 0 ? v.variant : nVeh + v.variant;
             if (model >= nModels || (v.kind == 0 && v.variant >= nVeh)) continue;
             if (v.kind == 0 ? !settings.vehicles : !settings.props) continue;
             float ex = v.x - eye_.x, ey = v.y - eye_.y, ez = v.z - eye_.z, d2 = ex * ex + ey * ey + ez * ez;
             int lod = 0;
-            if (v.kind == 0) lod = d2 > settings.vehicleBoxDist * settings.vehicleBoxDist ? 1 : 0;
+            if (v.kind == 0) lod = d2 > settings.vehicleBoxDist * settings.vehicleBoxDist ? 2 : d2 > settings.vehicleMidDist * settings.vehicleMidDist ? 1 : 0;
             else if (d2 > settings.propDist * settings.propDist) continue;
+            else lod = d2 > settings.propMidDist * settings.propMidDist ? 1 : 0;
+            if (!sphereVisible(v.x, v.y, v.z, models_[0][model].radius)) continue;
+            while (lod > 0 && !models_[lod][model].vb) --lod;   // coarser mesh missing: next finer one
             byModel[lod][model].push_back({{v.x, v.y, v.z, (float)v.kind}, {v.q[0], v.q[1], v.q[2], v.q[3]},
                                            {v.paint[0], v.paint[1], v.paint[2], v.paint[3]}});
         }
     }
+    stats_.triangles = stats_.tileTriangles;
     vdraws_.clear();
     std::vector<GpuInst> all;
     for (size_t m = 0; m < nModels; ++m)
-        for (uint32_t lod = 0; lod < 2; ++lod) {
+        for (uint32_t lod = 0; lod < 3; ++lod) {
             auto& list = byModel[lod][m];
             if (list.empty()) continue;
             uint32_t n = std::min<uint32_t>((uint32_t)list.size(), instCapacity_ - (uint32_t)all.size());
             if (!n) break;
-            const GpuMesh& mesh = models_[lod][m].vb ? models_[lod][m] : models_[0][m];
+            const GpuMesh& mesh = models_[lod][m];
             if (!mesh.vb) continue;
-            vdraws_.push_back({(uint32_t)m, (uint32_t)all.size(), n, models_[lod][m].vb ? lod : 0u});
+            vdraws_.push_back({(uint32_t)m, (uint32_t)all.size(), n, lod});
             all.insert(all.end(), list.begin(), list.begin() + n);
             stats_.vehicles += n;
             stats_.triangles += (uint64_t)n * (mesh.idxCount / 3);
         }
-    if (!all.empty()) {
-        SDL_GPUDevice* d = gpu_->device();
-        std::memcpy(SDL_MapGPUTransferBuffer(d, instTB_, true), all.data(), all.size() * sizeof(GpuInst));
-        SDL_UnmapGPUTransferBuffer(d, instTB_);
+    // indirect commands: every visible tile's ranges, contiguous per tile
+    std::vector<SDL_GPUIndexedIndirectDrawCommand> cmds;
+    if (settings.indirect)
+        for (auto& [k, g] : tiles_) {
+            g.indFirst = (uint32_t)cmds.size();
+            const GpuTile::Lod& Q = ((g.lod == 2 && g.hasLod2) || g.chunks.empty()) ? g.lods[g.lod] : g.lods[0];
+            for (auto& r : g.ranges) cmds.push_back({r.second, 1, r.first, (int32_t)Q.vtxOffset, 0});
+        }
+    SDL_GPUDevice* d = gpu_->device();
+    if (cmds.size() > indirectCap_) {
+        if (indirect_) gpu_->releaseBuffer(indirect_);
+        if (indirectTB_) SDL_ReleaseGPUTransferBuffer(d, indirectTB_);
+        indirectCap_ = std::max<uint32_t>((uint32_t)cmds.size() * 2, 1024);
+        const uint32_t bytes = indirectCap_ * (uint32_t)sizeof(SDL_GPUIndexedIndirectDrawCommand);
+        indirect_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_INDIRECT, bytes, "cityIndirect");
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
+        indirectTB_ = SDL_CreateGPUTransferBuffer(d, &tci);
+    }
+    indirectReady_ = !cmds.empty() && indirect_ && indirectTB_;
+    if (!all.empty() || indirectReady_) {
         SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
-        SDL_GPUTransferBufferLocation src{instTB_, 0};
-        SDL_GPUBufferRegion dst{instances_, 0, (uint32_t)(all.size() * sizeof(GpuInst))};
-        SDL_UploadToGPUBuffer(cp, &src, &dst, true);
+        if (!all.empty()) {
+            std::memcpy(SDL_MapGPUTransferBuffer(d, instTB_, true), all.data(), all.size() * sizeof(GpuInst));
+            SDL_UnmapGPUTransferBuffer(d, instTB_);
+            SDL_GPUTransferBufferLocation src{instTB_, 0};
+            SDL_GPUBufferRegion dst{instances_, 0, (uint32_t)(all.size() * sizeof(GpuInst))};
+            SDL_UploadToGPUBuffer(cp, &src, &dst, true);
+        }
+        if (indirectReady_) {
+            const uint32_t bytes = (uint32_t)(cmds.size() * sizeof(SDL_GPUIndexedIndirectDrawCommand));
+            std::memcpy(SDL_MapGPUTransferBuffer(d, indirectTB_, true), cmds.data(), bytes);
+            SDL_UnmapGPUTransferBuffer(d, indirectTB_);
+            SDL_GPUTransferBufferLocation src{indirectTB_, 0};
+            SDL_GPUBufferRegion dst{indirect_, 0, bytes};
+            SDL_UploadToGPUBuffer(cp, &src, &dst, true);
+        }
         SDL_EndGPUCopyPass(cp);
     }
     stats_.resident = (uint32_t)tiles_.size();
     stats_.wanted = (uint32_t)wanted_.size();
     stats_.pending = (uint32_t)(pending_.size() + decoded_.size());
-    stats_.drawCalls = stats_.visible + (uint32_t)vdraws_.size();
+    uint32_t tileCalls = 0;
+    for (auto& [k, g] : tiles_) tileCalls += !g.ranges.empty();
+    stats_.drawCalls = (indirectReady_ ? tileCalls : stats_.tileDraws) + (uint32_t)vdraws_.size();
     stats_.uploadMs = nowMs() - t0;
+}
+
+bool CityRenderer::boxVisible(const float* mn, const float* mx) const {
+    for (auto& p : frustum_) {
+        float x = p[0] > 0 ? mx[0] : mn[0], y = p[1] > 0 ? mx[1] : mn[1], z = p[2] > 0 ? mx[2] : mn[2];
+        if (p[0] * x + p[1] * y + p[2] * z + p[3] < 0) return false;
+    }
+    return true;
+}
+
+bool CityRenderer::sphereVisible(float x, float y, float z, float r) const {
+    for (auto& p : frustum_)
+        if (p[0] * x + p[1] * y + p[2] * z + p[3] < -r) return false;
+    return true;
 }
 
 float CityRenderer::heightAt(float x, float z) const {
@@ -496,14 +627,20 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
     std::sort(order.begin(), order.end(), [](auto& a, auto& b) { return a.first < b.first; });
     for (auto& [dist, g] : order) {
         const GpuTile::Lod& L = g->lods[g->lod];
-        if (!g->vb || !L.count || (L.shared ? !quadIB_ : !g->ib)) continue;
-        DrawU u{{L.origin[0], L.origin[1], L.origin[2], 0}, {L.scale[0], L.scale[1], 0, 0}, 0, 0, 0, 0};
+        if (!g->vb || g->ranges.empty() || (L.shared ? !quadIB_ : !g->ib)) continue;
+        // chunk ranges use LOD0's vertex offset / quantisation (lods[0] == lods[1] for implicit quad lists)
+        const GpuTile::Lod& Q = ((g->lod == 2 && g->hasLod2) || g->chunks.empty()) ? L : g->lods[0];
+        DrawU u{{Q.origin[0], Q.origin[1], Q.origin[2], 0}, {Q.scale[0], Q.scale[1], 0, 0}, 0, 0, 0, 0};
         SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
         SDL_GPUBufferBinding vb{g->vb, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
-        SDL_GPUBufferBinding ib{L.shared ? quadIB_ : g->ib, 0};
+        SDL_GPUBufferBinding ib{Q.shared ? quadIB_ : g->ib, 0};
         SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-        SDL_DrawGPUIndexedPrimitives(pass, L.count, 1, L.first, (int32_t)L.vtxOffset, 0);
+        if (indirectReady_)
+            SDL_DrawGPUIndexedPrimitivesIndirect(pass, indirect_, g->indFirst * (uint32_t)sizeof(SDL_GPUIndexedIndirectDrawCommand),
+                                                 (uint32_t)g->ranges.size());
+        else
+            for (auto& r : g->ranges) SDL_DrawGPUIndexedPrimitives(pass, r.second, 1, r.first, (int32_t)Q.vtxOffset, 0);
     }
     for (const VDraw& v : vdraws_) {
         const GpuMesh& m = models_[v.lod][v.model];

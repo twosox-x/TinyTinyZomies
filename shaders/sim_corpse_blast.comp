@@ -16,6 +16,9 @@ void main() {
     if (i >= min(counters[C_CORPSES], uint(corpseP.w))) return;
     Corpse cp = corpses[i];
     if ((cp.info.z & 1u) == 0u) return;
+    // outside the simulation window (city: it follows the camera) the corpse stays: its height is not in the field
+    vec2 wlo = world.xy + vec2(1.0), whi = world.xy + vec2(grid.xy) * world.z - vec2(1.0);
+    if (any(lessThan(cp.pos.xz, wlo)) || any(greaterThan(cp.pos.xz, whi))) return;
     bool hit = false;
     for (uint e = 0u; e < counts.y; ++e) {
         if (distance(cp.pos.xyz, explo[e].xyz) < explo[e].w * 0.7) { hit = true; break; }

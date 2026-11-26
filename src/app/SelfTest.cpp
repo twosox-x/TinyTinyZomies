@@ -198,6 +198,124 @@ void printSummary(World& w, const Metrics& m, const char* label) {
                 m.byState[0], m.byState[1], m.byState[2], m.byState[3], m.elevated, m.maxFeet);
 }
 
+void testMovingWindow(World& w, GpuContext& gpu, const SimParams& params) {
+    // ---------------------------------------------------------------- 9. moving simulation window (city)
+    std::printf("[9] moving simulation window: grid fields shift, agents park and return, obstacles follow\n");
+    {
+        w.sim.reset(w.sb);
+        w.sim.setGoals({});
+        w.sim.requestSpawn(Rect{-70.f, -60.f, 40.f, 60.f}, 4000);
+        w.run(30);
+        w.read();
+        for (int k = 0; k < 10; ++k) {
+            const GpuAgent& t = w.agents[(size_t)(k * 2654435761u) % w.agents.size()];
+            w.sim.requestExplosion(t.pos.x, 0.3f, t.pos.z);
+            w.run(20);
+        }
+        w.run(60 * 4);
+        w.read();
+        const uint32_t W = (uint32_t)params.gridW, H = (uint32_t)params.gridH, DW = W * 3, DH = H * 3;
+        auto snapshot = [&](std::vector<uint32_t>& dec, std::vector<GpuAgent>& all, uint32_t& n) {
+            dec.resize((size_t)3 * DW * DH);
+            gpu.downloadNow(w.sim.decals(), dec.data(), (uint32_t)(dec.size() * 4));
+            gpu.downloadNow(w.sim.counters(), w.counters, sizeof(w.counters));
+            n = w.counters[C_LIVE] + w.counters[C_APPEND];
+            all.resize(n);
+            if (n) gpu.downloadNow(w.sim.agents(), all.data(), n * (uint32_t)sizeof(GpuAgent));
+            w.staticH.resize(W * H);
+            w.corpseH.resize(W * H);
+            gpu.downloadNow(w.sim.staticHeight(), w.staticH.data(), W * H * 4);
+            gpu.downloadNow(w.sim.corpseHeight(), w.corpseH.data(), W * H * 4);
+        };
+        auto livePositions = [&](const std::vector<GpuAgent>& all) {
+            std::vector<std::array<float, 3>> v;
+            for (auto& a : all) if ((a.info.x & 0xFF) != ST_DEAD) v.push_back({a.pos.x, a.pos.y, a.pos.z});
+            std::sort(v.begin(), v.end());
+            return v;
+        };
+        std::vector<uint32_t> decA, decB;
+        std::vector<GpuAgent> agA, agB;
+        uint32_t nA, nB;
+        snapshot(decA, agA, nA);
+        std::vector<int> corA = w.corpseH;
+        w.read();
+        Metrics mBefore = measure(w);
+        std::printf("  before the move: live %zu, penetrating %d\n", w.agents.size(), mBefore.penetrating);
+        auto posA = livePositions(agA);
+        const int dx = 64, dz = 32;
+        Sandbox moved = w.sb;
+        moved.originX += dx * params.cellSize;
+        moved.originZ += dz * params.cellSize;
+        std::vector<float> hMoved = moved.rasterize();
+        auto relocate = [&](int sx, int sz, const std::vector<float>& h) {
+            SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(gpu.device());
+            w.sim.relocate(cmd, sx, sz, h);
+            SDL_GPUFence* f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+            SDL_WaitForGPUFences(gpu.device(), true, &f, 1);
+            SDL_ReleaseGPUFence(gpu.device(), f);
+        };
+        relocate(dx, dz, hMoved);
+        snapshot(decB, agB, nB);
+        long decalMismatch = 0, exposedDirty = 0, corpseMismatch = 0;
+        double bloodOverlap = 0;
+        for (uint32_t l = 0; l < 3; ++l)
+            for (uint32_t z = 0; z < DH; ++z)
+                for (uint32_t x = 0; x < DW; ++x) {
+                    int ox = (int)x + 3 * dx, oz = (int)z + 3 * dz;
+                    uint32_t b = decB[(size_t)l * DW * DH + z * DW + x];
+                    if (ox < (int)DW && oz < (int)DH) {
+                        uint32_t a = decA[(size_t)l * DW * DH + oz * DW + ox];
+                        decalMismatch += a != b;
+                        if (l == 0) bloodOverlap += b;
+                    } else exposedDirty += b != 0;
+                }
+        for (uint32_t z = 0; z + dz < H; ++z)
+            for (uint32_t x = 0; x + dx < W; ++x) corpseMismatch += w.corpseH[z * W + x] != corA[(z + dz) * W + x + dx];
+        check(decalMismatch == 0 && exposedDirty == 0 && bloodOverlap > 0, "blood / scorch decals shift with the window (overlap kept, new strips clean)",
+              fmt("mismatch=%.0f dirty=%.0f blood in overlap=%.0f", (double)decalMismatch, (double)exposedDirty, bloodOverlap));
+        check(corpseMismatch == 0, "corpse heights shift with the window", fmt("mismatch=%.0f", (double)corpseMismatch));
+        bool staticOk = std::equal(hMoved.begin(), hMoved.end(), w.staticH.begin());
+        check(staticOk, "static heights of the new window uploaded", "");
+        std::vector<uint32_t> pc(4);
+        gpu.downloadNow(w.sim.parkCounts(), pc.data(), 16);
+        uint32_t parked = pc[w.sim.parkedList()];
+        auto posB = livePositions(agB);
+        const float x0 = moved.originX, z0 = moved.originZ, x1 = x0 + W * params.cellSize, z1 = z0 + H * params.cellSize;
+        int outside = 0;
+        for (auto& p : posB) outside += p[0] < x0 || p[0] > x1 || p[2] < z0 || p[2] > z1;
+        check(parked > 0 && posB.size() + parked == posA.size() && outside == 0 && pc[2] == 0,
+              "agents leaving the window are parked, the others continue untouched",
+              fmt("live %.0f -> %.0f + parked %.0f", (double)posA.size(), (double)posB.size(), (double)parked));
+        // and back: parked agents return unchanged; strips that were dropped get their corpse heights back from the corpse list
+        relocate(-dx, -dz, w.sb.rasterize());
+        std::vector<uint32_t> decC;
+        std::vector<GpuAgent> agC;
+        uint32_t nC;
+        snapshot(decC, agC, nC);
+        auto posC = livePositions(agC);
+        long corpseDiff = 0;
+        for (uint32_t i = 0; i < W * H; ++i) corpseDiff += std::abs(w.corpseH[i] - corA[i]) > 2;
+        check(posC == posA, "round trip: every agent is back where it was", fmt("%.0f of %.0f", (double)posC.size(), (double)posA.size()));
+        check(corpseDiff == 0, "round trip: corpse height field rebuilt from the corpses in re-exposed strips",
+              fmt("cells off by > 2 mm: %.0f", (double)corpseDiff));
+        // keep simulating after a move: the horde must still collide with the moved obstacles
+        relocate(dx, dz, hMoved);
+        w.sb = moved;
+        w.sim.setGoals({0.f, 100.f});   // up the cross street, inside the moved window
+        w.run(1);
+        w.read();
+        Metrics m0 = measure(w);
+        w.run(60 * 6);
+        w.read();
+        Metrics mm = measure(w);
+        std::printf("  after the move: penetrating %d (1 step) -> %d (6 s)\n", m0.penetrating, mm.penetrating);
+        int outsideNow = 0;
+        for (auto& a : w.agents) outsideNow += a.pos.x < x0 || a.pos.x > x1 || a.pos.z < z0 || a.pos.z > z1;
+        check(mm.nan == 0 && mm.penetrating <= (int)(w.agents.size() / 200) && outsideNow == 0, "after the move agents stay out of obstacles and inside the window",
+              fmt("live=%.0f penetrating=%.0f outside=%.0f", (double)w.agents.size(), mm.penetrating, outsideNow));
+    }
+}
+
 } // namespace
 
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
@@ -208,6 +326,11 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     w.sb.build(params.cellSize, params.gridW, params.gridH);
     if (!w.sim.init(gpu, params, w.sb)) { std::printf("sim init failed\n"); return 2; }
 
+    if (std::getenv("TTZ_SELFTEST_MOVE")) {   // only the moving-window test
+        testMovingWindow(w, gpu, params);
+        w.sim.shutdown();
+        return g_fail ? 1 : 0;
+    }
     if (std::getenv("TTZ_TRACE2")) {
         w.sim.setGoals({});
         w.sim.requestSpawn(Rect{-30.f, 1.f, -20.f, 6.f}, 400);
@@ -623,6 +746,8 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
         check(unknown == 0, "every corpse has the look of a zombie that existed", fmt("unknown=%.0f of %.0f", unknown, nc));
     }
     chars.shutdown();
+
+    testMovingWindow(w, gpu, params);
 
     w.sim.shutdown();
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

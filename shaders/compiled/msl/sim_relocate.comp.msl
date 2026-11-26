@@ -1,0 +1,384 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+};
+
+struct ParkCnt
+{
+    uint parkCnt[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct ParkOut
+{
+    Agent_1 parkOut[1];
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct ParkIn
+{
+    Agent_1 parkIn[1];
+};
+
+struct Corpse
+{
+    float4 pos;
+    uint4 info;
+};
+
+struct Corpse_1
+{
+    float4 pos;
+    uint4 info;
+};
+
+struct Corpses
+{
+    Corpse_1 corpses[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+constant spvUnsafeArray<int2, 4> _221 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+bool insideWindow(thread const float2& xz, thread const float& margin, constant SimUniforms& _62)
+{
+    float2 lo = _62.world.xy + float2(margin);
+    float2 hi = (_62.world.xy + (float2(_62.grid.xy) * _62.world.z)) - float2(margin);
+    bool _106 = all(xz >= lo);
+    bool _113;
+    if (_106)
+    {
+        _113 = all(xz <= hi);
+    }
+    else
+    {
+        _113 = _106;
+    }
+    return _113;
+}
+
+static inline __attribute__((always_inline))
+void park(thread const Agent& a, constant SimUniforms& _62, device ParkCnt& _120, device ParkOut& _137)
+{
+    uint _126 = atomic_fetch_add_explicit((device atomic_uint*)&_120.parkCnt[1u - _62.forcedLook.y], 1u, memory_order_relaxed);
+    uint s = _126;
+    if (s < _62.forcedLook.x)
+    {
+        _137.parkOut[s].pos = a.pos;
+        _137.parkOut[s].vel = a.vel;
+        _137.parkOut[s].prev = a.prev;
+        _137.parkOut[s].dirs = a.dirs;
+        _137.parkOut[s].info = a.info;
+    }
+    else
+    {
+        uint _156 = atomic_fetch_add_explicit((device atomic_uint*)&_120.parkCnt[2], 1u, memory_order_relaxed);
+        uint _162 = atomic_fetch_add_explicit((device atomic_uint*)&_120.parkCnt[1u - _62.forcedLook.y], 4294967295u, memory_order_relaxed);
+    }
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _62)
+{
+    return (uint(c.y) * _62.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+void splatNew(thread const float2& xz, thread const float& heightM, constant SimUniforms& _62, device CorpseH& _314)
+{
+    float2 g = ((xz - _62.world.xy) * _62.world.w) - float2(0.5);
+    int2 c0 = int2(floor(g));
+    float2 f = g - float2(c0);
+    spvUnsafeArray<float, 4> _213 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
+    spvUnsafeArray<float, 4> w = _213;
+    int2 sh = int2(int(_62.forcedLook.z), int(_62.forcedLook.w));
+    for (int k = 0; k < 4; k++)
+    {
+        int2 c = c0 + _221[k];
+        bool _246 = c.x < 0;
+        bool _253;
+        if (!_246)
+        {
+            _253 = c.y < 0;
+        }
+        else
+        {
+            _253 = _246;
+        }
+        bool _263;
+        if (!_253)
+        {
+            _263 = c.x >= int(_62.grid.x);
+        }
+        else
+        {
+            _263 = _253;
+        }
+        bool _273;
+        if (!_263)
+        {
+            _273 = c.y >= int(_62.grid.y);
+        }
+        else
+        {
+            _273 = _263;
+        }
+        if (_273)
+        {
+            continue;
+        }
+        int2 oc = c + sh;
+        bool _283 = oc.x >= 0;
+        bool _289;
+        if (_283)
+        {
+            _289 = oc.y >= 0;
+        }
+        else
+        {
+            _289 = _283;
+        }
+        bool _298;
+        if (_289)
+        {
+            _298 = oc.x < int(_62.grid.x);
+        }
+        else
+        {
+            _298 = _289;
+        }
+        bool _307;
+        if (_298)
+        {
+            _307 = oc.y < int(_62.grid.y);
+        }
+        else
+        {
+            _307 = _298;
+        }
+        if (_307)
+        {
+            continue;
+        }
+        int2 param = c;
+        int _329 = atomic_fetch_add_explicit((device atomic_int*)&_314.corpseH[cellIndex(param, _62)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
+    }
+}
+
+kernel void main0(constant SimUniforms& _62 [[buffer(0)]], device Agents& _381 [[buffer(1)]], device Counters& _364 [[buffer(2)]], device ParkIn& _445 [[buffer(3)]], device ParkOut& _137 [[buffer(4)]], device ParkCnt& _120 [[buffer(5)]], device Corpses& _521 [[buffer(6)]], device CorpseH& _314 [[buffer(7)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    uint mode = _62.misc.y;
+    if (mode == 0u)
+    {
+        if (i == 0u)
+        {
+            _120.parkCnt[1u - _62.forcedLook.y] = 0u;
+        }
+    }
+    else
+    {
+        if (mode == 1u)
+        {
+            if (i >= min((_364.counters[0] + _364.counters[1]), _62.grid.w))
+            {
+                return;
+            }
+            Agent a;
+            a.pos = _381.agents[i].pos;
+            a.vel = _381.agents[i].vel;
+            a.prev = _381.agents[i].prev;
+            a.dirs = _381.agents[i].dirs;
+            a.info = _381.agents[i].info;
+            Agent param = a;
+            bool _400 = agentState(param) == 4u;
+            bool _410;
+            if (!_400)
+            {
+                float2 param_1 = a.pos.xz;
+                float param_2 = 0.5;
+                _410 = insideWindow(param_1, param_2, _62);
+            }
+            else
+            {
+                _410 = _400;
+            }
+            if (_410)
+            {
+                return;
+            }
+            Agent param_3 = a;
+            park(param_3, _62, _120, _137);
+            ((device uint*)&_381.agents[i].info)[0u] = (a.info.x & 4294967040u) | 4u;
+        }
+        else
+        {
+            if (mode == 2u)
+            {
+                if (i >= min(_120.parkCnt[_62.forcedLook.y], _62.forcedLook.x))
+                {
+                    return;
+                }
+                Agent a_1;
+                a_1.pos = _445.parkIn[i].pos;
+                a_1.vel = _445.parkIn[i].vel;
+                a_1.prev = _445.parkIn[i].prev;
+                a_1.dirs = _445.parkIn[i].dirs;
+                a_1.info = _445.parkIn[i].info;
+                float2 param_4 = a_1.pos.xz;
+                float param_5 = 1.5;
+                if (insideWindow(param_4, param_5, _62))
+                {
+                    uint _470 = _364.counters[0];
+                    uint _472 = atomic_fetch_add_explicit((device atomic_uint*)&_364.counters[1], 1u, memory_order_relaxed);
+                    uint slot = _470 + _472;
+                    if (slot < _62.grid.w)
+                    {
+                        _381.agents[slot].pos = a_1.pos;
+                        _381.agents[slot].vel = a_1.vel;
+                        _381.agents[slot].prev = a_1.prev;
+                        _381.agents[slot].dirs = a_1.dirs;
+                        _381.agents[slot].info = a_1.info;
+                        return;
+                    }
+                }
+                Agent param_6 = a_1;
+                park(param_6, _62, _120, _137);
+            }
+            else
+            {
+                if (mode == 3u)
+                {
+                    if (i >= min(_364.counters[2], uint(_62.corpseP.w)))
+                    {
+                        return;
+                    }
+                    Corpse cp;
+                    cp.pos = _521.corpses[i].pos;
+                    cp.info = _521.corpses[i].info;
+                    if ((cp.info.z & 1u) == 0u)
+                    {
+                        return;
+                    }
+                    float2 fwd = float2(sin(cp.pos.w), cos(cp.pos.w));
+                    float2 param_7 = cp.pos.xz + (fwd * 0.449999988079071044921875);
+                    float param_8 = as_type<float>(cp.info.w);
+                    splatNew(param_7, param_8, _62, _314);
+                    float2 param_9 = cp.pos.xz - (fwd * 0.449999988079071044921875);
+                    float param_10 = as_type<float>(cp.info.w);
+                    splatNew(param_9, param_10, _62, _314);
+                }
+            }
+        }
+    }
+}
+

@@ -2,6 +2,7 @@
 #include "assets/Model.h"
 #include "city/CityAsset.h"
 #include "city/CityRenderer.h"
+#include "city/CitySimWindow.h"
 #include "debug/Profiler.h"
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
@@ -43,6 +44,14 @@ struct AppOptions {
     int cityWindow = 512;          // simulation window, cells per side (0.75 m)
     float cityAtX = 1e9f, cityAtZ = 1e9f;   // window centre (default: spawn nearest the map centre)
     int cityBench = 0;             // > 0: headless city benchmark of N frames (camera flies a scripted path)
+    bool cityFollow = true;        // the simulation window follows the camera pivot (CitySimWindow)
+    float panX = 0, panZ = 0, panSpeed = 0;   // --city-pan X Z SPEED: scripted pivot pan towards (X, Z) from frame panStart
+    int panStart = 60;
+    std::vector<int> shotFrames;   // --shots F1,F2,..: PNGs <shotDir>/fNNNNN.png at these frames
+    std::string shotDir = ".";
+    int shotsOnMove = -1;          // >= 0: screenshot the frame before each window move and K frames after it
+    int panSpawnEvery = 0;         // scripted pan: every N frames spawn 300 zombies and blast near the pivot
+    int cityVerify = 0;            // > 0: every N frames a synchronous check of the horde against the window (test only)
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };
@@ -54,6 +63,8 @@ struct AppState {
     std::vector<float> staticHeights;   // CPU copy for camera obstacle avoidance
     CityAsset city;
     CityRenderer cityRenderer;
+    CitySimWindow simWindow;
+    Sandbox cityHome;                  // the initial window (scenario reset)
     bool cityMode = false, debugCam = false;
     std::vector<double> benchFrameMs, benchUploadMs;
     CityRenderStats benchMax;
@@ -101,6 +112,9 @@ private:
     void applyCameraRig();
     void cityBenchStep();
     void printCityBench();
+    void cityVerify(const char* why);
+    int moves_ = 0;
+    std::vector<std::pair<uint64_t, int>> postShots_;
     bool mmbDown_ = false, altDrag_ = false, rmbDown_ = false;
     float rotDx_ = 0, rotDy_ = 0, wheel_ = 0, panDx_ = 0, panDy_ = 0;
 };

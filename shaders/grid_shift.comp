@@ -1,0 +1,20 @@
+#version 450
+// Moving simulation window (CrowdSim::relocate): copies one layer of a 2D grid field shifted by whole cells,
+// dst(x, z) = src(x + sx, z + sz) where that source cell exists, else `fill` (newly exposed strips).
+// Cells are `words` uints wide; the source layer starts at word `base`, dst (a scratch buffer) at word 0.
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430, set = 0, binding = 0) readonly buffer Src { uint src[]; };
+layout(std430, set = 1, binding = 0) writeonly buffer Dst { uint dst[]; };
+layout(std140, set = 2, binding = 0) uniform ShiftU {
+    ivec4 dims;    // x width, y height, z words per cell, w base word of the layer in src
+    ivec4 shift;   // x sx, y sz (cells), z fill bits
+};
+void main() {
+    ivec2 c = ivec2(gl_GlobalInvocationID.xy);
+    if (c.x >= dims.x || c.y >= dims.y) return;
+    ivec2 s = c + shift.xy;
+    bool inside = s.x >= 0 && s.y >= 0 && s.x < dims.x && s.y < dims.y;
+    uint d = uint(c.y * dims.x + c.x) * uint(dims.z);
+    uint o = uint(dims.w) + uint(s.y * dims.x + s.x) * uint(dims.z);
+    for (int k = 0; k < dims.z; ++k) dst[d + uint(k)] = inside ? src[o + uint(k)] : uint(shift.z);
+}

@@ -10,6 +10,39 @@
 
 namespace ttz {
 
+int rasterCityHeights(const CityAsset& city, const std::function<const TileCPU*(int, int)>& getTile, float ox, float oz, float cell,
+                      int w, int h, std::vector<float>& out) {
+    out.assign((size_t)w * h, 0.f);
+    const float W = w * cell, H = h * cell;
+    int i0 = (int)std::floor((ox - city.x0) / city.tileSize), i1 = (int)std::floor((ox + W - city.x0) / city.tileSize);
+    int j0 = (int)std::floor((oz - city.z0) / city.tileSize), j1 = (int)std::floor((oz + H - city.z0) / city.tileSize);
+    int tiles = 0;
+    for (int j = std::max(0, j0); j <= std::min(city.nj - 1, j1); ++j)
+        for (int i = std::max(0, i0); i <= std::min(city.ni - 1, i1); ++i) {
+            const TileCPU* t = getTile(i, j);
+            if (!t || t->heightCm.empty()) continue;
+            ++tiles;
+            // every 0.5 m sample raises the sim cell containing its centre (max = conservative: no leaking into walls)
+            for (int z = 0; z < t->gh; ++z) {
+                float wz = t->gz0 + (z + 0.5f) * t->gcell;
+                int cz2 = (int)std::floor((wz - oz) / cell);
+                if (cz2 < 0 || cz2 >= h) continue;
+                for (int x = 0; x < t->gw; ++x) {
+                    float wx = t->gx0 + (x + 0.5f) * t->gcell;
+                    int cx2 = (int)std::floor((wx - ox) / cell);
+                    if (cx2 < 0 || cx2 >= w) continue;
+                    size_t k = (size_t)z * t->gw + x;
+                    float top = t->heightCm[k] * 0.01f;
+                    // water is not walkable: treat it as a low wall the horde flows around
+                    if ((t->flags[k] & CELL_WATER) && top < 1.0f) top = 1.0f;
+                    float& c = out[(size_t)cz2 * w + cx2];
+                    c = std::max(c, top);
+                }
+            }
+        }
+    return tiles;
+}
+
 bool buildCityWindow(const CityAsset& city, float cx, float cz, float cell, int gw, int gh, Sandbox& sb) {
     sb = Sandbox{};
     sb.map = MapKind::Baked;
@@ -23,34 +56,9 @@ bool buildCityWindow(const CityAsset& city, float cx, float cz, float cell, int 
     sb.originX = std::round(ox / city.collisionCell) * city.collisionCell;
     sb.originZ = std::round(oz / city.collisionCell) * city.collisionCell;
     sb.wallX = sb.originX + 0.5f * W;
-    std::vector<float>& h = sb.heightOverride;
-    h.assign((size_t)gw * gh, 0.f);
-    int i0 = (int)std::floor((sb.originX - city.x0) / city.tileSize), i1 = (int)std::floor((sb.originX + W - city.x0) / city.tileSize);
-    int j0 = (int)std::floor((sb.originZ - city.z0) / city.tileSize), j1 = (int)std::floor((sb.originZ + H - city.z0) / city.tileSize);
-    int tiles = 0;
-    for (int j = std::max(0, j0); j <= std::min(city.nj - 1, j1); ++j)
-        for (int i = std::max(0, i0); i <= std::min(city.ni - 1, i1); ++i) {
-            TileCPU t;
-            if (!city.decodeTileNow(i, j, t) || t.heightCm.empty()) continue;
-            ++tiles;
-            // every 0.5 m sample raises the sim cell containing its centre (max = conservative: no leaking into walls)
-            for (int z = 0; z < t.gh; ++z) {
-                float wz = t.gz0 + (z + 0.5f) * t.gcell;
-                int cz2 = (int)std::floor((wz - sb.originZ) / cell);
-                if (cz2 < 0 || cz2 >= gh) continue;
-                for (int x = 0; x < t.gw; ++x) {
-                    float wx = t.gx0 + (x + 0.5f) * t.gcell;
-                    int cx2 = (int)std::floor((wx - sb.originX) / cell);
-                    if (cx2 < 0 || cx2 >= gw) continue;
-                    size_t k = (size_t)z * t.gw + x;
-                    float top = t.heightCm[k] * 0.01f;
-                    // water is not walkable: treat it as a low wall the horde flows around
-                    if ((t.flags[k] & CELL_WATER) && top < 1.0f) top = 1.0f;
-                    float& c = h[(size_t)cz2 * gw + cx2];
-                    c = std::max(c, top);
-                }
-            }
-        }
+    TileCPU tile;
+    int tiles = rasterCityHeights(city, [&](int i, int j) { return city.decodeTileNow(i, j, tile) ? &tile : nullptr; }, sb.originX,
+                                  sb.originZ, cell, gw, gh, sb.heightOverride);
     // scenarios: spawn points inside the window (with a margin), goal = the window centre's nearest spawn
     Scenario sc;
     sc.name = "City (baked): street horde";
@@ -83,35 +91,46 @@ bool buildCityWindow(const CityAsset& city, float cx, float cz, float cell, int 
 
 // For a fixed moon direction L, a point at height y over (x, z) is shadowed iff some sample along the ray towards
 // the moon is below the static top: threshold(x, z) = max_t (H(p + t * Lxz) - t * L.y / |Lxz|). Marching at
-// 0.25 m to the highest roof's shadow reach; rows in parallel.
-std::vector<float> cityShadowField(const std::vector<float>& heights, int gw, int gh, float cell, float originX, float originZ) {
-    const float Lx = -0.35f, Ly = 0.8f, Lz = 0.45f;   // must match Renderer (normalised there; only ratios matter here)
-    const float lh = std::sqrt(Lx * Lx + Lz * Lz), dx = Lx / lh, dz = Lz / lh, rise = Ly / lh;   // rise per horizontal metre
+// 0.25 m up to kShadowReach (or the highest roof's shadow reach); rows in parallel.
+namespace {
+constexpr float kMoonX = -0.35f, kMoonY = 0.8f, kMoonZ = 0.45f;   // must match Renderer (normalised there; only ratios matter here)
+}
+
+ShadowMargins cityShadowMargins(float cell) {
+    const float lh = std::sqrt(kMoonX * kMoonX + kMoonZ * kMoonZ);
+    int mx = (int)std::ceil(kShadowReach * std::fabs(kMoonX) / lh / cell) + 1, mz = (int)std::ceil(kShadowReach * std::fabs(kMoonZ) / lh / cell) + 1;
+    return {kMoonX < 0 ? mx : 0, kMoonZ < 0 ? mz : 0, kMoonX > 0 ? mx : 0, kMoonZ > 0 ? mz : 0};
+}
+
+void cityShadowField(const std::vector<float>& ext, int ew, int eh, float ex0, float ez0, float cell, float ox, float oz, int gw, int gh,
+                     std::vector<float>& field, const std::function<bool(int, int)>& skip, int threads) {
+    const float lh = std::sqrt(kMoonX * kMoonX + kMoonZ * kMoonZ), dx = kMoonX / lh, dz = kMoonZ / lh, rise = kMoonY / lh;
     const int W = gw * 3, H = gh * 3;
     const float sc = cell / 3.f;
     float maxH = 0;
-    for (float v : heights) maxH = std::max(maxH, v);
-    const float reach = maxH / rise, step = 0.25f;
-    std::vector<float> field((size_t)W * H, -1.f);
+    for (float v : ext) maxH = std::max(maxH, v);
+    const float reach = std::min(kShadowReach, maxH / rise), step = 0.25f;
+    field.resize((size_t)W * H, -1.f);
     auto worker = [&](int r0, int r1) {
         for (int cz = r0; cz < r1; ++cz)
             for (int cx = 0; cx < W; ++cx) {
-                float x = originX + (cx + 0.5f) * sc, z = originZ + (cz + 0.5f) * sc, best = -1.f;
+                if (skip && skip(cx, cz)) continue;
+                // sample position relative to the extended grid (window-relative first: exact multiples of the cell)
+                float x = (ox - ex0) + (cx + 0.5f) * sc, z = (oz - ez0) + (cz + 0.5f) * sc, best = -1.f;
                 for (float t = 0; t <= reach; t += step) {
-                    int gx = (int)std::floor((x + dx * t - originX) / cell), gz = (int)std::floor((z + dz * t - originZ) / cell);
-                    if (gx < 0 || gz < 0 || gx >= gw || gz >= gh) break;
-                    float v = heights[(size_t)gz * gw + gx];
+                    int gx = (int)std::floor((x + dx * t) / cell), gz = (int)std::floor((z + dz * t) / cell);
+                    if (gx < 0 || gz < 0 || gx >= ew || gz >= eh) break;
+                    float v = ext[(size_t)gz * ew + gx];
                     if (v > 0) best = std::max(best, v - t * rise);
                     if (maxH - t * rise < best) break;   // nothing further can be higher
                 }
                 field[(size_t)cz * W + cx] = best;
             }
     };
-    int n = std::max(1u, std::min(16u, std::thread::hardware_concurrency()));
+    int n = threads > 0 ? threads : (int)std::max(1u, std::min(16u, std::thread::hardware_concurrency()));
     std::vector<std::thread> th;
     for (int k = 0; k < n; ++k) th.emplace_back(worker, H * k / n, H * (k + 1) / n);
     for (auto& t : th) t.join();
-    return field;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

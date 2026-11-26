@@ -1,0 +1,73 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Moving simulation window (CrowdSim::relocate), recorded before the next step with world = the NEW origin.
+//  misc.y = 0: 1 thread, clear the output parked-list count
+//           1: live agents that are outside the new window are parked (copied to the parked list, removed from the
+//              simulation as ST_DEAD without dying: predict drops them into the graveyard bucket)
+//           2: parked agents that are inside the new window rejoin the simulation (appended like spawns);
+//              the others stay parked
+//           3: corpses re-splat their height into the newly exposed cells only (cells that were not in the old
+//              window), so the corpse field matches the corpse list again where it was cleared
+// forcedLook: x parked capacity, y index of the input list count (output = 1 - y), z/w shift in cells (int bits)
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 1, binding = 0) buffer Agents   { Agent agents[]; };
+layout(std430, set = 1, binding = 1) buffer Counters { uint counters[]; };
+layout(std430, set = 1, binding = 2) buffer ParkIn   { Agent parkIn[]; };
+layout(std430, set = 1, binding = 3) buffer ParkOut  { Agent parkOut[]; };
+layout(std430, set = 1, binding = 4) buffer ParkCnt  { uint parkCnt[]; };   // [0], [1] list counts, [2] dropped (overflow)
+layout(std430, set = 1, binding = 5) buffer Corpses  { Corpse corpses[]; };
+layout(std430, set = 1, binding = 6) buffer CorpseH  { int corpseH[]; };
+
+bool insideWindow(vec2 xz, float margin) {
+    vec2 lo = world.xy + vec2(margin), hi = world.xy + vec2(grid.xy) * world.z - vec2(margin);
+    return all(greaterThanEqual(xz, lo)) && all(lessThanEqual(xz, hi));
+}
+void park(Agent a) {
+    uint s = atomicAdd(parkCnt[1u - forcedLook.y], 1u);
+    if (s < forcedLook.x) parkOut[s] = a;
+    else { atomicAdd(parkCnt[2], 1u); atomicAdd(parkCnt[1u - forcedLook.y], 0xFFFFFFFFu); }   // full: despawned
+}
+void splatNew(vec2 xz, float heightM) {   // splatCorpse (fields.glsl), restricted to cells outside the old window
+    vec2 g = (xz - world.xy) * world.w - 0.5;
+    ivec2 c0 = ivec2(floor(g));
+    vec2 f = g - vec2(c0);
+    float w[4] = float[4]((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    ivec2 o[4] = ivec2[4](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 1));
+    ivec2 sh = ivec2(int(forcedLook.z), int(forcedLook.w));
+    for (int k = 0; k < 4; ++k) {
+        ivec2 c = c0 + o[k];
+        if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) continue;
+        ivec2 oc = c + sh;   // the same cell in old-window coordinates
+        if (oc.x >= 0 && oc.y >= 0 && oc.x < int(grid.x) && oc.y < int(grid.y)) continue;
+        atomicAdd(corpseH[cellIndex(c)], int(round(heightM * w[k] * 1000.0)));
+    }
+}
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint mode = misc.y;
+    if (mode == 0u) {
+        if (i == 0u) parkCnt[1u - forcedLook.y] = 0u;
+    } else if (mode == 1u) {
+        if (i >= min(counters[C_LIVE] + counters[C_APPEND], grid.w)) return;   // appended agents not committed yet included
+        Agent a = agents[i];
+        if (agentState(a) == ST_DEAD || insideWindow(a.pos.xz, 0.5)) return;
+        park(a);
+        agents[i].info.x = (a.info.x & ~0xFFu) | ST_DEAD;
+    } else if (mode == 2u) {
+        if (i >= min(parkCnt[forcedLook.y], forcedLook.x)) return;
+        Agent a = parkIn[i];
+        if (insideWindow(a.pos.xz, 1.5)) {
+            uint slot = counters[C_LIVE] + atomicAdd(counters[C_APPEND], 1u);
+            if (slot < grid.w) { agents[slot] = a; return; }
+        }
+        park(a);
+    } else if (mode == 3u) {
+        if (i >= min(counters[C_CORPSES], uint(corpseP.w))) return;
+        Corpse cp = corpses[i];
+        if ((cp.info.z & 1u) == 0u) return;
+        vec2 fwd = vec2(sin(cp.pos.w), cos(cp.pos.w));
+        splatNew(cp.pos.xz + fwd * 0.45, uintBitsToFloat(cp.info.w));
+        splatNew(cp.pos.xz - fwd * 0.45, uintBitsToFloat(cp.info.w));
+    }
+}

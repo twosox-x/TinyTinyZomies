@@ -236,6 +236,67 @@ kernel void main0(constant SimUniforms& _36 [[buffer(0)]], device StaticH& _110 
             best = 0.5 * ((a + b) + sqrt(((2.0 * f) * f) - ((a - b) * (a - b))));
         }
     }
+    bool _456 = c.x == 0;
+    bool _463;
+    if (!_456)
+    {
+        _463 = c.y == 0;
+    }
+    else
+    {
+        _463 = _456;
+    }
+    bool _474;
+    if (!_463)
+    {
+        _474 = c.x == (int(_36.grid.x) - 1);
+    }
+    else
+    {
+        _474 = _463;
+    }
+    bool _485;
+    if (!_474)
+    {
+        _485 = c.y == (int(_36.grid.y) - 1);
+    }
+    else
+    {
+        _485 = _474;
+    }
+    if (_485)
+    {
+        float2 wlo = _36.world.xy;
+        float2 whi = _36.world.xy + (float2(_36.grid.xy) * _36.world.z);
+        for (uint g_1 = 0u; g_1 < _36.counts.x; g_1++)
+        {
+            float2 q = _36.goals[g_1].xz;
+            bool _522 = _36.goals[g_1].w > 0.5;
+            bool _537;
+            if (_522)
+            {
+                bool _528 = any(q < wlo);
+                bool _536;
+                if (!_528)
+                {
+                    _536 = any(q > whi);
+                }
+                else
+                {
+                    _536 = _528;
+                }
+                _537 = _536;
+            }
+            else
+            {
+                _537 = _522;
+            }
+            if (_537)
+            {
+                best = fast::min(best, distance(center, q));
+            }
+        }
+    }
     _313.dist[id] = fast::min(best, 10000000.0);
 }
 

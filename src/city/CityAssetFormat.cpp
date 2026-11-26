@@ -1,4 +1,4 @@
-// Readers for the baked city package, format v1 (tools/city_lab/bake/FORMAT.md).
+// Readers for the baked city package, file format v1 and v2 (zstd sections, chunk tables; tools/city_lab/bake/FORMAT.md).
 #include "city/CityAsset.h"
 #include "city/Json.h"
 
@@ -7,7 +7,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <map>
+#include <zstd.h>
 
 namespace ttz {
 
@@ -22,20 +24,52 @@ struct Reader {
     }
 };
 
-// Section table: tag -> (offset, bytes).
-bool sections(const std::vector<uint8_t>& b, const char* magic, std::map<std::string, std::pair<uint32_t, uint32_t>>& out) {
+// Section table (v1: 12-byte entries; v2: 20-byte entries with raw size and encoding). Encoded sections are
+// decompressed (zstd, then the SHUF12 vertex byte-plane filter undone) into `store`; out maps tag -> (data, bytes).
+struct Sections {
+    std::map<std::string, std::pair<const uint8_t*, size_t>> map;
+    std::deque<std::vector<uint8_t>> store;
+    uint64_t raw = 0;
+    auto find(const char* t) const { return map.find(t); }
+    auto end() const { return map.end(); }
+};
+constexpr uint32_t kEncZstd = 1, kEncShuf12 = 256;
+
+bool sections(const std::vector<uint8_t>& b, const char* magic, Sections& out) {
     if (b.size() < 16 || std::memcmp(b.data(), magic, 4) != 0) return false;
     Reader r{b.data(), b.size()};
     uint32_t ver = 0, count = 0;
     r.get(4, ver);
     r.get(8, count);
-    if (ver != 1 || 16 + (size_t)count * 12 > b.size()) return false;
+    const size_t es = ver == 2 ? 20 : 12;
+    if ((ver != 1 && ver != 2) || 16 + (size_t)count * es > b.size()) return false;
     for (uint32_t k = 0; k < count; ++k) {
-        uint32_t off = 0, len = 0;
-        r.get(16 + k * 12 + 4, off);
-        r.get(16 + k * 12 + 8, len);
+        uint32_t off = 0, len = 0, raw = 0, enc = 0;
+        const size_t e = 16 + k * es;
+        r.get(e + 4, off);
+        r.get(e + 8, len);
+        if (ver == 2) { r.get(e + 12, raw); r.get(e + 16, enc); } else raw = len;
         if ((size_t)off + len > b.size()) return false;
-        out[std::string((const char*)b.data() + 16 + k * 12, 4)] = {off, len};
+        const std::string tag((const char*)b.data() + e, 4);
+        out.raw += raw;
+        if (!enc) { out.map[tag] = {b.data() + off, len}; continue; }
+        if ((enc & 255) != kEncZstd) { SDL_Log("city: section %s: unknown encoding %u", tag.c_str(), enc); return false; }
+        std::vector<uint8_t>& d = out.store.emplace_back(raw);
+        size_t got = ZSTD_decompress(d.data(), raw, b.data() + off, len);
+        if (ZSTD_isError(got) || got != raw) { SDL_Log("city: section %s: zstd: %s", tag.c_str(), ZSTD_isError(got) ? ZSTD_getErrorName(got) : "size"); return false; }
+        if ((enc & kEncShuf12) && raw >= 72) {   // vertex region [72, 72 + 12 V) stored as 12 byte planes
+            uint32_t V = 0;
+            std::memcpy(&V, d.data(), 4);
+            if (72 + (size_t)V * 12 <= raw) {
+                std::vector<uint8_t> tmp(d.begin() + 72, d.begin() + 72 + (size_t)V * 12);
+                uint8_t* dst = d.data() + 72;
+                for (int c = 0; c < 12; ++c) {
+                    const uint8_t* plane = tmp.data() + (size_t)c * V;
+                    for (uint32_t v = 0; v < V; ++v) dst[(size_t)v * 12 + c] = plane[v];
+                }
+            }
+        }
+        out.map[tag] = {d.data(), d.size()};
     }
     return true;
 }
@@ -95,16 +129,16 @@ float srgbToLinear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 
 
 bool loadVariants(const std::string& path, const char* magic, char lod0, char lod1, std::vector<ModelVariant>& out) {
     std::vector<uint8_t> b;
-    std::map<std::string, std::pair<uint32_t, uint32_t>> sec;
+    Sections sec;
     if (!readFileBytes(path, b) || !sections(b, magic, sec)) return false;
     for (size_t k = 0; k < out.size(); ++k) {
         char t0[8], t1[8];
         std::snprintf(t0, sizeof(t0), "%c%03d", lod0, (int)k);
         std::snprintf(t1, sizeof(t1), "%c%03d", lod1, (int)k);
         auto a = sec.find(t0);
-        if (a != sec.end()) parseMesh(b.data() + a->second.first, a->second.second, out[k].lod0, true);
+        if (a != sec.end()) parseMesh(a->second.first, a->second.second, out[k].lod0, true);
         auto c = sec.find(t1);
-        if (c != sec.end()) parseMesh(b.data() + c->second.first, c->second.second, out[k].lod1, true);
+        if (c != sec.end()) parseMesh(c->second.first, c->second.second, out[k].lod1, true);
     }
     return true;
 }
@@ -186,30 +220,52 @@ bool CityAsset::load(const std::string& dir) {
 }
 
 bool decodeTileBytes(const std::vector<uint8_t>& b, TileCPU& out) {
-    std::map<std::string, std::pair<uint32_t, uint32_t>> sec;
+    Sections sec;
     if (!sections(b, "TTZT", sec)) return false;
-    // v1: MESH = LOD0 with LOD1 as its leading lod1Quads quads; LOD2 = far block model (optional); legacy MSH0 / MSH1
+    out.rawBytes = sec.raw;
+    // MESH = LOD0 (v1: LOD1 = its leading lod1Quads quads; v2 with CHNK: chunk ordered); LOD2 = far block model
+    // (optional); legacy MSH0 / MSH1
     const char* meshTags[4] = {"MESH", "MSH0", "MSH1", "LOD2"};
     const int meshLod[4] = {0, 0, 1, 2};
     for (int k = 0; k < 4; ++k) {
         auto it = sec.find(meshTags[k]);
-        if (it != sec.end() && !parseMesh(b.data() + it->second.first, it->second.second, out.lod[meshLod[k]])) return false;
+        if (it != sec.end() && !parseMesh(it->second.first, it->second.second, out.lod[meshLod[k]])) return false;
     }
-    Reader r{b.data(), b.size()};
-    auto it = sec.find("VEHI");
+    auto it = sec.find("CHNK");
+    if (it != sec.end() && !out.lod[0].verts.empty()) {
+        Reader r{it->second.first, it->second.second};
+        uint32_t n = 0, w = 0, n1 = 0;
+        r.get(0, n);
+        if (24 + (size_t)n * 40 > r.n) return false;
+        out.chunks.resize(n);
+        for (uint32_t c = 0; c < n; ++c) {
+            CityChunk& k = out.chunks[c];
+            const size_t o = 24 + (size_t)c * 40;
+            r.get(o, k.first); r.get(o + 4, k.n1); r.get(o + 8, k.n0);
+            for (int a = 0; a < 3; ++a) { r.get(o + 16 + 4 * a, k.bmin[a]); r.get(o + 28 + 4 * a, k.bmax[a]); }
+            if (k.first != w || k.n1 > k.n0) return false;
+            w += k.n0;
+            n1 += k.n1;
+        }
+        if (w != out.lod[0].quads) return false;
+        out.lod[0].lod1Quads = n1;   // total only: LOD1 is per chunk
+    }
+    it = sec.find("VEHI");
     if (it != sec.end()) {
-        uint32_t off = it->second.first, count = 0;
-        r.get(off, count);
-        if ((size_t)count * 28 + 4 > it->second.second) return false;
+        const uint8_t* p = it->second.first;
+        Reader r{p, it->second.second};
+        uint32_t count = 0;
+        r.get(0, count);
+        if ((size_t)count * 28 + 4 > r.n) return false;
         for (uint32_t k = 0; k < count; ++k) {
-            size_t o = off + 4 + (size_t)k * 28;
+            size_t o = 4 + (size_t)k * 28;
             CityInstance v{};
             uint8_t paint[4];
             int16_t q[4];
             r.get(o, v.variant);
-            std::memcpy(paint, b.data() + o + 4, 4);
+            std::memcpy(paint, p + o + 4, 4);
             r.get(o + 8, v.x); r.get(o + 12, v.y); r.get(o + 16, v.z);
-            std::memcpy(q, b.data() + o + 20, 8);
+            std::memcpy(q, p + o + 20, 8);
             float len = 0;
             for (int c = 0; c < 4; ++c) { v.q[c] = q[c] / 32767.f; len += v.q[c] * v.q[c]; }
             len = len > 0 ? 1.f / std::sqrt(len) : 0.f;
@@ -222,11 +278,12 @@ bool decodeTileBytes(const std::vector<uint8_t>& b, TileCPU& out) {
     }
     it = sec.find("PROP");
     if (it != sec.end()) {
-        uint32_t off = it->second.first, count = 0;
-        r.get(off, count);
-        if ((size_t)count * 24 + 4 > it->second.second) return false;
+        Reader r{it->second.first, it->second.second};
+        uint32_t count = 0;
+        r.get(0, count);
+        if ((size_t)count * 24 + 4 > r.n) return false;
         for (uint32_t k = 0; k < count; ++k) {
-            size_t o = off + 4 + (size_t)k * 24;
+            size_t o = 4 + (size_t)k * 24;
             CityInstance v{};
             float yaw = 0, phase = 0;
             r.get(o, v.variant);
@@ -241,16 +298,18 @@ bool decodeTileBytes(const std::vector<uint8_t>& b, TileCPU& out) {
     }
     it = sec.find("HGT0");
     if (it != sec.end()) {
-        uint32_t off = it->second.first, nx = 0, nz = 0;
-        r.get(off, nx); r.get(off + 4, nz);
-        r.get(off + 8, out.gcell); r.get(off + 12, out.gx0); r.get(off + 16, out.gz0);
+        const uint8_t* p = it->second.first;
+        Reader r{p, it->second.second};
+        uint32_t nx = 0, nz = 0;
+        r.get(0, nx); r.get(4, nz);
+        r.get(8, out.gcell); r.get(12, out.gx0); r.get(16, out.gz0);
         size_t cells = (size_t)nx * nz;
-        if (20 + cells * 3 > it->second.second) return false;
+        if (20 + cells * 3 > r.n) return false;
         out.gw = (int)nx;
         out.gh = (int)nz;
         out.heightCm.resize(cells);
-        std::memcpy(out.heightCm.data(), b.data() + off + 20, cells * 2);
-        out.flags.assign(b.data() + off + 20 + cells * 2, b.data() + off + 20 + cells * 3);
+        std::memcpy(out.heightCm.data(), p + 20, cells * 2);
+        out.flags.assign(p + 20 + cells * 2, p + 20 + cells * 3);
     }
     return true;
 }

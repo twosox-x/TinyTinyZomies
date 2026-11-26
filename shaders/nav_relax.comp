@@ -58,5 +58,14 @@ void main() {
     if (min(a, b) >= BIG * 0.5) best = BIG;
     else if (abs(a - b) >= f) best = min(a, b) + f;
     else best = 0.5 * (a + b + sqrt(2.0 * f * f - (a - b) * (a - b)));
+    // goals outside the simulation window (city: the window follows the camera): seed the window border with the
+    // straight-line distance, so the horde still heads the right way
+    if (c.x == 0 || c.y == 0 || c.x == int(grid.x) - 1 || c.y == int(grid.y) - 1) {
+        vec2 wlo = world.xy, whi = world.xy + vec2(grid.xy) * world.z;
+        for (uint g = 0u; g < counts.x; ++g) {
+            vec2 q = goals[g].xz;
+            if (goals[g].w > 0.5 && (any(lessThan(q, wlo)) || any(greaterThan(q, whi)))) best = min(best, distance(center, q));
+        }
+    }
     dist[id] = min(best, BIG);
 }

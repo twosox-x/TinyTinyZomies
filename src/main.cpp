@@ -82,6 +82,14 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--city-window")) o.cityWindow = std::atoi(next());
         else if (!std::strcmp(a, "--city-at")) { o.cityAtX = (float)std::atof(next()); o.cityAtZ = (float)std::atof(next()); }
         else if (!std::strcmp(a, "--city-synth")) { const char* d = next(); return ttz::writeSyntheticCity(d) ? 0 : 1; }
+        else if (!std::strcmp(a, "--city-follow")) o.cityFollow = std::atoi(next()) != 0;
+        else if (!std::strcmp(a, "--city-pan")) { o.panX = (float)std::atof(next()); o.panZ = (float)std::atof(next()); o.panSpeed = (float)std::atof(next()); }
+        else if (!std::strcmp(a, "--city-pan-start")) o.panStart = std::atoi(next());
+        else if (!std::strcmp(a, "--city-verify")) o.cityVerify = std::atoi(next());
+        else if (!std::strcmp(a, "--shots")) { for (int v : parseInts(next())) o.shotFrames.push_back(v); }
+        else if (!std::strcmp(a, "--shot-dir")) o.shotDir = next();
+        else if (!std::strcmp(a, "--shots-on-move")) o.shotsOnMove = std::atoi(next());
+        else if (!std::strcmp(a, "--city-pan-spawn")) o.panSpawnEvery = std::atoi(next());
         else if (!std::strcmp(a, "--bench")) bench = true;
         else if (!std::strcmp(a, "--bench-counts")) b.counts = parseInts(next());
         else if (!std::strcmp(a, "--bench-scenarios")) b.scenarios = parseStrs(next());

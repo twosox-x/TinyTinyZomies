@@ -3,7 +3,7 @@
 // node verify.js assets/city/seed1 [--hash]
 'use strict';
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
-const B = require('./lib.js');
+const B = require('./lib.js'), L = require('./lod.js');
 const dir = process.argv[2] || 'assets/city/seed1', wantHash = process.argv.includes('--hash');
 const errs = [], err = (s) => { if (errs.length < 30) errs.push(s); };
 const city = JSON.parse(fs.readFileSync(path.join(dir, 'city.json'), 'utf8'));
@@ -27,16 +27,31 @@ function checkMesh(b, where, nMat, quantRange) {
   return m;
 }
 
-const T = { tiles: 0, missing: 0, quads: 0, quads1: 0, vehicles: 0, props: 0, cells: 0, blocked: 0, road: 0, walk: 0, building: 0, water: 0, veg: 0, vehicleCells: 0, maxTop: 0, maxY: 0 };
+const T = { stored: 0, raw: 0, chunkTiles: 0, chunks: 0, tiles: 0, missing: 0, quads: 0, quads1: 0, vehicles: 0, props: 0, cells: 0, blocked: 0, road: 0, walk: 0, building: 0, water: 0, veg: 0, vehicleCells: 0, maxTop: 0, maxY: 0 };
 const nVar = city.vehicles.variants.length, nProp = city.props.types.length, nMat = city.palette.length;
 for (const [i, j] of city.tile.present) {
   const fp = path.join(dir, 'tiles', `${i}_${j}.bin`);
   if (!fs.existsSync(fp)) { T.missing++; continue; }
   const buf = fs.readFileSync(fp); bytes += buf.length; if (wantHash) hash.update(buf);
   const f = B.readFile(buf); T.tiles++;
-  if (f.magic !== 'TTZT' || f.ver !== 1 || (f.reserved & 0xffff) !== i || (f.reserved >>> 16) !== j) err(`${i}_${j}: header`);
+  if (f.magic !== 'TTZT' || (f.ver !== 1 && f.ver !== 2) || (f.reserved & 0xffff) !== i || (f.reserved >>> 16) !== j) err(`${i}_${j}: header`);
   const ms = f.sections.get('MESH');
-  if (ms) { const m = checkMesh(ms, `${i}_${j} MESH`, nMat); T.quads += m.quads; T.quads1 += m.lod1Quads; T.maxY = Math.max(T.maxY, m.aabb[4]); }
+  if (ms) { const m = checkMesh(ms, `${i}_${j} MESH`, nMat); T.quads += m.quads; T.quads1 += m.lod1Quads; T.maxY = Math.max(T.maxY, m.aabb[4]);
+    const cs = f.sections.get('CHNK');
+    if (!!cs !== !!(m.flags & 2)) err(`${i}_${j}: MESH chunk flag / CHNK mismatch`);
+    if (cs) {
+      const c = L.readChunks(cs); let w = 0, n1 = 0; T.chunkTiles++;
+      for (const k of c.chunks) {
+        if (k.first !== w || k.n1 > k.n0) err(`${i}_${j} CHNK ranges`);
+        w += k.n0; n1 += k.n1; if (k.n0) T.chunks++;
+        for (let q = k.first; q < k.first + k.n0; q += 13) for (let v = 0; v < 4; ++v) {   // sampled: vertices inside the chunk AABB
+          const o = m.vo + (q * 4 + v) * 12, p = [m.origin[0] + ms.readInt16LE(o) * m.sxz, m.origin[1] + ms.readInt16LE(o + 2) * m.sy, m.origin[2] + ms.readInt16LE(o + 4) * m.sxz];
+          for (let a = 0; a < 3; ++a) if (p[a] < k.bmin[a] - 1e-3 || p[a] > k.bmax[a] + 1e-3) { err(`${i}_${j} CHNK aabb`); break; }
+        }
+      }
+      if (w !== m.quads || n1 !== m.lod1Quads) err(`${i}_${j} CHNK totals ${w}/${m.quads} ${n1}/${m.lod1Quads}`);
+    }
+    for (const [t, s] of Object.entries(f.stored)) { T.stored += s.bytes; T.raw += s.raw; } }
   const vs = f.sections.get('VEHI');
   if (vs) {
     const n = vs.readUInt32LE(0); if (vs.length !== 4 + n * 28) err(`${i}_${j} VEHI size`);
@@ -87,6 +102,7 @@ if (wantHash) { const c = Object.assign({}, city, { stats: Object.assign({}, cit
 const pct = (a) => (100 * a / Math.max(1, T.cells)).toFixed(1) + '%';
 console.log(`package ${dir}: seed ${city.seed} scale ${city.scale}, map ${(city.bounds.x1 - city.bounds.x0).toFixed(0)} x ${(city.bounds.z1 - city.bounds.z0).toFixed(0)} m, grid ${city.tile.ni} x ${city.tile.nj}`);
 console.log(`tiles: ${T.tiles} read, ${T.missing} missing; ${(bytes / 1048576).toFixed(1)} MB total`);
+console.log(`tile sections: ${(T.stored / 1048576).toFixed(1)} MB stored, ${(T.raw / 1048576).toFixed(1)} MB raw (${(T.raw / Math.max(1, T.stored)).toFixed(2)}x); chunked tiles ${T.chunkTiles}, non-empty chunks ${T.chunks}`);
 console.log(`mesh: LOD0 ${T.quads} quads (${2 * T.quads} tris), LOD1 ${T.quads1} quads (${(100 * T.quads1 / Math.max(1, T.quads)).toFixed(0)} %), highest vertex ${T.maxY.toFixed(1)} m`);
 console.log(`instances: ${T.vehicles} vehicles / traffic props (${nVar} variants, ${veh.lod1} with LOD1, ${veh.paintVerts} body-paint vertices), ${T.props} street props (${nProp} types, ${prp.quads} quads)`);
 console.log(`height grid: ${T.cells} cells; road ${pct(T.road)}, walk ${pct(T.walk)}, building ${pct(T.building)}, water ${pct(T.water)}, veg ${pct(T.veg)}, blocked ${pct(T.blocked)}, vehicle ${pct(T.vehicleCells)}; max top ${(T.maxTop / 100).toFixed(1)} m`);

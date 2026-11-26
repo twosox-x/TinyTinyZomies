@@ -49,6 +49,13 @@ public:
     // and the tile renderer drawn inside the scene pass.
     void setShadowField(const std::vector<float>& field);
     void setLights(const std::vector<PointLight>& lights) { sandbox_.lights = lights; }
+    // Moving simulation window (city): grid origin of the gore / shadow fields and the moon-shadow buffer to use
+    // (owned by the caller; null = the renderer's own field).
+    void setSimWindow(float originX, float originZ, SDL_GPUBuffer* shadowField) {
+        sandbox_.originX = originX;
+        sandbox_.originZ = originZ;
+        shadowExt_ = shadowField;
+    }
     void setCity(class CityRenderer* city) { city_ = city; }
 
     void addBlast(float x, float y, float z);
@@ -77,6 +84,8 @@ private:
     SDL_GPUBuffer *zombieVB_ = nullptr, *zombieIB_ = nullptr, *cubeVB_ = nullptr, *cubeIB_ = nullptr, *boxes_ = nullptr,
                   *shadowH_ = nullptr;
     void buildShadowField(const Sandbox& sb);
+    SDL_GPUBuffer* shadowExt_ = nullptr;
+    SDL_GPUBuffer* shadow() const { return shadowExt_ ? shadowExt_ : shadowH_; }
     SDL_GPUTexture *palette_ = nullptr, *colorMS_ = nullptr, *depth_ = nullptr, *resolved_ = nullptr;
     SDL_GPUSampler* nearest_ = nullptr;
     uint32_t zombieIndexCount_ = 0, boxCount_ = 0, targetW_ = 0, targetH_ = 0;

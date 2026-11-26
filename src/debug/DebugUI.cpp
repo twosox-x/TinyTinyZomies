@@ -67,11 +67,19 @@ void drawDebugUI(AppState& s) {
     ImGui::SameLine();
     flag("corpse height", 16);
 
+    if (s.cityMode) {   // moving simulation window (CitySimWindow)
+        const SimWindowStats& w = s.simWindow.stats();
+        ImGui::Checkbox("sim window follows camera", &s.simWindow.enabled);
+        ImGui::Text("sim window (%.0f, %.0f): %d moves (%d discarded)%s, worker last %.0f / max %.0f ms, commit max %.2f ms", s.simWindow.originX(),
+                    s.simWindow.originZ(), w.relocations, w.discarded, w.busy ? ", preparing" : "", w.lastJobMs, w.maxJobMs, w.maxCommitCpuMs);
+        ImGui::Text("parked zombies %u (despawned: list full %u), height tiles cached %d", s.sim.stats().parked, s.sim.stats().parkDropped, w.tilesCached);
+    }
     if (s.cityMode && ImGui::CollapsingHeader("City", ImGuiTreeNodeFlags_DefaultOpen)) {
         const CityRenderStats& c = s.cityRenderer.stats();
         CitySettings& cs = s.cityRenderer.settings;
         ImGui::Text("tiles resident %u / wanted %u / visible %u (LOD1 %u, LOD2 %u), pending %u", c.resident, c.wanted, c.visible, c.lod1Tiles, c.lod2Tiles, c.pending);
-        ImGui::Text("tile triangles %.2f M", c.tileTriangles / 1e6);
+        ImGui::Text("tile triangles %.2f M, %u tile draws, chunks visible %u (LOD1 %u)", c.tileTriangles / 1e6, c.tileDraws, c.visibleChunks, c.lod1Chunks);
+        ImGui::Text("tile decode avg %.2f ms, max %.2f ms (%u tiles)", c.decodedTiles ? c.decodeMsSum / c.decodedTiles : 0.0, c.decodeMsMax, c.decodedTiles);
         ImGui::Text("draws %u, triangles %.2f M, instances %llu, GPU %.1f MB", c.drawCalls, c.triangles / 1e6, (unsigned long long)c.vehicles,
                     c.gpuBytes / 1048576.0);
         ImGui::Text("update + upload %.2f ms (%u tiles, %.1f MB this frame)", c.uploadMs, c.uploadedTiles, c.uploadedBytes / 1048576.0);
@@ -82,9 +90,13 @@ void drawDebugUI(AppState& s) {
         ImGui::Checkbox("props", &cs.props);
         ImGui::SameLine();
         ImGui::Checkbox("back-face cull", &cs.backfaceCull);
+        ImGui::SameLine();
+        ImGui::Checkbox("chunks", &cs.chunks);
         ImGui::SliderFloat("LOD1 distance", &cs.lod1Dist, 50.f, 1000.f);
         ImGui::SliderFloat("LOD2 distance", &cs.lod2Dist, 100.f, 1500.f);
+        ImGui::SliderFloat("vehicle mid distance", &cs.vehicleMidDist, 10.f, 300.f);
         ImGui::SliderFloat("vehicle box distance", &cs.vehicleBoxDist, 30.f, 600.f);
+        ImGui::SliderFloat("prop mid distance", &cs.propMidDist, 10.f, 300.f);
         ImGui::SliderFloat("prop distance", &cs.propDist, 50.f, 600.f);
         ImGui::Text("F2: %s camera", s.debugCam ? "debug (free)" : "RTS");
     }

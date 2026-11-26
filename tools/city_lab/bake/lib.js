@@ -31,24 +31,59 @@ class W {
 }
 
 // file = header + section table + sections (each 4-aligned). sections: [[tag, Buffer]]
-function writeFile(magic, reserved, sections) {
-  const head = 16 + sections.length * 12;
-  const w = new W(head + sections.reduce((s, x) => s + x[1].length + 4, 0));
-  w.tag(magic); w.u32(1); w.u32(sections.length); w.u32(reserved >>> 0);
+// v1: 12-byte table entries {tag, offset, bytes}. v2 (opts.v2, or opts.zstd = level): 20-byte entries {tag, offset,
+// stored bytes, raw bytes, encoding}; encoding bits 0-7 codec (0 none, 1 zstd), bit 8 = SHUF12: the vertex region of a
+// mesh section (bytes [72, 72 + 12 V)) is stored as 12 byte planes before compression (FORMAT.md 1).
+const ENC_ZSTD = 1, ENC_SHUF12 = 256;
+const MESH_TAG = /^(MESH|LOD2|MSH\d|[VWPQ]\d{3})$/;
+function shuffle12(b, inverse) {
+  if (b.length < 72) return Buffer.from(b);
+  const V = b.readUInt32LE(0), o = Buffer.from(b);
+  if (72 + V * 12 > b.length) return o;
+  if (!inverse) { for (let v = 0; v < V; ++v) for (let k = 0; k < 12; ++k) o[72 + k * V + v] = b[72 + v * 12 + k]; }
+  else { for (let v = 0; v < V; ++v) for (let k = 0; k < 12; ++k) o[72 + v * 12 + k] = b[72 + k * V + v]; }
+  return o;
+}
+function encodeSection(tag, b, level) {
+  const zlib = require('zlib');
+  if (!level || b.length < 64) return { data: b, enc: 0 };
+  const shuf = MESH_TAG.test(tag), src = shuf ? shuffle12(b, false) : b;
+  const z = zlib.zstdCompressSync(src, { params: { [zlib.constants.ZSTD_c_compressionLevel]: level, [zlib.constants.ZSTD_c_checksumFlag]: 0 } });
+  if (z.length >= b.length) return { data: b, enc: 0 };
+  return { data: z, enc: ENC_ZSTD | (shuf ? ENC_SHUF12 : 0) };
+}
+function decodeSection(stored, raw, enc) {
+  if (!enc) return stored;
+  if ((enc & 255) !== ENC_ZSTD) throw new Error('unknown section codec ' + enc);
+  let b = require('zlib').zstdDecompressSync(stored);
+  if (b.length !== raw) throw new Error(`section size ${b.length} != ${raw}`);
+  if (enc & ENC_SHUF12) b = shuffle12(b, true);
+  return b;
+}
+function writeFile(magic, reserved, sections, opts) {
+  opts = opts || {};
+  const v2 = !!(opts.v2 || opts.zstd), es = v2 ? 20 : 12;
+  const enc = sections.map(([t, b]) => v2 ? encodeSection(t, b, opts.zstd) : { data: b, enc: 0 });
+  const head = 16 + sections.length * es;
+  const w = new W(head + enc.reduce((s, x) => s + x.data.length + 4, 0));
+  w.tag(magic); w.u32(v2 ? 2 : 1); w.u32(sections.length); w.u32(reserved >>> 0);
   let off = head; const offs = [];
-  for (const [, b] of sections) { offs.push(off); off += (b.length + 3) & ~3; }
-  sections.forEach(([t, b], k) => { w.tag(t); w.u32(offs[k]); w.u32(b.length); });
-  for (const [, b] of sections) { w.bytes(b); w.align(); }
+  for (const e of enc) { offs.push(off); off += (e.data.length + 3) & ~3; }
+  sections.forEach(([t, b], k) => { w.tag(t); w.u32(offs[k]); w.u32(enc[k].data.length); if (v2) { w.u32(b.length); w.u32(enc[k].enc); } });
+  for (const e of enc) { w.bytes(e.data); w.align(); }
   return w.done();
 }
+// sections are returned decoded; stored = { tag: { bytes, raw, enc } } for size reports
 function readFile(buf) {
   const magic = buf.toString('latin1', 0, 4), ver = buf.readUInt32LE(4), n = buf.readUInt32LE(8), reserved = buf.readUInt32LE(12);
-  const sections = new Map(), order = [];
+  if (ver !== 1 && ver !== 2) throw new Error('unsupported file version ' + ver);
+  const es = ver === 2 ? 20 : 12, sections = new Map(), order = [], stored = {};
   for (let k = 0; k < n; ++k) {
-    const o = 16 + k * 12, tag = buf.toString('latin1', o, o + 4), off = buf.readUInt32LE(o + 4), len = buf.readUInt32LE(o + 8);
-    sections.set(tag, buf.subarray(off, off + len)); order.push(tag);
+    const o = 16 + k * es, tag = buf.toString('latin1', o, o + 4), off = buf.readUInt32LE(o + 4), len = buf.readUInt32LE(o + 8);
+    const raw = ver === 2 ? buf.readUInt32LE(o + 12) : len, enc = ver === 2 ? buf.readUInt32LE(o + 16) : 0;
+    sections.set(tag, decodeSection(buf.subarray(off, off + len), raw, enc)); order.push(tag); stored[tag] = { bytes: len, raw, enc };
   }
-  return { magic, ver, reserved, sections, order };
+  return { magic, ver, reserved, sections, order, stored };
 }
 
 // ---- mesh section (FORMAT.md 2): an implicit quad list (4 vertices per quad, no index data). parts: [{ pos
@@ -106,4 +141,4 @@ function readMesh(b) {
   return { V, I, isz, flags, lod1Quads, quads, sxz, sy, origin, aabb, vo, io, buf: b };
 }
 
-module.exports = { loadCity, W, writeFile, readFile, meshSection, readMesh, NID };
+module.exports = { loadCity, W, writeFile, readFile, meshSection, readMesh, NID, shuffle12 };
