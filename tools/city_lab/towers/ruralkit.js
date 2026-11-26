@@ -32,7 +32,7 @@ function oct(M, cx, cz, r, y0, y1, m) {
 // trees (25 cm voxels): { mesh, rc, h }
 function treeModel(C, kind, vr) {
   return cached('t' + kind + vr, () => {
-    const R = C.mulberry32(9137 + vr * 101 + kind.length * 7), VM = L.VoxModel();
+    const R = C.mulberry32(9137 + vr * 101 + kind.length * 7), VM = (L.VoxModel() || C.VoxModel);
     let M, rc, ht;
     if (kind === 'spruce') {
       ht = 40 + Math.floor(R() * 20); rc = 8 + Math.floor(R() * 3);
@@ -69,7 +69,7 @@ function treeModel(C, kind, vr) {
 // farm buildings (25 cm voxels), +z = front (towards the road)
 function farmModel(C, kind, vr) {
   return cached('f' + kind + vr, () => {
-    const VM = L.VoxModel();
+    const VM = (L.VoxModel() || C.VoxModel);
     let M;
     if (kind === 'house') {                                    // two-storey white farmhouse, gable roof, porch
       const W = 36, D = 28, H = 24;
@@ -114,7 +114,7 @@ function farmModel(C, kind, vr) {
 }
 function fenceModel(C) {                                       // 3 m post-and-rail section along +x (25 cm voxels)
   return cached('fence', () => {
-    const M = new (L.VoxModel())(14, 6, 2, 0, 1);
+    const M = new ((L.VoxModel() || C.VoxModel))(14, 6, 2, 0, 1);
     M.box(0, 0, 0, 1, 5, 1, K.WOOD);
     M.box(0, 2, 0, 12, 3, 1, K.WHITE); M.box(0, 4, 0, 12, 5, 1, K.WHITE);
     return { mesh: C.meshVoxels3D(M) };
