@@ -58,6 +58,13 @@ struct AppOptions {
     std::vector<int> labStress;    // --lab-stress 10,50,..: soldier presets (headless: benchmark table, then exit)
     int labBenchFrames = 300;      // --bench-frames with --lab-stress: measured frames per preset
     int labZombies = 2000;         // --lab-zombies: zombie horde alongside the stress soldiers
+    // --spam-blasts RATE SECONDS X Z: scripted click spam (RATE blasts / s for SECONDS from frame spamStart, scattered
+    // +-spamSpread m around (X, Z); X = nan: the densest vehicle cluster near the window centre). Prints a per-subsystem
+    // timing table at exit (--perf-report: the same table without spam; --perf-split: GPU sim / render measured apart).
+    float spamRate = 0, spamSeconds = 0, spamX = 0, spamZ = 0, spamSpread = 10.f;
+    int spamStart = 120;
+    bool perfReport = false, perfSplit = false;
+    std::string perfCsv;
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };
@@ -122,6 +129,16 @@ private:
     void printCityBench();
     void cityVerify(const char* why);
     int moves_ = 0;
+    // --spam-blasts / --perf-report
+    struct PerfRow {
+        float frame, vehTotal, vehBlast, vehFuse, vehIntegrate, vehGrid, simRec, gpuSim, renderRec, gpuRender;
+        uint32_t vehActive, uploadBytes, fxVolumes, particles, gibs, blasts, explosions;
+    };
+    std::vector<PerfRow> perf_;
+    float spamAcc_ = 0.f;
+    uint32_t spamRng_ = 12345u, spamCount_ = 0;
+    void spamStep(double dt);
+    void printPerf();
     std::vector<std::pair<uint64_t, int>> postShots_;
     bool mmbDown_ = false, altDrag_ = false, rmbDown_ = false;
     float rotDx_ = 0, rotDy_ = 0, wheel_ = 0, panDx_ = 0, panDy_ = 0;

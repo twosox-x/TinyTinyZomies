@@ -46,15 +46,17 @@ struct RenderSettings {
     float fogDensity = 0.0011f;
     float fogStart = 0.75f;          // x camera (pivot) distance: the area around the pivot stays clear
     float exposure = 1.15f;
-    // miniature post-process ("tilt-shift"): half-resolution blur mixed in by depth difference to the camera pivot and
-    // a vertical screen gradient, plus a small saturation / contrast boost
-    bool tiltShift = true;
-    float tiltStrength = 0.9f;        // 0..1 blend towards the blurred image
-    float tiltBand = 0.20f;          // half-height (uv) of the sharp band around the screen centre
-    float tiltSoftness = 0.34f;      // gradient width (uv) from sharp to fully blurred
-    float tiltDepthRange = 1.5f;     // depth difference (x pivot distance) that is fully blurred
-    float tiltDepthWeight = 0.8f;
-    float tiltRadius = 1.6f;         // blur tap spacing (half-res texels at 720p)
+    // miniature look: thin-lens depth of field focused on the RTS camera pivot (macro-lens shallow focus with bokeh
+    // discs, see Renderer::postProcess / shaders/post_dof_*.frag), plus a small saturation / contrast boost
+    bool tiltShift = true;           // miniature depth of field on / off (name kept for the lab's "+notilt")
+    float dofStrength = 1.0f;        // 0..1 blend of the bokeh layers
+    float dofAperture = 1.3f;        // CoC = aperture * (d - focus) / d, in units of the max blur radius (thin lens)
+    float dofFocusOffset = 0.0f;     // focus distance = pivot distance * (1 + offset)
+    float dofMaxBlur = 0.018f;       // max CoC radius, fraction of the screen height
+    float dofHighlightGain = 3.0f;   // extra brightness of highlights in the blur (bokeh discs of lamps / windows / fire)
+    float dofHighlightThreshold = 0.62f;   // display luma where the highlight boost starts
+    float dofHexAperture = 0.0f;     // 0 = round bokeh, 1 = hexagonal (six aperture blades)
+    bool dofDebug = false;           // show the CoC (red near, blue far)
     float saturation = 1.18f, contrast = 1.06f, vignette = 0.12f;
     int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
     CharacterSettings chars;
@@ -85,6 +87,7 @@ public:
     void addBlast(float x, float y, float z, float scale = 1.f);
     void setFireVolumes(const std::vector<FireVolume>& fires) { fires_ = fires; }   // burning wrecks, this frame
     void update(float dt);   // ages blast effects
+    uint32_t fxVolumesDrawn() const { return fxDrawn_; }
 
     // Renders the scene into the internal target, then blits into `target` (swapchain) if given.
     void render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
@@ -100,12 +103,13 @@ public:
 
 private:
     void ensureTargets(uint32_t w, uint32_t h);
-    SDL_GPUGraphicsPipeline* makePipeline(const char* vs, const char* fs, bool modelVertex, bool cubeVertex, bool cull);
+    SDL_GPUGraphicsPipeline* makePipeline(const char* vs, const char* fs, bool modelVertex, bool cubeVertex, bool cull, bool cullFront = false);
 
     GpuContext* gpu_ = nullptr;
     SDL_GPUTextureFormat swapFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUSampleCount samples_ = SDL_GPU_SAMPLECOUNT_1;
-    SDL_GPUGraphicsPipeline *pZombie_ = nullptr, *pCorpse_ = nullptr, *pBox_ = nullptr, *pGround_ = nullptr, *pParticle_ = nullptr, *pFx_ = nullptr;
+    SDL_GPUGraphicsPipeline *pZombie_ = nullptr, *pCorpse_ = nullptr, *pBox_ = nullptr, *pGround_ = nullptr, *pParticle_ = nullptr, *pFx_ = nullptr,
+                            *pFxNear_ = nullptr;
     SDL_GPUBuffer *zombieVB_ = nullptr, *zombieIB_ = nullptr, *cubeVB_ = nullptr, *cubeIB_ = nullptr, *boxes_ = nullptr,
                   *shadowH_ = nullptr;
     void buildShadowField(const Sandbox& sb);
@@ -114,10 +118,14 @@ private:
     SDL_GPUTexture *palette_ = nullptr, *colorMS_ = nullptr, *depth_ = nullptr, *resolved_ = nullptr;
     SDL_GPUSampler* nearest_ = nullptr;
     // post-processing: half-res blur ping-pong, final composite (blitted to the swapchain, read by screenshots)
-    SDL_GPUGraphicsPipeline *pBlur_ = nullptr, *pComposite_ = nullptr;
-    SDL_GPUTexture *halfA_ = nullptr, *halfB_ = nullptr, *final_ = nullptr;
+    // miniature DOF: half-res prefilter (colour + CoC), near-CoC tile max + dilation, gather / fill ping-pong (far and
+    // near field as two render targets each), full-res composite
+    SDL_GPUGraphicsPipeline *pDofPre_ = nullptr, *pDofTile_ = nullptr, *pDofDilate_ = nullptr, *pDofGather_ = nullptr,
+                            *pDofFill_ = nullptr, *pComposite_ = nullptr;
+    SDL_GPUTexture *dofPre_ = nullptr, *dofBgA_ = nullptr, *dofFgA_ = nullptr, *dofBgB_ = nullptr, *dofFgB_ = nullptr,
+                   *dofTile_ = nullptr, *dofTileD_ = nullptr, *final_ = nullptr;
     SDL_GPUSampler* linear_ = nullptr;
-    SDL_GPUGraphicsPipeline* makePostPipeline(const char* fs);
+    SDL_GPUGraphicsPipeline* makePostPipeline(const char* fs, uint32_t targets = 1, bool hdr = false);
     void postProcess(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const RenderSettings& rs);
     uint32_t zombieIndexCount_ = 0, boxCount_ = 0, targetW_ = 0, targetH_ = 0;
     int variantRows_ = 1;
@@ -131,6 +139,7 @@ private:
     std::vector<FxBlast> fxBlasts_;   // voxel fireball volumes (live ~7-10 s, see fxLife in fx_volume.glsl)
     std::vector<FireVolume> fires_;
     uint32_t fxSeed_ = 1;
+    uint32_t fxDrawn_ = 0;            // voxel volumes drawn last frame (blasts + wreck fires)
 public:
     // Optional extensions (Military Asset Lab): compute work recorded before the scene pass, and draws inside the scene
     // pass after the characters (frame uniforms in slot 0; buffers: gore decals, moon-shadow field, corpse heights).

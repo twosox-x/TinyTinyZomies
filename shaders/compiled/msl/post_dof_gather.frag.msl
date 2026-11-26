@@ -1,0 +1,117 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()
+template<typename Tx, typename Ty>
+inline Tx mod(Tx x, Ty y)
+{
+    return x - y * floor(x / y);
+}
+
+struct Dof
+{
+    float4 d0;
+    float4 d1;
+    float4 d2;
+};
+
+struct main0_out
+{
+    float4 outBg [[color(0)]];
+    float4 outFg [[color(1)]];
+};
+
+struct main0_in
+{
+    float2 vUv [[user(locn0)]];
+};
+
+static inline __attribute__((always_inline))
+float apertureScale(thread const float& ang, constant Dof& _19)
+{
+    float seg = 1.0471975803375244140625;
+    float a = mod(ang - _19.d2.x, seg) - (seg * 0.5);
+    return mix(1.0, cos(seg * 0.5) / cos(a), _19.d1.y);
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Dof& _19 [[buffer(0)]], texture2d<float> pre [[texture(0)]], texture2d<float> tiles [[texture(1)]], sampler preSmplr [[sampler(0)]], sampler tilesSmplr [[sampler(1)]])
+{
+    main0_out out = {};
+    float4 c0 = pre.sample(preSmplr, in.vUv);
+    float coc0 = c0.w;
+    float nearMax = tiles.sample(tilesSmplr, in.vUv).x;
+    float R = fast::min(fast::max(abs(coc0), nearMax), _19.d0.x);
+    if (R < 0.5)
+    {
+        out.outBg = c0;
+        out.outFg = float4(c0.xyz, 0.0);
+        return out;
+    }
+    float2 texel = float2(_19.d0.y, _19.d0.z);
+    float spacing = R / 3.0;
+    float m = (spacing * 0.5) + 0.5;
+    float N = 49.0;
+    float areaK = (R * R) / N;
+    float4 bg = float4(c0.xyz, 1.0);
+    float4 fg = float4(0.0);
+    float fgA = 0.0;
+    float nc = -coc0;
+    if (nc > 0.5)
+    {
+        float a = (areaK / fast::max(nc * nc, 1.0)) * smoothstep(0.5, 2.0, nc);
+        fg += (float4(c0.xyz, 1.0) * a);
+        fgA += a;
+    }
+    float _227;
+    for (int k = 1; k <= 3; k++)
+    {
+        float rho = spacing * float(k);
+        int n = 8 * k;
+        float _185 = 6.283185482025146484375 / float(n);
+        float _190 = float(k) * 0.37000000476837158203125;
+        float2 dir = float2(cos(_190), sin(_190));
+        float2x2 rot = float2x2(float2(cos(_185), sin(_185)), float2(-sin(_185), cos(_185)));
+        float _step = _185;
+        float ang = _190;
+        int i = 0;
+        for (; i < n; i++, ang += _step, dir = rot * dir)
+        {
+            if (_19.d1.y > 0.0)
+            {
+                float param = ang;
+                _227 = apertureScale(param, _19);
+            }
+            else
+            {
+                _227 = 1.0;
+            }
+            float2 o = dir * (rho * _227);
+            float4 s = pre.sample(preSmplr, (in.vUv + (o * texel)));
+            float cs = s.w;
+            float wb = fast::clamp(((fast::max(fast::min(coc0, cs), 0.0) - rho) + m) / m, 0.0, 1.0);
+            bg += (float4(s.xyz, 1.0) * wb);
+            float nc_1 = -cs;
+            float wf = fast::clamp(((nc_1 - rho) + m) / m, 0.0, 1.0) * smoothstep(0.5, 2.0, nc_1);
+            float a_1 = (wf * areaK) / fast::max(nc_1 * nc_1, 1.0);
+            fg += (float4(s.xyz, 1.0) * a_1);
+            fgA += a_1;
+        }
+    }
+    out.outBg = float4(bg.xyz / float3(bg.w), coc0);
+    float3 _333;
+    if (fg.w > 9.9999997473787516355514526367188e-06)
+    {
+        _333 = fg.xyz / float3(fg.w);
+    }
+    else
+    {
+        _333 = c0.xyz;
+    }
+    out.outFg = float4(_333, fast::clamp(fgA, 0.0, 1.0));
+    return out;
+}
+

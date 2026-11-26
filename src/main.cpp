@@ -8,6 +8,7 @@
 //   ttz --save-config path       write all simulation parameters with their defaults
 //   ttz --lab military [--headless --shots F1,F2 --lab-views closeup,rts110,.. --shot-dir DIR]   Military Asset Lab
 //   ttz --lab military --headless --lab-stress 10,50,100,250,500,1000 [--bench-frames 600] [--lab-zombies 2000]   lab stress bench
+//   ttz --map city --headless --frames 900 --spam-blasts 4 10 auto 0 [--spam-start 120] [--perf-split] [--perf-csv f]   click-spam stress
 #include "app/App.h"
 #include "city/CityWorld.h"
 
@@ -17,6 +18,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
@@ -97,6 +99,16 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--lab-zombies")) o.labZombies = std::atoi(next());
         else if (!std::strcmp(a, "--shots-on-move")) o.shotsOnMove = std::atoi(next());
         else if (!std::strcmp(a, "--city-pan-spawn")) o.panSpawnEvery = std::atoi(next());
+        else if (!std::strcmp(a, "--spam-blasts")) {
+            o.spamRate = (float)std::atof(next()); o.spamSeconds = (float)std::atof(next());
+            const char* x = next(); const char* z = next();
+            o.spamX = std::strcmp(x, "auto") ? (float)std::atof(x) : NAN; o.spamZ = (float)std::atof(z);
+        }
+        else if (!std::strcmp(a, "--spam-start")) o.spamStart = std::atoi(next());
+        else if (!std::strcmp(a, "--spam-spread")) o.spamSpread = (float)std::atof(next());
+        else if (!std::strcmp(a, "--perf-report")) o.perfReport = true;
+        else if (!std::strcmp(a, "--perf-split")) o.perfSplit = true;
+        else if (!std::strcmp(a, "--perf-csv")) o.perfCsv = next();
         else if (!std::strcmp(a, "--bench")) bench = true;
         else if (!std::strcmp(a, "--bench-counts")) b.counts = parseInts(next());
         else if (!std::strcmp(a, "--bench-scenarios")) b.scenarios = parseStrs(next());

@@ -109,14 +109,16 @@ void drawDebugUI(AppState& s) {
         ImGui::SliderFloat("saturation", &rs.saturation, 0.5f, 1.8f);
         ImGui::SliderFloat("contrast", &rs.contrast, 0.7f, 1.5f);
         ImGui::SliderFloat("vignette", &rs.vignette, 0.0f, 0.6f);
-        ImGui::Checkbox("tilt-shift (miniature)", &rs.tiltShift);
+        ImGui::Checkbox("miniature depth of field", &rs.tiltShift);
         if (rs.tiltShift) {
-            ImGui::SliderFloat("tilt strength", &rs.tiltStrength, 0.0f, 1.0f);
-            ImGui::SliderFloat("sharp band", &rs.tiltBand, 0.0f, 0.5f);
-            ImGui::SliderFloat("band softness", &rs.tiltSoftness, 0.02f, 0.6f);
-            ImGui::SliderFloat("depth range (x cam dist)", &rs.tiltDepthRange, 0.2f, 4.0f);
-            ImGui::SliderFloat("depth weight", &rs.tiltDepthWeight, 0.0f, 1.0f);
-            ImGui::SliderFloat("blur radius", &rs.tiltRadius, 0.5f, 4.0f);
+            ImGui::SliderFloat("DOF strength", &rs.dofStrength, 0.0f, 1.0f);
+            ImGui::SliderFloat("aperture", &rs.dofAperture, 0.2f, 5.0f);
+            ImGui::SliderFloat("focus offset (x pivot dist)", &rs.dofFocusOffset, -0.5f, 0.5f);
+            ImGui::SliderFloat("max blur (x screen height)", &rs.dofMaxBlur, 0.004f, 0.04f, "%.3f");
+            ImGui::SliderFloat("bokeh highlight gain", &rs.dofHighlightGain, 0.0f, 10.0f);
+            ImGui::SliderFloat("bokeh highlight threshold", &rs.dofHighlightThreshold, 0.3f, 0.95f);
+            ImGui::SliderFloat("hexagonal aperture", &rs.dofHexAperture, 0.0f, 1.0f);
+            ImGui::Checkbox("show CoC (red near, blue far)", &rs.dofDebug);
         }
     }
 

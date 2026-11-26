@@ -1,0 +1,57 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Dof
+{
+    float4 d0;
+    float4 d1;
+    float4 d2;
+};
+
+struct main0_out
+{
+    float4 outBg [[color(0)]];
+    float4 outFg [[color(1)]];
+};
+
+struct main0_in
+{
+    float2 vUv [[user(locn0)]];
+};
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Dof& _41 [[buffer(0)]], texture2d<float> bgTex [[texture(0)]], texture2d<float> fgTex [[texture(1)]], texture2d<float> tiles [[texture(2)]], sampler bgTexSmplr [[sampler(0)]], sampler fgTexSmplr [[sampler(1)]], sampler tilesSmplr [[sampler(2)]])
+{
+    main0_out out = {};
+    float4 b0 = bgTex.sample(bgTexSmplr, in.vUv);
+    float4 f0 = fgTex.sample(fgTexSmplr, in.vUv);
+    float R = fast::min(fast::max(abs(b0.w), tiles.sample(tilesSmplr, in.vUv).x), _41.d0.x);
+    float r = fast::max(R / 6.0, 0.75);
+    float2 texel = float2(_41.d0.y, _41.d0.z) * r;
+    float4 bg = float4(b0.xyz, 1.0) * 2.0;
+    float4 fg = float4(f0.xyz * f0.w, f0.w) * 2.0;
+    for (int i = 0; i < 8; i++)
+    {
+        float ang = (float(i) * 0.785398006439208984375) + 0.3926999866962432861328125;
+        float2 uv = in.vUv + (float2(cos(ang), sin(ang)) * texel);
+        float4 b = bgTex.sample(bgTexSmplr, uv);
+        float w = fast::clamp((1.0 + fast::min(b.w, b0.w)) - b0.w, 0.0, 1.0) * step(0.0, b0.w);
+        bg += (float4(b.xyz, 1.0) * w);
+        float4 f = fgTex.sample(fgTexSmplr, uv);
+        fg += float4(f.xyz * f.w, f.w);
+    }
+    out.outBg = float4(bg.xyz / float3(bg.w), b0.w);
+    float3 _187;
+    if (fg.w > 9.9999997473787516355514526367188e-06)
+    {
+        _187 = fg.xyz / float3(fg.w);
+    }
+    else
+    {
+        _187 = f0.xyz;
+    }
+    out.outFg = float4(_187, fg.w / 10.0);
+    return out;
+}
+

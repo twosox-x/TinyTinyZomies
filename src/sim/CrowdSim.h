@@ -10,6 +10,7 @@
 #include "sim/SimParams.h"
 
 #include <array>
+#include <utility>
 #include <vector>
 
 namespace ttz {
@@ -42,6 +43,9 @@ public:
     std::vector<ExplosionEvent> takeExplosionLog() { std::vector<ExplosionEvent> v; v.swap(explosionLog_); return v; }
     // Rows [z0, z0 + rows) of the static height grid (gridW floats per row), recorded into cmd (dynamic obstacles).
     void uploadStaticRows(SDL_GPUCommandBuffer* cmd, uint32_t z0, uint32_t rows, const float* data);
+    // Several row runs (z0, rows) of a whole gridW x gridH height array in one copy pass through a persistent,
+    // cycled transfer buffer (no per-frame allocations). Returns the bytes uploaded.
+    uint32_t uploadStaticRowRuns(SDL_GPUCommandBuffer* cmd, const std::vector<std::pair<uint32_t, uint32_t>>& runs, const float* grid);
     void setGoals(const std::vector<float>& xz);
     const std::vector<float>& goals() const { return goals_; }
 
@@ -118,6 +122,7 @@ private:
                   *navDist_[2] = {nullptr, nullptr}, *navDir_ = nullptr, *corpses_ = nullptr, *counters_ = nullptr,
                   *indirect_ = nullptr, *particles_ = nullptr, *particleList_ = nullptr, *gibs_ = nullptr, *gore_ = nullptr,
                   *decals_ = nullptr, *park_[2] = {nullptr, nullptr}, *parkCnt_ = nullptr, *shiftScratch_ = nullptr;
+    SDL_GPUTransferBuffer* staticTB_ = nullptr;   // dynamic obstacle rows (uploadStaticRowRuns)
     int parkIn_ = 0;
     uint32_t parkCapacity_ = 0;
     void shiftField(SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* buf, uint32_t w, uint32_t h, uint32_t words, uint32_t layers, int sx,

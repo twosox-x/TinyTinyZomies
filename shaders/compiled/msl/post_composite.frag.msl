@@ -1,3 +1,5 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
 #include <metal_stdlib>
 #include <simd/simd.h>
 
@@ -19,24 +21,81 @@ struct main0_in
     float2 vUv [[user(locn0)]];
 };
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Post& _27 [[buffer(0)]], texture2d<float> sharpTex [[texture(0)]], texture2d<float> blurTex [[texture(1)]], sampler sharpTexSmplr [[sampler(0)]], sampler blurTexSmplr [[sampler(1)]])
+static inline __attribute__((always_inline))
+float3 toLinear(thread const float3& c)
+{
+    float3 l = powr(fast::clamp(c, float3(0.0), float3(1.0)), float3(2.2000000476837158203125));
+    return l / fast::max(float3(1.0) - (l * 0.300000011920928955078125), float3(0.300000011920928955078125));
+}
+
+static inline __attribute__((always_inline))
+float3 toDisplay(thread float3& c)
+{
+    c = fast::max(c, float3(0.0));
+    return powr(fast::clamp(c / (float3(1.0) + (c * 0.300000011920928955078125)), float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Post& _72 [[buffer(0)]], texture2d<float> sharpTex [[texture(0)]], texture2d<float> bgTex [[texture(1)]], texture2d<float> fgTex [[texture(2)]], sampler sharpTexSmplr [[sampler(0)]], sampler bgTexSmplr [[sampler(1)]], sampler fgTexSmplr [[sampler(2)]])
 {
     main0_out out = {};
     float4 s = sharpTex.sample(sharpTexSmplr, in.vUv);
     float3 col = s.xyz;
-    if (_27.p0.x > 0.0)
+    if (_72.p0.x > 0.0)
     {
-        float4 b = blurTex.sample(blurTexSmplr, in.vUv);
-        float grad = smoothstep(_27.p0.z, _27.p0.z + _27.p0.w, abs(in.vUv.y - _27.p0.y));
-        float depthC = fast::max(1.0 - s.w, (1.0 - b.w) * 0.60000002384185791015625) * _27.p1.z;
-        float coc = fast::clamp(fast::max(grad, depthC) * _27.p0.x, 0.0, 1.0);
-        col = mix(col, b.xyz, float3(coc));
+        float coc = ((s.w * 2.0) - 1.0) * _72.p0.y;
+        float3 param = col;
+        float3 lin = toLinear(param);
+        int2 hs = int2(bgTex.get_width(), bgTex.get_height());
+        float2 pos = (in.vUv * float2(hs)) - float2(0.5);
+        int2 i0 = int2(floor(pos));
+        float2 f = pos - float2(i0);
+        float4 acc = float4(0.0);
+        float _163;
+        float _175;
+        for (int y = 0; y < 2; y++)
+        {
+            for (int x = 0; x < 2; x++)
+            {
+                float4 b = bgTex.read(uint2(clamp(i0 + int2(x, y), int2(0), hs - int2(1))), 0);
+                if (x == 0)
+                {
+                    _163 = 1.0 - f.x;
+                }
+                else
+                {
+                    _163 = f.x;
+                }
+                if (y == 0)
+                {
+                    _175 = 1.0 - f.y;
+                }
+                else
+                {
+                    _175 = f.y;
+                }
+                float wb = _163 * _175;
+                float wd = 1.0 / (0.300000011920928955078125 + abs(b.w - coc));
+                acc += (float4(b.xyz, 1.0) * ((wb * wd) + 9.9999997473787516355514526367188e-05));
+            }
+        }
+        float3 bg = acc.xyz / float3(acc.w);
+        lin = mix(lin, bg, float3(smoothstep(0.25, 1.0, coc) * _72.p0.x));
+        float4 fg = fgTex.sample(fgTexSmplr, in.vUv);
+        lin = mix(lin, fg.xyz, float3(fast::max(fg.w, smoothstep(0.25, 1.0, -coc)) * _72.p0.x));
+        float3 param_1 = lin;
+        float3 _250 = toDisplay(param_1);
+        col = _250;
+        if (_72.p0.z > 0.5)
+        {
+            float c = fast::clamp(coc / _72.p0.y, -1.0, 1.0);
+            col = mix(col * 0.25, float3(fast::max(-c, 0.0), 0.0, fast::max(c, 0.0)), float3(0.85000002384185791015625));
+        }
     }
     float l = dot(col, float3(0.2989999949932098388671875, 0.58700001239776611328125, 0.114000000059604644775390625));
-    col = mix(float3(l), col, float3(_27.p1.x));
-    col = ((col - float3(0.5)) * _27.p1.y) + float3(0.5);
+    col = mix(float3(l), col, float3(_72.p1.x));
+    col = ((col - float3(0.5)) * _72.p1.y) + float3(0.5);
     float2 v = in.vUv - float2(0.5);
-    col *= (1.0 - ((_27.p1.w * dot(v, v)) * 1.60000002384185791015625));
+    col *= (1.0 - ((_72.p1.w * dot(v, v)) * 1.60000002384185791015625));
     out.outColor = float4(fast::clamp(col, float3(0.0), float3(1.0)), 1.0);
     return out;
 }

@@ -55,6 +55,16 @@ No new libraries are linked into the engine.
 | three.js r128 | loaded by the Zombie Lab design page (`assets/characters/source/zombie_lab_v3.html`) from a CDN | MIT | no (design tool only, never part of the game) |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) 1.3 | evaluated, **not used** (see docs/RESEARCH.md) | MIT | no |
 
+## Shader code adapted from third parties
+
+| Component | Use | License | Obligation |
+|---|---|---|---|
+| [KinoBokeh](https://github.com/keijiro/KinoBokeh) (Keijiro Takahashi / Unity Technologies, `master`) | Miniature depth of field (`shaders/include/dof.glsl`, `shaders/post_dof_*.frag`, `shaders/post_composite.frag`): the structure (half-res prefilter with CoC-weighted downsample, disk-kernel gather with separate far / near fields where the far field takes the min of centre and sample CoC, post-filter, composite) and the prefilter / far-field weighting are adapted from its Unity shaders, rewritten in GLSL and extended (thin-lens CoC from the scene alpha, near-CoC tile max, CoC-scaled kernel, area-normalised near coverage, highlight boost, bilateral upsample). | MIT | Keep the notice below. |
+
+> KinoBokeh: Copyright (C) 2016 Unity Technologies. Copyright (C) 2015 Keijiro Takahashi. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Techniques only (no code): scatter-as-gather near-field coverage and the CoC-scaled "fill" pass after Jorge Jimenez, *Next Generation Post Processing in Call of Duty: Advanced Warfare* (SIGGRAPH 2014).
+
 ## Research repositories (no code used)
 
 The crowd-simulation repositories evaluated in [`docs/RESEARCH.md`](docs/RESEARCH.md) informed algorithm choices only. **No source code from them is included**, so they create no license obligations:

@@ -3,6 +3,8 @@
 #include "sim/CrowdSim.h"
 #include "sim/Sandbox.h"
 
+#include <SDL3/SDL_timer.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -286,29 +288,33 @@ void CityVehicles::clearBakedFootprint(const Vehicle& v) {
     });
 }
 
-void CityVehicles::stamp(const Vehicle& v, std::vector<float>& grid, int* rect) const {
-    // physics grid (rect == null): box inset 0.25 m so that neighbours parked bumper to bumper do not collide
-    // through the 0.75 m quantisation; obstacle grid for zombies: the whole box
-    const float inset = rect ? 0.f : 0.25f;
+void CityVehicles::stamp(const Vehicle& v, std::vector<float>& grid, const int* rows, float inset) const {
+    // physics grid (solid_): box inset 0.25 m so that neighbours parked bumper to bumper do not collide through the
+    // 0.75 m quantisation; obstacle grids for zombies (obst_, simH_): the whole box. rows: only rows [0], [1].
     sampleBox(models_[v.variant], v.ro, v.q, inset, 0.5f * cell_, [&](F3 p) {
         int cx = (int)std::floor((p.x - ox_) / cell_), cz = (int)std::floor((p.z - oz_) / cell_);
         if (cx < 0 || cz < 0 || cx >= gw_ || cz >= gh_) return;
-        if (rect && (cz < rect[0] || cz > rect[1])) return;
+        if (rows && (cz < rows[0] || cz > rows[1])) return;
         float& g = grid[(size_t)cz * gw_ + cx];
         g = std::max(g, p.y);
     });
 }
 
+// Rebuilds solid_ and obst_ in a cell rectangle from base_ + the sleeping vehicles overlapping it (except one). A
+// neighbour stamped whole also writes cells outside the rectangle: max() with its own earlier stamp, no change.
 void CityVehicles::restampSolid(int x0, int z0, int x1, int z1, uint32_t except) {
     x0 = std::max(0, x0); z0 = std::max(0, z0); x1 = std::min(gw_ - 1, x1); z1 = std::min(gh_ - 1, z1);
     if (x1 < x0 || z1 < z0) return;
-    for (int z = z0; z <= z1; ++z)
+    for (int z = z0; z <= z1; ++z) {
         std::memcpy(&solid_[(size_t)z * gw_ + x0], &base_[(size_t)z * gw_ + x0], (size_t)(x1 - x0 + 1) * 4);
+        std::memcpy(&obst_[(size_t)z * gw_ + x0], &base_[(size_t)z * gw_ + x0], (size_t)(x1 - x0 + 1) * 4);
+    }
     for (uint32_t j : window_) {
         const Vehicle& o = all_[j];
         if (j == except || o.active || o.sx1 < o.sx0) continue;
         if (o.sx1 < x0 || o.sx0 > x1 || o.sz1 < z0 || o.sz0 > z1) continue;
-        stamp(o, solid_, nullptr);
+        stamp(o, solid_, nullptr, 0.25f);
+        stamp(o, obst_, nullptr, 0.f);
     }
 }
 
@@ -331,11 +337,11 @@ void CityVehicles::setWindow(float ox, float oz, float cell, int gw, int gh, con
     }
     for (uint32_t i : window_) clearBakedFootprint(all_[i]);
     solid_ = base_;
+    obst_ = base_;
     for (uint32_t i : window_)
-        if (!all_[i].active) stamp(all_[i], solid_, nullptr);
+        if (!all_[i].active) { stamp(all_[i], solid_, nullptr, 0.25f); stamp(all_[i], obst_, nullptr, 0.f); }
     simH_ = base_;
-    dirty0_ = 0;
-    dirty1_ = gh_ - 1;
+    rowDirty_.assign((size_t)gh_, 1);
     explodeQueue_.erase(std::remove_if(explodeQueue_.begin(), explodeQueue_.end(), [&](uint32_t i) {
                             if (all_[i].inWindow) return false;
                             all_[i].queued = false;
@@ -374,7 +380,7 @@ void CityVehicles::sleep(uint32_t i) {
     for (float& c : v.v) c = 0;
     for (float& c : v.w) c = 0;
     updateRenderOrigin(v);
-    if (v.inWindow && v.sx1 >= v.sx0) stamp(v, solid_, nullptr);
+    if (v.inWindow && v.sx1 >= v.sx0) { stamp(v, solid_, nullptr, 0.25f); stamp(v, obst_, nullptr, 0.f); }
     markDirty(v.sz0, v.sz1);
 }
 
@@ -562,10 +568,16 @@ void CityVehicles::integrate(uint32_t i, float h) {
 
 void CityVehicles::update(SDL_GPUCommandBuffer* cmd, float dt, CrowdSim& sim, const std::function<void(float, float, float, float)>& onBlast) {
     stats_.uploadedRows = 0;
+    stats_.uploadBytes = 0;
+    stats_.substeps = 0;
+    const double tick = 1000.0 / (double)SDL_GetPerformanceFrequency();
+    uint64_t tA = SDL_GetPerformanceCounter();
+    auto lap = [&](float& out) { uint64_t t = SDL_GetPerformanceCounter(); out = (float)((t - tA) * tick); tA = t; };
     if (!enabled || gw_ <= 0) { sim.takeExplosionLog(); return; }
     // 1. blasts accepted by the simulation since the last frame
     for (const CrowdSim::ExplosionEvent& e : sim.takeExplosionLog())
         for (uint32_t i : window_) blast(i, e.x, e.y, e.z, e.scale);
+    lap(stats_.msBlast);
     // 2. fuses and fires
     for (uint32_t i : window_) {
         Vehicle& v = all_[i];
@@ -581,14 +593,17 @@ void CityVehicles::update(SDL_GPUCommandBuffer* cmd, float dt, CrowdSim& sim, co
         explode(i, sim, onBlast);
         ++blasts;
     }
+    lap(stats_.msFuse);
     // 3. rigid bodies
-    std::vector<uint32_t> act;
+    std::vector<uint32_t>& act = act_;
+    act.clear();
     for (uint32_t i : window_)
         if (all_[i].active) act.push_back(i);
     for (uint32_t i : act) markDirty(all_[i].sz0, all_[i].sz1);   // where they were
     acc_ = std::min(acc_ + dt, 8 * kSub);
     while (acc_ >= kSub) {
         acc_ -= kSub;
+        ++stats_.substeps;
         for (uint32_t i : act) {
             Vehicle& v = all_[i];
             if (!v.active) continue;
@@ -610,6 +625,7 @@ void CityVehicles::update(SDL_GPUCommandBuffer* cmd, float dt, CrowdSim& sim, co
         computeRect(v);
         markDirty(v.sz0, v.sz1);
     }
+    lap(stats_.msIntegrate);
     // 4. flames / smoke of burning vehicles in the window (a few emitters per frame, round robin)
     if (dt > 0.f) {
         std::vector<uint32_t> burning;
@@ -632,37 +648,38 @@ void CityVehicles::update(SDL_GPUCommandBuffer* cmd, float dt, CrowdSim& sim, co
     }
     stats_.inWindow = (uint32_t)window_.size();
     stats_.custom = (uint32_t)custom_.size();
-    // 5. obstacle grid: changed rows = solid world (base + parked vehicles) + every vehicle near the ground, whole box
-    if (dirty1_ >= dirty0_) {
-        int z0 = std::max(0, dirty0_), z1 = std::min(gh_ - 1, dirty1_);
-        std::memcpy(&simH_[(size_t)z0 * gw_], &base_[(size_t)z0 * gw_], (size_t)(z1 - z0 + 1) * gw_ * 4);
-        int rect[2] = {z0, z1};
-        for (uint32_t i : window_) {
+    // 5. obstacle grid, dirty rows only: obst_ (base + sleeping vehicles) + every active vehicle near the ground (whole
+    // box); the rows that differ from what the simulation has go up in one copy pass
+    runs_.clear();
+    for (int z0 = 0; z0 < gh_;) {
+        if (!rowDirty_[(size_t)z0]) { ++z0; continue; }
+        int z1 = z0;
+        while (z1 + 1 < gh_ && rowDirty_[(size_t)z1 + 1]) ++z1;
+        std::memcpy(&simH_[(size_t)z0 * gw_], &obst_[(size_t)z0 * gw_], (size_t)(z1 - z0 + 1) * gw_ * 4);
+        const int rows[2] = {z0, z1};
+        for (uint32_t i : act) {
             const Vehicle& v = all_[i];
-            if (v.sx1 < v.sx0 || v.sz1 < z0 || v.sz0 > z1) continue;
-            if (v.active) {   // flying high: zombies walk under it
-                float c[8][3], lo = 1e30f;
-                worldCorners(v, c);
-                for (auto& k : c) lo = std::min(lo, k[1] - groundAt(k[0], k[2]));
-                if (lo > kLowStamp) continue;
-            }
-            stamp(v, simH_, rect);
+            if (!v.active || v.sx1 < v.sx0 || v.sz1 < z0 || v.sz0 > z1) continue;
+            float c[8][3], lo = 1e30f;   // flying high: zombies walk under it
+            worldCorners(v, c);
+            for (auto& k : c) lo = std::min(lo, k[1] - groundAt(k[0], k[2]));
+            if (lo > kLowStamp) continue;
+            stamp(v, simH_, rows, 0.f);
         }
-        // upload the rows that differ from what the simulation has
-        int c0 = -1, c1 = -1;
-        for (int z = z0; z <= z1; ++z)
-            if (std::memcmp(&simH_[(size_t)z * gw_], &uploaded_[(size_t)z * gw_], (size_t)gw_ * 4) != 0) {
-                if (c0 < 0) c0 = z;
-                c1 = z;
-            }
-        if (c0 >= 0) {
-            std::memcpy(&uploaded_[(size_t)c0 * gw_], &simH_[(size_t)c0 * gw_], (size_t)(c1 - c0 + 1) * gw_ * 4);
-            if (cmd) sim.uploadStaticRows(cmd, (uint32_t)c0, (uint32_t)(c1 - c0 + 1), &simH_[(size_t)c0 * gw_]);
-            stats_.uploadedRows = (uint32_t)(c1 - c0 + 1);
+        for (int z = z0; z <= z1; ++z) {   // changed rows -> runs
+            rowDirty_[(size_t)z] = 0;
+            float* a = &simH_[(size_t)z * gw_];
+            float* u = &uploaded_[(size_t)z * gw_];
+            if (std::memcmp(a, u, (size_t)gw_ * 4) == 0) continue;
+            std::memcpy(u, a, (size_t)gw_ * 4);
+            if (!runs_.empty() && runs_.back().first + runs_.back().second == (uint32_t)z) ++runs_.back().second;
+            else runs_.push_back({(uint32_t)z, 1u});
         }
+        z0 = z1 + 1;
     }
-    dirty0_ = 1 << 30;
-    dirty1_ = -1;
+    for (auto& r : runs_) stats_.uploadedRows += r.second;
+    if (!runs_.empty() && cmd) stats_.uploadBytes = sim.uploadStaticRowRuns(cmd, runs_, simH_.data());
+    lap(stats_.msGrid);
 }
 
 void CityVehicles::fireLights(float x, float z, double time, int maxCount, std::vector<PointLight>& out) const {

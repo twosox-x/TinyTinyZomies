@@ -1,7 +1,7 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
 // Voxel explosion / fire volumes: the bounding box of each volume, drawn inside-out (its far faces) so the fragment
-// shader also runs when the camera is inside; see include/fx_volume.glsl.
+// shader also runs when the camera is inside (pass 0), or its near faces (pass 1); see include/fx_volume.glsl.
 #define FRAME_SET 1
 #define FX_SET 1
 #include "frame.glsl"
@@ -19,6 +19,12 @@ void main() {
     int i = gl_InstanceIndex;
     vec3 lo, hi;
     fxBox(i, lo, hi);
+    // two passes: volumes around the camera (far faces, this winding with back-face culling) and the others (near
+    // faces: the same triangles with front-face culling, conservative depth in fx_volume_near.frag). 2 m margin: the
+    // near plane never cuts a near face. Empty boxes (eroded blasts) draw nothing.
+    vec3 m = vec3(2.0);
+    bool inside = all(greaterThan(camPos.xyz, lo - m)) && all(lessThan(camPos.xyz, hi + m));
+    if (inside != (fxCount.y == 0u) || any(lessThanEqual(hi - lo, vec3(1e-3)))) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); vWorld = vec3(0.0); vIdx = i; return; }
     vec3 c = vec3(CORNER[(gl_VertexIndex / 6) * 4 + QUAD[gl_VertexIndex % 6]]);
     vWorld = mix(lo, hi, c);
     vIdx = i;

@@ -1,0 +1,94 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Dof
+{
+    float4 d0;
+    float4 d1;
+    float4 d2;
+};
+
+struct main0_out
+{
+    float4 outColor [[color(0)]];
+};
+
+struct main0_in
+{
+    float2 vUv [[user(locn0)]];
+};
+
+static inline __attribute__((always_inline))
+float decodeCoc(thread const float& a, constant Dof& _33)
+{
+    return ((a * 2.0) - 1.0) * _33.d0.x;
+}
+
+static inline __attribute__((always_inline))
+float3 toLinear(thread const float3& c)
+{
+    float3 l = powr(fast::clamp(c, float3(0.0), float3(1.0)), float3(2.2000000476837158203125));
+    return l / fast::max(float3(1.0) - (l * 0.300000011920928955078125), float3(0.300000011920928955078125));
+}
+
+static inline __attribute__((always_inline))
+float3 boost(thread const float3& c, constant Dof& _33)
+{
+    float h = smoothstep(_33.d1.x, 1.0, dot(c, float3(0.2125999927520751953125, 0.715200006961822509765625, 0.072200000286102294921875)));
+    float3 param = c;
+    return toLinear(param) * (1.0 + ((_33.d0.w * h) * h));
+}
+
+static inline __attribute__((always_inline))
+float flick(thread const float3& c)
+{
+    return 1.0 / (1.0 + (0.5 * fast::max(c.x, fast::max(c.y, c.z))));
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Dof& _33 [[buffer(0)]], texture2d<float> src [[texture(0)]], sampler srcSmplr [[sampler(0)]])
+{
+    main0_out out = {};
+    float2 t = float2(_33.d0.y, _33.d0.z) * 0.25;
+    float4 s0 = src.sample(srcSmplr, (in.vUv + float2(-t.x, -t.y)));
+    float4 s1 = src.sample(srcSmplr, (in.vUv + float2(t.x, -t.y)));
+    float4 s2 = src.sample(srcSmplr, (in.vUv + float2(-t.x, t.y)));
+    float4 s3 = src.sample(srcSmplr, (in.vUv + float2(t.x, t.y)));
+    float param = s0.w;
+    float param_1 = s1.w;
+    float param_2 = s2.w;
+    float param_3 = s3.w;
+    float4 cocs = float4(decodeCoc(param, _33), decodeCoc(param_1, _33), decodeCoc(param_2, _33), decodeCoc(param_3, _33));
+    float3 param_4 = s0.xyz;
+    float3 c0 = boost(param_4, _33);
+    float3 param_5 = s1.xyz;
+    float3 c1 = boost(param_5, _33);
+    float3 param_6 = s2.xyz;
+    float3 c2 = boost(param_6, _33);
+    float3 param_7 = s3.xyz;
+    float3 c3 = boost(param_7, _33);
+    float4 w = fast::clamp(abs(cocs) / float4(_33.d0.x), float4(0.0199999995529651641845703125), float4(1.0));
+    float3 param_8 = s0.xyz;
+    float3 param_9 = s1.xyz;
+    float3 param_10 = s2.xyz;
+    float3 param_11 = s3.xyz;
+    w *= float4(flick(param_8), flick(param_9), flick(param_10), flick(param_11));
+    float3 avg = ((((c0 * w.x) + (c1 * w.y)) + (c2 * w.z)) + (c3 * w.w)) / float3(dot(w, float4(1.0)));
+    float cmin = fast::min(fast::min(cocs.x, cocs.y), fast::min(cocs.z, cocs.w));
+    float _276;
+    if (cmin < (-1.0))
+    {
+        _276 = cmin;
+    }
+    else
+    {
+        _276 = dot(cocs, float4(0.25));
+    }
+    float coc = _276;
+    out.outColor = float4(avg, coc);
+    return out;
+}
+

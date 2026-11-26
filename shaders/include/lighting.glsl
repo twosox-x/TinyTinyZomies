@@ -45,13 +45,13 @@ vec3 finish(vec3 col, vec3 P) {
     col = col / (1.0 + col * 0.3);          // soft highlight roll-off
     return pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
 }
-// finish() plus the miniature depth-of-field weight in alpha (1 = in focus at the camera pivot distance sunDir.w, 0 =
-// fully blurred; skyColor.w = depth range in metres). Shaders that write alpha 1 stay sharp (only the screen gradient
-// blurs them). See shaders/post_composite.frag.
+// finish() plus the miniature depth of field's circle of confusion in alpha: thin lens focused at sunDir.w (the RTS
+// pivot distance), CoC = aperture * (d - focus) / d (skyColor.w = aperture in units of the max blur radius, 0 = off),
+// stored as 0.5 + 0.5 * clamp(CoC, -1, 1) (below 0.5 = near field). See shaders/post_dof_*.frag.
 vec4 finishA(vec3 col, vec3 P) {
-    float d = length(P - camPos.xyz);
-    float coc = skyColor.w > 0.0 ? clamp(abs(d - sunDir.w) / skyColor.w, 0.0, 1.0) : 0.0;
-    return vec4(finish(col, P), 1.0 - coc);
+    float d = max(length(P - camPos.xyz), 1e-3);
+    float coc = clamp(skyColor.w * (d - sunDir.w) / d, -1.0, 1.0);
+    return vec4(finish(col, P), 0.5 + 0.5 * coc);
 }
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);

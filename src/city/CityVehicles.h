@@ -24,6 +24,7 @@
 #include <SDL3/SDL_gpu.h>
 
 #include <cstdint>
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -68,6 +69,9 @@ struct VehicleStats {
     uint32_t known = 0, inWindow = 0, active = 0, burning = 0, wrecked = 0, custom = 0;
     uint32_t explosions = 0, blastsTaken = 0;       // cumulative
     uint32_t uploadedRows = 0;                       // last frame
+    // last update(): CPU ms per phase (blasts from the log, fuses + explosions, rigid bodies, obstacle grid + upload)
+    float msBlast = 0, msFuse = 0, msIntegrate = 0, msGrid = 0;
+    uint32_t uploadBytes = 0, substeps = 0;
 };
 
 class CityVehicles {
@@ -125,9 +129,12 @@ private:
     void addToWindow(uint32_t i);
     void computeRect(Vehicle& v) const;
     void clearBakedFootprint(const Vehicle& v);
-    void stamp(const Vehicle& v, std::vector<float>& grid, int* rect) const;
+    void stamp(const Vehicle& v, std::vector<float>& grid, const int* rows, float inset) const;
     void restampSolid(int x0, int z0, int x1, int z1, uint32_t except);
-    void markDirty(int z0, int z1) { dirty0_ = std::min(dirty0_, z0); dirty1_ = std::max(dirty1_, z1); }
+    void markDirty(int z0, int z1) {
+        z0 = std::max(z0, 0); z1 = std::min(z1, gh_ - 1);
+        for (int z = z0; z <= z1; ++z) rowDirty_[(size_t)z] = 1;
+    }
     float rand01();
 
     std::vector<VehicleModel> models_;
@@ -136,9 +143,13 @@ private:
     std::vector<uint32_t> custom_, window_, explodeQueue_;
     float ox_ = 0, oz_ = 0, cell_ = 0.75f;
     int gw_ = 0, gh_ = 0;
-    std::vector<float> base_, solid_, simH_, uploaded_;
-    int dirty0_ = 1 << 30, dirty1_ = -1;   // rows of simH_ to recompute / upload
-    bool fullUpload_ = false;
+    // base_: baked heights without the baked vehicles; solid_: + sleeping vehicles (inset 0.25 m, vehicle physics);
+    // obst_: + sleeping vehicles (whole box): the static part of the zombies' obstacle grid simH_, kept up to date on
+    // wake / sleep, so a frame only rebuilds the rows active vehicles touch (copy obst_ + stamp the low active ones)
+    std::vector<float> base_, solid_, obst_, simH_, uploaded_;
+    std::vector<uint8_t> rowDirty_;        // rows of simH_ to recompute / compare / upload
+    std::vector<uint32_t> act_;            // scratch (active vehicles of this update)
+    std::vector<std::pair<uint32_t, uint32_t>> runs_;   // scratch (changed row runs)
     float acc_ = 0.f;
     uint32_t rng_ = 0x9E3779B9u, fireCursor_ = 0;
     VehicleStats stats_;

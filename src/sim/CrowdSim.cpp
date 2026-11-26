@@ -86,6 +86,8 @@ void CrowdSim::shutdown() {
         if (r.tb) SDL_ReleaseGPUTransferBuffer(d, r.tb);
         r = {};
     }
+    if (staticTB_) SDL_ReleaseGPUTransferBuffer(d, staticTB_);
+    staticTB_ = nullptr;
     SDL_GPUBuffer** bufs[] = {&agentsA_, &agentsB_, &posP_, &posQ_, &prevS_, &contactAux_, &cellLocal_, &cellCount_,
                               &cellStart_, &blockSums_, &density_, &staticH_, &corpseH_, &navDist_[0], &navDist_[1],
                               &navDir_, &corpses_, &counters_, &indirect_, &particles_, &particleList_, &gibs_, &gore_, &decals_,
@@ -179,6 +181,40 @@ void CrowdSim::uploadStaticRows(SDL_GPUCommandBuffer* cmd, uint32_t z0, uint32_t
     SDL_UploadToGPUBuffer(cp, &src, &dst, false);
     SDL_EndGPUCopyPass(cp);
     SDL_ReleaseGPUTransferBuffer(gpu_->device(), tb);
+}
+
+uint32_t CrowdSim::uploadStaticRowRuns(SDL_GPUCommandBuffer* cmd, const std::vector<std::pair<uint32_t, uint32_t>>& runs, const float* grid) {
+    const uint32_t W = (uint32_t)p_.gridW, H = (uint32_t)p_.gridH;
+    if (runs.empty()) return 0;
+    if (!staticTB_) {
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, W * H * 4, 0};
+        staticTB_ = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
+        if (!staticTB_) return 0;
+    }
+    const bool mirror = sandbox_.heightOverride.size() == (size_t)W * H;
+    auto* dst = (uint8_t*)SDL_MapGPUTransferBuffer(gpu_->device(), staticTB_, true);   // cycle: the GPU may still read the last one
+    if (!dst) return 0;
+    uint32_t off = 0;
+    for (auto [z0, rows] : runs) {
+        if (z0 >= H || !rows) continue;
+        rows = std::min(rows, H - z0);
+        std::memcpy(dst + off, grid + (size_t)z0 * W, (size_t)rows * W * 4);
+        if (mirror) std::memcpy(&sandbox_.heightOverride[(size_t)z0 * W], grid + (size_t)z0 * W, (size_t)rows * W * 4);
+        off += rows * W * 4;
+    }
+    SDL_UnmapGPUTransferBuffer(gpu_->device(), staticTB_);
+    SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+    off = 0;
+    for (auto [z0, rows] : runs) {
+        if (z0 >= H || !rows) continue;
+        rows = std::min(rows, H - z0);
+        SDL_GPUTransferBufferLocation src{staticTB_, off};
+        SDL_GPUBufferRegion r{staticH_, z0 * W * 4, rows * W * 4};
+        SDL_UploadToGPUBuffer(cp, &src, &r, false);
+        off += rows * W * 4;
+    }
+    SDL_EndGPUCopyPass(cp);
+    return off;
 }
 
 void CrowdSim::setGoals(const std::vector<float>& xz) {

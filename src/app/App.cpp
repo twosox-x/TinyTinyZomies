@@ -371,6 +371,7 @@ void App::frame(double dt) {
             s.renderer.addBlast(b[1], 0.4f, b[2], b[3]);
             if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.75f);   // no shake in headless captures
         }
+    if (s.opt.spamRate > 0) spamStep(dt);
     // screen shake: offset ~ trauma^2, smooth pseudo-noise, scaled with zoom so it reads the same at any distance
     {
         float t = (float)s.renderTime, k = s.screenShake ? s.trauma * s.trauma : 0.f;
@@ -408,12 +409,17 @@ void App::frame(double dt) {
         if (r == 0) s.sim.requestSpawn({ax - 40.f, az - 40.f, ax + 40.f, az + 40.f}, 400);   // lands on the streets in the rect
         if (r == s.opt.panSpawnEvery / 2) { s.sim.requestExplosion(ax, 0.4f, az); s.renderer.addBlast(ax, 0.4f, az); }
     }
+    const bool perf = s.opt.perfReport || s.opt.spamRate > 0;
+    PerfRow pr{};
+    double tv = nowMs();
     if (s.cityMode && !s.paused) {   // vehicles: blasts of this frame, rigid bodies, fuses -> new explosions, obstacle rows
         s.vehicles.update(cmd, (float)(dt * s.simSpeed), s.sim, [&](float x, float y, float z, float scale) {
             s.renderer.addBlast(x, y, z, scale);
             if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.3f * scale);
         });
     }
+    pr.vehTotal = (float)(nowMs() - tv);
+    double ts = nowMs();
     if (!s.paused) {
         s.simAccumulator += dt * s.simSpeed;
         const double fdt = s.sim.params().fixedDt;
@@ -431,6 +437,14 @@ void App::frame(double dt) {
     s.sim.writeDrawArgs(cmd, s.renderer.zombieIndexCount());
     s.sim.recordStatsReadback(cmd);
     s.cpuSim.add(nowMs() - t1);
+    pr.simRec = (float)(nowMs() - ts);
+    if (perf && s.opt.perfSplit && !s.window) {   // measure the simulation's GPU work on its own (headless only)
+        double tg = nowMs();
+        SDL_SubmitGPUCommandBuffer(cmd);
+        SDL_WaitForGPUIdle(s.gpu.device());
+        pr.gpuSim = (float)(nowMs() - tg);
+        cmd = SDL_AcquireGPUCommandBuffer(s.gpu.device());
+    }
 
     double t2 = nowMs();
     s.renderer.update((float)dt);
@@ -460,6 +474,7 @@ void App::frame(double dt) {
         s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings, &s.chars);
     }
     s.cpuRender.add(nowMs() - t2);
+    pr.renderRec = (float)(nowMs() - t2);
 
     double t3 = nowMs();
     if (s.window) {
@@ -485,8 +500,21 @@ void App::frame(double dt) {
     SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
     s.sim.onFrameSubmitted(fence);
     // Without a swapchain nothing paces the CPU: keep headless runs to one frame in flight.
+    double tw = nowMs();
     if (!s.window) SDL_WaitForGPUIdle(s.gpu.device());
+    pr.gpuRender = (float)(nowMs() - tw);
     s.cpuFrame.add(nowMs() - t0);
+    if (perf) {
+        const VehicleStats& vs = s.vehicles.stats();
+        pr.frame = (float)(nowMs() - t0);
+        pr.vehBlast = vs.msBlast; pr.vehFuse = vs.msFuse; pr.vehIntegrate = vs.msIntegrate; pr.vehGrid = vs.msGrid;
+        pr.vehActive = vs.active; pr.uploadBytes = vs.uploadBytes; pr.explosions = vs.explosions;
+        pr.fxVolumes = s.renderer.fxVolumesDrawn();
+        pr.particles = s.sim.stats().particlesAlive;
+        if (s.sim.extraReadback().size() >= 9) pr.gibs = CharacterRenderer::parseCounters(s.sim.extraReadback().data()).visibleGibs;
+        pr.blasts = spamCount_;
+        perf_.push_back(pr);
+    }
     if (s.opt.cityVerify > 0 && (moved || s.frameIndex % (uint64_t)s.opt.cityVerify == 0)) cityVerify(moved ? "after move" : "periodic");
     for (auto& ps : postShots_)
         if (ps.first == s.frameIndex) {
@@ -514,6 +542,97 @@ void App::frame(double dt) {
         m.lod2Tiles = std::max(m.lod2Tiles, cs.lod2Tiles); m.tileTriangles = std::max(m.tileTriangles, cs.tileTriangles);
     }
     ++s.frameIndex;
+}
+
+// --spam-blasts: player click spam at RATE blasts / s (deterministic scatter), like left clicks with the blast tool.
+void App::spamStep(double dt) {
+    AppState& s = s_;
+    AppOptions& o = s.opt;
+    const int f = (int)s.frameIndex;
+    if (f == o.spamStart && std::isnan(o.spamX)) {   // auto: the densest vehicle cluster within 80 m of the window centre
+        V3 c = s.camera.target();
+        const std::vector<Vehicle>& vs = s.vehicles.vehicles();
+        int best = -1;
+        float bestScore = -1;
+        for (size_t i = 0; i < vs.size(); ++i) {
+            const Vehicle& v = vs[i];
+            if (!v.inWindow || v.health < -1e8f) continue;
+            float dx = v.p[0] - c.x, dz = v.p[2] - c.z;
+            if (dx * dx + dz * dz > 80.f * 80.f) continue;
+            int n = 0;
+            for (const Vehicle& w : vs) {
+                float ex = w.p[0] - v.p[0], ez = w.p[2] - v.p[2];
+                n += w.inWindow && ex * ex + ez * ez < 12.f * 12.f;
+            }
+            if (n > bestScore) { bestScore = (float)n; best = (int)i; }
+        }
+        o.spamX = best >= 0 ? vs[(size_t)best].p[0] : c.x;
+        o.spamZ = best >= 0 ? vs[(size_t)best].p[2] : c.z;
+        SDL_Log("spam blasts: centre (%.1f, %.1f), %d vehicles within 12 m", o.spamX, o.spamZ, (int)bestScore);
+    }
+    if (f == o.spamStart) {   // the camera on the jam, and a horde in it (lands on the streets of the rect)
+        s.camera.setImmediate({o.spamX, 0, o.spamZ}, s.camera.yaw(), s.camera.pitch(), s.camera.distance());
+        s.sim.requestSpawn({o.spamX - 25.f, o.spamZ - 25.f, o.spamX + 25.f, o.spamZ + 25.f}, 4000);
+    }
+    if (f < o.spamStart || f >= o.spamStart + (int)(o.spamSeconds * 60.f)) return;
+    spamAcc_ += (float)dt * o.spamRate;
+    while (spamAcc_ >= 1.f) {
+        spamAcc_ -= 1.f;
+        auto rnd = [&]() { spamRng_ ^= spamRng_ << 13; spamRng_ ^= spamRng_ >> 17; spamRng_ ^= spamRng_ << 5; return (spamRng_ >> 8) * (1.f / 16777216.f); };
+        float x = o.spamX + (rnd() * 2.f - 1.f) * o.spamSpread, z = o.spamZ + (rnd() * 2.f - 1.f) * o.spamSpread;
+        s.sim.requestExplosion(x, 0.4f, z);
+        s.renderer.addBlast(x, 0.4f, z);
+        ++spamCount_;
+    }
+}
+
+void App::printPerf() {
+    if (perf_.empty()) return;
+    const AppOptions& o = s_.opt;
+    if (!o.perfCsv.empty()) {
+        if (FILE* fp = std::fopen(o.perfCsv.c_str(), "w")) {
+            std::fprintf(fp, "frame,ms,veh,vehBlast,vehFuse,vehIntegrate,vehGrid,simRec,gpuSim,renderRec,gpuRender,vehActive,uploadBytes,fxVolumes,particles,gibs,blasts,explosions\n");
+            for (size_t i = 0; i < perf_.size(); ++i) {
+                const PerfRow& r = perf_[i];
+                std::fprintf(fp, "%zu,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u,%u,%u,%u,%u,%u\n", i, r.frame, r.vehTotal, r.vehBlast,
+                             r.vehFuse, r.vehIntegrate, r.vehGrid, r.simRec, r.gpuSim, r.renderRec, r.gpuRender, r.vehActive, r.uploadBytes,
+                             r.fxVolumes, r.particles, r.gibs, r.blasts, r.explosions);
+            }
+            std::fclose(fp);
+        }
+    }
+    const int spam0 = o.spamRate > 0 ? o.spamStart : (int)perf_.size(), spam1 = o.spamRate > 0 ? o.spamStart + (int)(o.spamSeconds * 60.f) : (int)perf_.size();
+    struct Seg { const char* name; int a, b; };
+    Seg segs[3] = {{"before", 30, spam0}, {"spam", spam0, spam1}, {"after", spam1, (int)perf_.size()}};
+    std::printf("\nperf report (%s, %dx%d%s; ms avg / p95 / max; headless: gpu = waiting for the GPU)\n", s_.gpu.driverName(), o.width, o.height,
+                o.perfSplit ? ", sim GPU submitted apart" : "");
+    std::printf("| segment | frames | frame | veh total | veh blast | veh fuse | veh integrate | veh grid+upload | sim rec | gpu sim | render rec | gpu render | veh active max | upload KB max | fx vols max | particles max | gibs vis max |\n");
+    std::printf("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+    for (const Seg& g : segs) {
+        int a = std::max(0, g.a), b = std::min((int)perf_.size(), g.b);
+        if (b - a < 2) continue;
+        auto stat = [&](float PerfRow::*m) {
+            std::vector<float> v;
+            for (int i = a; i < b; ++i) v.push_back(perf_[(size_t)i].*m);
+            double avg = 0;
+            for (float x : v) avg += x;
+            avg /= v.size();
+            std::sort(v.begin(), v.end());
+            static char buf[8][64];
+            static int k = 0;
+            char* out = buf[k++ & 7];
+            std::snprintf(out, 64, "%.2f / %.2f / %.2f", avg, v[std::min(v.size() - 1, (size_t)(0.95 * v.size()))], v.back());
+            return (const char*)out;
+        };
+        auto mx = [&](uint32_t PerfRow::*m) { uint32_t r = 0; for (int i = a; i < b; ++i) r = std::max(r, perf_[(size_t)i].*m); return r; };
+        std::printf("| %s | %d | %s | %s | %s | %s |", g.name, b - a, stat(&PerfRow::frame), stat(&PerfRow::vehTotal), stat(&PerfRow::vehBlast),
+                    stat(&PerfRow::vehFuse));
+        std::printf(" %s | %s | %s | %s |", stat(&PerfRow::vehIntegrate), stat(&PerfRow::vehGrid), stat(&PerfRow::simRec), stat(&PerfRow::gpuSim));
+        std::printf(" %s | %s | %u | %.0f | %u | %u | %u |\n", stat(&PerfRow::renderRec), stat(&PerfRow::gpuRender), mx(&PerfRow::vehActive),
+                    mx(&PerfRow::uploadBytes) / 1024.0, mx(&PerfRow::fxVolumes), mx(&PerfRow::particles), mx(&PerfRow::gibs));
+    }
+    std::printf("blasts clicked %u, vehicle explosions %u\n", spamCount_, s_.vehicles.stats().explosions);
+    std::fflush(stdout);
 }
 
 // City benchmark camera: starts over the simulation window, then flies a straight 1.4 km line across the map at
@@ -619,6 +738,7 @@ int App::run(const AppOptions& opt) {
             SDL_WaitForGPUIdle(s_.gpu.device());
             if (!s_.opt.screenshot.empty()) s_.renderer.saveScreenshot(s_.opt.screenshot);
             if (s_.opt.cityBench > 0) printCityBench();
+            printPerf();
             if (s_.cityMode) {
                 const CityRenderStats& c = s_.cityRenderer.stats();
                 SDL_Log("city view: resident %u, visible %u (LOD1 %u, LOD2 %u), draws %u, triangles %.2f M (tiles %.2f M), instances %llu, GPU %.0f MB",

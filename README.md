@@ -269,7 +269,7 @@ Export a glTF/GLB from Blockbench with groups named `head`, `body`, `arm_left`, 
 ## Military Asset Lab (owner review of the military assets)
 
 In-engine review diorama (no gameplay): a street patch of the baked city under the in-game night look (same renderer,
-moon shadows, street lamps, fog, tilt-shift), the approved zombies and civilian vehicles for scale, the military
+moon shadows, street lamps, fog, miniature depth of field), the approved zombies and civilian vehicles for scale, the military
 infantry (zombie body standard posed on the GPU, gear / weapon parented to body slots) and props from
 `assets/military/` (`node tools/convert_military.mjs`, format in docs/MILITARY_ASSETS.md; built-in placeholders if
 the folder is missing).
@@ -281,7 +281,7 @@ cmake --build build-city -j
 
 Panel "Military Asset Lab": asset browser (infantry variants, props) -> turntable spot; camera presets (close-up,
 front / rear / side / top / muzzle, lineup, RTS 45 / 110 / 300 m, props row, street drop, rooftop drop); MMB or
-Alt+LMB orbit, RMB pan, wheel zoom, F2 = RTS rig limits; lighting (in-game night / neutral studio), tilt-shift,
+Alt+LMB orbit, RMB pan, wheel zoom, F2 = RTS rig limits; lighting (in-game night / neutral studio), miniature depth of field,
 shadows (lab props and soldiers cast moon shadows), fog, comparison lineup (zombies, vehicles), props rows, 1 m grid,
 2 m ruler; animation player for the authored clips (`assets/military/anims.*`, docs/MILITARY_ANIMS.md: clip list,
 play / pause, loop, speed, scrub; clip changes cross-fade per the anims.json transition table with phase-matched

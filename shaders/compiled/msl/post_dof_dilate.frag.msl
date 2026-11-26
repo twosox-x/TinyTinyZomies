@@ -1,0 +1,37 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Dof
+{
+    float4 d0;
+    float4 d1;
+    float4 d2;
+};
+
+struct main0_out
+{
+    float4 outColor [[color(0)]];
+};
+
+fragment main0_out main0(constant Dof& _13 [[buffer(0)]], texture2d<float> tiles [[texture(0)]], sampler tilesSmplr [[sampler(0)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    int R = int(_13.d1.w);
+    int2 sz = int2(tiles.get_width(), tiles.get_height());
+    int2 p = int2(gl_FragCoord.xy);
+    float2 m = float2(0.0);
+    int _45 = -R;
+    for (int y = _45; y <= R; y++)
+    {
+        int _57 = -R;
+        for (int x = _57; x <= R; x++)
+        {
+            m = fast::max(m, tiles.read(uint2(clamp(p + int2(x, y), int2(0), sz - int2(1))), 0).xy);
+        }
+    }
+    out.outColor = float4(m, 0.0, 1.0);
+    return out;
+}
+

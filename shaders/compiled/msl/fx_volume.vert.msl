@@ -91,8 +91,8 @@ struct Frame
     float4 blastsP[8];
 };
 
-constant spvUnsafeArray<int3, 24> _403 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
-constant spvUnsafeArray<int, 6> _410 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
+constant spvUnsafeArray<int3, 24> _750 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _757 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
 
 struct main0_out
 {
@@ -113,21 +113,35 @@ BlastShape blastShape(thread const float3& c, thread const float& s, thread cons
     b.hc = (0.550000011920928955078125 * R) + (((2.599999904632568359375 * ss) * t) / (1.0 + (0.119999997317790985107421875 * t)));
     b.drift = (float3(0.550000011920928955078125, 0.0, 0.25) * t) * 0.60000002384185791015625;
     b.ball = (c + float3(0.0, b.hc, 0.0)) + b.drift;
-    float _111;
+    float _146;
     if (s > 1.39999997615814208984375)
     {
-        _111 = smoothstep(0.4000000059604644775390625, 2.0, t);
+        _146 = smoothstep(0.4000000059604644775390625, 2.0, t);
     }
     else
     {
-        _111 = 0.25 * smoothstep(0.60000002384185791015625, 2.5, t);
+        _146 = 0.25 * smoothstep(0.60000002384185791015625, 2.5, t);
     }
-    b.flt = _111;
+    b.flt = _146;
     b.stemR = (R * ((s > 1.39999997615814208984375) ? 0.37999999523162841796875 : 0.2199999988079071044921875)) * smoothstep(0.25, 1.2000000476837158203125, t);
     b.ringR = 0.800000011920928955078125 + ((3.7999999523162841796875 * sb) * (1.0 - exp((-t) / 0.300000011920928955078125)));
     b.ringT = (0.3499999940395355224609375 + (0.1500000059604644775390625 * t)) * ss;
     b.ringK = 1.0 - smoothstep(0.60000002384185791015625, 2.400000095367431640625, t);
     return b;
+}
+
+static inline __attribute__((always_inline))
+float fxLife(thread const float& s)
+{
+    return 5.5 + (2.0 * s);
+}
+
+static inline __attribute__((always_inline))
+float blastThreshold(thread const float& s, thread const float& t)
+{
+    float param = s;
+    float life = fxLife(param);
+    return 0.0500000007450580596923828125 + (1.7999999523162841796875 * powr(smoothstep(0.119999997317790985107421875 * life, 0.85000002384185791015625 * life, t), 1.10000002384185791015625));
 }
 
 static inline __attribute__((always_inline))
@@ -137,29 +151,67 @@ void blastBox(thread const float3& c, thread const float& s, thread const float&
     float param_1 = s;
     float param_2 = t;
     BlastShape b = blastShape(param, param_1, param_2);
-    float rx = (b.r * (1.60000002384185791015625 + (0.89999997615814208984375 * b.flt))) + 0.5;
-    lo = float3(b.ball.x - rx, c.y - 0.60000002384185791015625, b.ball.z - rx);
-    hi = float3(b.ball.x + rx, (b.ball.y + (b.r * 1.60000002384185791015625)) + 0.5, b.ball.z + rx);
-    float3 _221 = lo;
-    float2 _231 = fast::min(_221.xz, (c.xz - float2(b.stemR)) - float2(0.60000002384185791015625));
-    lo.x = _231.x;
-    lo.z = _231.y;
-    float3 _236 = hi;
-    float2 _246 = fast::max(_236.xz, (c.xz + float2(b.stemR)) + float2(0.60000002384185791015625));
-    hi.x = _246.x;
-    hi.z = _246.y;
+    float param_3 = s;
+    float param_4 = t;
+    float thr = blastThreshold(param_3, param_4);
+    float kb = 1.7000000476837158203125 - thr;
+    bool stem = (b.stemR > 0.00999999977648258209228515625) && (1.5499999523162841796875 > thr);
+    bool _233 = b.ringK > 0.0;
+    bool _242;
+    if (_233)
+    {
+        _242 = (b.ringK + 0.699999988079071044921875) > thr;
+    }
+    else
+    {
+        _242 = _233;
+    }
+    bool ring = _242;
+    lo = float3(1000000000.0);
+    hi = float3(-1000000000.0);
+    if (kb > 0.0)
+    {
+        float rx = fast::min(b.r * (1.60000002384185791015625 + (0.89999997615814208984375 * b.flt)), (b.r * kb) * (1.0 + (0.550000011920928955078125 * b.flt))) + 0.5;
+        float ry = ((b.r * kb) * (1.0 - (0.449999988079071044921875 * b.flt))) + 0.5;
+        lo = float3(b.ball.x - rx, fast::max(c.y - 0.60000002384185791015625, b.ball.y - ry), b.ball.z - rx);
+        hi = float3(b.ball.x + rx, (b.ball.y + fast::min(b.r * 1.60000002384185791015625, (b.r * kb) * (1.0 - (0.449999988079071044921875 * b.flt)))) + 0.5, b.ball.z + rx);
+    }
+    float slack = fast::max(0.699999988079071044921875 - thr, 0.0);
+    if (stem)
+    {
+        float e = fast::max(b.stemR + 0.60000002384185791015625, ((1.2000000476837158203125 * b.stemR) * (1.0 + (slack / 0.85000002384185791015625))) + 0.5);
+        lo = fast::min(lo, float3(fast::min(c.x, b.ball.x) - e, c.y - 0.60000002384185791015625, fast::min(c.z, b.ball.z) - e));
+        hi = fast::max(hi, float3(fast::max(c.x, b.ball.x) + e, b.ball.y + 0.5, fast::max(c.z, b.ball.z) + e));
+    }
+    if (ring)
+    {
+        float tube = b.ringT * (1.0 + (slack / b.ringK));
+        float e_1 = (b.ringR + fast::max(b.ringT * 1.60000002384185791015625, tube)) + 0.5;
+        lo = fast::min(lo, float3(c.x - e_1, c.y - 0.60000002384185791015625, c.z - e_1));
+        hi = fast::max(hi, float3(c.x + e_1, ((c.y - 0.25) + (tube / 1.60000002384185791015625)) + 0.5, c.z + e_1));
+    }
+    if (hi.x < lo.x)
+    {
+        lo = c;
+        hi = c;
+    }
+    float rx0 = (b.r * (1.60000002384185791015625 + (0.89999997615814208984375 * b.flt))) + 0.5;
+    float3 lo0 = float3(fast::min(b.ball.x - rx0, (c.x - b.stemR) - 0.60000002384185791015625), c.y - 0.60000002384185791015625, fast::min(b.ball.z - rx0, (c.z - b.stemR) - 0.60000002384185791015625));
+    float3 hi0 = float3(fast::max(b.ball.x + rx0, (c.x + b.stemR) + 0.60000002384185791015625), (b.ball.y + (b.r * 1.60000002384185791015625)) + 0.5, fast::max(b.ball.z + rx0, (c.z + b.stemR) + 0.60000002384185791015625));
     if (b.ringK > 0.0)
     {
-        float e = (b.ringR + (b.ringT * 1.60000002384185791015625)) + 0.5;
-        float3 _264 = lo;
-        float2 _271 = fast::min(_264.xz, c.xz - float2(e));
-        lo.x = _271.x;
-        lo.z = _271.y;
-        float3 _276 = hi;
-        float2 _283 = fast::max(_276.xz, c.xz + float2(e));
-        hi.x = _283.x;
-        hi.z = _283.y;
+        float e_2 = (b.ringR + (b.ringT * 1.60000002384185791015625)) + 0.5;
+        float3 _536 = lo0;
+        float2 _543 = fast::min(_536.xz, c.xz - float2(e_2));
+        lo0.x = _543.x;
+        lo0.z = _543.y;
+        float3 _548 = hi0;
+        float2 _555 = fast::max(_548.xz, c.xz + float2(e_2));
+        hi0.x = _555.x;
+        hi0.z = _555.y;
     }
+    lo = fast::clamp(lo, lo0, hi0);
+    hi = fast::clamp(hi, lo0, hi0);
 }
 
 static inline __attribute__((always_inline))
@@ -173,13 +225,13 @@ void wreckBox(thread const float3& c, thread const float& len, thread float3& lo
 }
 
 static inline __attribute__((always_inline))
-void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _336)
+void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _616)
 {
-    if (_336.fxB[i].y < 0.5)
+    if (_616.fxB[i].y < 0.5)
     {
-        float3 param = _336.fxA[i].xyz;
-        float param_1 = _336.fxB[i].x;
-        float param_2 = _336.fxA[i].w;
+        float3 param = _616.fxA[i].xyz;
+        float param_1 = _616.fxB[i].x;
+        float param_2 = _616.fxA[i].w;
         float3 param_3;
         float3 param_4;
         blastBox(param, param_1, param_2, param_3, param_4);
@@ -188,8 +240,8 @@ void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant F
     }
     else
     {
-        float3 param_5 = _336.fxA[i].xyz;
-        float param_6 = _336.fxB[i].x;
+        float3 param_5 = _616.fxA[i].xyz;
+        float param_6 = _616.fxB[i].x;
         float3 param_7;
         float3 param_8;
         wreckBox(param_5, param_6, param_7, param_8);
@@ -198,20 +250,49 @@ void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant F
     }
 }
 
-vertex main0_out main0(constant Frame& _447 [[buffer(0)]], constant FxVolumes& _336 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _685 [[buffer(0)]], constant FxVolumes& _616 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
     int i = int(gl_InstanceIndex);
     int param = i;
     float3 param_1;
     float3 param_2;
-    fxBox(param, param_1, param_2, _336);
+    fxBox(param, param_1, param_2, _616);
     float3 lo = param_1;
     float3 hi = param_2;
-    float3 c = float3(_403[((int(gl_VertexIndex) / 6) * 4) + _410[spvSMod(int(gl_VertexIndex), 6)]]);
+    float3 m = float3(2.0);
+    bool _694 = all(_685.camPos.xyz > (lo - m));
+    bool _705;
+    if (_694)
+    {
+        _705 = all(_685.camPos.xyz < (hi + m));
+    }
+    else
+    {
+        _705 = _694;
+    }
+    bool inside = _705;
+    bool _711 = inside != (_616.fxCount.y == 0u);
+    bool _722;
+    if (!_711)
+    {
+        _722 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
+    }
+    else
+    {
+        _722 = _711;
+    }
+    if (_722)
+    {
+        out.gl_Position = float4(0.0, 0.0, 2.0, 1.0);
+        out.vWorld = float3(0.0);
+        out.vIdx = i;
+        return out;
+    }
+    float3 c = float3(_750[((int(gl_VertexIndex) / 6) * 4) + _757[spvSMod(int(gl_VertexIndex), 6)]]);
     out.vWorld = mix(lo, hi, c);
     out.vIdx = i;
-    out.gl_Position = _447.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _685.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 
