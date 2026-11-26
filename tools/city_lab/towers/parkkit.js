@@ -327,7 +327,7 @@ function parkKit(K0) {
   const seed0 = (PL.seed || 1) >>> 0;
   const stats = { regions: 0, park: 0, grove: 0, wedge: 0, plaza: 0, buffer: 0, trees: 0, bushes: 0, items: 0, quads: 0, ms: 0, area: 0 };
   const regionsOut = [];
-  const allTrees = [], allBushes = [], allSlots = Object.assign(new Map(), { maxR: 0 });   // allSlots: placed copies by 16 m cell (see sink)             // every component's trees / bushes (beds on a wedge nose reach past their component)
+  const allTrees = [], allBushes = [], allSlots = Object.assign(new Map(), { maxR: 0 });   // every component's trees / bushes (beds on a wedge nose reach past their component); allSlots: placed copies by 16 m cell (see sink)
 
   // ---- emission: mesh m (meshVoxels3D, PV units) at world (x, y above yard level, z), yaw, voxel sizes sh / sv (m)
   const quadW = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, Nx, Ny, Nz) => {
