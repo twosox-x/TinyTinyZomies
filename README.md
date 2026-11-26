@@ -160,6 +160,7 @@ the package is large and git-ignored) and streamed by the engine (`src/city/`, `
 
 ```bash
 node --max-old-space-size=6000 tools/city_lab/bake/bake.js --seed=1 --scale=5 --out=assets/city/seed1
+node tools/city_lab/bake/relod.js assets/city/seed1    # only for packages baked before the far LOD (adds LOD2, ~10 s)
 ```
 
 ```bash
@@ -189,8 +190,9 @@ statistics and LOD / draw-distance settings.
 How it works (details in `src/city/*.h`):
 - **Streaming**: tiles under the camera's ground footprint (+1 tile ring) are decoded on a background thread, nearest
   first, and uploaded on the main thread within a per-frame byte budget (8 MB); an LRU keeps 96 tiles.
-- **Rendering**: one pipeline, one indexed draw per visible tile (AABB frustum culling, front to back), LOD1 beyond
-  420 m (back at 380 m); vehicles and street furniture instanced per variant (vehicle box proxy beyond 160 m, props
+- **Rendering**: one pipeline, one indexed draw per visible tile (AABB frustum culling, front to back) through a
+  shared quad index buffer (tiles upload vertices only); LOD0 < 210 m, LOD1 (details < 1 m dropped) < 420 m, LOD2
+  (baked 2 m block model, ~4 k triangles per tile) beyond, 20 m hysteresis (`TTZ_CITY_LOD=d1,d2` overrides); vehicles and street furniture instanced per variant (vehicle box proxy beyond 160 m, props
   culled beyond 260 m); palette materials with glass / water Fresnel sky reflection and night emission modes (lit
   windows, lamps, beacons, light bars, traffic-signal cycle); the nearest 24 street lamps are point lights.
 - **Simulation**: the horde runs in a window of the city (the whole map at 0.75 m would be ~8.4 M cells, ~1.2 GB of

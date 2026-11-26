@@ -40,7 +40,8 @@ bool sections(const std::vector<uint8_t>& b, const char* magic, std::map<std::st
     return true;
 }
 
-bool parseMesh(const uint8_t* p, size_t n, CityMesh& m, int maxQuads = -1) {   // maxQuads >= 0: LOD1 of an implicit quad list
+// Implicit quad lists keep no index data (tiles: the renderer's shared quad index buffer) unless makeIdx (instanced models).
+bool parseMesh(const uint8_t* p, size_t n, CityMesh& m, bool makeIdx = false) {
     Reader r{p, n};
     uint32_t V = 0, I = 0, isz = 0;
     if (!r.get(0, V) || !r.get(4, I) || !r.get(8, isz)) return false;
@@ -60,13 +61,17 @@ bool parseMesh(const uint8_t* p, size_t n, CityMesh& m, int maxQuads = -1) {   /
     r.get(36, lod1Quads);
     if ((flags & 1) && I == 0 && isz == 0) {               // FORMAT.md: implicit quad list (LOD1 = leading lod1Quads quads)
         if (vo + (size_t)V * 12 > n || (V & 3)) return false;
-        uint32_t Q = maxQuads >= 0 ? std::min<uint32_t>((uint32_t)maxQuads < lod1Quads ? (uint32_t)maxQuads : lod1Quads, V / 4) : V / 4;
+        const uint32_t Q = V / 4;
+        m.quads = Q;
+        m.lod1Quads = std::min(lod1Quads ? lod1Quads : Q, Q);
         m.verts.resize((size_t)Q * 4);
         std::memcpy(m.verts.data(), p + vo, (size_t)Q * 48);
-        m.idx.resize((size_t)Q * 6);
-        for (uint32_t q = 0; q < Q; ++q) {
-            uint32_t b0 = q * 4, *o = &m.idx[(size_t)q * 6];
-            o[0] = b0; o[1] = b0 + 1; o[2] = b0 + 2; o[3] = b0; o[4] = b0 + 2; o[5] = b0 + 3;
+        if (makeIdx) {
+            m.idx.resize((size_t)Q * 6);
+            for (uint32_t q = 0; q < Q; ++q) {
+                uint32_t b0 = q * 4, *o = &m.idx[(size_t)q * 6];
+                o[0] = b0; o[1] = b0 + 1; o[2] = b0 + 2; o[3] = b0; o[4] = b0 + 2; o[5] = b0 + 3;
+            }
         }
         return true;
     }
@@ -97,9 +102,9 @@ bool loadVariants(const std::string& path, const char* magic, char lod0, char lo
         std::snprintf(t0, sizeof(t0), "%c%03d", lod0, (int)k);
         std::snprintf(t1, sizeof(t1), "%c%03d", lod1, (int)k);
         auto a = sec.find(t0);
-        if (a != sec.end()) parseMesh(b.data() + a->second.first, a->second.second, out[k].lod0);
+        if (a != sec.end()) parseMesh(b.data() + a->second.first, a->second.second, out[k].lod0, true);
         auto c = sec.find(t1);
-        if (c != sec.end()) parseMesh(b.data() + c->second.first, c->second.second, out[k].lod1);
+        if (c != sec.end()) parseMesh(b.data() + c->second.first, c->second.second, out[k].lod1, true);
     }
     return true;
 }
@@ -183,15 +188,12 @@ bool CityAsset::load(const std::string& dir) {
 bool decodeTileBytes(const std::vector<uint8_t>& b, TileCPU& out) {
     std::map<std::string, std::pair<uint32_t, uint32_t>> sec;
     if (!sections(b, "TTZT", sec)) return false;
-    auto one = sec.find("MESH");                               // v1: one mesh, LOD1 = its leading lod1Quads quads
-    if (one != sec.end()) {
-        if (!parseMesh(b.data() + one->second.first, one->second.second, out.lod[0])) return false;
-        if (!parseMesh(b.data() + one->second.first, one->second.second, out.lod[1], INT32_MAX)) return false;
-    }
-    const char* meshTags[2] = {"MSH0", "MSH1"};
-    for (int l = 0; l < 2; ++l) {
-        auto it = sec.find(meshTags[l]);
-        if (it != sec.end() && !parseMesh(b.data() + it->second.first, it->second.second, out.lod[l])) return false;
+    // v1: MESH = LOD0 with LOD1 as its leading lod1Quads quads; LOD2 = far block model (optional); legacy MSH0 / MSH1
+    const char* meshTags[4] = {"MESH", "MSH0", "MSH1", "LOD2"};
+    const int meshLod[4] = {0, 0, 1, 2};
+    for (int k = 0; k < 4; ++k) {
+        auto it = sec.find(meshTags[k]);
+        if (it != sec.end() && !parseMesh(b.data() + it->second.first, it->second.second, out.lod[meshLod[k]])) return false;
     }
     Reader r{b.data(), b.size()};
     auto it = sec.find("VEHI");

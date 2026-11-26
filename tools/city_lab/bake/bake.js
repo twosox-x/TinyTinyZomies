@@ -6,7 +6,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
-const B = require('./lib.js');
+const B = require('./lib.js'), LOD = require('./lod.js');
 
 const TILE = 128, MARGIN = 48, V = 0.1, HC = 0.5, HN = TILE / HC;   // tile m, field margin m, voxel m, height cell m
 const SXZ = 'auto', SY = 'auto';                     // per mesh: finest power of two that fits (FORMAT.md 2)
@@ -271,7 +271,8 @@ async function main() {
         secs.push(['VEHI', w.done()]); nVeh += own.length;
       }
     }
-    const file = B.writeFile('TTZT', i | j << 16, secs);
+    const file0 = B.writeFile('TTZT', i | j << 16, secs), file = LOD.relodTile(file0) || file0;   // stricter LOD1 + LOD2 (lod.js)
+    { const ff = B.readFile(file), r = res.get(ij.join(',')); r.tris1 = 2 * B.readMesh(ff.sections.get('MESH') || Buffer.alloc(72)).lod1Quads; r.tris2 = ff.sections.has('LOD2') ? 2 * B.readMesh(ff.sections.get('LOD2')).quads : 0; }
     fs.writeFileSync(path.join(out, 'tiles', `${i}_${j}.bin`), file); fs.unlinkSync(fp); bytes += file.length;
     res.get(ij.join(',')).bytes = file.length;
   }
@@ -303,7 +304,7 @@ async function main() {
   const city = {
     format: 'ttz-city', version: 1, compression: 'none', seed, scale, generator: { urbanScale: 2, ruralScale: 3, voxel: V },
     bounds: { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 },
-    tile: { size: TILE, ni, nj, files: 'tiles/{i}_{j}.bin', present: todo.map(([i, j]) => [i, j, res.get(i + ',' + j).bytes]) },
+    tile: { size: TILE, ni, nj, lod2: true, files: 'tiles/{i}_{j}.bin', present: todo.map(([i, j]) => [i, j, res.get(i + ',' + j).bytes]) },
     quantisation: 'per mesh: scale = finest power of two <= 1/512 m whose int16 range fits (mesh header)',
     palette: palette(C, A),
     vehicles: { paintPlaceholder: paintPH, variants: keys.map((k, n) => { const v = variantMesh.get(k); return { key: k, kind: v.kind, bb: v.bb, count: vCount[n], lod1: !!(v.lo && v.lo.quads) }; }) },
@@ -315,7 +316,7 @@ async function main() {
     }),
     landUse: { file: 'landuse.bin', cell: LC, nx: lnx, nz: lnz, legend },
     spawns: todo.flatMap(ij => res.get(ij.join(',')).spawns),
-    stats: { bakeSeconds: 0, bytes: 0, tiles: todo.length, tris0: sum(r => r.tris0), tris1: sum(r => r.tris1), vehicles: nVeh, vehicleVariants: keys.length,
+    stats: { bakeSeconds: 0, bytes: 0, tiles: todo.length, tris0: sum(r => r.tris0), tris1: sum(r => r.tris1), tris2: sum(r => r.tris2 || 0), vehicles: nVeh, vehicleVariants: keys.length,
       props: sum(r => r.props.length), tileMsMedian: tileMs[tileMs.length >> 1], tileMsMax: tileMs[tileMs.length - 1], clampedVerts: sum(r => r.clamped), quatMaxOrthoErr: +maxOrtho.toFixed(6), workers: jobs, workerHeapMaxMB: maxHeap }
   };
   const det = JSON.stringify(city);                    // timing-free copy for the digest

@@ -13,7 +13,8 @@ flat (ground y = 0, sidewalks / curbs at +0.15 m). City Lab draws with the same 
   landuse.bin                coarse land-use grid (u8 codes, legend in city.json)
 ```
 
-No compression in v1 (sizes are reported in `city.json.stats`). If a later version compresses, `city.json.compression`
+`LOD2` and the LOD1 order are added to existing packages without a re-bake by `node relod.js <dir> [--force]`
+(seconds; bake.js runs the same code on new bakes). No compression in v1 (sizes are reported in `city.json.stats`). If a later version compresses, `city.json.compression`
 names it; v1 writes `"compression": "none"`.
 
 ## 1. Common: binary file layout
@@ -89,8 +90,17 @@ centre is in it); owned buildings may extend beyond the rectangle (use the AABB 
 Sections, in this order (a section may be absent if empty):
 
 - `MESH` — road / ground raster + buildings + kit dressing (yards, parks, rural trees, service yards) as one mesh,
-  both LODs (section 2). LOD1 (far) drops quads whose both edges are < 0.35 m (trim, sills, small dressing: under a
-  pixel beyond ~420 m at 1080p / 45 deg fov; the same rule as City Lab's `lod: 'far'`), ~75 % of LOD0's quads downtown.
+  LOD0 + LOD1 (section 2). LOD1 (mid) = the leading `lod1Quads` quads: quads whose longest edge is >= 1 m, plus
+  upward-facing quads (ground raster, decks, roofs) whose longest edge is >= 0.35 m, so ground and roofs stay closed
+  (window reveals, sills, trim, small dressing are dropped). ~40-60 % of LOD0's quads (`lod.js relodMesh`).
+- `LOD2` — far LOD (`lod.js lod2Mesh`), a mesh (section 2, `lod1Quads = quads`) derived from `MESH`: a 2.5D block
+  model on a 2 m grid aligned to the tile corner. Upward surfaces are sampled every 0.5 m (highest one wins); a cell
+  takes the median height of its 16 samples (empty when more than half are missing) and the majority material near
+  it; equal (height, material) cells are greedy-merged into rectangles. Walls stand where a cell is >= 0.3 m higher
+  than its neighbour (or an empty cell), split into 3 m storey bands whose material is the majority of the facade
+  quads behind that edge (brick / lit windows / glass, so night skylines keep window rows), merged along runs. No
+  props or vehicles (instanced separately). ~1-8 k triangles per tile (4 % of LOD0 overall). Optional: an engine
+  falls back to LOD1 when absent. Same winding / normals as section 2.
 - `VEHI` — vehicle / traffic-prop instances owned by the tile (seams resolved: an instance overlapping one kept in an
   earlier tile, tile order j-major then i, is dropped). `u32 count`, then `count` records of **28 bytes**:
 
@@ -153,7 +163,7 @@ centres with `CityCore.landUseAt`. `city.json.landUse.legend` maps code -> name 
   "format": "ttz-city", "version": 1, "compression": "none",
   "seed": 1, "scale": 5, "generator": { "urbanScale": 2, "ruralScale": 3, "voxel": 0.1 },
   "bounds": { "x0": .., "z0": .., "x1": .., "z1": .. },          // world metres
-  "tile": { "size": 128, "ni": 18, "nj": 16, "files": "tiles/{i}_{j}.bin", "present": [[i, j, bytes], ...] },
+  "tile": { "size": 128, "ni": 18, "nj": 16, "lod2": true, "files": "tiles/{i}_{j}.bin", "present": [[i, j, bytes], ...] },
   "palette": [ {                                                  // index = material id (0..207)
       "id": 87, "name": "GLASS_LIT", "srgb": [r, g, b], "linear": [r, g, b],
       "roughness": 0.1, "gloss": 1.0,                             // gloss: City Lab's reflection weight (0..1)
@@ -168,13 +178,15 @@ centres with `CityCore.landUseAt`. `city.json.landUse.legend` maps code -> name 
                "carriageway": 17.1, "pts": [[x, z], ...] } ],                                    // centreline, 0.1 m
   "landUse": { "file": "landuse.bin", "cell": 8, "legend": ["unknown", "core", ...] },
   "spawns": [ [x, z], ... ],          // street points >= 6 m from any building cell, a few per tile
-  "stats": { "bakeSeconds": .., "bytes": .., "tiles": .., "tris0": .., "tris1": .., "vehicles": .., "props": .. }
+  "stats": { "bakeSeconds": .., "bytes": .., "tiles": .., "tris0": .., "tris1": .., "tris2": .., "vehicles": .., "props": .. }
 }
 ```
 
 Emissive modes (mirror of City Lab's shader, `uNight` 0 day .. 1 night):
 
 - `steady`: emission = colour * (day + (night - day) * uNight) (street-lamp lens 57, neon 153, LED 154, lit tail 181).
+  Vehicles use only steady / flash ids: headlights 57, lit tail lights 181, light bars 189 / 190 / 199; their amber
+  indicators (182) and unlit tails (180) are plain colours.
 - `windows`: lit windows (87, 89, 148, 149, 159): by day draw `dayMaterial` (unlit glass), at night colour * 1.3.
 - `blink`: aircraft beacon (150): steady curve * (0.6 + 0.4 * square wave 0.5 Hz).
 - `flash`: vehicle light bars (189, 190, 199): steady curve * (0.25 + 0.75 * square wave 1.6 Hz), 190 half a cycle late.
@@ -184,7 +196,10 @@ Emissive modes (mirror of City Lab's shader, `uNight` 0 day .. 1 night):
 ## 7. Engine notes
 
 - One draw per tile per LOD (single material reading the palette by vertex material id); vehicles / props instanced.
-- Suggested LOD switch: LOD1 (first `lod1Quads` quads) for tiles whose nearest point is > 420 m from the camera.
+  Implicit quad lists need no per-tile index data: one shared index buffer of the quad pattern + base vertex.
+- LOD switch (src/city/CityRenderer.h): distance from the eye to the tile AABB, LOD0 < 210 m, LOD1 < 420 m, LOD2
+  beyond, 20 m hysteresis back to the finer LOD. City Lab's RTS rig (pitch 35-70 deg, distance 30-300 m) never sees
+  ground closer than ~190 m at LOD1.
 - Memory: load tiles in a ring around the camera; a tile is self-contained (no neighbour needed to draw it).
 - Determinism: the bake iterates tiles j-major, variants by key, props by type name; floats are written from the
   same doubles, so two bakes of the same inputs are byte-identical (`verify.js --hash` prints a digest).

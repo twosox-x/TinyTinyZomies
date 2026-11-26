@@ -425,6 +425,7 @@ void App::frame(double dt) {
         m.drawCalls = std::max(m.drawCalls, cs.drawCalls); m.triangles = std::max(m.triangles, cs.triangles);
         m.vehicles = std::max(m.vehicles, cs.vehicles); m.gpuBytes = std::max(m.gpuBytes, cs.gpuBytes);
         m.uploadedTiles += cs.uploadedTiles; m.uploadedBytes += cs.uploadedBytes; m.lod1Tiles = std::max(m.lod1Tiles, cs.lod1Tiles);
+        m.lod2Tiles = std::max(m.lod2Tiles, cs.lod2Tiles); m.tileTriangles = std::max(m.tileTriangles, cs.tileTriangles);
     }
     ++s.frameIndex;
 }
@@ -460,11 +461,12 @@ void App::printCityBench() {
     const CityRenderStats& m = s.benchMax;
     std::printf("\ncity benchmark (%s, %dx%d, %d frames, zombies live %u; headless: frame ms include waiting for the GPU)\n",
                 s.gpu.driverName(), s.opt.width, s.opt.height, (int)s.benchFrameMs.size(), s.sim.stats().live);
-    std::printf("| frame ms avg / p50 / p95 / max | city update+upload ms avg / p95 / max | resident max | visible max | lod1 max | draws max | city tris max | instances max | tiles uploaded | MB uploaded | city GPU MB max |\n");
+    std::printf("| frame ms avg / p50 / p95 / max | city update+upload ms avg / p95 / max | resident max | visible max | lod1 / lod2 max | draws max | city tris max (tiles) | instances max | tiles uploaded | MB uploaded | city GPU MB max |\n");
     std::printf("|---|---|---|---|---|---|---|---|---|---|---|\n");
-    std::printf("| %.2f / %.2f / %.2f / %.2f | %.3f / %.3f / %.3f | %u | %u | %u | %u | %llu | %llu | %u | %.1f | %.1f |\n", avg,
+    std::printf("| %.2f / %.2f / %.2f / %.2f | %.3f / %.3f / %.3f | %u | %u | %u / %u | %u | %llu (%llu) | %llu | %u | %.1f | %.1f |\n", avg,
                 pct(s.benchFrameMs, 0.5), pct(s.benchFrameMs, 0.95), pct(s.benchFrameMs, 1.0), up, pct(s.benchUploadMs, 0.95),
-                pct(s.benchUploadMs, 1.0), m.resident, m.visible, m.lod1Tiles, m.drawCalls, (unsigned long long)m.triangles,
+                pct(s.benchUploadMs, 1.0), m.resident, m.visible, m.lod1Tiles, m.lod2Tiles, m.drawCalls, (unsigned long long)m.triangles,
+                (unsigned long long)m.tileTriangles,
                 (unsigned long long)m.vehicles, m.uploadedTiles, m.uploadedBytes / 1048576.0, m.gpuBytes / 1048576.0);
     std::fflush(stdout);
 }
@@ -496,6 +498,12 @@ int App::run(const AppOptions& opt) {
             SDL_WaitForGPUIdle(s_.gpu.device());
             if (!s_.opt.screenshot.empty()) s_.renderer.saveScreenshot(s_.opt.screenshot);
             if (s_.opt.cityBench > 0) printCityBench();
+            if (s_.cityMode) {
+                const CityRenderStats& c = s_.cityRenderer.stats();
+                SDL_Log("city view: resident %u, visible %u (LOD1 %u, LOD2 %u), draws %u, triangles %.2f M (tiles %.2f M), instances %llu, GPU %.0f MB",
+                        c.resident, c.visible, c.lod1Tiles, c.lod2Tiles, c.drawCalls, c.triangles / 1e6, c.tileTriangles / 1e6,
+                        (unsigned long long)c.vehicles, c.gpuBytes / 1048576.0);
+            }
             const SimStats& st = s_.sim.stats();
             SDL_Log("finished %d frames: live=%u corpses=%u climbing=%u elevated=%u maxH=%.2f", s_.opt.frames, st.live,
                     st.corpses, st.climbing, st.elevated, st.maxStackHeight);

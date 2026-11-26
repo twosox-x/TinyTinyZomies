@@ -29,7 +29,8 @@ static_assert(sizeof(CityVertex) == 12);
 
 struct CityMesh {
     std::vector<CityVertex> verts;
-    std::vector<uint32_t> idx;
+    std::vector<uint32_t> idx;     // explicit indices; empty for implicit quad lists (drawn with the shared quad index buffer)
+    uint32_t quads = 0, lod1Quads = 0;   // implicit quad list: quad count, leading quads drawn at LOD1
     float origin[3] = {0, 0, 0};   // world = origin + q * (scaleXZ, scaleY, scaleXZ)
     float scaleXZ = 1.f / 64.f, scaleY = 1.f / 32.f;
     float bmin[3] = {0, 0, 0}, bmax[3] = {0, 0, 0};   // world-space bounds
@@ -66,7 +67,7 @@ struct ModelVariant {
 
 struct TileCPU {
     int i = 0, j = 0;
-    CityMesh lod[2];
+    CityMesh lod[3];               // MESH (LOD0, LOD1 = its leading lod1Quads quads) / legacy MSH1 / LOD2 (far blocks)
     std::vector<CityInstance> instances;   // vehicles then props
     // collision / height grid
     int gw = 0, gh = 0;            // cells
