@@ -428,10 +428,19 @@ function trafficKit(K) {
   };
   // place a vehicle / prop if it fits; returns the footprint or null
   let budgetHit = false;
+  // every corner of a footprint inside the world bounds minus m metres (roads run on past the map edge)
+  const inside = (fp, m) => {
+    for (const [a, d] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const x = fp.x + a * fp.hx * fp.c - d * fp.hz * fp.s, z = fp.z + a * fp.hx * fp.s + d * fp.hz * fp.c;
+      if (x < b.x0 + m || x > b.x1 - m || z < b.z0 + m || z > b.z1 - m) return false;
+    }
+    return true;
+  };
   const tryPlace = (V, x, z, yaw, roll, opt) => {
     opt = opt || {};
     const fp = fpOf(V, x, z, yaw, roll || 0);
     const gap = opt.gap === undefined ? 0.25 : opt.gap;
+    if (!inside(fp, opt.edge || 1)) return null;
     if (stampRect(fp.x, fp.z, fp.hx, fp.hz, fp.c, fp.s, 0, gap) & (opt.walk ? 3 : 1)) return null;
     if (!surfOK(fp, opt.walk ? 0.2 : 0.15, !!opt.walk)) return null;
     if (opt.dry) return fp;
@@ -444,7 +453,7 @@ function trafficKit(K) {
     const c = Math.cos(yaw), s = Math.sin(yaw);
     const W = (u, v) => [x + u * c - v * s, z + u * s + v * c];
     // keep decals on road-level surface: every corner and the centre must be carriageway
-    for (const [u, v] of [[-hu, -hv], [hu, -hv], [hu, hv], [-hu, hv], [0, 0]]) { const [px, pz] = W(u, v); R.classify(px, pz, o, cls); if (cls[0] !== 0 || o.road < 0) return false; }
+    for (const [u, v] of [[-hu, -hv], [hu, -hv], [hu, hv], [-hu, hv], [0, 0]]) { const [px, pz] = W(u, v); if (px < b.x0 + 1 || px > b.x1 - 1 || pz < b.z0 + 1 || pz > b.z1 - 1) return false; R.classify(px, pz, o, cls); if (cls[0] !== 0 || o.road < 0) return false; }
     const p = [W(-hu, -hv), W(hu, -hv), W(hu, hv), W(-hu, hv)];
     quadW(p[0][0], y, p[0][1], p[1][0], y, p[1][1], p[2][0], y, p[2][1], p[3][0], y, p[3][1], m, 0, 1, 0);
     ++stats.decals;
@@ -802,7 +811,7 @@ function trafficKit(K) {
       const sc = s + d * c.half;
       if (end(sc + d * c.half) || inJ(r, sc, c.half + 0.3)) { s = sc + d * 1; continue; }
       const [x, z] = frame(r, sc, c.u);
-      if (tryPlace(c.V, x, z, c.yaw, 0, { gap: 0.3 })) { ++stats.jam; s = sc + d * (c.half + 1 + Rr() * 1.5); }
+      if (tryPlace(c.V, x, z, c.yaw, 0, { gap: 0.3, edge: 3 })) { ++stats.jam; s = sc + d * (c.half + 1 + Rr() * 1.5); }
       else { s = sc + d * 1.5; stats.jamMiss = (stats.jamMiss || 0) + 1; }
     }
   }
