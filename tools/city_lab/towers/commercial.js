@@ -171,15 +171,15 @@
   const carLen = (h) => { const k = Math.floor(h * 7919) % 6; return k === 2 ? 15 : k === 1 ? 17 : k === 5 ? 19 : 18; };
   // a parked car in a 7 x len voxel slot (len = carLen(h)); dir 0/1: length along z, nose to -z / +z; dir 2/3: along x,
   // nose to -x / +x. h in [0,1). The car is a CityCore.Vehicles model (5 cm voxels) recorded on M and emitted with it
-  // (Emitter.vox), centred on the slot, at most 0.3 m longer than the slot at each end and 2.0 m wide.
+  // (Emitter.vox), centred on the slot, at most 0.15 m longer than the slot at each end and 1.95 m wide.
   // a parked car never overlaps another parked car or anything already built in the model (curbs, islands, walls,
-  // pumps, pens): its slot, from the lot slab (y) up 1.75 m, must be empty and clear of the other cars' slots
+  // pumps, pens): its slot, its lowest 0.5 m above the lot slab (y), must be empty and clear of the other cars' slots
   // (+ 1 voxel, the models may be up to 0.3 m longer than the slot)
   function carFits(M, x, y, z, dir, len) {
     const ax = dir >= 2, x1 = x + (ax ? len : 7), z1 = z + (ax ? 7 : len);
     const slots = M._carSlots || (M._carSlots = []);
     for (const s of slots) if (x < s[2] + 1 && x1 > s[0] - 1 && z < s[3] + 1 && z1 > s[1] - 1) { L.carClash = (L.carClash || 0) + 1; return false; }
-    for (let yy = y; yy < y + 7; ++yy) for (let zz = z; zz < z1; ++zz) for (let xx = x; xx < x1; ++xx)
+    for (let yy = y; yy < y + 2; ++yy) for (let zz = z; zz < z1; ++zz) for (let xx = x; xx < x1; ++xx)
       if (M.at(xx + M.ox, yy, zz + M.oz)) { L.carClash = (L.carClash || 0) + 1; return false; }
     slots.push([x, z, x1, z1]);
     return true;
@@ -192,7 +192,7 @@
     if (k === 'sedan' && sd % 9 === 0) k = 'coupe';
     if (k === 'suv' && sd % 7 === 0) k = 'police';
     const cx = dir < 2 ? x + 3.5 : x + len / 2, cz = dir < 2 ? z + len / 2 : z + 3.5;
-    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.6, 2.0] });
+    (M.vehicles || (M.vehicles = [])).push({ kind: k, opts: { seed: sd }, x: cx, y, z: cz, dir, fit: [len * 0.25 + 0.3, 1.95] });
   }
   function tree(M, x, y, z, R, s) {
     s = s || 1;

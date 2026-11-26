@@ -1889,7 +1889,7 @@ const VEH_PALETTE = {
   194: [38, 92, 156], 195: [40, 112, 120], 196: [176, 150, 92], 197: [74, 78, 82], 198: [226, 214, 182], 199: [240, 160, 30]
 };
 const Vehicles = (function () {
-  const GLASS = VM.GLASS, LENS = 57, HUB = 130, PLATE = 64;   // shared ids: GLASS_DARK (glossy), street-lamp lens (lit), steel, sign white
+  const GLASS = VM.GLASS, LENS = 57, HUB = VM.SILVER, PLATE = 64;   // shared ids: GLASS_DARK (glossy), street-lamp lens (lit), steel, sign white
   const KINDS = ['sedan', 'hatchback', 'coupe', 'suv', 'pickup', 'minivan', 'taxi', 'police', 'ambulance', 'fire_engine',
     'city_bus', 'school_bus', 'panel_van', 'delivery_van', 'box_truck', 'garbage_truck', 'fuel_tanker', 'tanker_cab', 'tanker_trailer',
     'semi', 'semi_cab', 'semi_trailer', 'rolloff_truck', 'rolloff'];
@@ -1936,7 +1936,7 @@ const Vehicles = (function () {
   function wheel(M, ax, r, zo, tw, hub, dual) {
     const c = Math.max(1, Math.round(r * 0.35)), zi = zo - tw * (dual ? 2 : 1) - (dual ? 1 : 0);
     sym(M, ax - r, c, zi, ax + r, 2 * r - c, zo, VM.TYRE); sym(M, ax - r + c, 0, zi, ax + r - c, 2 * r, zo, VM.TYRE);
-    const h = Math.max(2, Math.round(r * 0.45));
+    const h = Math.max(2, Math.round(r * 0.4));
     sym(M, ax - h, r - h, zo - 1, ax + h, r + h, zo, hub || HUB);
     if (r >= 9) sym(M, ax - 1, r - 1, zo - 1, ax + 1, r + 1, zo, VM.DARK_GREY);          // hub nut cap on big wheels
   }
@@ -2015,14 +2015,15 @@ const Vehicles = (function () {
     M.box(hl - 1, S.sill - 1, -hw + 1, hl, S.sill + 3, hw - 1, VM.PLASTIC);
     M.box(-hl, S.sill - 1, -hw + 1, -hl + 1, S.sill + 3, hw - 1, VM.PLASTIC);
     const big = kind === 'pickup' || kind === 'suv';
-    M.box(hl - 1, S.sill + 3, -hw + 8, hl, S.belt - (big ? 2 : 3), hw - 8, big ? VM.CHROME : VM.PLASTIC);    // grille
-    sym(M, hl - 1, S.belt - 4, hw - 8, hl, S.belt - 2, hw - 2, o.lights ? LENS : VM.HEAD);
+    M.box(hl - 1, S.sill + 3, -hw + 8, hl, S.belt - (big ? 2 : 3), hw - 8, VM.PLASTIC);                       // grille
+    if (big) { M.box(hl - 1, S.belt - 3, -hw + 8, hl, S.belt - 2, hw - 8, VM.CHROME); M.box(hl - 1, S.sill + 3, -1, hl, S.belt - 2, 1, VM.CHROME); }
+    sym(M, hl - 1, S.belt - 4, hw - 7, hl, S.belt - 2, hw - 2, o.lights ? LENS : VM.HEAD);
     sym(M, -hl, S.belt - 5, hw - 7, -hl + 1, S.belt - 2, hw - 2, o.lights ? VM.TAIL_LIT : VM.TAIL);
     sym(M, -hl, S.belt - 6, hw - 4, -hl + 1, S.belt - 5, hw - 2, VM.AMBER);
     M.box(-hl, S.sill + 3, -3, -hl + 1, S.sill + 6, 3, PLATE);
     sym(M, hl - 2, S.sill + 1, hw - 1, hl - 1, S.sill + 3, hw, VM.AMBER);                    // side markers
     // mirrors
-    if (!crushed) sym(M, S.ws0 - 4, S.belt + 1, hw, S.ws0 - 1, S.belt + 4, hw + 2, P);
+    if (!crushed) { sym(M, S.ws0 - 3, S.belt, cw, S.ws0 - 1, S.belt + 2, hw + 1, P); sym(M, S.ws0 - 4, S.belt + 2, hw - 1, S.ws0 - 1, S.belt + 4, hw + 2, P); }
     // door seams + handles
     const seams = S.doors === 4 ? [S.ws0 - 1, S.bp, S.rr0 + (S.rear === 'bed' ? 1 : 3)] : [S.ws0 - 1, S.bp - 4];
     if (S.rear === 'bed') seams[2] = S.rr0 + 1;
@@ -2414,8 +2415,9 @@ const Vehicles = (function () {
       forEach(M, (x, y, z, i, m) => { if (m === VM.CRACK || m === VM.INTERIOR || m === GLASS) g.push(i); });
       forEach(M, (x, y, z, i, m) => {
         if (m === VM.CRACK || m === VM.INTERIOR || m === GLASS) return;
-        const t = hash2(x >> 3, (y >> 3) * 13 + (z >> 3), seed + 5);
-        M.v[i] = 1 + (m === VM.TYRE ? VM.CHAR : m === HUB || m === VM.CHROME ? VM.RUST_DARK : t < 0.34 ? VM.CHAR : t < 0.62 ? VM.ASH : t < 0.86 ? VM.RUST : VM.RUST_DARK);
+        // upper body ash grey, lower body charred, big rust patches (where the paint burnt off)
+        const t = hash2(x >> 4, (y >> 4) * 13 + (z >> 4), seed + 5), hi = y > b.y0 + (b.y1 - b.y0) * 0.45;
+        M.v[i] = 1 + (m === VM.TYRE ? VM.CHAR : m === HUB || m === VM.CHROME ? VM.RUST_DARK : t < 0.3 ? VM.RUST : t < 0.38 ? VM.RUST_DARK : hi ? VM.ASH : VM.CHAR);
       });
       const kill = g.filter(i => { const x = i % M.w, z = Math.floor(i / M.w) % M.d, y = Math.floor(i / (M.w * M.d)); return exposed(M, x, y, z); });
       for (const i of g) M.v[i] = VM.CHAR + 1;

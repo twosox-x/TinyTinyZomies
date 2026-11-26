@@ -263,7 +263,7 @@ function cityMaterial(normalAttr) {
           vEmit = vColor * (0.3 + 2.4 * uNight) * (0.25 + 0.75 * ph);
         }
         if (cmid == 191 || cmid == 178) vGloss = 0.45;                                          // polished tank, chrome
-        if (cmid == 200 || cmid == 201) vGloss = 0.6;                                             // vehicle glass
+        if (cmid == 200 || cmid == 201) vGloss = 0.4;                                             // vehicle glass
         if (cmid == 153 || cmid == 154) vEmit = vColor * (0.25 + 1.8 * uNight);                 // neon, LED
         if (cmid == 150) vEmit = vColor * (0.4 + 2.2 * uNight) * (0.6 + 0.4 * step(0.5, fract(uTime * 0.5)));   // aircraft beacons
         if (cmid >= 60 && cmid <= 62 || cmid == 68 || cmid == 69) {                           // signal cycle: 30 s, crossing roads alternate
