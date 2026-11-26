@@ -12,7 +12,7 @@ const VIEWS = [['towers', -91, 30, -21, 40, 140, 140], ['block', -230, 12, 120, 
   await PW.serve(ctx, ROOT);
   const p = await ctx.newPage();
   const t0 = Date.now();
-  await p.goto('http://citylab.local/city_lab.html');
+  await p.goto('http://citylab.local/city_lab.html?legacy=1');
   await p.waitForFunction(() => document.getElementById('progress').hidden && document.querySelector('#stats dd'), null, { timeout: 600000 });
   const stat = () => p.evaluate(() => { const o = {}; const dt = [...document.querySelectorAll('#stats dt')]; dt.forEach(d => { o[d.textContent] = d.nextElementSibling.textContent; }); return o; });
   await p.waitForTimeout(1500);

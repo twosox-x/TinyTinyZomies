@@ -2285,6 +2285,14 @@ function planSuburbs(PL, C, blocks) {
       f.setback = f.use === 'house' ? 5.5 + Rf() * 1.5 : f.use === 'townhouse' ? 4 + Rf() * 1 : f.use === 'apartments' ? 6 + Rf() * 1.5 : 0;
       const U = SUB_USE[f.kind === 'bulb' ? 'bulb' : f.use] || SUB_USE.house;
       f.target = U.w[0] + Rf() * (U.w[1] - U.w[0]);
+      // grown maps: exurban / rural-edge houses get larger lots (wider, deeper, set farther back)
+      if (net.plan && f.use === 'house') {
+        const [fx, fz, qx, qz] = faceAt(f, f.t0 + f.len / 2), zu = C.landUseAt(net, fx + qx * 12, fz + qz * 12);
+        if (zu !== 'suburban' && zu !== 'transition' && zu !== 'commercial') {
+          const h = C.hash2(b.g.id, f.rid, seed0 + 4441);
+          f.target *= f.kind === 'bulb' ? 1.35 : 1.5 + 0.3 * h; f.setback += 3 + 4 * h; f.capK = 1.45;
+        }
+      }
     }
   }
   // ---- lots
@@ -2403,7 +2411,7 @@ function planSuburbs(PL, C, blocks) {
     if (sag > 0) O = [O[0] + e2[0] * sag, O[1] + e2[1] * sag];
     const w = f.kind === 'side' && Math.abs(w0 - (b - a)) < 0.02 ? Math.round(w0 / BV) * BV : Math.floor(w0 / BV) * BV;
     const U = SUB_USE[use === 'house' && f.kind === 'bulb' ? 'bulb' : use];
-    return Object.assign({ id: ++nid, g: f.g, f, use, O, e1, e2, w, d: 0, minD: U.minD, cap: U.cap, flip, a, b, done: false }, extra || {});
+    return Object.assign({ id: ++nid, g: f.g, f, use, O, e1, e2, w, d: 0, minD: U.minD, cap: U.cap * (f.capK || 1), flip, a, b, done: false }, extra || {});
   };
   const place = (L, minD) => {
     const U = minD || L.minD;

@@ -18,7 +18,7 @@ const VIEWS = JSON.parse(args.find(a => a.startsWith('[')) || '[]');
   const logs = []; p.on('pageerror', e => logs.push('PAGEERROR ' + e.message)); p.on('console', m => { if (m.type() === 'error') logs.push(m.text()); });
   await PW.freezeClock(p);
   const t0 = Date.now();
-  await p.goto(PW.HOST + '/city_lab.html');
+  await p.goto(PW.HOST + '/city_lab.html?legacy=1');
   if (SEED !== 1) { await p.evaluate((s) => { const e = document.getElementById('seed'); e.value = s; e.dispatchEvent(new Event('change')); }, SEED); }
   await PW.waitBuilt(p, 1500000);
   console.log('built s', (Date.now() - t0) / 1000);

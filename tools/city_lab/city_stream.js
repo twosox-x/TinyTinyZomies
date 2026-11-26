@@ -6,7 +6,7 @@
    they can enter the view. */
 (function () {
   const Q = new URLSearchParams(location.search);
-  if (!Q.get('stream')) return;
+  if (!window.CITY_STREAM_MODE) return;
   const { S, U, C, world, geometryFrom, MAT_CITY, MAT_BLOCKS, persp, renderer, addProps, $ } = window.CL;
   const CLc = window.CL;
   const TILE = +(Q.get('tile') || 128), RTS = { minD: 30, maxD: 300, minPitch: 35, maxPitch: 70 }, LRU = +(Q.get('lru') || 80);
@@ -52,9 +52,24 @@
     o.castShadow = o.receiveShadow = true; o.matrixAutoUpdate = false; o.scale.setScalar(S.voxel); o.updateMatrix();
     return o;
   }
+  // cars standing on a driveway curb cut that arrived after the traffic was placed (house tiles) are hidden
+  function hideOnCuts(cuts) {
+    const tr = CLc.traffic; if (!tr || !tr.hidden || !cuts.length) return;
+    const O = tr.T.obb; let n = 0;
+    for (const c of cuts) {
+      const ux = c.bx - c.ax, uz = c.bz - c.az, len = Math.hypot(ux, uz) || 1, ex = ux / len, ez = uz / len, dep = (c.depth || 4) + 2.6;
+      for (let i = 0; i < tr.T.count; ++i) {
+        if (tr.hidden[i]) continue;
+        const rx = O[i * 8] - c.ax, rz = O[i * 8 + 1] - c.az, r = Math.max(O[i * 8 + 2], O[i * 8 + 3]);
+        const t = rx * ex + rz * ez, dn = rx * c.nx + rz * c.nz;
+        if (t > -0.6 - r && t < len + 0.6 + r && dn > -0.5 - r && dn < dep + r) { tr.hidden[i] = 1; ++n; }
+      }
+    }
+    ST.carsHidden = (ST.carsHidden || 0) + n;
+  }
   function onTile(d) {
     const t = ST.pending.get(d.key); ST.pending.delete(d.key);
-    ST.cuts = ST.cuts.concat(d.cuts);
+    ST.cuts = ST.cuts.concat(d.cuts); hideOnCuts(d.cuts);
     const g = new THREE.Group(), r = mesh(d.road, MAT_CITY), b = mesh(d.bld, d.bld.nvec ? MAT_BLOCKS : MAT_CITY);
     if (r) g.add(r); if (b) g.add(b);
     world.add(g);
@@ -66,6 +81,7 @@
       const old = [...ST.tiles.entries()].sort((a, b) => a[1].used - b[1].used).slice(0, ST.tiles.size - LRU);
       for (const [k, T] of old) { world.remove(T.g); T.g.traverse(c => c.geometry && c.geometry.dispose()); ST.tiles.delete(k); }
     }
+    if (CLc.traffic) CLc.updateTrafficLOD(true);
   }
   function pump() {
     if (ST.ready < ST.workers.length) return;
@@ -87,11 +103,13 @@
     for (const T of ST.tiles.values()) T.g.children.forEach(m => { const s = m.geometry.boundingSphere.clone().applyMatrix4(m.matrixWorld); if (fr.intersectsSphere(s)) { calls++; tris += m.geometry.index.count / 3; } });
     const ms = ST.buildMs.slice().sort((a, b) => a - b);
     return { tiles: ST.tiles.size, pending: ST.pending.size, built: ST.built, visibleCalls: calls, visibleTris: tris, planMs: Math.round(ST.planMs), firstFrameMs: Math.round(ST.firstFrame),
+      scale: ST.scale, trafficMs: Math.round(ST.trafficMs || 0), cars: CLc.traffic ? { count: CLc.traffic.T.count, hidden: ST.carsHidden || 0, tris: CLc.traffic.tris } : null,
       tileMsMedian: Math.round(ms[ms.length >> 1] || 0), tileMsMax: Math.round(ms[ms.length - 1] || 0), info: Object.assign({}, renderer.info.render), heapMB: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null };
   };
   ST.start = (seed) => {
     S.voxel = +$('voxel').value; U.voxel.value = S.voxel;
-    S.net = C.generateCity(seed || 1);
+    ST.scale = +(Q.get('scale') || 5);
+    S.net = C.generateCity(seed || 1, { scale: ST.scale });
     const b = S.net.bounds; ST.bounds = b; ST.ni = Math.ceil((b.x1 - b.x0) / TILE); ST.nj = Math.ceil((b.z1 - b.z0) / TILE);
     const NWs = Math.max(2, Math.min(6, (navigator.hardwareConcurrency || 4) - 1));
     for (let i = 0; i < NWs; ++i) {
@@ -100,8 +118,14 @@
         const d = e.data;
         if (d.type === 'splanned') { ST.ready++; ST.planMs = Math.max(ST.planMs, d.ms); S.hs = d.hs; if (d.kitCuts) ST.cuts = ST.cuts.concat(i === 0 ? d.kitCuts : []); if (d.props && typeof addProps === 'function') addProps(d.props); }
         else if (d.type === 'stile') { w.busy--; onTile(d); }
+        else if (d.type === 'traffic') {
+          ST.trafficMs = d.ms; CLc.addTraffic(d.traffic);
+          const tr = CLc.traffic; tr.hidden = new Uint8Array(d.traffic.count);
+          tr.keep = (x, z) => ST.tiles.has(key(Math.floor((x - ST.bounds.x0) / TILE), Math.floor((z - ST.bounds.z0) / TILE)));
+          hideOnCuts(ST.cuts);
+        }
       };
-      w.postMessage({ cmd: 'splan', seed: seed || 1, voxel: S.voxel, props: i === 0 });
+      w.postMessage({ cmd: 'splan', seed: seed || 1, voxel: S.voxel, props: i === 0, scale: ST.scale });
     }
     ST.view(0, 0, 160, 50, 30); applyRig();
     (function loop() { requestAnimationFrame(loop); pump(); })();

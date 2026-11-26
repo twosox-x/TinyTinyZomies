@@ -67,7 +67,7 @@ function crc(b) { let c = -1; for (const x of b) c = CRC[(c ^ x) & 255] ^ (c >>>
   const logs = []; p.on('pageerror', e => logs.push('PAGEERROR ' + e.message));
   // frozen animation clock: every frame sees t = 1 s
   await p.addInitScript(() => { const raf = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = (cb) => raf(() => cb(1000)); });
-  await p.goto('http://citylab.local/city_lab.html');
+  await p.goto('http://citylab.local/city_lab.html?legacy=1');
   await p.waitForFunction(() => document.getElementById('progress').hidden && document.querySelector('#stats dd'), null, { timeout: 600000 });
   await p.evaluate(() => document.getElementById('collapse').click());
   await p.evaluate((props) => { for (const id of props ? ['lyLabels'] : ['lyProps', 'lyLabels']) { const c = document.getElementById(id); if (c && c.checked) c.click(); } }, PROPS);

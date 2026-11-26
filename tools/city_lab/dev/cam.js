@@ -4,7 +4,7 @@ const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const p = await b.newPage({ viewport: { width: 1100, height: 800 } });
-  await p.goto('http://localhost:8765/city_lab.html');
+  await p.goto('http://localhost:8765/city_lab.html?legacy=1');
   await p.waitForFunction(() => document.getElementById('progress').hidden && document.querySelector('#stats dd'), null, { timeout: 300000 });
   await p.click('#collapse', { noWaitAfter: true });
   const shots = JSON.parse(process.argv[2]);

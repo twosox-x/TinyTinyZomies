@@ -8,6 +8,7 @@ self.onmessage = (e) => {
   const d = e.data, C = self.CityCore;
   if (d.cmd === 'start') {
     job = d.job;
+    if (d.scale) self.CITY_LAB_SCALE = d.scale;
     const net = d.kind === 'test' ? C.generateTestArea() : C.generateCity(d.seed);
     const t0 = performance.now();
     ctx = C.prepareBuild(net, d.voxel);
@@ -52,7 +53,7 @@ self.addEventListener('message', (e) => {
   const d = e.data, C = self.CityCore, A = self.CityArch;
   if (d.cmd === 'splan') {
     const t0 = performance.now();
-    const net = C.generateCity(d.seed);
+    const net = C.generateCity(d.seed, { scale: d.scale || 1 });
     const sctx = C.prepareBuild(net, d.voxel);
     const PL = new C.Plots(net, sctx.F, sctx.R, 0.5, net.seed || 1); PL.build();
     const plan = A.planAll(PL, sctx.R, d.voxel, C);
@@ -60,6 +61,21 @@ self.addEventListener('message', (e) => {
     const msg = { type: 'splanned', ms: performance.now() - t0, hs: sctx.R.hs, bounds: net.bounds, kitCuts: plan.kitCuts.map(c => Object.assign({}, c)) };
     if (d.props) { sctx.footprints = plan.blockJobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind })); sctx.R.setCuts(plan.kitCuts); msg.props = C.placeProps(sctx); sctx.R.setCuts(null); }
     self.postMessage(msg);
+    // traffic (towers/traffickit.js) once on the global plan, after the plan is announced (tiles are not held up):
+    // block footprints + kit curb cuts; driveway cuts of houses arrive later with their tiles and the page hides
+    // the cars they overlap. The page culls the instances to the tile ring and keeps the near/far vehicle LOD.
+    if (d.props && A.lib.trafficKit) {
+      const tt = performance.now();
+      sctx.R.setCuts(plan.kitCuts);
+      const st = A.lib.trafficKit({ PL, C, R: sctx.R, jobs: plan.blockJobs, hs: plan.hs, voxel: d.voxel });
+      sctx.R.setCuts(null);
+      const T = st && st.out;
+      if (T) {
+        const tb = [T.M.buffer, T.vid.buffer, T.paint.buffer, T.obb.buffer];
+        for (const v of T.variants) for (const g of [v.hi, v.lo]) if (g) tb.push(g.pos.buffer, g.mat.buffer, g.nrm.buffer);
+        self.postMessage({ type: 'traffic', traffic: T, ms: performance.now() - tt }, tb);
+      }
+    }
   } else if (d.cmd === 'stile' && SP) {
     const t0 = performance.now(), v = SP.voxel, [x0, z0, x1, z1] = d.rect;
     const r = A.buildTile(SP.plan, x0, z0, x1, z1);
