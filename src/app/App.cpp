@@ -549,7 +549,8 @@ void App::spamStep(double dt) {
     AppState& s = s_;
     AppOptions& o = s.opt;
     const int f = (int)s.frameIndex;
-    if (f == o.spamStart && std::isnan(o.spamX)) {   // auto: the densest vehicle cluster within 80 m of the window centre
+    const int setup = std::min(2, o.spamStart);   // the jam, the camera and the horde are set up before the measurement
+    if (f == setup && std::isnan(o.spamX)) {   // auto: the densest vehicle cluster within 80 m of the window centre
         V3 c = s.camera.target();
         const std::vector<Vehicle>& vs = s.vehicles.vehicles();
         int best = -1;
@@ -570,7 +571,7 @@ void App::spamStep(double dt) {
         o.spamZ = best >= 0 ? vs[(size_t)best].p[2] : c.z;
         SDL_Log("spam blasts: centre (%.1f, %.1f), %d vehicles within 12 m", o.spamX, o.spamZ, (int)bestScore);
     }
-    if (f == o.spamStart) {   // the camera on the jam, and a horde in it (lands on the streets of the rect)
+    if (f == setup) {   // the camera on the jam, and a horde in it (lands on the streets of the rect)
         s.camera.setImmediate({o.spamX, 0, o.spamZ}, s.camera.yaw(), s.camera.pitch(), s.camera.distance());
         s.sim.requestSpawn({o.spamX - 25.f, o.spamZ - 25.f, o.spamX + 25.f, o.spamZ + 25.f}, 4000);
     }

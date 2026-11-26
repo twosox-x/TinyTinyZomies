@@ -98,11 +98,53 @@ float wreckDensity(vec3 q, vec3 c, float len, float t, float k, float seed, out 
     return ds;
 }
 
+// Ray interval [ta, tb] (hull) where a blast's parts, inflated by m (boxes: their own >= 0.5 m margins), can be: the ellipsoid of the ball, the stem's
+// box, the ring's cylinder slab. Voxels whose centre has density > 0 lie wholly inside the parts inflated by the
+// voxel's half diagonal, so the walk can skip what is before ta and stop after tb.
+bool blastRayInterval(BlastBounds bb, vec3 c, vec3 ro, vec3 rd, vec3 inv, float m, out float ta, out float tb) {
+    ta = 1e30;
+    tb = -1e30;
+    if (bb.ball) {   // ellipsoid (+ m: scaled up uniformly, E + B(m) lies in (1 + m / min radius) E)
+        vec3 R = bb.ballR * (1.0 + m / max(min(bb.ballR.x, bb.ballR.y), 1e-3)) + 1e-3;
+        vec3 o = (ro - bb.ballC) / R, d = rd / R;
+        float A2 = dot(d, d), B2 = dot(o, d), C2 = dot(o, o) - 1.0, disc = B2 * B2 - A2 * C2;
+        if (disc > 0.0) { float sq = sqrt(disc); ta = min(ta, (-B2 - sq) / A2); tb = max(tb, (-B2 + sq) / A2); }
+    }
+    if (bb.stem) {
+        vec3 t1 = (bb.stemLo - vec3(0.0, 0.3, 0.0) - ro) * inv, t2 = (bb.stemHi - ro) * inv;   // voxels reach v/2 below c.y - 0.55
+        vec3 mn = min(t1, t2), mx = max(t1, t2);
+        float x = max(max(mn.x, mn.y), mn.z), y = min(min(mx.x, mx.y), mx.z);
+        if (y > x) { ta = min(ta, x); tb = max(tb, y); }
+    }
+    if (bb.ring) {   // vertical cylinder of radius ringE around c, between ringY0 and ringY1
+        vec2 o = ro.xz - c.xz;
+        float A2 = dot(rd.xz, rd.xz), B2 = dot(o, rd.xz), C2 = dot(o, o) - bb.ringE * bb.ringE;
+        float x = -1e30, y = 1e30;
+        if (A2 < 1e-8) { if (C2 > 0.0) y = x; }
+        else {
+            float disc = B2 * B2 - A2 * C2;
+            if (disc > 0.0) { float sq = sqrt(disc); x = (-B2 - sq) / A2; y = (-B2 + sq) / A2; } else y = x;
+        }
+        float ya = (bb.ringY0 - 0.3 - ro.y) * inv.y, yb = (bb.ringY1 - ro.y) * inv.y;
+        x = max(x, min(ya, yb));
+        y = min(y, max(ya, yb));
+        if (y > x) { ta = min(ta, x); tb = max(tb, y); }
+    }
+    return tb > ta;
+}
+
 void main() {
     int i = vIdx;
     vec4 A = fxA[i], B = fxB[i];
-    vec3 lo, hi;
-    fxBox(i, lo, hi);
+    bool blast = B.y < 0.5;
+    BlastShape bs;
+    BlastBounds bb;
+    vec3 lo, hi;   // the reference box: voxel size and walk start as before the tight bounds (same image)
+    if (blast) {
+        bs = blastShape(A.xyz, B.x, A.w);
+        bb = blastBounds(A.xyz, bs, B.x, A.w);
+        blastBoxRef(A.xyz, bs, lo, hi);
+    } else wreckBox(A.xyz, B.x, lo, hi);
     vec3 ro = camPos.xyz, rd = normalize(vWorld - ro);
     vec3 inv = 1.0 / (abs(rd) + 1e-6) * sign(rd + 1e-9);
     vec3 ta = (lo - ro) * inv, tb = (hi - ro) * inv;
@@ -120,20 +162,37 @@ void main() {
     ivec3 stp = ivec3(sign(rd));
     vec3 tMax = ((vec3(cell) + step(vec3(0.0), rd)) * v - ro) * inv;
     vec3 tDel = abs(v * inv);
-    float tEnter = t0;
-    int ax = axis0;
-    bool blast = B.y < 0.5;
-    BlastShape bs;
-    if (blast) bs = blastShape(A.xyz, B.x, A.w);
+    float tEnter = t0, tEnd = t1;
+    int ax = axis0, k0 = 0;
+    if (blast) {   // empty-space skip: start at the parts' entry (that voxel's own entry face), stop at their exit
+        float sa, sb;
+        if (!blastRayInterval(bb, A.xyz, ro, rd, inv, 0.87 * v + 0.01, sa, sb)) discard;
+        tEnd = min(t1, sb);
+        if (tEnd <= max(t0, sa)) discard;
+        if (sa > t0) {
+            ivec3 c2 = ivec3(floor((ro + rd * sa) / v));
+            vec3 tv3 = ((vec3(c2) + vec3(lessThan(stp, ivec3(0)))) * v - ro) * inv;
+            tv3 = mix(tv3, vec3(-1e30), equal(stp, ivec3(0)));
+            int axv = tv3.x >= tv3.y && tv3.x >= tv3.z ? 0 : (tv3.y >= tv3.z ? 1 : 2);
+            if (tv3[axv] > t0) {   // a later voxel than the first one: as if the walk had stepped there (k0 steps)
+                ivec3 dc = abs(c2 - cell);
+                k0 = dc.x + dc.y + dc.z;
+                cell = c2;
+                tMax = ((vec3(cell) + step(vec3(0.0), rd)) * v - ro) * inv;
+                tEnter = tv3[axv];
+                ax = axv;
+            }
+        }
+    }
     vec3 mat;
     bool hit = false;
-    for (int k = 0; k < 160; ++k) {
+    for (int k = k0; k < 160; ++k) {
         vec3 q = (vec3(cell) + 0.5) * v;
         float d = blast ? blastDensity(q, A.xyz, B.x, A.w, B.z, bs, mat) : wreckDensity(q, A.xyz, B.x, A.w, B.w, B.z, mat);
         if (d > 0.0) { hit = true; break; }
         ax = tMax.x < tMax.y ? (tMax.x < tMax.z ? 0 : 2) : (tMax.y < tMax.z ? 1 : 2);
         tEnter = tMax[ax];
-        if (tEnter > t1) break;
+        if (tEnter > tEnd) break;
         cell[ax] += stp[ax];
         tMax[ax] += tDel[ax];
     }
