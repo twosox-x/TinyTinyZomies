@@ -6,11 +6,11 @@ Only the owner can approve. Status values: **pending review**, **changes request
 
 | Asset | Models | Animations | Notes |
 |---|---|---|---|
-| Rifleman (5 variants) | approved 2026-11-26 | not started | |
-| Machine gunner | approved 2026-11-26 | not started | |
-| Suppressed sniper | approved 2026-11-26 | not started | |
-| Infantry parachute | approved 2026-11-26 | not started | |
-| Supply-crate parachute | approved 2026-11-26 | not started | |
+| Rifleman (5 variants) | approved 2026-11-26 | pending review | |
+| Machine gunner | approved 2026-11-26 | pending review | |
+| Suppressed sniper | approved 2026-11-26 | pending review | |
+| Infantry parachute | approved 2026-11-26 | pending review | |
+| Supply-crate parachute | approved 2026-11-26 | pending review | |
 | Small ammo crate | approved 2026-11-26 | n/a | |
 | Central ammo supply container | approved 2026-11-26 | n/a | |
 | Wall segment / corner / T / end / gate | approved 2026-11-26 | n/a | |
@@ -18,7 +18,7 @@ Only the owner can approve. Status values: **pending review**, **changes request
 | Window and entrance barricades | approved 2026-11-26 | n/a | |
 | Garrison indicators and props | approved 2026-11-26 | n/a | |
 | Hospital indicators and props | approved 2026-11-26 | n/a | |
-| Weapon FX (muzzle flash, tracer, suppressed shot) | n/a | not started | |
+| Weapon FX (muzzle flash, tracer, suppressed shot) | n/a | pending review | |
 
 **Stage B gate: CLOSED.** It opens only after the owner gives explicit final approval of all rows above.
 
