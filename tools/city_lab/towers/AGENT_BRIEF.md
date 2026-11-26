@@ -1,3 +1,8 @@
+> **SUPERSEDED by `docs/PLUGINS.md`** for registries, units, materials, determinism, clipping rules and the add-a-thing recipe (it also
+> covers the kits added after this brief: park / service / traffic / yard, Vehicles). Kept for the skin / `Relief` / `buildTiers` examples and the
+> owner's design direction. Its paths `/tmp/claude-0/city/*.js` are obsolete: use `tools/city_lab/dev/` (`preview.js`, `spots.js`, `cam.js`) and `dev/check.js`.
+> "Do not add materials" still holds for plug-ins.
+
 # Writing a signature tower for City Lab
 
 City Lab: `tools/city_lab/`. Buildings live in `city_arch.js`. Towers are plug-ins in `towers/<name>.js`, one file per tower type. Each file registers itself:

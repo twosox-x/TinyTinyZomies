@@ -507,25 +507,24 @@ function trafficKit(K) {
   };
   const majorJ = (r) => (r.junctions || []).filter(j => j.major);
   const inJ = (r, s, pad) => (r.junctions || []).some(j => s > j.a - pad && s < j.b + pad);
-  // the road's raw crossings (another carriageway reaches one of its curb lines), without computeJunctions' merging
-  // of junctions closer than 22 m: a diagonal like Broadway crossing the grid is otherwise ~70% 'junction' and empty
+  // junction test for a stretch of one lane: blocked where any sample (along the stretch +-pad, across the lane)
+  // lies within 1 m of another (non-alley) carriageway. Finer than the road's merged junction intervals
+  // (computeJunctions merges crossings closer than 22 m and counts a road running alongside on one side): a diagonal
+  // like Broadway crossing the grid was ~70% 'junction' there and stayed empty
   const ev = {};
-  const rawJ = (r) => {
-    if (r._rawJ) return r._rawJ;
-    const out = [], half = r.P.half, st = 0.5; let cur = null;
-    for (let s = 0; s <= r.len; s += st) {
+  const inJL = (r, s0, s1, u, pad) => {
+    const n = Math.max(2, Math.ceil((s1 - s0 + 2 * pad) / 1.5));
+    for (let i = 0; i <= n; ++i) {
+      const s = clamp(s0 - pad + (s1 - s0 + 2 * pad) * i / n, 0, r.len);
       const [px, pz, tx, tz] = C.pointAt(r, s);
-      let hit = false;
-      for (const side of [1, -1]) {
-        F.evalPoint(px + tz * side * (half + 0.1), pz - tx * side * (half + 0.1), ev);
+      for (const du of [-1.3, 0, 1.3]) {
+        F.evalPoint(px + tz * (u + du), pz - tx * (u + du), ev);
         const other = ev.road === r.id ? ev.road2 : ev.road, dO = ev.road === r.id ? ev.oth : ev.dj;
-        if (other >= 0 && dO < 0.2 && net.roads[other].P.id !== 'alley') hit = true;
+        if (other >= 0 && dO < 1.0 && net.roads[other].P.id !== 'alley') return true;
       }
-      if (hit) { if (cur && s - cur.b <= st * 1.5) cur.b = s; else out.push(cur = { a: s, b: s }); }
     }
-    return (r._rawJ = out);
+    return false;
   };
-  const inJF = (r, s, pad) => rawJ(r).some(j => s > j.a - pad - 1.0 && s < j.b + pad + 1.0);
   const Rg = C.mulberry32(seed * 7919 + 17);
   const pickPaint = (Rr) => Math.floor(Rr() * 64);
   const CAR_MIX = { sedan: 26, suv: 18, hatchback: 10, pickup: 12, minivan: 10, coupe: 5, taxi: 3, panel_van: 5, box_truck: 2.5, delivery_van: 2.5, semi: 1.2, city_bus: 0.5, school_bus: 0.5 };
@@ -853,7 +852,7 @@ function trafficKit(K) {
     while (!end(s)) {
       const p = rho(s);
       if (p < 0.05) { s += d * 8; continue; }
-      if (inJF(r, s, 0.4)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
+      if (inJL(r, s - 0.5, s + 0.5, uC, 0.4)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
       if (Rr() > p) { s += d * (2 + Rr() * 6); continue; }
       if (opt.gapEvery && run >= opt.gapEvery) { run = 0; s += d * (6 + Rr() * 4); continue; }       // passable gap
       const kind = vehKind(Rr, opt.mix);
@@ -865,7 +864,7 @@ function trafficKit(K) {
       const V = vehicle(kind, { ps: Math.floor(Rr() * 64), seed: vs, state: st, doors });
       const half = (V.bb.x1 - V.bb.x0) / 2;
       const sc = s + d * half;
-      if (end(sc + d * half) || inJF(r, sc, half + 0.4)) { s = sc + d * 1; continue; }
+      if (end(sc + d * half) || inJL(r, sc - half, sc + half, uC, 0.6)) { s = sc + d * 1; continue; }
       let u = uC + (Rr() - 0.5) * (opt.jitU || 0);
       if (opt.curb) u = opt.curb.u - opt.curb.sg * ((V.bb.z1 - V.bb.z0) / 2 + 0.22 + Rr() * 0.12);
       const yaw = laneHeading(r, sc, u, half, d) + (abandoned ? (Rr() < 0.5 ? 1 : -1) * (0.3 + Rr() * 0.4) : (Rr() - 0.5) * (opt.jitYaw || 0));

@@ -9,6 +9,49 @@ Interactive Three.js prototype of the city layout and voxel road system. **Not p
 | `city_worker.js` | Web Worker: runs the core for a share of the chunks. |
 | `city_lab.html` | Three.js viewer and UI only. |
 
+## Architecture at a glance
+
+```
+city_core.js     roads, fields, voxel raster, plots, props, Vehicles library      (engine, renderer-free)
+city_arch.js     Emitter, materials, building toolkit (CityArch.lib), registries,
+                 buildAll pipeline: buildings -> suburbs -> service -> parks -> traffic -> cull pass
+towers/*.js      PLUG-INS, loaded in the order of towers/manifest.js:
+                 towers (registerTower), mid-rises / commercial (registerMid), houses (registerHouse),
+                 kits (roofKit, waterTankImpl, yardKit, serviceKit, parkKit, trafficKit)
+city_worker.js   runs core + arch for a share of the chunks      city_lab.html   Three.js viewer / UI only
+templates/       copy-me plug-ins: tower, mid, house, kit
+docs/PLUGINS.md  THE plug-in standard (registries, units, materials, determinism, clipping, recipes, lint TODO)
+dev/             headless checks and Playwright tools; dev/check.js runs the suite; dev/lib shared helpers
+```
+
+New content = new file in `towers/` + one line in `towers/manifest.js`. Read `docs/PLUGINS.md` first.
+
+## How to run
+
+- Viewer: `cd tools/city_lab && python3 -m http.server 8765`, open `http://localhost:8765/city_lab.html`.
+- Checks (from the repository root; builds need `--max-old-space-size=8000`, `check.js` sets it for its children):
+
+  ```bash
+  node tools/city_lab/dev/check.js            # seeds 1,2,3: zfight --props, groundfight --self, traffic, vehicles, access, regress
+  node tools/city_lab/dev/check.js 1 --quick  # one seed, skips access and regress (a few minutes)
+  node tools/city_lab/dev/check.js 4,5 --only=zfight,vehicles --jobs=2 --verbose
+  ```
+
+  One table, exit code 1 on any failure. `dev/baseline_downtown.json` is **stale** (see `docs/PLUGINS.md` section 8), so `regress` fails until
+  the owner approves a rebaseline: `node dev/regress.js --update` (+ `node dev/shots.js --update`); skip it meanwhile with `--skip=regress`.
+
+## Dev tools (`dev/`)
+
+| Tool | Use |
+|---|---|
+| `check.js` | the whole suite, one pass/fail table |
+| `zfight.js`, `groundfight.js`, `overlap.js`, `meshcheck.js` | coplanar / ground-overlay geometry checks (`meshcheck` = headless build library) |
+| `traffic_check.js`, `vehicles_check.js`, `access.js` | vehicle clearance, drive access, curb cuts |
+| `regress.js`, `shots.js` | geometry-signature and screenshot baselines |
+| `preview.js`, `spots.js`, `cam.js`, `vehicles_sheet.js` | screenshots of one design / places / free camera / vehicle sheet |
+| `perf.js`, `build_stats.js`, `vehicles_stats.js` | timing and triangle statistics |
+| `lib/pw.js`, `lib/args.js` | shared Playwright-from-disk helpers (`serve`, `freezeClock`, `waitBuilt`) and argv helpers |
+
 ## How the road system works
 
 1. **Network.** Roads are polylines with a profile (`PROFILES`: bands across the carriageway, sidewalk width, curb-return radius, median, centre line, crosswalks). The organic district grows from its arterials. Curves are Bezier curves sampled every 2–3 m.

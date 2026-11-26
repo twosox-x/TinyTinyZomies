@@ -1,10 +1,14 @@
 # Adding buildings and variations
 
+> The full plug-in standard is `docs/PLUGINS.md` (registries, units, materials, determinism, clipping, step-by-step recipes). This file keeps the owner-approved design history of the first three phases and the quick "to add" table.
+
 Downtown and the high-rises were approved by the owner. The approved state is commit `1bc2d2e`; the regression check `dev/regress.js` protects it. Everything new is added as a **plug-in file**, so approved designs are never edited by accident.
 
 | To add | Do this |
 |---|---|
 | A high-rise design | Copy `templates/tower_template.js` to `towers/<name>.js`, add it to `towers/manifest.js`. It joins the shuffled tower deck automatically. |
+| A house |  Copy `templates/house_template.js`, `registerHouse(name, fn, { minW, maxW, minD, maxD, weight })`. |
+| A kit (park / rural / service / traffic item) | Copy `templates/kit_template.js`; see `docs/PLUGINS.md` section 1. |
 | A mid-rise design (3–14 storeys) | Copy `templates/mid_template.js`, register with `zones`, `minW`/`maxW` (frontage, m) and `minFloors`/`maxFloors`. The placer picks types whose range fits the lot and the requested height. |
 | Rooftop equipment | Add a model and a rule in `towers/roofkit.js` (`CityArch.lib.roofKit`). Every mid-rise and row house calls it. |
 | Street furniture | Add a `model…()` and an entry in `PROP_TYPES` in `city_core.js`, and a rule in `placeProps()`. Instanced, so it is cheap. |
@@ -13,7 +17,7 @@ Downtown and the high-rises were approved by the owner. The approved state is co
 
 ## Toolkit
 
-The toolkit is `CityArch.lib`; see `towers/AGENT_BRIEF.md` for the full API.
+The toolkit is `CityArch.lib`; see `docs/PLUGINS.md` (registries) and `towers/AGENT_BRIEF.md` (skin / Relief examples).
 
 **Building blocks**
 - `buildTiers` stacks tiers (rectangle, notched or mask), handling soffits and roofs automatically.
@@ -58,7 +62,8 @@ Start a server first: `cd tools/city_lab && python3 -m http.server 8765`.
 4. **Confirm the approved downtown is unchanged:**
 
    ```bash
-   node dev/regress.js
+   node dev/check.js --quick   # everything headless; node dev/check.js for all seeds
+   node dev/regress.js         # locked-downtown signatures only
    ```
 
    Adding a new design shuffles which design lands on which lot. Re-record the baseline with `--update` after the owner approves the new look.
