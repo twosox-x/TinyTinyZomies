@@ -209,7 +209,14 @@ bool CityAsset::load(const std::string& dir) {
         for (const json::Value& p : r["pts"].arr) { pl.push_back(p[0].f()); pl.push_back(p[1].f()); }
         roads.push_back(std::move(pl));
     }
+    foliage.assign(j["foliage"]["types"].size(), {});
+    foliageSway.assign(foliage.size(), 0.f);
+    for (size_t k = 0; k < foliage.size(); ++k) {
+        foliage[k].name = j["foliage"]["types"][k]["name"].str;
+        foliageSway[k] = j["foliage"]["types"][k]["sway"].f(0.f);
+    }
     dir_ = dir;
+    if (!foliage.empty() && !loadVariants(dir + "/foliage.bin", "TTZF", 'F', 'G', foliage)) { SDL_Log("city: foliage.bin missing or invalid"); foliage.clear(); }
     if (!variants.empty() && !loadVariants(dir + "/vehicles.bin", "TTZV", 'V', 'W', variants)) SDL_Log("city: vehicles.bin missing or invalid");
     if (!props.empty() && !loadVariants(dir + "/props.bin", "TTZP", 'P', 'Q', props)) SDL_Log("city: props.bin missing or invalid");
     size_t present = 0;
@@ -310,6 +317,41 @@ bool decodeTileBytes(const std::vector<uint8_t>& b, TileCPU& out) {
         out.heightCm.resize(cells);
         std::memcpy(out.heightCm.data(), p + 20, cells * 2);
         out.flags.assign(p + 20 + cells * 2, p + 20 + cells * 3);
+    }
+    // WATR: (n x n) grid of shore distances (cm) -> 2 m surface quads where the water can show (shore distance > -1.6 m)
+    it = sec.find("WATR");
+    if (it != sec.end()) {
+        Reader r{it->second.first, it->second.second};
+        uint32_t nx = 0, nz = 0;
+        float cell = 1.f, gx0 = 0, gz0 = 0;
+        r.get(0, nx); r.get(4, nz); r.get(8, cell); r.get(12, gx0); r.get(16, gz0); r.get(20, out.waterLevel);
+        if (32 + (size_t)nx * nz * 2 > r.n || nx < 2 || nz < 2) return false;
+        const int16_t* sd = (const int16_t*)(it->second.first + 32);
+        const uint32_t st = 2;
+        for (uint32_t z = 0; z + st < nz; z += st)
+            for (uint32_t x = 0; x + st < nx; x += st) {
+                const int16_t c[4] = {sd[z * nx + x], sd[(z + st) * nx + x], sd[(z + st) * nx + x + st], sd[z * nx + x + st]};
+                if (std::max(std::max(c[0], c[1]), std::max(c[2], c[3])) < -160) continue;
+                const uint32_t px[4] = {x, x, x + st, x + st}, pz[4] = {z, z + st, z + st, z};   // CCW seen from +y
+                for (int k = 0; k < 4; ++k) {
+                    out.water.push_back(gx0 + px[k] * cell);
+                    out.water.push_back(gz0 + pz[k] * cell);
+                    out.water.push_back(c[k] * 0.01f);
+                }
+            }
+    }
+    it = sec.find("FOLI");
+    if (it != sec.end()) {
+        Reader r{it->second.first, it->second.second};
+        uint32_t count = 0;
+        r.get(0, count); r.get(4, out.foliChunks); r.get(8, out.foliTypes);
+        const size_t ns = (size_t)out.foliChunks * out.foliTypes + 1, o = 16 + ns * 4;
+        if (o + (size_t)count * 8 > r.n || out.foliChunks > 64 || out.foliTypes > 64) return false;
+        out.foliStart.resize(ns);
+        std::memcpy(out.foliStart.data(), it->second.first + 16, ns * 4);
+        out.foliage.resize((size_t)count * 2);
+        std::memcpy(out.foliage.data(), it->second.first + o, (size_t)count * 8);
+        if (out.foliStart.back() != count) return false;
     }
     return true;
 }

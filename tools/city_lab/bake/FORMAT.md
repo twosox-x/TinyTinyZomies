@@ -11,6 +11,7 @@ flat (ground y = 0, sidewalks / curbs at +0.15 m). City Lab draws with the same 
   vehicles.bin               vehicle / traffic-prop variant meshes (LOD0 + LOD1)
   props.bin                  street-furniture meshes (lamps, signals, benches, street trees, ...)
   landuse.bin                coarse land-use grid (u8 codes, legend in city.json)
+  foliage.bin                instanced voxel foliage models (crops, grass, reeds, rocks, hay; optional, section 4b)
 ```
 
 bake.js writes **file format v2** end to end: LOD1 order + `LOD2` + sub-tile chunks (`CHNK`) + zstd-compressed
@@ -22,11 +23,12 @@ sections store as ~94 MB (8x).
 
 ## 1. Common: binary file layout
 
-Every `.bin` starts with a 16-byte header and a section table; sections are 4-byte aligned, in table order.
+Optional sections / files (`WATR`, `FOLI`, `foliage.bin`) were added without a version bump: older readers skip them
+(unknown tags) and simply draw no water surface / foliage. Every `.bin` starts with a 16-byte header and a section table; sections are 4-byte aligned, in table order.
 
 | offset | type | field |
 |---|---|---|
-| 0 | char[4] | magic: `TTZT` tile, `TTZV` vehicles, `TTZP` props, `TTZL` land use |
+| 0 | char[4] | magic: `TTZT` tile, `TTZV` vehicles, `TTZP` props, `TTZL` land use, `TTZF` foliage |
 | 4 | u32 | format version: 1 or 2 |
 | 8 | u32 | section count `n` |
 | 12 | u32 | reserved (tile: `i | j << 16`; else 0) |
@@ -167,6 +169,35 @@ Sections, in this order (a section may be absent if empty):
   Cells with only vertical geometry thinner than the sampling (0.25 m) can be missed; poles (lamps / signals) are
   stamped from the `PROP` list as BLOCKED 0.5 m cells.
 
+- `WATR` — optional (tiles that water or a bank reaches): smooth water surface. Header (32 bytes): `u32 nx, u32 nz`
+  (129 x 129), `f32 cell` (1 m), `f32 x0, z0` (tile corner), `f32 level` (water surface y, m: -1.9), `f32 bank` (bank
+  width, m: 3.5), `u32` reserved; then `i16 sd[nz][nx]` = signed distance to the shore (cm, > 0 over the water) at the
+  grid points (x0 + i * cell, z0 + j * cell). Grid points on a tile edge are computed from the same world position in
+  both tiles, so surfaces meet without seams. The engine draws a flat surface at `level` over the cells whose corners
+  reach sd > -1.6 m (the bank hides the part under it) and shades it from the interpolated sd (depth tint, foam line
+  near the shore). The terrain under it (in `MESH`) is the bank: ground (+0.15 m at sd <= -3.5 m) sloping in 0.1 m
+  voxel steps to -2.3 m at the shore line and a bed to -3.6 m (`city_core.js WATER / bankY / waterColumn`); bed
+  material 206 marks HGT0 WATER. Road bridges cut the bank under their deck (carve to -2.6 m) and are part of `MESH`
+  (owned by the tile containing the bridge centre; HGT0 of every tile they cross is overridden: deck ROAD at +0.03 m,
+  sidewalks WALK at +0.18 m, parapets / central barrier / arch ribs BLOCKED).
+- `FOLI` — optional: instanced foliage owned by the tile (instance position inside the tile). Header: `u32 count, u32
+  nc (16 chunks, the CHNK grid), u32 nt (8 type slots), u32` reserved, `u32 start[nc * nt + 1]` = first instance of
+  each (chunk, type) range (chunk major, row = z; `start[nc * nt] = count`), then `count` records of **8 bytes**:
+
+  | offset | type | field |
+  |---|---|---|
+  | 0 | u16 | x: 1/512 m from the tile corner |
+  | 2 | u16 | z: 1/512 m from the tile corner |
+  | 4 | i16 | y: ground height, mm |
+  | 6 | u8 | yaw: 2 pi / 256 (model +z turns to (sin yaw, 0, cos yaw)) |
+  | 7 | u8 | scale: 1/100 |
+
+  Types (`city.json.foliage.types`, index = foliage.bin model): 0 wheat clump, 1 corn plant, 2 soy bush, 3 grass tuft,
+  4 reeds, 5 rock, 6 hay bale. Placement (`waterkit.js foliage`): jittered 0.8 m grid aligned to the (axis aligned)
+  field parcels: corn one plant per 0.8 m on the 2.4 m crop rows, soy on its 2.0 m rows, wheat clumps over the wheat
+  ground, grass tufts on pasture / verges / headlands, reeds at the waterline in 5 m clusters, rocks on the banks, rare
+  hay bales. Foliage never sets HGT0 `top` (ground cells keep VEG / OPEN from the raster).
+
 ## 4. `vehicles.bin` (magic `TTZV`) and `props.bin` (magic `TTZP`)
 
 For variant / type `k` (3-digit decimal): LOD0 mesh tag `V###` (vehicles) / `P###` (props); vehicle LOD1 tag `W###`
@@ -179,6 +210,15 @@ overturned wrecks; the bake checks R is orthonormal and reports `stats.quatMaxOr
 props (cones, barriers, debris: `kind` starts with `prop:`). Body paint: vertices with flag bit 0 (City Lab material =
 the paint placeholder `city.json.vehicles.paintPlaceholder`, 169) take the instance paint colour when the instance
 paint material id is non-zero, else keep the palette colour of 169.
+
+## 4b. `foliage.bin` (magic `TTZF`, optional)
+
+For type `k`: LOD0 mesh `F###`, LOD1 mesh `G###` (section 2, model space, metres, origin on the ground, voxel boxes;
+LOD1 = 1-3 boxes). `city.json.foliage = { file, types: [{ name, sway (wind weight 0..1), quads: [lod0, lod1] }],
+instances }`. Engine (src/city/CityWater.cpp `CityFoliage`): per visible tile chunk within 150 m one instanced draw per
+type, LOD0 below 45 m from the chunk, density thinned per instance from 70 m to 150 m (shrunk, no popping), wind sway
+growing with height. Materials 208-221 (wheat, corn, soy, grass, reed, rock, hay, bridge steel / stone, wood) extend
+the palette (`city.json.palette` has 222 entries).
 
 ## 5. `landuse.bin` (magic `TTZL`)
 
@@ -203,6 +243,8 @@ centres with `CityCore.landUseAt`. `city.json.landUse.legend` maps code -> name 
   "vehicles": { "paintPlaceholder": 169, "variants": [ { "key": "...", "kind": "sedan", "bb": [...], "count": n,
                 "lod1": true } ] },
   "props": { "types": [ { "name": "lamp", "count": n } ] },
+  "foliage": { "file": "foliage.bin", "types": [ { "name": "wheat", "sway": 1, "quads": [n0, n1] } ], "instances": n },   // optional (4b)
+  "water": { "level": -1.9, "bank": 3.5, "tiles": n, "bridges": [ { "road": id, "kind": "arch|girder", "a": [x, z], "b": [x, z], "width": m } ] },
   "roads": [ { "id": 0, "name": "...", "profile": "avenue", "class": "arterial", "width": 26.2,   // kerb to kerb + sidewalks
                "carriageway": 17.1, "pts": [[x, z], ...] } ],                                    // centreline, 0.1 m
   "landUse": { "file": "landuse.bin", "cell": 8, "legend": ["unknown", "core", ...] },

@@ -3,6 +3,7 @@
 #include "city/CityAsset.h"
 #include "city/CityRenderer.h"
 #include "city/CitySimWindow.h"
+#include "city/CityVehicles.h"
 #include "debug/Profiler.h"
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
@@ -64,6 +65,7 @@ struct AppState {
     CityAsset city;
     CityRenderer cityRenderer;
     CitySimWindow simWindow;
+    CityVehicles vehicles;             // dynamic vehicles (blasts, wrecks, chain reactions)
     Sandbox cityHome;                  // the initial window (scenario reset)
     bool cityMode = false, debugCam = false;
     std::vector<double> benchFrameMs, benchUploadMs;

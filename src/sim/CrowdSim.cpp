@@ -123,6 +123,8 @@ void CrowdSim::reset(const Sandbox& sb) {
     clearGore();
     pendingSpawns_.clear();
     pendingExplosions_.clear();
+    pendingFires_.clear();
+    explosionLog_.clear();
     simTime_ = 0.0;
     stepIndex_ = 0;
     stats_ = {};
@@ -150,8 +152,33 @@ void CrowdSim::requestSpawnCorpses(const Rect& r, uint32_t count) {
     if (count > 0) pendingSpawns_.push_back({r, count, 0, 0, false, true});
 }
 
-void CrowdSim::requestExplosion(float x, float y, float z) {
-    if (pendingExplosions_.size() < (size_t)kMaxExplosions) pendingExplosions_.push_back({x, y, z});
+void CrowdSim::requestExplosion(float x, float y, float z, float scale) {
+    if (pendingExplosions_.size() >= (size_t)kMaxExplosions) return;
+    pendingExplosions_.push_back({x, y, z, scale});
+    if (explosionLog_.size() < 256) explosionLog_.push_back({x, y, z, scale});
+}
+
+void CrowdSim::requestFire(float x, float y, float z, float size) {
+    if (pendingFires_.size() < 64) pendingFires_.push_back({x, y, z, size});
+}
+
+void CrowdSim::uploadStaticRows(SDL_GPUCommandBuffer* cmd, uint32_t z0, uint32_t rows, const float* data) {
+    const uint32_t W = (uint32_t)p_.gridW, H = (uint32_t)p_.gridH;
+    if (!rows || z0 >= H) return;
+    rows = std::min(rows, H - z0);
+    const uint32_t bytes = rows * W * 4;
+    if (sandbox_.heightOverride.size() == (size_t)W * H) std::memcpy(&sandbox_.heightOverride[(size_t)z0 * W], data, bytes);
+    SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
+    SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
+    if (!tb) return;
+    std::memcpy(SDL_MapGPUTransferBuffer(gpu_->device(), tb, false), data, bytes);
+    SDL_UnmapGPUTransferBuffer(gpu_->device(), tb);
+    SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTransferBufferLocation src{tb, 0};
+    SDL_GPUBufferRegion dst{staticH_, z0 * W * 4, bytes};
+    SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+    SDL_EndGPUCopyPass(cp);
+    SDL_ReleaseGPUTransferBuffer(gpu_->device(), tb);
 }
 
 void CrowdSim::setGoals(const std::vector<float>& xz) {
@@ -198,11 +225,19 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
     uint32_t ne = (uint32_t)pendingExplosions_.size();
     for (uint32_t e = 0; e < ne; ++e) {
         auto& x = pendingExplosions_[e];
-        u.explo[e] = {x[0], x[1], x[2], p_.explosionRadius};
-        u.exploP[e] = {p_.explosionStrength, p_.explosionLethality, p_.explosionUpBias, 1.f};
+        u.explo[e] = {x[0], x[1], x[2], p_.explosionRadius * std::sqrt(x[3])};
+        u.exploP[e] = {p_.explosionStrength * std::min(x[3], 1.6f), p_.explosionLethality * std::min(x[3], 1.6f), p_.explosionUpBias, x[3]};
     }
-    u.counts.y = ne;
     pendingExplosions_.clear();
+    // fire emitters in the free slots (radius 0: no blast; gore mode 4 only spawns flames and smoke)
+    uint32_t nf = 0;
+    for (; nf < pendingFires_.size() && ne < (uint32_t)kMaxExplosions; ++nf, ++ne) {
+        auto& f = pendingFires_[nf];
+        u.explo[ne] = {f[0], f[1], f[2], 0.f};
+        u.exploP[ne] = {0.f, 0.f, 0.f, -std::max(f[3], 0.1f)};
+    }
+    pendingFires_.erase(pendingFires_.begin(), pendingFires_.begin() + nf);
+    u.counts.y = ne;
 
     // 1. appends: spawn requests and corpse reactivation
     if (!pendingSpawns_.empty()) {

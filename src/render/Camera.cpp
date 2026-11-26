@@ -1,6 +1,7 @@
 #include "render/Camera.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ttz {
 
@@ -8,6 +9,7 @@ void Camera::setImmediate(V3 target, float yaw, float pitch, float distance) {
     goal_ = {target, yaw, std::clamp(pitch, settings.minPitch, settings.maxPitch),
              std::clamp(distance, settings.minDistance, settings.maxDistance)};
     cur_ = goal_;
+    pitchFloor_ = 0.f;
 }
 
 void Camera::update(float dt, float moveRight, float moveForward, float zoomNotches, float rotDx, float rotDy, float boost) {
@@ -21,12 +23,15 @@ void Camera::update(float dt, float moveRight, float moveForward, float zoomNotc
     goal_.yaw -= rotDx * settings.rotateSpeed;
     goal_.pitch = std::clamp(goal_.pitch + rotDy * settings.rotateSpeed, settings.minPitch, settings.maxPitch);
 
-    // exponential smoothing: identical feel at any frame rate
-    float a = 1.0f - std::exp(-settings.smoothing * dt);
+    // exponential smoothing (frame-rate independent); zoom is smoothed in log space so it feels even at any distance
+    // and the pitch follows max(user pitch, obstacle floor) so tall buildings tilt the view up smoothly, without pops
+    auto k = [&](float rate) { return 1.0f - std::exp(-rate * std::min(dt, 0.1f)); };
+    float a = k(settings.smoothing);
     cur_.target = cur_.target + (goal_.target - cur_.target) * a;
-    cur_.distance += (goal_.distance - cur_.distance) * a;
-    cur_.pitch += (goal_.pitch - cur_.pitch) * a;
-    cur_.yaw += (goal_.yaw - cur_.yaw) * a;   // goal yaw is unwrapped, so 360-degree turns stay smooth
+    cur_.distance = std::exp(std::log(cur_.distance) + (std::log(goal_.distance) - std::log(cur_.distance)) * k(settings.zoomSmoothing));
+    float pitchGoal = std::max(goal_.pitch, std::min(pitchFloor_, settings.maxPitch));
+    cur_.pitch += (pitchGoal - cur_.pitch) * k(settings.rotateSmoothing);
+    cur_.yaw += (goal_.yaw - cur_.yaw) * k(settings.rotateSmoothing);   // goal yaw is unwrapped, so 360-degree turns stay smooth
 }
 
 void Camera::clampTarget(float minX, float minZ, float maxX, float maxZ) {
@@ -34,21 +39,32 @@ void Camera::clampTarget(float minX, float minZ, float maxX, float maxZ) {
     goal_.target.z = std::clamp(goal_.target.z, minZ, maxZ);
 }
 
+void Camera::softClampTarget(float minX, float minZ, float maxX, float maxZ, float margin, float dt) {
+    float pull = 1.0f - std::exp(-6.f * dt);
+    auto soft = [&](float& v, float lo, float hi) {
+        if (v < lo) v += (lo - v) * pull;
+        else if (v > hi) v += (hi - v) * pull;
+        v = std::clamp(v, lo - margin, hi + margin);
+    };
+    soft(goal_.target.x, minX, maxX);
+    soft(goal_.target.z, minZ, maxZ);
+}
+
 void Camera::avoidObstacles(const std::function<float(float, float)>& heightAt, float clearance) {
-    for (State* st : {&goal_, &cur_}) {
-        for (int i = 0; i < 40; ++i) {
-            float cp = std::cos(st->pitch), sp = std::sin(st->pitch);
-            V3 e = st->target + V3{std::sin(st->yaw) * cp, sp, std::cos(st->yaw) * cp} * st->distance;
-            // sample along the last part of the view ray too, so walls between eye and target do not cut the view
-            bool blocked = false;
-            for (float t = 0.0f; t <= 0.5f && !blocked; t += 0.1f) {
-                V3 p = e + (st->target - e) * t;
-                blocked = p.y < heightAt(p.x, p.z) + clearance;
-            }
-            if (!blocked || st->pitch >= settings.maxPitch) break;
-            st->pitch = std::min(settings.maxPitch, st->pitch + 0.03f);
+    // lowest pitch (from the user's goal pitch up) at which the goal view's eye and the last part of the view ray clear
+    // the buildings; update() eases the current pitch towards it
+    auto blockedAt = [&](float pitch) {
+        float cp = std::cos(pitch), sp = std::sin(pitch);
+        V3 e = goal_.target + V3{std::sin(goal_.yaw) * cp, sp, std::cos(goal_.yaw) * cp} * goal_.distance;
+        for (float t = 0.0f; t <= 0.5f; t += 0.1f) {
+            V3 p = e + (goal_.target - e) * t;
+            if (p.y < heightAt(p.x, p.z) + clearance) return true;
         }
-    }
+        return false;
+    };
+    float p = goal_.pitch;
+    for (int i = 0; i < 40 && p < settings.maxPitch && blockedAt(p); ++i) p = std::min(settings.maxPitch, p + 0.03f);
+    pitchFloor_ = p;
 }
 
 V3 Camera::eye() const {

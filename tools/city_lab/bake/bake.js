@@ -9,7 +9,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
 const { Worker, isMainThread, parentPort, workerData } = require('worker_threads');
-const B = require('./lib.js'), LOD = require('./lod.js');
+const B = require('./lib.js'), LOD = require('./lod.js'), WK = require('./waterkit.js');
 
 const TILE = 128, MARGIN = 48, V = 0.1, HC = 0.5, HN = TILE / HC;   // tile m, field margin m, voxel m, height cell m
 const SXZ = 'auto', SY = 'auto';                     // per mesh: finest power of two that fits (FORMAT.md 2)
@@ -83,6 +83,24 @@ function workerMain() {
     // props owned by the tile
     const props = [];
     for (const p of P) for (const q of p.props) if (q.x >= x0 && q.x < x1 && q.z >= z0 && q.z < z1) props.push(q);
+    // ---- water: bridges / lake docks owned by the tile (centre inside), bridge lamps, lake-side trees
+    const owns = (x, z) => x >= x0 && x < x1 && z >= z0 && z < z1;
+    const xtra = WK.part();
+    C.bridgePlan(net).forEach((bq, bi) => {
+      if (owns(bq.A[0] + bq.ux * bq.len / 2, bq.A[1] + bq.uz * bq.len / 2)) { const P2 = WK.bridgeMesh(C, net, bq, bi); appendPart(xtra, P2); }
+      for (const l of WK.bridgeLamps(bq)) if (owns(l.x, l.z)) props.push(l);
+    });
+    for (const d of WK.lakeDocks(C, net)) if (owns(d.a[0] + d.ux * d.len / 2, d.a[1] + d.uz * d.len / 2)) appendPart(xtra, WK.dockMesh(C, d));
+    if (net.plan && net.plan.kind === 'tensor') for (let gz = Math.floor(z0 / 6); gz * 6 < z1; ++gz) for (let gx = Math.floor(x0 / 6); gx * 6 < x1; ++gx) {
+      const tx = (gx + C.hash2(gx, gz, 5101)) * 6, tz = (gz + C.hash2(gx, gz, 5103)) * 6;
+      if (!owns(tx, tz) || C.hash2(gx, gz, 5107) > 0.3) continue;
+      const sd = C.waterSD(net, tx, tz), lake = net.plan.lakes.some(l => Math.hypot(tx - l.c[0], tz - l.c[1]) < l.r * 1.6 + 16);
+      if (!lake || sd > -5.5 || sd < -16 || C.bridgeAt(net, tx, tz, 4)) continue;
+      const g = C.ruralGround(net, tx, tz, 99); if (!g || g.kind === 'farmyard') continue;
+      props.push({ type: 'tree', x: tx, y: 0.2, z: tz, yaw: C.hash2(gx, gz, 5109) * 6.283, phase: 0 });
+    }
+    const wgrid = WK.waterGrid(C, net, x0, z0, TILE);
+    const fol = WK.foliage(C, net, R, x0, z0, TILE);
     // ---- meshes
     const roadPart = { pos: m.pos, mat: m.mat, nrm: m.nrm, quads: m.quads, unit: V };
     const bldPart = { pos: Bm.pos, mat: Bm.mat, nrm: Bm.nrm, nvec: Bm.nvec, quads: Bm.quads, unit: V };
@@ -92,9 +110,14 @@ function workerMain() {
       return ax * ax + ay * ay + az * az >= lim2 || bx * bx + by * by + bz * bz >= lim2;
     };
     const st0 = {};
-    const mesh = B.meshSection([Object.assign({ lod1: farKeep(m.pos) }, roadPart), Object.assign({ lod1: farKeep(Bm.pos) }, bldPart)], SXZ, SY, [x0 + TILE / 2, 0, z0 + TILE / 2], st0);
-    // ---- height grid
-    const H = heightGrid(x0, z0, roadPart, bldPart, props);
+    const xPart = { pos: xtra.pos, mat: xtra.mat, nvec: xtra.nvec, quads: xtra.quads, unit: 1 };
+    const lim2x = 0.35 * 0.35, farKeepX = (q) => { const Pp = xPart.pos, o = q * 12; return (Pp[o + 3] - Pp[o]) ** 2 + (Pp[o + 4] - Pp[o + 1]) ** 2 + (Pp[o + 5] - Pp[o + 2]) ** 2 >= lim2x || (Pp[o + 9] - Pp[o]) ** 2 + (Pp[o + 10] - Pp[o + 1]) ** 2 + (Pp[o + 11] - Pp[o + 2]) ** 2 >= lim2x; };
+    const mparts = [Object.assign({ lod1: farKeep(m.pos) }, roadPart), Object.assign({ lod1: farKeep(Bm.pos) }, bldPart)];
+    if (xPart.quads) mparts.push(Object.assign({ lod1: farKeepX }, xPart));
+    const mesh = B.meshSection(mparts, SXZ, SY, [x0 + TILE / 2, 0, z0 + TILE / 2], st0);
+    // ---- height grid (bridge decks override the cut bank under them)
+    const H = heightGrid(x0, z0, roadPart, xPart.quads ? [bldPart, xPart] : [bldPart], props);
+    WK.stampBridges(C, net, H, x0, z0, HC, HN, F);
     const spawns = spawnPoints(H, x0, z0, i, j);
     // traffic out: variant keys + meshes not sent yet by this worker
     let tr = null;
@@ -109,12 +132,15 @@ function workerMain() {
     const sections = [['MESH', mesh]];
     if (props.length) sections.push(['PROP', propSection(props, msg.propIndex)]);
     sections.push(['HGT0', hgtSection(H, x0, z0)]);
-    parentPort.postMessage({ ij: msg.ij, sections, traffic: tr, spawns, ms: Date.now() - t0, tris0: st0.tris0, tris1: st0.tris1, clamped: st0.clamped, props: props.map(p => p.type), pages: pages.size,
+    if (wgrid) sections.push(['WATR', WK.waterSection(B, C, wgrid, x0, z0)]);
+    if (fol.length) sections.push(['FOLI', WK.foliageSection(B, fol, x0, z0)]);
+    parentPort.postMessage({ ij: msg.ij, sections, traffic: tr, spawns, ms: Date.now() - t0, foliage: fol.length, water: !!wgrid, tris0: st0.tris0, tris1: st0.tris1, clamped: st0.clamped, props: props.map(p => p.type), pages: pages.size,
       heap: Math.round(process.memoryUsage().heapUsed / 1048576) });
   });
   parentPort.postMessage({ ready: true });
 }
 
+function appendPart(D, S) { for (const v of S.pos) D.pos.push(v); for (const v of S.mat) D.mat.push(v); for (const v of S.nvec) D.nvec.push(v); D.quads += S.quads; }
 function propSection(props, index) {
   const w = new B.W(4 + props.length * 24); w.u32(props.length);
   for (const p of props) { w.u16(index[p.type]); w.u16(0); w.f32(p.x); w.f32(p.y || 0); w.f32(p.z); w.f32(p.yaw || 0); w.f32(p.phase || 0); }
@@ -161,7 +187,7 @@ function heightGrid(x0, z0, road, bld, props) {
     if (OPENM.has(m)) flags[k] |= F.OPEN; if (VEGG.has(m)) flags[k] |= F.VEG; if (WATERM.has(m)) flags[k] |= F.WATER;
     top[k] = ground[k];
   }
-  stampQuads(bld, x0, z0, (k, y, m) => {
+  for (const bp of (Array.isArray(bld) ? bld : [bld])) stampQuads(bp, x0, z0, (k, y, m) => {
     if (FOLIAGE.has(m) && y > ground[k] + 1.0) { flags[k] |= F.VEG; return; }
     if (WATERM.has(m)) flags[k] |= F.WATER;
     if (y > solid[k]) solid[k] = y;
@@ -229,7 +255,7 @@ async function main() {
         const [i, j] = d.ij;
         fs.writeFileSync(path.join(out, 'tiles', `${i}_${j}.part`), B.writeFile('TTZT', i | j << 16, d.sections.map(([t, x]) => [t, Buffer.from(x.buffer, x.byteOffset, x.byteLength)])));
         if (d.traffic) for (const v of d.traffic.variants) if (v.hi && !variantMesh.has(v.key)) variantMesh.set(v.key, v);
-        res.set(d.ij.join(','), { traffic: d.traffic, spawns: d.spawns, ms: d.ms, tris0: d.tris0, tris1: d.tris1, clamped: d.clamped, props: d.props });
+        res.set(d.ij.join(','), { traffic: d.traffic, spawns: d.spawns, ms: d.ms, foliage: d.foliage, water: d.water, tris0: d.tris0, tris1: d.tris1, clamped: d.clamped, props: d.props });
         maxHeap = Math.max(maxHeap, d.heap);
         if (++done % 10 === 0 || done === todo.length) console.log(`  ${done}/${todo.length} tiles  ${((Date.now() - t0) / 1000).toFixed(0)} s  (last ${d.ms} ms, worker heap ${d.heap} MB, pages ${d.pages})`);
         give();
@@ -292,6 +318,11 @@ async function main() {
   const vfile = B.writeFile('TTZV', 0, vsecs, { v2: true, zstd: level }); fs.writeFileSync(path.join(out, 'vehicles.bin'), vfile); bytes += vfile.length;
   const pm = C.buildPropMeshes(), psecs = propTypes.map((t, n) => ['P' + String(n).padStart(3, '0'), B.meshSection([Object.assign({ unit: 1, quads: pm[t].pos.length / 12 }, pm[t])], 'auto', 'auto', [0, 0, 0])]);
   const pfile = B.writeFile('TTZP', 0, psecs, { v2: true, zstd: level }); fs.writeFileSync(path.join(out, 'props.bin'), pfile); bytes += pfile.length;
+  // ---- foliage.bin: instanced voxel foliage models (LOD0 F###, LOD1 G###)
+  const fm = WK.foliageModels(C), fsecs = [];
+  fm.forEach(([a, l1], n) => { const id = String(n).padStart(3, '0');
+    fsecs.push(['F' + id, B.meshSection([a], 'auto', 'auto', [0, 0, 0])]); fsecs.push(['G' + id, B.meshSection([l1], 'auto', 'auto', [0, 0, 0])]); });
+  const ffile = B.writeFile('TTZF', 0, fsecs, { v2: true, zstd: level }); fs.writeFileSync(path.join(out, 'foliage.bin'), ffile); bytes += ffile.length;
   // ---- land use (8 m)
   const LC = 8, lnx = Math.ceil((b.x1 - b.x0) / LC), lnz = Math.ceil((b.z1 - b.z0) / LC), legend = ['unknown'], lcode = new Map();
   const lw = new B.W(20 + lnx * lnz + 4); lw.u32(lnx); lw.u32(lnz); lw.f32(LC); lw.f32(b.x0); lw.f32(b.z0);
@@ -315,6 +346,9 @@ async function main() {
     palette: palette(C, A),
     vehicles: { paintPlaceholder: paintPH, variants: keys.map((k, n) => { const v = variantMesh.get(k); return { key: k, kind: v.kind, bb: v.bb, count: vCount[n], lod1: !!(v.lo && v.lo.quads) }; }) },
     props: { types: propTypes.map(t => ({ name: t, count: propCount[t] || 0 })) },
+    foliage: { file: 'foliage.bin', types: WK.FT_NAMES.map((t, n) => ({ name: t, sway: WK.FT_SWAY[n], quads: [fm[n][0].quads, fm[n][1].quads] })), instances: sum(r => r.foliage) },
+    water: { level: C.WATER.level, bank: C.WATER.bank, tiles: sum(r => r.water ? 1 : 0),
+      bridges: C.bridgePlan(net).map((bq, bi) => ({ road: bq.road, kind: bi % 2 === 0 ? 'arch' : 'girder', a: bq.A.map(v => +v.toFixed(2)), b: bq.B.map(v => +v.toFixed(2)), width: +(2 * bq.hw).toFixed(2) })) },
     roads: net.roads.map(r => {
       const P = C.PROFILES[r.profile] || {}, cw = (P.bands || []).reduce((s, x) => s + x[2], 0);
       return { id: r.id, name: r.name || '', profile: r.profile, class: r.cls || P.cls || '', width: +(cw + 2 * (P.sidewalk || 0)).toFixed(2), carriageway: +cw.toFixed(2),
@@ -366,10 +400,11 @@ function quatOf(M) {
 // palette: 208 entries, colours as the viewer registers them (core 0..29, plot overlay 30..53 unused in meshes,
 // arch, props, vehicles), names from MAT / BM / PM / VM / GROUND, flags + emissive modes from city_lab.html's shader
 function palette(C, A) {
-  const srgb = []; for (let k = 0; k < 208; ++k) srgb.push([128, 128, 128]);
+  const NPAL = 222, srgb = []; for (let k = 0; k < NPAL; ++k) srgb.push([128, 128, 128]);
   C.PALETTE.forEach((c, k) => { srgb[k] = c; });
   for (const k in A.ARCH_PALETTE) srgb[+k] = A.ARCH_PALETTE[k];
   for (const k in C.PROP_PALETTE) srgb[+k] = C.PROP_PALETTE[k];
+  for (const k in WK.XPAL) srgb[+k] = WK.XPAL[k];
   const names = {};
   for (const [src, pre] of [[C.MAT, ''], [C.GROUND || {}, 'GROUND_'], [A.BM, ''], [C.PM, ''], [C.VM, 'VEH_']]) for (const n in src) if (names[src[n]] === undefined) names[src[n]] = pre + n;
   const lin = (v) => { v /= 255; return +(v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)).toFixed(5); };
@@ -384,15 +419,15 @@ function palette(C, A) {
     68: { mode: 'signal', day: 1.4, night: 3.2, light: 'dontwalk' }, 69: { mode: 'signal', day: 1.4, night: 3.2, light: 'walk' }
   };
   const out = [];
-  for (let k = 0; k < 208; ++k) {
+  for (let k = 0; k < NPAL; ++k) {
     const g = gloss(k), fl = [];
     if (g >= 0.4 && k !== 152 && k !== 191 && k !== 178) fl.push('glass');
     if (EM[k]) fl.push('emissive'); if (EM[k] && EM[k].mode === 'signal') fl.push('signal');
     if (k === 152 || k === 206) fl.push('water');
-    if (k === 133 || k === 134) fl.push('foliage');
+    if (k === 133 || k === 134 || WK.XFOLIAGE.includes(k)) fl.push('foliage');
     if (k === 169) fl.push('paint');
     if (k >= 30 && k <= 53) fl.push('overlay');
-    const e = { id: k, name: names[k] || (k >= 30 && k <= 53 ? 'PLOT_' + (k - 30) : (k >= 113 && k <= 125 ? 'SHADE_' + (k - 113) : '')), srgb: srgb[k].slice(), linear: srgb[k].map(lin),
+    const e = { id: k, name: names[k] || WK.XNAMES[k] || (k >= 30 && k <= 53 ? 'PLOT_' + (k - 30) : (k >= 113 && k <= 125 ? 'SHADE_' + (k - 113) : '')), srgb: srgb[k].slice(), linear: srgb[k].map(lin),
       roughness: +(1 - 0.85 * g).toFixed(2), gloss: g, flags: fl };
     if (EM[k]) e.emissive = EM[k];
     out.push(e);

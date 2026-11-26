@@ -101,6 +101,25 @@ void drawDebugUI(AppState& s) {
         ImGui::Text("F2: %s camera", s.debugCam ? "debug (free)" : "RTS");
     }
 
+    if (ImGui::CollapsingHeader("Look (fog, exposure, miniature)")) {
+        RenderSettings& rs = s.renderSettings;
+        ImGui::SliderFloat("exposure", &rs.exposure, 0.4f, 2.5f);
+        ImGui::SliderFloat("fog density", &rs.fogDensity, 0.0f, 0.006f, "%.4f");
+        ImGui::SliderFloat("fog start (x cam dist)", &rs.fogStart, 0.0f, 2.0f);
+        ImGui::SliderFloat("saturation", &rs.saturation, 0.5f, 1.8f);
+        ImGui::SliderFloat("contrast", &rs.contrast, 0.7f, 1.5f);
+        ImGui::SliderFloat("vignette", &rs.vignette, 0.0f, 0.6f);
+        ImGui::Checkbox("tilt-shift (miniature)", &rs.tiltShift);
+        if (rs.tiltShift) {
+            ImGui::SliderFloat("tilt strength", &rs.tiltStrength, 0.0f, 1.0f);
+            ImGui::SliderFloat("sharp band", &rs.tiltBand, 0.0f, 0.5f);
+            ImGui::SliderFloat("band softness", &rs.tiltSoftness, 0.02f, 0.6f);
+            ImGui::SliderFloat("depth range (x cam dist)", &rs.tiltDepthRange, 0.2f, 4.0f);
+            ImGui::SliderFloat("depth weight", &rs.tiltDepthWeight, 0.0f, 1.0f);
+            ImGui::SliderFloat("blur radius", &rs.tiltRadius, 0.5f, 4.0f);
+        }
+    }
+
     if (ImGui::CollapsingHeader("Characters", ImGuiTreeNodeFlags_DefaultOpen)) {
         RenderSettings& rs = s.renderSettings;
         CharacterSettings& cs = rs.chars;

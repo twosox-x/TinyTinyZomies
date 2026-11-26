@@ -66,6 +66,8 @@ bool App::init() {
     if (s_.cityMode) {
         if (!s_.cityRenderer.init(s_.gpu, s_.city, s_.renderer.msaaSamples() == 4 ? SDL_GPU_SAMPLECOUNT_4 : SDL_GPU_SAMPLECOUNT_1)) return false;
         s_.renderer.setCity(&s_.cityRenderer);
+        s_.vehicles.init(s_.city.variants);
+        s_.cityRenderer.setVehicles(&s_.vehicles);
         s_.cityHome = s_.sandbox;
         if (!s_.simWindow.init(s_.gpu, s_.city, s_.sandbox, s_.renderer)) return false;
         s_.simWindow.enabled = o.cityFollow;
@@ -137,7 +139,10 @@ void App::applyCameraRig() {
     const float deg = 3.14159265f / 180.f;
     if (!s_.cityMode) return;
     if (s_.debugCam) { c.minDistance = 1.5f; c.maxDistance = 1800.f; c.minPitch = 0.05f; c.maxPitch = 89.f * deg; }
-    else { c.minDistance = 30.f; c.maxDistance = 300.f; c.minPitch = 35.f * deg; c.maxPitch = 70.f * deg; }
+    else {   // min zoom 45 m: closer the voxel city and the crowd fall apart; damped pan / zoom / rotate (Camera::update)
+        c.minDistance = 45.f; c.maxDistance = 300.f; c.minPitch = 35.f * deg; c.maxPitch = 70.f * deg;
+        c.smoothing = 9.f; c.zoomSmoothing = 7.f; c.rotateSmoothing = 11.f;
+    }
 }
 
 void App::loadScenario(int index, int count) {
@@ -154,7 +159,22 @@ void App::loadScenario(int index, int count) {
         s_.simWindow.resetTo(s_.sandbox, s_.renderer);
     }
     s_.staticHeights = s_.sandbox.rasterize();
+    if (SDL_getenv("TTZ_TMP_WALL")) {   // TEMP
+        const Sandbox& sb = s_.sandbox;
+        for (const Rect& r : sc.spawns) {
+            float cx = 0.5f * (r.minX + r.maxX), cz = 0.5f * (r.minZ + r.maxZ), best = 1e30f, bx = 0, bz = 0;
+            for (int k = 0; k < sb.gridH; ++k) for (int i = 0; i < sb.gridW; ++i) {
+                if (s_.staticHeights[(size_t)k * sb.gridW + i] < 6.f) continue;
+                float x = sb.originX + (i + 0.5f) * sb.cellSize, z = sb.originZ + (k + 0.5f) * sb.cellSize;
+                float d = (x - cx) * (x - cx) + (z - cz) * (z - cz);
+                if (d < best) { best = d; bx = x; bz = z; }
+            }
+            SDL_Log("TMP spawn %.1f %.1f r %.1f wall %.1f %.1f dist %.1f", cx, cz, 0.5f * (r.maxX - r.minX), bx, bz, std::sqrt(best));
+        }
+    }
     s_.sim.reset(s_.sandbox);
+    if (s_.cityMode && s_.sandbox.map == MapKind::Baked)   // vehicles keep their state; their obstacles go back in
+        s_.vehicles.setWindow(s_.sandbox.originX, s_.sandbox.originZ, s_.sandbox.cellSize, s_.sandbox.gridW, s_.sandbox.gridH, s_.staticHeights);
     s_.sim.setGoals(sc.goals);
     int n = count > 0 ? count : sc.defaultCount;
     s_.spawnCount = n;
@@ -329,7 +349,7 @@ void App::frame(double dt) {
     if (s.opt.cityBench > 0) cityBenchStep();
     else s.camera.update((float)dt, mx, mz, wheel_, rotDx_ + turn * 300.f * (float)dt, rotDy_, boost);
     if (s.cityMode) {
-        s.camera.clampTarget(s.city.x0, s.city.z0, s.city.x1, s.city.z1);
+        s.camera.softClampTarget(s.city.x0, s.city.z0, s.city.x1, s.city.z1, 40.f, (float)dt);
         if (!s.debugCam)
             s.camera.avoidObstacles([&](float x, float z) { return s.cityRenderer.heightAt(x, z); });
     } else {
@@ -378,6 +398,8 @@ void App::frame(double dt) {
             postShots_.push_back({s.frameIndex + (uint64_t)s.opt.shotsOnMove, moves_});
         }
         moves_ += moved ? 1 : 0;
+        if (moved) s.vehicles.setWindow(s.sandbox.originX, s.sandbox.originZ, s.sandbox.cellSize, s.sandbox.gridW, s.sandbox.gridH,
+                                        s.sandbox.heightOverride);
     }
     if (s.opt.panSpawnEvery > 0 && s.opt.panSpeed > 0 && (int)s.frameIndex >= s.opt.panStart) {
         int k = ((int)s.frameIndex - s.opt.panStart) / s.opt.panSpawnEvery, r = ((int)s.frameIndex - s.opt.panStart) % s.opt.panSpawnEvery;
@@ -385,6 +407,12 @@ void App::frame(double dt) {
         float ax = p.x + 15.f * std::cos(k * 2.4f), az = p.z + 15.f * std::sin(k * 2.4f);
         if (r == 0) s.sim.requestSpawn({ax - 40.f, az - 40.f, ax + 40.f, az + 40.f}, 400);   // lands on the streets in the rect
         if (r == s.opt.panSpawnEvery / 2) { s.sim.requestExplosion(ax, 0.4f, az); s.renderer.addBlast(ax, 0.4f, az); }
+    }
+    if (s.cityMode && !s.paused) {   // vehicles: blasts of this frame, rigid bodies, fuses -> new explosions, obstacle rows
+        s.vehicles.update(cmd, (float)(dt * s.simSpeed), s.sim, [&](float x, float y, float z, float scale) {
+            s.renderer.addBlast(x, y, z);
+            if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.3f * scale);
+        });
     }
     if (!s.paused) {
         s.simAccumulator += dt * s.simSpeed;
@@ -414,6 +442,12 @@ void App::frame(double dt) {
         std::vector<PointLight> lamps;
         V3 p = s.camera.target();
         s.cityRenderer.nearestLamps(p.x, p.z, kMaxLights, lamps);
+        std::vector<PointLight> fires;   // burning vehicles take the place of the farthest lamps
+        s.vehicles.fireLights(p.x, p.z, s.renderTime, 8, fires);
+        if (!fires.empty()) {
+            lamps.resize(std::min(lamps.size(), (size_t)kMaxLights - fires.size()));
+            lamps.insert(lamps.begin(), fires.begin(), fires.end());
+        }
         s.renderer.setLights(lamps);
     }
     if (!s.window || swap) {

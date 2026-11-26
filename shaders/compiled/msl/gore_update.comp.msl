@@ -821,98 +821,150 @@ void explosionFx(thread const uint& e, thread const uint& t, constant SimUniform
     float3 _1726 = randDir(param_1);
     rng = param_1;
     float3 d = _1726;
+    float s = _201.exploP[e].w;
+    if (s < 0.0)
+    {
+        float sz = -s;
+        uint param_2 = rng;
+        float _1742 = rand01(param_2);
+        rng = param_2;
+        uint param_3 = rng;
+        float _1749 = rand01(param_3);
+        rng = param_3;
+        float3 o = float3((_1742 - 0.5) * sz, 0.0, ((_1749 - 0.5) * sz) * 0.5);
+        if (t < 14u)
+        {
+            uint param_4 = rng;
+            float _1769 = rand01(param_4);
+            rng = param_4;
+            uint param_5 = rng;
+            float _1780 = rand01(param_5);
+            rng = param_5;
+            uint param_6 = rng;
+            float _1786 = rand01(param_6);
+            rng = param_6;
+            float3 param_7 = c + o;
+            float3 param_8 = float3(d.x * 0.60000002384185791015625, 1.2000000476837158203125 + (2.0 * _1769), d.z * 0.60000002384185791015625);
+            float param_9 = 0.449999988079071044921875 + (0.449999988079071044921875 * _1780);
+            uint param_10 = 1u;
+            float param_11 = 0.25 + (0.300000011920928955078125 * _1786);
+            spawnParticle(param_7, param_8, param_9, param_10, param_11, _201, _435, _445);
+        }
+        else
+        {
+            if (t < 17u)
+            {
+                uint param_12 = rng;
+                float _1812 = rand01(param_12);
+                rng = param_12;
+                uint param_13 = rng;
+                float _1823 = rand01(param_13);
+                rng = param_13;
+                uint param_14 = rng;
+                float _1829 = rand01(param_14);
+                rng = param_14;
+                float3 param_15 = (c + o) + float3(0.0, 0.800000011920928955078125, 0.0);
+                float3 param_16 = float3(d.x * 0.5, 1.5 + (1.5 * _1812), d.z * 0.5);
+                float param_17 = 1.2000000476837158203125 + (1.2999999523162841796875 * _1823);
+                uint param_18 = 2u;
+                float param_19 = 0.20000000298023223876953125 + (0.25 * _1829);
+                spawnParticle(param_15, param_16, param_17, param_18, param_19, _201, _435, _445);
+            }
+        }
+        return;
+    }
     if (t < 140u)
     {
         d.y = abs(d.y);
-        uint param_2 = rng;
-        float _1741 = rand01(param_2);
-        rng = param_2;
-        uint param_3 = rng;
-        float _1753 = rand01(param_3);
-        rng = param_3;
-        uint param_4 = rng;
-        float _1763 = rand01(param_4);
-        rng = param_4;
-        uint param_5 = rng;
-        float _1769 = rand01(param_5);
-        rng = param_5;
-        float3 param_6 = (c + (d * (0.300000011920928955078125 + (1.2000000476837158203125 * _1741)))) + float3(0.0, 0.5, 0.0);
-        float3 param_7 = (d * (2.0 + (9.0 * _1753))) + float3(0.0, 2.0, 0.0);
-        float param_8 = 0.3499999940395355224609375 + (0.5 * _1763);
-        uint param_9 = 1u;
-        float param_10 = 0.25 + (0.3499999940395355224609375 * _1769);
-        spawnParticle(param_6, param_7, param_8, param_9, param_10, _201, _435, _445);
+        uint param_20 = rng;
+        float _1853 = rand01(param_20);
+        rng = param_20;
+        uint param_21 = rng;
+        float _1867 = rand01(param_21);
+        rng = param_21;
+        uint param_22 = rng;
+        float _1879 = rand01(param_22);
+        rng = param_22;
+        uint param_23 = rng;
+        float _1888 = rand01(param_23);
+        rng = param_23;
+        float3 param_24 = (c + ((d * (0.300000011920928955078125 + (1.2000000476837158203125 * _1853))) * s)) + float3(0.0, 0.5, 0.0);
+        float3 param_25 = ((d * (2.0 + (9.0 * _1867))) + float3(0.0, 2.0, 0.0)) * s;
+        float param_26 = (0.3499999940395355224609375 + (0.5 * _1879)) * sqrt(s);
+        uint param_27 = 1u;
+        float param_28 = 0.25 + (0.3499999940395355224609375 * _1888);
+        spawnParticle(param_24, param_25, param_26, param_27, param_28, _201, _435, _445);
     }
     else
     {
         if (t < 230u)
         {
             d.y = (abs(d.y) * 0.60000002384185791015625) + 0.20000000298023223876953125;
-            uint param_11 = rng;
-            float _1801 = rand01(param_11);
-            rng = param_11;
-            uint param_12 = rng;
-            float _1809 = rand01(param_12);
-            rng = param_12;
-            uint param_13 = rng;
-            float _1815 = rand01(param_13);
-            rng = param_13;
-            float3 param_14 = (c + (d * 1.2000000476837158203125)) + float3(0.0, 0.800000011920928955078125, 0.0);
-            float3 param_15 = d * (1.0 + (3.5 * _1801));
-            float param_16 = 0.800000011920928955078125 + (1.39999997615814208984375 * _1809);
-            uint param_17 = 2u;
-            float param_18 = 0.1500000059604644775390625 + (0.25 * _1815);
-            spawnParticle(param_14, param_15, param_16, param_17, param_18, _201, _435, _445);
+            uint param_29 = rng;
+            float _1921 = rand01(param_29);
+            rng = param_29;
+            uint param_30 = rng;
+            float _1931 = rand01(param_30);
+            rng = param_30;
+            uint param_31 = rng;
+            float _1939 = rand01(param_31);
+            rng = param_31;
+            float3 param_32 = (c + ((d * 1.2000000476837158203125) * s)) + float3(0.0, 0.800000011920928955078125, 0.0);
+            float3 param_33 = (d * (1.0 + (3.5 * _1921))) * s;
+            float param_34 = (0.800000011920928955078125 + (1.39999997615814208984375 * _1931)) * s;
+            uint param_35 = 2u;
+            float param_36 = 0.1500000059604644775390625 + (0.25 * _1939);
+            spawnParticle(param_32, param_33, param_34, param_35, param_36, _201, _435, _445);
         }
         else
         {
             if (t < 400u)
             {
                 d.y = abs(d.y) + 0.5;
-                uint param_19 = rng;
-                float _1845 = rand01(param_19);
-                rng = param_19;
-                uint param_20 = rng;
-                float _1854 = rand01(param_20);
-                rng = param_20;
-                float3 param_21 = c + float3(0.0, 0.20000000298023223876953125, 0.0);
-                float3 param_22 = fast::normalize(d) * (5.0 + (10.0 * _1845));
-                float param_23 = 4.0;
-                uint param_24 = 3u;
-                float param_25 = 0.0599999986588954925537109375 + (0.100000001490116119384765625 * _1854);
-                spawnParticle(param_21, param_22, param_23, param_24, param_25, _201, _435, _445);
+                uint param_37 = rng;
+                float _1969 = rand01(param_37);
+                rng = param_37;
+                uint param_38 = rng;
+                float _1981 = rand01(param_38);
+                rng = param_38;
+                float3 param_39 = c + float3(0.0, 0.20000000298023223876953125, 0.0);
+                float3 param_40 = (fast::normalize(d) * (5.0 + (10.0 * _1969))) * sqrt(s);
+                float param_41 = 4.0;
+                uint param_42 = 3u;
+                float param_43 = 0.0599999986588954925537109375 + (0.100000001490116119384765625 * _1981);
+                spawnParticle(param_39, param_40, param_41, param_42, param_43, _201, _435, _445);
             }
             else
             {
                 d.y = abs(d.y) + 0.20000000298023223876953125;
-                uint param_26 = rng;
-                float _1878 = rand01(param_26);
-                rng = param_26;
-                uint param_27 = rng;
-                float _1885 = rand01(param_27);
-                rng = param_27;
-                float3 param_28 = c + float3(0.0, 0.4000000059604644775390625, 0.0);
-                float3 param_29 = fast::normalize(d) * (8.0 + (14.0 * _1878));
-                float param_30 = 0.300000011920928955078125 + (0.5 * _1885);
-                uint param_31 = 4u;
-                float param_32 = 0.02999999932944774627685546875;
-                spawnParticle(param_28, param_29, param_30, param_31, param_32, _201, _435, _445);
+                uint param_44 = rng;
+                float _2005 = rand01(param_44);
+                rng = param_44;
+                uint param_45 = rng;
+                float _2015 = rand01(param_45);
+                rng = param_45;
+                float3 param_46 = c + float3(0.0, 0.4000000059604644775390625, 0.0);
+                float3 param_47 = (fast::normalize(d) * (8.0 + (14.0 * _2005))) * sqrt(s);
+                float param_48 = 0.300000011920928955078125 + (0.5 * _2015);
+                uint param_49 = 4u;
+                float param_50 = 0.02999999932944774627685546875;
+                spawnParticle(param_46, param_47, param_48, param_49, param_50, _201, _435, _445);
             }
         }
     }
     float cell = 1.0 / (_201.world.w * 3.0);
     for (uint k = t; k < 1024u; k += 512u)
     {
-        int2 o = int2(int(k % 32u) - 16, int(k / 32u) - 16);
-        float2 xz = c.xz + (float2(o) * cell);
-        float r = (length(float2(o)) * cell) / 3.2000000476837158203125;
-        uint param_33 = uint((o.x * 73) + (o.y * 977)) ^ ((e * 31u) + uint(_201.timeP.z));
-        float n = hash01(param_33);
+        int2 o_1 = int2(int(k % 32u) - 16, int(k / 32u) - 16);
+        float2 xz = c.xz + (float2(o_1) * cell);
+        float r = (length(float2(o_1)) * cell) / 3.2000000476837158203125;
+        uint param_51 = uint((o_1.x * 73) + (o_1.y * 977)) ^ ((e * 31u) + uint(_201.timeP.z));
+        float n = hash01(param_51);
         if (r < (0.75 + (0.3499999940395355224609375 * n)))
         {
-            float2 param_34 = xz;
-            uint param_35 = uint(255.0 * fast::clamp(1.25 - r, 0.0, 1.0));
-            addScorch(param_34, param_35, _201, _564);
+            float2 param_52 = xz;
+            uint param_53 = uint(255.0 * fast::clamp(1.25 - r, 0.0, 1.0));
+            addScorch(param_52, param_53, _201, _564);
         }
     }
 }
@@ -958,17 +1010,17 @@ kernel void main0(constant SimUniforms& _201 [[buffer(0)]], device StaticH& _799
         }
         return;
     }
-    bool _2053 = mode == 4u;
-    bool _2062;
-    if (_2053)
+    bool _2183 = mode == 4u;
+    bool _2192;
+    if (_2183)
     {
-        _2062 = gl_WorkGroupID.y < _201.counts.y;
+        _2192 = gl_WorkGroupID.y < _201.counts.y;
     }
     else
     {
-        _2062 = _2053;
+        _2192 = _2183;
     }
-    if (_2062)
+    if (_2192)
     {
         uint param_2 = gl_WorkGroupID.y;
         uint param_3 = gl_LocalInvocationID.x + (256u * gl_WorkGroupID.x);

@@ -28,12 +28,23 @@ vec3 shadeV(vec3 albedo, vec3 N, vec3 P, float ao, float vis) {
     return albedo * (hemi + moon + pointLights(P, N));
 }
 vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) { return shadeV(albedo, N, P, ao, 1.0); }
+// Fog (fogColor.w density per metre, starting groundColor.w metres from the eye, capped so distant blocks keep their
+// colours), exposure (sunColor.w, 0 = 1) and a soft highlight roll-off; returns display (gamma) colour.
 vec3 finish(vec3 col, vec3 P) {
     float d = length(P - camPos.xyz);
-    float f = 1.0 - exp(-fogColor.w * d);
+    float f = (1.0 - exp(-fogColor.w * max(d - groundColor.w, 0.0))) * 0.7;
     col = mix(col, fogColor.rgb, clamp(f, 0.0, 1.0));
-    col = col / (1.0 + col * 0.35);          // soft highlight roll-off
+    col *= sunColor.w > 0.0 ? sunColor.w : 1.0;
+    col = col / (1.0 + col * 0.3);          // soft highlight roll-off
     return pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
+}
+// finish() plus the miniature depth-of-field weight in alpha (1 = in focus at the camera pivot distance sunDir.w, 0 =
+// fully blurred; skyColor.w = depth range in metres). Shaders that write alpha 1 stay sharp (only the screen gradient
+// blurs them). See shaders/post_composite.frag.
+vec4 finishA(vec3 col, vec3 P) {
+    float d = length(P - camPos.xyz);
+    float coc = skyColor.w > 0.0 ? clamp(abs(d - sunDir.w) / skyColor.w, 0.0, 1.0) : 0.0;
+    return vec4(finish(col, P), 1.0 - coc);
 }
 float hash12(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);

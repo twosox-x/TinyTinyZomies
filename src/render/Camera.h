@@ -14,7 +14,9 @@ struct CameraSettings {
     float rotateSpeed = 0.006f;   // rad per pixel
     float minDistance = 10.f, maxDistance = 220.f;
     float minPitch = 0.30f, maxPitch = 1.45f;   // rad above the horizon (~17 .. 83 degrees)
-    float smoothing = 12.f;       // 1/s, higher = snappier
+    float smoothing = 12.f;       // 1/s, higher = snappier (pan)
+    float zoomSmoothing = 9.f;    // 1/s: zoom glides a little longer than pan
+    float rotateSmoothing = 14.f; // 1/s
     float fovY = 0.75f;           // rad
 };
 
@@ -36,6 +38,8 @@ public:
     float pitch() const { return cur_.pitch; }
     float distance() const { return cur_.distance; }
     void clampTarget(float minX, float minZ, float maxX, float maxZ);
+    // Soft bounds: the goal may go up to `margin` metres past the rectangle and is then pulled back smoothly.
+    void softClampTarget(float minX, float minZ, float maxX, float maxZ, float margin, float dt);
     // Buildings stay opaque; instead the camera tilts up until the eye is above any building it
     // would be inside (heightAt returns the obstacle top at a world xz).
     void avoidObstacles(const std::function<float(float, float)>& heightAt, float clearance = 2.0f);
@@ -47,6 +51,7 @@ private:
     struct State { V3 target{}; float yaw = 0.6f, pitch = 0.9f, distance = 80.f; };
     V3 shake_{};
     State cur_, goal_;
+    float pitchFloor_ = 0.f;   // obstacle avoidance: minimum pitch for the goal view (the user's pitch is kept)
 };
 
 } // namespace ttz

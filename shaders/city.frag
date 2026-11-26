@@ -34,19 +34,44 @@ float decalBilinear(vec2 xz, uint layer) {
     vec2 f = g - vec2(c0);
     return mix(mix(decalAt(c0, layer), decalAt(c0 + ivec2(1, 0), layer), f.x), mix(decalAt(c0 + ivec2(0, 1), layer), decalAt(c0 + ivec2(1, 1), layer), f.x), f.y);
 }
-float wallBlood(vec3 P, vec3 N, float u) {
+float vnoise(vec2 p) {
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash12(i), hash12(i + vec2(1, 0)), f.x), mix(hash12(i + vec2(0, 1)), hash12(i + vec2(1, 1)), f.x), f.y);
+}
+float wallH(vec2 xz) {
     ivec2 d = ivec2(gridDim.xy) * 3;
-    ivec2 c = ivec2(floor((P.xz + N.xz * 0.13 - gridP.xy) * gridP.w * 3.0));
+    ivec2 c = ivec2(floor((xz - gridP.xy) * gridP.w * 3.0));
     if (c.x < 0 || c.y < 0 || c.x >= d.x || c.y >= d.y) return 0.0;
-    float h = float(decals[uint(d.x * d.y) + uint(c.y) * uint(d.x) + uint(c.x)]) * 0.001;
+    return float(decals[uint(d.x * d.y) + uint(c.y) * uint(d.x) + uint(c.x)]) * 0.001;
+}
+// Wall blood: the gore simulation stores the highest splat (m) in the decal cell just outside the wall it hit, on the
+// 0.75 m simulation height grid, so the rendered facade can be up to ~1 m behind or in front of that cell: search
+// outwards along the normal (and a little sideways). Shape: noisy splatter blobs below the splat height, sparse
+// spatter above it, and drips running down.
+float wallBlood(vec3 P, vec3 N, float u) {
+    vec2 n = normalize(N.xz + vec2(1e-5)), t = vec2(-n.y, n.x);
+    float h = 0.0;
+    for (int k = 0; k < 5; ++k) {
+        vec2 q = P.xz + n * (-0.12 + 0.25 * float(k));
+        h = max(h, max(wallH(q), 0.8 * max(wallH(q + t * 0.3), wallH(q - t * 0.3))));
+    }
     if (h <= 0.0) return 0.0;
-    float col = floor(u * 12.0);
-    float r = hash12(vec2(col, float(c.x * 7 + c.y * 13)));
-    float top = h + 0.2 * (r - 0.4);
-    if (P.y > top) return 0.0;
-    float band = smoothstep(0.9 + r * 0.6, 0.0, top - P.y);
-    float drip = step(0.62, r) * step(top - P.y, 0.4 + 2.5 * fract(r * 17.3));
-    return clamp(max(band * step(0.35, hash12(floor(vec2(u, P.y) * 9.0))), drip), 0.0, 1.0);
+    float dy = P.y - h;                                    // > 0 above the highest splat
+    if (dy > 1.2) return 0.0;
+    vec2 q = vec2(u, P.y);
+    float nz = vnoise(q * 2.6) * 0.55 + vnoise(q * 7.0 + 13.1) * 0.3 + vnoise(q * 19.0 + 3.7) * 0.15;
+    // dense below the splat height, thinning out above it into droplets
+    float thresh = mix(0.42, 0.78, smoothstep(-1.6, 0.9, dy));
+    float splat = smoothstep(thresh, thresh + 0.04, nz) * step(P.y, h + 1.2) * smoothstep(-3.5, -1.5, dy + 0.0);
+    // drips: thin streaks hanging from the splat line, varying length per column
+    float col = floor(u * 9.0);
+    float r = hash12(vec2(col, floor(h * 3.0) + 17.0));
+    float fx = fract(u * 9.0);
+    float len = 0.4 + 2.2 * fract(r * 17.3);
+    float drip = step(0.55, r) * step(abs(fx - 0.5), 0.12 * (1.0 - clamp((h - P.y) / len, 0.0, 1.0)) + 0.04)
+               * step(P.y, h + 0.05) * step(h - P.y, len);
+    return clamp(max(splat, drip), 0.0, 1.0);
 }
 float sq(float t, float hz) { return step(0.5, fract(t * hz)); }
 
@@ -81,7 +106,8 @@ void main() {
         } else if (abs(N.y) < 0.3) {
             float u = dot(vWorld.xz, vec2(-N.z, N.x));
             float b = wallBlood(vWorld, N, u);
-            albedo = mix(albedo, vec3(0.075, 0.001, 0.002), b * 0.95);
+            albedo = mix(albedo, vec3(0.085, 0.002, 0.003), b * 0.95);
+            wet = b * 0.7;
         }
     }
 
@@ -112,5 +138,5 @@ void main() {
         }
         col += m.albedo.rgb * e;
     }
-    outColor = vec4(finish(col, vWorld), 1.0);
+    outColor = finishA(col, vWorld);
 }

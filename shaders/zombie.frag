@@ -17,5 +17,5 @@ void main() {
     // cool rim light so silhouettes read against the dark street
     vec3 V = normalize(camPos.xyz - vWorld);
     col += vec3(0.10, 0.12, 0.22) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * vAo;
-    outColor = vec4(finish(col, vWorld), 1.0);
+    outColor = finishA(col, vWorld);
 }

@@ -82,6 +82,27 @@ SDL_GPUGraphicsPipeline* Renderer::makePipeline(const char* vs, const char* fs, 
     return p;
 }
 
+SDL_GPUGraphicsPipeline* Renderer::makePostPipeline(const char* fs) {
+    SDL_GPUShader* v = gpu_->loadShader("post.vert", SDL_GPU_SHADERSTAGE_VERTEX);
+    SDL_GPUShader* f = gpu_->loadShader(std::string(fs) + ".frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
+    if (!v || !f) return nullptr;
+    SDL_GPUGraphicsPipelineCreateInfo ci{};
+    ci.vertex_shader = v;
+    ci.fragment_shader = f;
+    ci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    ci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    ci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+    SDL_GPUColorTargetDescription ctd{};
+    ctd.format = kColorFormat;
+    ci.target_info.color_target_descriptions = &ctd;
+    ci.target_info.num_color_targets = 1;
+    SDL_GPUGraphicsPipeline* p = SDL_CreateGPUGraphicsPipeline(gpu_->device(), &ci);
+    if (!p) SDL_Log("pipeline post/%s: %s", fs, SDL_GetError());
+    SDL_ReleaseGPUShader(gpu_->device(), v);
+    SDL_ReleaseGPUShader(gpu_->device(), f);
+    return p;
+}
+
 bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, const SimParams& p,
                     SDL_GPUTextureFormat swapchainFormat) {
     gpu_ = &gpu;
@@ -97,7 +118,16 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
     pBox_ = makePipeline("box", "box", false, true, true);
     pGround_ = makePipeline("ground", "ground", false, false, false);
     pParticle_ = makePipeline("particle", "particle", false, false, true);
-    if (!pZombie_ || !pCorpse_ || !pBox_ || !pGround_ || !pParticle_) return false;
+    pBlur_ = makePostPipeline("post_blur");
+    pComposite_ = makePostPipeline("post_composite");
+    if (!pZombie_ || !pCorpse_ || !pBox_ || !pGround_ || !pParticle_ || !pBlur_ || !pComposite_) return false;
+    {
+        SDL_GPUSamplerCreateInfo sci{};
+        sci.min_filter = sci.mag_filter = SDL_GPU_FILTER_LINEAR;
+        sci.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+        sci.address_mode_u = sci.address_mode_v = sci.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+        linear_ = SDL_CreateGPUSampler(d, &sci);
+    }
 
     zombieIndexCount_ = (uint32_t)zombie.indices.size();
     variantRows_ = zombie.variantRows;
@@ -227,19 +257,20 @@ void Renderer::shutdown() {
     if (!gpu_) return;
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
-    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_, pParticle_})
+    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pBlur_, pComposite_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
     for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_, &shadowH_}) gpu_->releaseBuffer(*b);
-    for (auto t : {palette_, colorMS_, depth_, resolved_})
+    for (auto t : {palette_, colorMS_, depth_, resolved_, halfA_, halfB_, final_})
         if (t) SDL_ReleaseGPUTexture(d, t);
     if (nearest_) SDL_ReleaseGPUSampler(d, nearest_);
+    if (linear_) SDL_ReleaseGPUSampler(d, linear_);
     gpu_ = nullptr;
 }
 
 void Renderer::ensureTargets(uint32_t w, uint32_t h) {
     if (w == targetW_ && h == targetH_ && resolved_) return;
     SDL_GPUDevice* d = gpu_->device();
-    for (auto t : {colorMS_, depth_, resolved_})
+    for (auto t : {colorMS_, depth_, resolved_, halfA_, halfB_, final_})
         if (t) SDL_ReleaseGPUTexture(d, t);
     colorMS_ = nullptr;
     SDL_GPUTextureCreateInfo ci{};
@@ -251,6 +282,13 @@ void Renderer::ensureTargets(uint32_t w, uint32_t h) {
     ci.format = kColorFormat;
     ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     resolved_ = SDL_CreateGPUTexture(d, &ci);
+    final_ = SDL_CreateGPUTexture(d, &ci);
+    ci.width = std::max(1u, w / 2);
+    ci.height = std::max(1u, h / 2);
+    halfA_ = SDL_CreateGPUTexture(d, &ci);
+    halfB_ = SDL_CreateGPUTexture(d, &ci);
+    ci.width = w;
+    ci.height = h;
     if (samples_ != SDL_GPU_SAMPLECOUNT_1) {
         ci.sample_count = samples_;
         ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;
@@ -303,10 +341,14 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     fu.camPos = {e.x, e.y, e.z, (float)time};
     V3 sun = normalize(V3{-0.35f, 0.8f, 0.45f});
     fu.sunDir = {sun.x, sun.y, sun.z, 0};
-    fu.sunColor = {0.20f, 0.22f, 0.38f, 0};      // cool moonlight
-    fu.skyColor = {0.13f, 0.11f, 0.24f, 0};      // purple night sky (see docs/reference)
-    fu.groundColor = {0.05f, 0.04f, 0.06f, 0};
-    fu.fogColor = {0.10f, 0.085f, 0.17f, rs.fogDensity};
+    // moonlit-blue night with a generous ambient so the palette colours read (City Lab look); .w slots carry
+    // exposure (sunColor), miniature depth-of-field focus / range (sunDir / skyColor) and the fog start (groundColor)
+    const float camDist = cam.distance();
+    fu.sunDir.w = camDist;
+    fu.sunColor = {0.13f, 0.16f, 0.24f, rs.exposure};    // moonlight
+    fu.skyColor = {0.10f, 0.12f, 0.21f, rs.tiltShift ? std::max(1.f, rs.tiltDepthRange * camDist) : 0.f};
+    fu.groundColor = {0.035f, 0.035f, 0.05f, rs.fogStart * camDist};
+    fu.fogColor = {0.05f, 0.065f, 0.12f, rs.fogDensity};
     if (rs.studioLighting) {   // neutral studio close to Zombie Lab's "Neutral" mode (sage backdrop, warm key)
         V3 key = normalize(V3{0.47f, 0.76f, 0.40f});
         fu.sunDir = {key.x, key.y, key.z, 0};
@@ -314,6 +356,8 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         fu.skyColor = {0.42f, 0.45f, 0.38f, 0};
         fu.groundColor = {0.16f, 0.17f, 0.12f, 0};
         fu.fogColor = {0.424f, 0.463f, 0.322f, 0.0f};
+        fu.sunDir.w = fu.skyColor.w = fu.groundColor.w = 0.f;
+        fu.sunColor.w = 1.f;
     }
     fu.gridP = {sandbox_.originX, sandbox_.originZ, params_.cellSize, 1.0f / params_.cellSize};
     uint32_t nl = rs.studioLighting ? 0u : (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
@@ -333,7 +377,10 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_PushGPUFragmentUniformData(cmd, 0, &fu, sizeof(fu));
 
     SDL_GPUColorTargetInfo ct{};
-    ct.clear_color = {fu.fogColor.x, fu.fogColor.y, fu.fogColor.z, 1.0f};
+    // sky: fog colour in display space (scene shaders write gamma colours), alpha 0 = blurred by the miniature pass
+    auto toDisplay = [&](float c) { c *= rs.studioLighting ? 1.f : rs.exposure; return std::pow(std::clamp(c / (1.f + c * 0.3f), 0.f, 1.f), 1.f / 2.2f); };
+    ct.clear_color = rs.studioLighting ? SDL_FColor{fu.fogColor.x, fu.fogColor.y, fu.fogColor.z, 1.0f}
+                                       : SDL_FColor{toDisplay(fu.fogColor.x), toDisplay(fu.fogColor.y), toDisplay(fu.fogColor.z), 0.0f};
     ct.load_op = SDL_GPU_LOADOP_CLEAR;
     if (colorMS_) {
         ct.texture = colorMS_;
@@ -404,9 +451,10 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     }
     SDL_EndGPURenderPass(pass);
 
+    postProcess(cmd, w, h, rs);
     if (target) {
         SDL_GPUBlitInfo bi{};
-        bi.source.texture = resolved_;
+        bi.source.texture = final_;
         bi.source.w = w;
         bi.source.h = h;
         bi.destination.texture = target;
@@ -418,8 +466,48 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     }
 }
 
+// Miniature look: resolved scene -> (H blur, half res) -> (V blur) -> composite with the sharp scene into final_.
+void Renderer::postProcess(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const RenderSettings& rs) {
+    const bool tilt = rs.tiltShift && !rs.studioLighting && rs.tiltStrength > 0.f;
+    const uint32_t hw = std::max(1u, w / 2), hh = std::max(1u, h / 2);
+    auto fullscreen = [&](SDL_GPUTexture* dst, SDL_GPUGraphicsPipeline* p, SDL_GPUTextureSamplerBinding* tex, uint32_t ntex,
+                          const void* ub, uint32_t ubSize) {
+        SDL_GPUColorTargetInfo ct{};
+        ct.texture = dst;
+        ct.load_op = SDL_GPU_LOADOP_DONT_CARE;
+        ct.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_PushGPUFragmentUniformData(cmd, 0, ub, ubSize);
+        SDL_GPURenderPass* pass = SDL_BeginGPURenderPass(cmd, &ct, 1, nullptr);
+        SDL_BindGPUGraphicsPipeline(pass, p);
+        SDL_BindGPUFragmentSamplers(pass, 0, tex, ntex);
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        SDL_EndGPURenderPass(pass);
+    };
+    if (tilt) {
+        // tap spacing scales with the resolution so the blur looks the same at 720p and on a Retina display
+        float r = rs.tiltRadius * std::max(0.5f, (float)h / 720.f);
+        float dirH[4] = {r / (float)hw, 0, 0, 0};   // steps in half-res texels (uv)
+        SDL_GPUTextureSamplerBinding t0{resolved_, linear_};
+        fullscreen(halfA_, pBlur_, &t0, 1, dirH, sizeof(dirH));
+        float dirV[4] = {0, r / (float)hh, 0, 0};
+        SDL_GPUTextureSamplerBinding t1{halfA_, linear_};
+        fullscreen(halfB_, pBlur_, &t1, 1, dirV, sizeof(dirV));
+        // second, wider iteration: smoother bokeh-like falloff for the strongly blurred top / bottom
+        float dirH2[4] = {r * 2.f / (float)hw, 0, 0, 0};
+        SDL_GPUTextureSamplerBinding t2{halfB_, linear_};
+        fullscreen(halfA_, pBlur_, &t2, 1, dirH2, sizeof(dirH2));
+        float dirV2[4] = {0, r * 2.f / (float)hh, 0, 0};
+        fullscreen(halfB_, pBlur_, &t1, 1, dirV2, sizeof(dirV2));
+    }
+    const bool grade = !rs.studioLighting;
+    float post[8] = {tilt ? rs.tiltStrength : 0.f, 0.5f, rs.tiltBand, rs.tiltSoftness,
+                     grade ? rs.saturation : 1.f, grade ? rs.contrast : 1.f, rs.tiltDepthWeight, grade ? rs.vignette : 0.f};
+    SDL_GPUTextureSamplerBinding tc[2] = {{resolved_, linear_}, {tilt ? halfB_ : resolved_, linear_}};
+    fullscreen(final_, pComposite_, tc, 2, post, sizeof(post));
+}
+
 bool Renderer::saveScreenshot(const std::string& path) {
-    if (!resolved_) return false;
+    if (!final_) return false;
     SDL_GPUDevice* d = gpu_->device();
     uint32_t size = targetW_ * targetH_ * 4;
     SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, size, 0};
@@ -427,7 +515,7 @@ bool Renderer::saveScreenshot(const std::string& path) {
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(d);
     SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
     SDL_GPUTextureRegion src{};
-    src.texture = resolved_;
+    src.texture = final_;
     src.w = targetW_;
     src.h = targetH_;
     src.d = 1;

@@ -27,7 +27,7 @@ function checkMesh(b, where, nMat, quantRange) {
   return m;
 }
 
-const T = { stored: 0, raw: 0, chunkTiles: 0, chunks: 0, tiles: 0, missing: 0, quads: 0, quads1: 0, vehicles: 0, props: 0, cells: 0, blocked: 0, road: 0, walk: 0, building: 0, water: 0, veg: 0, vehicleCells: 0, maxTop: 0, maxY: 0 };
+const T = { stored: 0, raw: 0, chunkTiles: 0, chunks: 0, tiles: 0, missing: 0, quads: 0, quads1: 0, vehicles: 0, props: 0, cells: 0, blocked: 0, road: 0, walk: 0, building: 0, water: 0, veg: 0, vehicleCells: 0, maxTop: 0, maxY: 0, waterTiles: 0, foliage: 0, folTiles: 0, folTypes: {} };
 const nVar = city.vehicles.variants.length, nProp = city.props.types.length, nMat = city.palette.length;
 for (const [i, j] of city.tile.present) {
   const fp = path.join(dir, 'tiles', `${i}_${j}.bin`);
@@ -67,6 +67,16 @@ for (const [i, j] of city.tile.present) {
   }
   const ps = f.sections.get('PROP');
   if (ps) { const n = ps.readUInt32LE(0); if (ps.length !== 4 + n * 24) err(`${i}_${j} PROP size`); for (let k = 0; k < n; ++k) if (ps.readUInt16LE(4 + k * 24) >= nProp) err(`${i}_${j} PROP type`); T.props += n; }
+  const ws = f.sections.get('WATR');                 // optional: shore-distance grid
+  if (ws) { const n = ws.readUInt32LE(0), m = ws.readUInt32LE(4); if (ws.length < 32 + n * m * 2 || n < 2 || m < 2) err(`${i}_${j} WATR size`); T.waterTiles++; }
+  const fs2 = f.sections.get('FOLI');                // optional: foliage instances (chunk, type ranges)
+  if (fs2) {
+    const n = fs2.readUInt32LE(0), nc = fs2.readUInt32LE(4), nt = fs2.readUInt32LE(8), o = 16 + (nc * nt + 1) * 4;
+    if (fs2.length !== o + n * 8 || fs2.readUInt32LE(16 + nc * nt * 4) !== n) err(`${i}_${j} FOLI size`);
+    const nTypes = (city.foliage && city.foliage.types.length) || 0;
+    for (let c = 0; c < nc * nt; ++c) { const a = fs2.readUInt32LE(16 + c * 4), b = fs2.readUInt32LE(20 + c * 4); if (b < a) err(`${i}_${j} FOLI ranges`); if (b > a) { const t = c % nt; if (t >= nTypes) err(`${i}_${j} FOLI type ${t}`); T.folTypes[t] = (T.folTypes[t] || 0) + b - a; } }
+    T.foliage += n; T.folTiles++;
+  }
   const hs = f.sections.get('HGT0');
   if (!hs) err(`${i}_${j}: no HGT0`);
   else {
@@ -94,6 +104,7 @@ function checkModels(file, magic, n, pre, pre1) {
 }
 const veh = checkModels('vehicles.bin', 'TTZV', nVar, 'V', 'W');
 const prp = checkModels('props.bin', 'TTZP', nProp, 'P');
+const fol = city.foliage ? checkModels(city.foliage.file || 'foliage.bin', 'TTZF', city.foliage.types.length, 'F', 'G') : null;
 const lb = fs.readFileSync(path.join(dir, 'landuse.bin')); bytes += lb.length; if (wantHash) hash.update(lb);
 const lu = B.readFile(lb).sections.get('LUSE'), lnx = lu.readUInt32LE(0), lnz = lu.readUInt32LE(4);
 const luHist = {}; for (let k = 0; k < lnx * lnz; ++k) { const n = city.landUse.legend[lu[20 + k]]; luHist[n] = (luHist[n] || 0) + 1; }
@@ -106,6 +117,8 @@ console.log(`tile sections: ${(T.stored / 1048576).toFixed(1)} MB stored, ${(T.r
 console.log(`mesh: LOD0 ${T.quads} quads (${2 * T.quads} tris), LOD1 ${T.quads1} quads (${(100 * T.quads1 / Math.max(1, T.quads)).toFixed(0)} %), highest vertex ${T.maxY.toFixed(1)} m`);
 console.log(`instances: ${T.vehicles} vehicles / traffic props (${nVar} variants, ${veh.lod1} with LOD1, ${veh.paintVerts} body-paint vertices), ${T.props} street props (${nProp} types, ${prp.quads} quads)`);
 console.log(`height grid: ${T.cells} cells; road ${pct(T.road)}, walk ${pct(T.walk)}, building ${pct(T.building)}, water ${pct(T.water)}, veg ${pct(T.veg)}, blocked ${pct(T.blocked)}, vehicle ${pct(T.vehicleCells)}; max top ${(T.maxTop / 100).toFixed(1)} m`);
+if (fol) console.log(`foliage: ${T.foliage} instances in ${T.folTiles} tiles (` + city.foliage.types.map((t, n) => `${t.name} ${T.folTypes[n] || 0}`).join(', ') + `), ${fol.meshes} models (${fol.quads} LOD0 quads, ${fol.lod1} LOD1)`);
+if (city.water) console.log(`water: ${T.waterTiles} tiles with WATR (level ${city.water.level} m), ${city.water.bridges.length} bridges (` + city.water.bridges.map(b => b.kind + ' ' + b.width + ' m').join(', ') + ')');
 console.log(`land use ${lnx} x ${lnz} @ ${city.landUse.cell} m: ` + Object.entries(luHist).map(([k, v]) => `${k} ${(100 * v / (lnx * lnz)).toFixed(1)}%`).join(', '));
 console.log(`roads ${city.roads.length}, spawns ${city.spawns.length}, palette ${nMat} (${city.palette.filter(p => p.emissive).length} emissive)`);
 if (wantHash) console.log('sha256 ' + hash.digest('hex'));

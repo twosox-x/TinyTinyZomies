@@ -126,11 +126,28 @@ void main() {
         if (dl > 1e-5) {
             x.xz += dd / dl * (R - dl);
         } else {
-            // centre inside the box: leave through the nearest face
+            // centre inside the box: leave through the nearest face that leads to free ground. Inside a low blob of
+            // solid cells (a vehicle that landed on the agent, src/city/CityVehicles) with no free neighbour: get
+            // on top of it rather than bounce between its cells.
             vec2 dmin = x.xz - bmin, dmax = bmax - x.xz;
-            float m = min(min(dmin.x, dmax.x), min(dmin.y, dmax.y));
-            if (m == dmin.x) x.x = bmin.x - R; else if (m == dmax.x) x.x = bmax.x + R;
-            else if (m == dmin.y) x.z = bmin.y - R; else x.z = bmax.y + R;
+            float fd[4] = float[4](dmin.x, dmax.x, dmin.y, dmax.y);
+            ivec2 fo[4] = ivec2[4](ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+            int face = -1;
+            float best = 1e9;
+            for (int f = 0; f < 4; ++f) {
+                ivec2 nc = cc + fo[f];
+                bool freeCell = staticAt(nc) + corpseAt(nc) - moveP.w <= x.y;
+                if (freeCell && fd[f] < best) { best = fd[f]; face = f; }
+            }
+            if (face < 0 && top - x.y < 4.0) x.y = top;
+            else {
+                if (face < 0) {   // tall solid region: the nearest face (as before)
+                    float m = min(min(fd[0], fd[1]), min(fd[2], fd[3]));
+                    face = m == fd[0] ? 0 : m == fd[1] ? 1 : m == fd[2] ? 2 : 3;
+                }
+                if (face == 0) x.x = bmin.x - R; else if (face == 1) x.x = bmax.x + R;
+                else if (face == 2) x.z = bmin.y - R; else x.z = bmax.y + R;
+            }
         }
         vec2 toBox = cl - xi.xz;
         if (dot(toBox, desiredDir) > 0.0) wallAhead = max(wallAhead, top);

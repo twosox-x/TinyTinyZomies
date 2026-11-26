@@ -11,6 +11,7 @@
 //    Vehicles / props: instances frustum-culled per bounding sphere, full / mid (derived at load) / box (vehicles)
 //    LOD by distance, one instanced draw per model and LOD from a per-frame storage buffer.
 #include "city/CityAsset.h"
+#include "city/CityWater.h"
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
 #include "sim/Sandbox.h"
@@ -54,8 +55,18 @@ struct CitySettings {
     bool backfaceCull = true;
 };
 
+class CityVehicles;
+struct Vehicle;
+
 class CityRenderer {
 public:
+    struct GpuInstance {          // std430, shaders/city.vert
+        float pos[4];            // xyz, w kind (0 vehicle, 1 prop)
+        float quat[4];
+        float paint[4];          // linear rgb, w tint flag (vehicles) / signal phase (props)
+    };
+    // Dynamic vehicles: tiles register their vehicles on upload; changed vehicles are drawn from it (null = baked).
+    void setVehicles(CityVehicles* v) { vehicles_ = v; }
     bool init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount samples);
     void shutdown();
 
@@ -73,6 +84,8 @@ public:
     void flush(const Camera& cam, float aspect);
 
     CitySettings settings;
+    CityWater water;          // smooth water surfaces (WATR)
+    CityFoliage foliage;      // instanced crops / grass / reeds (FOLI)
     const CityRenderStats& stats() const { return stats_; }
 
 private:
@@ -106,6 +119,9 @@ private:
     GpuMesh uploadMesh(const CityMesh& m, const char* name);
     static CityMesh midMesh(const CityMesh& m, const std::vector<CityMaterial>& mats);
     bool sphereVisible(float x, float y, float z, float r) const;
+    void gatherInstance(std::vector<std::vector<GpuInstance>> (&byModel)[3], uint32_t kind, uint32_t variant, const float* pos,
+                        const float* q, const float* paint);
+    CityVehicles* vehicles_ = nullptr;
     bool boxVisible(const float* mn, const float* mx) const;
     void computeWanted(const Camera& cam, float aspect, std::vector<int>& out) const;
     void evict(uint64_t frame);

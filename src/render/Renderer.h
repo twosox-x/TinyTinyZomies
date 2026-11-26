@@ -32,7 +32,20 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
 struct RenderSettings {
     uint32_t debugFlags = 0;      // DBG_* bits (see frame.glsl)
     bool drawZombies = true, drawCorpses = true, drawBoxes = true, drawGround = true;
-    float fogDensity = 0.0045f;
+    // night look (city): light atmospheric fog from fogStart x camera distance on, exposure before the highlight roll-off
+    float fogDensity = 0.0011f;
+    float fogStart = 0.75f;          // x camera (pivot) distance: the area around the pivot stays clear
+    float exposure = 1.15f;
+    // miniature post-process ("tilt-shift"): half-resolution blur mixed in by depth difference to the camera pivot and
+    // a vertical screen gradient, plus a small saturation / contrast boost
+    bool tiltShift = true;
+    float tiltStrength = 0.9f;        // 0..1 blend towards the blurred image
+    float tiltBand = 0.20f;          // half-height (uv) of the sharp band around the screen centre
+    float tiltSoftness = 0.34f;      // gradient width (uv) from sharp to fully blurred
+    float tiltDepthRange = 1.5f;     // depth difference (x pivot distance) that is fully blurred
+    float tiltDepthWeight = 0.8f;
+    float tiltRadius = 1.6f;         // blur tap spacing (half-res texels at 720p)
+    float saturation = 1.18f, contrast = 1.06f, vignette = 0.12f;
     int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
     CharacterSettings chars;
     bool studioLighting = false;     // neutral sage studio (Zombie Lab comparison), no fog
@@ -88,6 +101,12 @@ private:
     SDL_GPUBuffer* shadow() const { return shadowExt_ ? shadowExt_ : shadowH_; }
     SDL_GPUTexture *palette_ = nullptr, *colorMS_ = nullptr, *depth_ = nullptr, *resolved_ = nullptr;
     SDL_GPUSampler* nearest_ = nullptr;
+    // post-processing: half-res blur ping-pong, final composite (blitted to the swapchain, read by screenshots)
+    SDL_GPUGraphicsPipeline *pBlur_ = nullptr, *pComposite_ = nullptr;
+    SDL_GPUTexture *halfA_ = nullptr, *halfB_ = nullptr, *final_ = nullptr;
+    SDL_GPUSampler* linear_ = nullptr;
+    SDL_GPUGraphicsPipeline* makePostPipeline(const char* fs);
+    void postProcess(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const RenderSettings& rs);
     uint32_t zombieIndexCount_ = 0, boxCount_ = 0, targetW_ = 0, targetH_ = 0;
     int variantRows_ = 1;
     float modelHeight_ = 1.7f;

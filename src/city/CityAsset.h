@@ -81,6 +81,13 @@ struct TileCPU {
     float gx0 = 0, gz0 = 0, gcell = 0.5f;
     std::vector<int16_t> heightCm;
     std::vector<uint8_t> flags;
+    // WATR (optional): smooth water surface quads, 4 vertices per quad of (x, z, shore distance m), at waterLevel
+    std::vector<float> water;
+    float waterLevel = 0.f;
+    // FOLI (optional): foliage instances (2 u32 each: x | z << 16 in 1/512 m from the tile corner; y mm (i16) | yaw << 16 |
+    // scale << 24), sorted by chunk then type; foliStart[(chunk * foliTypes + type)] = first instance, + 1 entry
+    std::vector<uint32_t> foliage, foliStart;
+    uint32_t foliTypes = 0, foliChunks = 0;
     uint64_t fileBytes = 0, rawBytes = 0;  // stored / decompressed section bytes
     double decodeMs = 0;
     bool ok = false;
@@ -102,6 +109,8 @@ public:
     std::vector<CityMaterial> materials;
     std::vector<ModelVariant> variants;        // vehicles
     std::vector<ModelVariant> props;           // street furniture
+    std::vector<ModelVariant> foliage;         // instanced voxel foliage (foliage.bin: LOD0 F###, LOD1 G###)
+    std::vector<float> foliageSway;            // wind sway weight per foliage type
     int lampProp = -1;                         // props index of street lamps (point lights), -1 if none
     std::vector<CitySpawn> spawns;
     std::vector<std::vector<float>> roads;     // polylines (x,z pairs)

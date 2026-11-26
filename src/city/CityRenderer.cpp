@@ -1,5 +1,7 @@
 #include "city/CityRenderer.h"
 
+#include "city/CityVehicles.h"
+
 #include "debug/Profiler.h"
 
 #include <algorithm>
@@ -19,11 +21,7 @@ struct GpuMat {              // std430, shaders/city.frag
     float emis[4];           // x night strength, y mode (EmissiveMode), z roughness
     uint32_t info[4];        // x flags (CityMatFlags)
 };
-struct GpuInst {             // std430, shaders/city.vert
-    float pos[4];            // xyz, w kind (0 vehicle, 1 prop)
-    float quat[4];
-    float paint[4];          // linear rgb, w tint flag (vehicles) / signal phase (props)
-};
+using GpuInst = CityRenderer::GpuInstance;   // std430, shaders/city.vert
 constexpr SDL_GPUTextureFormat kColorFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 constexpr SDL_GPUTextureFormat kDepthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
 } // namespace
@@ -96,6 +94,8 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
         float a = 0, b = 0;
         if (SDL_sscanf(e, "%f,%f", &a, &b) == 2) { settings.lod1Dist = a; settings.lod2Dist = b; }
     }
+    if (!water.init(gpu, samples, kColorFormat, kDepthFormat)) SDL_Log("city: water pipeline unavailable");
+    if (!asset.foliage.empty() && !foliage.init(gpu, asset, samples, kColorFormat, kDepthFormat)) SDL_Log("city: foliage pipeline unavailable");
     asset.start();
     return true;
 }
@@ -160,6 +160,8 @@ void CityRenderer::shutdown() {
     if (asset_) asset_->stop();
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
+    water.shutdown();
+    foliage.shutdown();
     for (auto& [k, t] : tiles_) {
         if (t.vb) SDL_ReleaseGPUBuffer(d, t.vb);
         if (t.ib) SDL_ReleaseGPUBuffer(d, t.ib);
@@ -306,6 +308,7 @@ void CityRenderer::upload(SDL_GPUCopyPass* cp, TileCPU& t) {
     stats_.decodeMsSum += t.decodeMs;
     stats_.decodeMsMax = std::max(stats_.decodeMsMax, t.decodeMs);
     g.instances = std::move(t.instances);
+    if (vehicles_) vehicles_->registerTile(t.j * asset_->ni + t.i, g.instances);   // first sight: dynamic state (kept for good)
     for (const CityInstance& v : g.instances) {   // instances may stand on the tile edge: grow the bounds
         g.bmin[0] = std::min(g.bmin[0], v.x - 3.f); g.bmax[0] = std::max(g.bmax[0], v.x + 3.f);
         g.bmin[2] = std::min(g.bmin[2], v.z - 3.f); g.bmax[2] = std::max(g.bmax[2], v.z + 3.f);
@@ -339,6 +342,11 @@ void CityRenderer::upload(SDL_GPUCopyPass* cp, TileCPU& t) {
     g.bytes = vbBytes + ibBytes;
     stats_.uploadedBytes += g.bytes;
     stats_.uploadedTiles++;
+    {   // water surface + foliage instances (CityWater.h)
+        const int key = t.j * asset_->ni + t.i;
+        if (uint32_t wq = water.upload(cp, key, t)) ensureQuadIB(cp, wq);
+        foliage.upload(cp, key, t, asset_->x0 + t.i * asset_->tileSize, asset_->z0 + t.j * asset_->tileSize);
+    }
     tiles_[t.j * asset_->ni + t.i] = std::move(g);
 }
 
@@ -356,8 +364,27 @@ void CityRenderer::evict(uint64_t frame) {
         GpuTile& t = tiles_[e.second];
         if (t.vb) SDL_ReleaseGPUBuffer(d, t.vb);   // deferred by SDL until the GPU no longer uses it
         if (t.ib) SDL_ReleaseGPUBuffer(d, t.ib);
+        water.release(e.second);
+        foliage.release(e.second);
         tiles_.erase(e.second);
     }
+}
+
+// One instance into the per-model / LOD lists: distance LOD, frustum culling by bounding sphere.
+void CityRenderer::gatherInstance(std::vector<std::vector<GpuInstance>> (&byModel)[3], uint32_t kind, uint32_t variant, const float* pos,
+                                  const float* q, const float* paint) {
+    const size_t nModels = models_[0].size(), nVeh = asset_->variants.size();
+    size_t model = kind == 0 ? variant : nVeh + variant;
+    if (model >= nModels || (kind == 0 && variant >= nVeh)) return;
+    if (kind == 0 ? !settings.vehicles : !settings.props) return;
+    float ex = pos[0] - eye_.x, ey = pos[1] - eye_.y, ez = pos[2] - eye_.z, d2 = ex * ex + ey * ey + ez * ez;
+    int lod = 0;
+    if (kind == 0) lod = d2 > settings.vehicleBoxDist * settings.vehicleBoxDist ? 2 : d2 > settings.vehicleMidDist * settings.vehicleMidDist ? 1 : 0;
+    else if (d2 > settings.propDist * settings.propDist) return;
+    else lod = d2 > settings.propMidDist * settings.propMidDist ? 1 : 0;
+    if (!sphereVisible(pos[0], pos[1], pos[2], models_[0][model].radius)) return;
+    while (lod > 0 && !models_[lod][model].vb) --lod;   // coarser mesh missing: next finer one
+    byModel[lod][model].push_back({{pos[0], pos[1], pos[2], (float)kind}, {q[0], q[1], q[2], q[3]}, {paint[0], paint[1], paint[2], paint[3]}});
 }
 
 void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float aspect, uint64_t frame) {
@@ -424,8 +451,8 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
     // visibility + LOD (hysteresis) + per-chunk ranges + instance gathering
     stats_.visible = stats_.lod1Tiles = stats_.lod2Tiles = stats_.visibleChunks = stats_.lod1Chunks = stats_.tileDraws = 0;
     stats_.triangles = stats_.tileTriangles = stats_.vehicles = stats_.gpuBytes = 0;
-    const size_t nModels = models_[0].size(), nVeh = asset_->variants.size();
-    std::vector<std::vector<GpuInst>> byModel[3];
+    const size_t nModels = models_[0].size();
+    std::vector<std::vector<GpuInstance>> byModel[3];
     for (auto& b : byModel) b.resize(nModels);
     const float h = settings.lodHyst;
     auto distTo = [&](const float* mn, const float* mx) {
@@ -474,21 +501,19 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
             }
         }
         stats_.tileDraws += (uint32_t)g.ranges.size();
-        for (const CityInstance& v : g.instances) {
-            size_t model = v.kind == 0 ? v.variant : nVeh + v.variant;
-            if (model >= nModels || (v.kind == 0 && v.variant >= nVeh)) continue;
-            if (v.kind == 0 ? !settings.vehicles : !settings.props) continue;
-            float ex = v.x - eye_.x, ey = v.y - eye_.y, ez = v.z - eye_.z, d2 = ex * ex + ey * ey + ez * ez;
-            int lod = 0;
-            if (v.kind == 0) lod = d2 > settings.vehicleBoxDist * settings.vehicleBoxDist ? 2 : d2 > settings.vehicleMidDist * settings.vehicleMidDist ? 1 : 0;
-            else if (d2 > settings.propDist * settings.propDist) continue;
-            else lod = d2 > settings.propMidDist * settings.propMidDist ? 1 : 0;
-            if (!sphereVisible(v.x, v.y, v.z, models_[0][model].radius)) continue;
-            while (lod > 0 && !models_[lod][model].vb) --lod;   // coarser mesh missing: next finer one
-            byModel[lod][model].push_back({{v.x, v.y, v.z, (float)v.kind}, {v.q[0], v.q[1], v.q[2], v.q[3]},
-                                           {v.paint[0], v.paint[1], v.paint[2], v.paint[3]}});
+        uint32_t nDyn = 0;   // dynamic vehicles (CityVehicles) of this tile: changed ones are drawn from its list below
+        const Vehicle* dyn = vehicles_ ? vehicles_->tileVehicles(k, nDyn) : nullptr;
+        for (size_t n = 0; n < g.instances.size(); ++n) {
+            const CityInstance& v = g.instances[n];
+            if (v.kind == 0 && n < nDyn && dyn[n].custom) continue;
+            gatherInstance(byModel, v.kind, v.variant, &v.x, v.q, v.paint);
         }
     }
+    if (vehicles_)
+        for (uint32_t i : vehicles_->customList()) {
+            const Vehicle& v = vehicles_->vehicle(i);
+            gatherInstance(byModel, 0, v.variant, v.ro, v.q, v.paint);
+        }
     stats_.triangles = stats_.tileTriangles;
     vdraws_.clear();
     std::vector<GpuInst> all;
@@ -613,6 +638,15 @@ void CityRenderer::flush(const Camera& cam, float aspect) {
 void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH,
                         SDL_GPUBuffer* corpseH) {
     if (!settings.draw || tiles_.empty()) return;
+    {   // foliage + water first (own pipelines); the tile pipeline is bound after them
+        std::vector<int> vis;
+        for (auto& [k, g] : tiles_)
+            if (g.visible) vis.push_back(k);
+        auto boxVis = [this](const float* mn, const float* mx) { return boxVisible(mn, mx); };
+        const float eye[3] = {eye_.x, eye_.y, eye_.z};
+        foliage.draw(pass, cmd, eye, vis, materials_, boxVis);
+        water.draw(pass, cmd, quadIB_, boxVis);
+    }
     SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);
     SDL_GPUBuffer* fb[4] = {materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_};
     SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 4);

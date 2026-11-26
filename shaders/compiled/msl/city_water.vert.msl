@@ -1,0 +1,50 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct WaterDraw
+{
+    float4 level0;
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+};
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    float vShore [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+struct main0_in
+{
+    float3 inPos [[attribute(0)]];
+};
+
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _53 [[buffer(0)]], constant WaterDraw& _20 [[buffer(1)]])
+{
+    main0_out out = {};
+    float3 p = float3(in.inPos.x, _20.level0.x, in.inPos.y);
+    out.vWorld = p;
+    out.vShore = in.inPos.z;
+    out.gl_Position = _53.viewProj * float4(p, 1.0);
+    return out;
+}
+

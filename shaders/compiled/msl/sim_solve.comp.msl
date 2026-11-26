@@ -1,9 +1,48 @@
 #pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
 
 #include <metal_stdlib>
 #include <simd/simd.h>
 
 using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
 
 struct SimUniforms
 {
@@ -78,6 +117,8 @@ struct ContactAux
 };
 
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+constant spvUnsafeArray<int2, 4> _937 = spvUnsafeArray<int2, 4>({ int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) });
 
 static inline __attribute__((always_inline))
 float2 decodeDesired(thread const float& e)
@@ -198,7 +239,7 @@ float staticAt(thread const int2& c, constant SimUniforms& _96, device StaticH& 
     return _293.staticH[cellIndex(param, _96)];
 }
 
-kernel void main0(constant SimUniforms& _96 [[buffer(0)]], device PosIn& _364 [[buffer(1)]], device PrevS& _380 [[buffer(2)]], device CellStart& _518 [[buffer(3)]], device CellCount& _527 [[buffer(4)]], device StaticH& _293 [[buffer(5)]], device CorpseH& _186 [[buffer(6)]], device Counters& _337 [[buffer(7)]], device PosOut& _1043 [[buffer(8)]], device ContactAux& _1061 [[buffer(9)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _96 [[buffer(0)]], device PosIn& _364 [[buffer(1)]], device PrevS& _380 [[buffer(2)]], device CellStart& _518 [[buffer(3)]], device CellCount& _527 [[buffer(4)]], device StaticH& _293 [[buffer(5)]], device CorpseH& _186 [[buffer(6)]], device Counters& _337 [[buffer(7)]], device PosOut& _1146 [[buffer(8)]], device ContactAux& _1164 [[buffer(9)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint i = gl_GlobalInvocationID.x;
     if (i >= _337.counters[0])
@@ -381,6 +422,8 @@ kernel void main0(constant SimUniforms& _96 [[buffer(0)]], device PosIn& _364 [[
     float wallAhead = -10000.0;
     float2 param_6 = x.xz;
     int2 cx = cellCoord(param_6, _96);
+    int _1022;
+    int _1030;
     for (int dy_1 = -1; dy_1 <= 1; dy_1++)
     {
         for (int dx_1 = -1; dx_1 <= 1; dx_1++)
@@ -419,26 +462,89 @@ kernel void main0(constant SimUniforms& _96 [[buffer(0)]], device PosIn& _364 [[
             {
                 float2 dmin = x.xz - bmin;
                 float2 dmax = bmax - x.xz;
-                float m = fast::min(fast::min(dmin.x, dmax.x), fast::min(dmin.y, dmax.y));
-                if (m == dmin.x)
+                spvUnsafeArray<float, 4> _931 = spvUnsafeArray<float, 4>({ dmin.x, dmax.x, dmin.y, dmax.y });
+                spvUnsafeArray<float, 4> fd = _931;
+                int face = -1;
+                float best = 1000000000.0;
+                for (int f = 0; f < 4; f++)
                 {
-                    x.x = bmin.x - R;
-                }
-                else
-                {
-                    if (m == dmax.x)
+                    int2 nc = cc_1 + _937[f];
+                    int2 param_9 = nc;
+                    int2 param_10 = nc;
+                    float _961 = corpseAt(param_10, _96, _186);
+                    bool freeCell = ((staticAt(param_9, _96, _293) + _961) - _96.moveP.w) <= x.y;
+                    bool _977;
+                    if (freeCell)
                     {
-                        x.x = bmax.x + R;
+                        _977 = fd[f] < best;
                     }
                     else
                     {
-                        if (m == dmin.y)
+                        _977 = freeCell;
+                    }
+                    if (_977)
+                    {
+                        best = fd[f];
+                        face = f;
+                    }
+                }
+                bool _987 = face < 0;
+                bool _996;
+                if (_987)
+                {
+                    _996 = (top - x.y) < 4.0;
+                }
+                else
+                {
+                    _996 = _987;
+                }
+                if (_996)
+                {
+                    x.y = top;
+                }
+                else
+                {
+                    if (face < 0)
+                    {
+                        float m = fast::min(fast::min(fd[0], fd[1]), fast::min(fd[2], fd[3]));
+                        if (m == fd[0])
                         {
-                            x.z = bmin.y - R;
+                            _1022 = 0;
                         }
                         else
                         {
-                            x.z = bmax.y + R;
+                            if (m == fd[1])
+                            {
+                                _1030 = 1;
+                            }
+                            else
+                            {
+                                _1030 = (m == fd[2]) ? 2 : 3;
+                            }
+                            _1022 = _1030;
+                        }
+                        face = _1022;
+                    }
+                    if (face == 0)
+                    {
+                        x.x = bmin.x - R;
+                    }
+                    else
+                    {
+                        if (face == 1)
+                        {
+                            x.x = bmax.x + R;
+                        }
+                        else
+                        {
+                            if (face == 2)
+                            {
+                                x.z = bmin.y - R;
+                            }
+                            else
+                            {
+                                x.z = bmax.y + R;
+                            }
                         }
                     }
                 }
@@ -450,23 +556,23 @@ kernel void main0(constant SimUniforms& _96 [[buffer(0)]], device PosIn& _364 [[
             }
         }
     }
-    float2 param_9 = x.xz;
-    float param_10 = x.y;
-    float g = groundHeight(param_9, param_10, _96, _186, _293);
+    float2 param_11 = x.xz;
+    float param_12 = x.y;
+    float g = groundHeight(param_11, param_12, _96, _186, _293);
     if (x.y < g)
     {
         x.y = g;
     }
     float2 wmin = _96.world.xy + float2(R);
     float2 wmax = (_96.world.xy + (float2(_96.grid.xy) * _96.world.z)) - float2(R);
-    float3 _1031 = x;
-    float2 _1035 = fast::clamp(_1031.xz, wmin, wmax);
-    x.x = _1035.x;
-    x.z = _1035.y;
-    _1043.posOut[i] = float4(x, hi);
+    float3 _1134 = x;
+    float2 _1138 = fast::clamp(_1134.xz, wmin, wmax);
+    x.x = _1138.x;
+    x.z = _1138.y;
+    _1146.posOut[i] = float4(x, hi);
     if ((_96.misc.y & 1u) != 0u)
     {
-        _1061.contactAux[i] = float4(frontTop, supportTop, wallAhead, contacts);
+        _1164.contactAux[i] = float4(frontTop, supportTop, wallAhead, contacts);
     }
 }
 

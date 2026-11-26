@@ -148,9 +148,9 @@ void main() {
     }
     if ((gridDim.w & GRID_CITY) != 0u) {   // baked city: only overlays and blast light; the city shader draws the street
         if (overlayA < 0.02 && dot(emissive, emissive) < 1e-4) discard;
-        outColor = vec4(finish(overlay * overlayA + emissive, vWorld), 1.0);
+        outColor = finishA(overlay * overlayA + emissive, vWorld);
         return;
     }
     col = mix(col, overlay, overlayA);
-    outColor = vec4(finish(col + emissive, vWorld), 1.0);
+    outColor = finishA(col + emissive, vWorld);
 }

@@ -90,8 +90,10 @@ add_executable(ttz
   src/city/CityAsset.cpp
   src/city/CityAssetFormat.cpp
   src/city/CityRenderer.cpp
+  src/city/CityWater.cpp
   src/city/CityWorld.cpp
   src/city/CitySimWindow.cpp
+  src/city/CityVehicles.cpp
   src/debug/DebugUI.cpp
   src/debug/Profiler.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
@@ -135,7 +137,8 @@ add_executable(ttz_selftest
   src/sim/SimParams.cpp
   src/city/CityAsset.cpp
   src/city/CityAssetFormat.cpp
-  src/city/CityWorld.cpp)
+  src/city/CityWorld.cpp
+  src/city/CityVehicles.cpp)
 target_include_directories(ttz_selftest PRIVATE src)
 target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3 ttz_zstd)
 target_compile_definitions(ttz_selftest PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

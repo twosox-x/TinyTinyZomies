@@ -37,25 +37,25 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _59)
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _64)
 {
     float3 c = float3(0.0);
-    for (uint i = 0u; i < _59.gridDim.z; i++)
+    for (uint i = 0u; i < _64.gridDim.z; i++)
     {
-        float3 L = _59.lightPos[i].xyz - P;
+        float3 L = _64.lightPos[i].xyz - P;
         float d = length(L);
-        float att = fast::clamp(1.0 - (d / _59.lightPos[i].w), 0.0, 1.0);
+        float att = fast::clamp(1.0 - (d / _64.lightPos[i].w), 0.0, 1.0);
         att *= att;
-        c += (((_59.lightCol[i].xyz * _59.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        c += (((_64.lightCol[i].xyz * _64.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
-        float age = _59.blasts[i_1].w;
+        float age = _64.blasts[i_1].w;
         if ((age < 0.0) || (age > 0.89999997615814208984375))
         {
             continue;
         }
-        float3 L_1 = (_59.blasts[i_1].xyz + float3(0.0, 2.0, 0.0)) - P;
+        float3 L_1 = (_64.blasts[i_1].xyz + float3(0.0, 2.0, 0.0)) - P;
         float d_1 = length(L_1);
         float att_1 = fast::clamp(1.0 - (d_1 / 28.0), 0.0, 1.0);
         float k = 1.0 - (age / 0.89999997615814208984375);
@@ -65,37 +65,67 @@ float3 pointLights(thread const float3& P, thread const float3& N, constant Fram
 }
 
 static inline __attribute__((always_inline))
-float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _59)
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _64)
 {
-    float3 hemi = mix(_59.groundColor.xyz, _59.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
-    float3 moon = (_59.sunColor.xyz * fast::max(dot(N, _59.sunDir.xyz), 0.0)) * vis;
+    float3 hemi = mix(_64.groundColor.xyz, _64.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 moon = (_64.sunColor.xyz * fast::max(dot(N, _64.sunDir.xyz), 0.0)) * vis;
     float3 param = P;
     float3 param_1 = N;
-    return albedo * ((hemi + moon) + pointLights(param, param_1, _59));
+    return albedo * ((hemi + moon) + pointLights(param, param_1, _64));
 }
 
 static inline __attribute__((always_inline))
-float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _59)
+float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _64)
 {
     float3 param = albedo;
     float3 param_1 = N;
     float3 param_2 = P;
     float param_3 = ao;
     float param_4 = 1.0;
-    return shadeV(param, param_1, param_2, param_3, param_4, _59);
+    return shadeV(param, param_1, param_2, param_3, param_4, _64);
 }
 
 static inline __attribute__((always_inline))
-float3 finish(thread float3& col, thread const float3& P, constant Frame& _59)
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _64)
 {
-    float d = length(P - _59.camPos.xyz);
-    float f = 1.0 - exp((-_59.fogColor.w) * d);
-    col = mix(col, _59.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    col /= (float3(1.0) + (col * 0.3499999940395355224609375));
+    float d = length(P - _64.camPos.xyz);
+    float f = (1.0 - exp((-_64.fogColor.w) * fast::max(d - _64.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    col = mix(col, _64.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _297;
+    if (_64.sunColor.w > 0.0)
+    {
+        _297 = _64.sunColor.w;
+    }
+    else
+    {
+        _297 = 1.0;
+    }
+    col *= _297;
+    col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _59 [[buffer(0)]], texture2d<float> palette [[texture(0)]], sampler paletteSmplr [[sampler(0)]])
+static inline __attribute__((always_inline))
+float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _64)
+{
+    float d = length(P - _64.camPos.xyz);
+    float _333;
+    if (_64.skyColor.w > 0.0)
+    {
+        _333 = fast::clamp(abs(d - _64.sunDir.w) / _64.skyColor.w, 0.0, 1.0);
+    }
+    else
+    {
+        _333 = 0.0;
+    }
+    float coc = _333;
+    float3 param = col;
+    float3 param_1 = P;
+    float3 _351 = finish(param, param_1, _64);
+    return float4(_351, 1.0 - coc);
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _64 [[buffer(0)]], texture2d<float> palette [[texture(0)]], sampler paletteSmplr [[sampler(0)]])
 {
     main0_out out = {};
     float3 albedo = palette.sample(paletteSmplr, in.vUv).xyz;
@@ -105,13 +135,12 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _59 [[buffer(
     float3 param_1 = N;
     float3 param_2 = in.vWorld;
     float param_3 = in.vAo;
-    float3 col = shade(param, param_1, param_2, param_3, _59);
-    float3 V = fast::normalize(_59.camPos.xyz - in.vWorld);
+    float3 col = shade(param, param_1, param_2, param_3, _64);
+    float3 V = fast::normalize(_64.camPos.xyz - in.vWorld);
     col += ((float3(0.100000001490116119384765625, 0.119999997317790985107421875, 0.2199999988079071044921875) * powr(1.0 - fast::max(dot(N, V), 0.0), 3.0)) * in.vAo);
     float3 param_4 = col;
     float3 param_5 = in.vWorld;
-    float3 _362 = finish(param_4, param_5, _59);
-    out.outColor = float4(_362, 1.0);
+    out.outColor = finishA(param_4, param_5, _64);
     return out;
 }
 

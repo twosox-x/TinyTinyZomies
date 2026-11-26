@@ -148,20 +148,34 @@ void explosionFx(uint e, uint t) {
     vec3 c = explo[e].xyz;
     uint rng = pcgHash(t * 7919u ^ e * 104729u ^ uint(timeP.z) * 31u);
     vec3 d = randDir(rng);
+    // exploP.w: effect size (1 = grenade; vehicles 1-2.2). Negative: a burning vehicle (src/city/CityVehicles), only
+    // flames and smoke over a footprint of -w metres (explo.w = 0, so the blast itself affects nothing).
+    float s = exploP[e].w;
+    if (s < 0.0) {
+        float sz = -s;
+        vec3 o = vec3((rand01(rng) - 0.5) * sz, 0.0, (rand01(rng) - 0.5) * sz * 0.5);
+        if (t < 14u)
+            spawnParticle(c + o, vec3(d.x * 0.6, 1.2 + 2.0 * rand01(rng), d.z * 0.6), 0.45 + 0.45 * rand01(rng), PT_FIRE,
+                          0.25 + 0.3 * rand01(rng));
+        else if (t < 17u)
+            spawnParticle(c + o + vec3(0.0, 0.8, 0.0), vec3(d.x * 0.5, 1.5 + 1.5 * rand01(rng), d.z * 0.5), 1.2 + 1.3 * rand01(rng),
+                          PT_SMOKE, 0.2 + 0.25 * rand01(rng));
+        return;
+    }
     if (t < 140u) {                                                 // fireball
         d.y = abs(d.y);
-        spawnParticle(c + d * (0.3 + 1.2 * rand01(rng)) + vec3(0.0, 0.5, 0.0), d * (2.0 + 9.0 * rand01(rng)) + vec3(0.0, 2.0, 0.0),
-                      0.35 + 0.5 * rand01(rng), PT_FIRE, 0.25 + 0.35 * rand01(rng));
+        spawnParticle(c + d * (0.3 + 1.2 * rand01(rng)) * s + vec3(0.0, 0.5, 0.0), (d * (2.0 + 9.0 * rand01(rng)) + vec3(0.0, 2.0, 0.0)) * s,
+                      (0.35 + 0.5 * rand01(rng)) * sqrt(s), PT_FIRE, 0.25 + 0.35 * rand01(rng));
     } else if (t < 230u) {                                          // smoke
         d.y = abs(d.y) * 0.6 + 0.2;
-        spawnParticle(c + d * 1.2 + vec3(0.0, 0.8, 0.0), d * (1.0 + 3.5 * rand01(rng)), 0.8 + 1.4 * rand01(rng), PT_SMOKE,
+        spawnParticle(c + d * 1.2 * s + vec3(0.0, 0.8, 0.0), d * (1.0 + 3.5 * rand01(rng)) * s, (0.8 + 1.4 * rand01(rng)) * s, PT_SMOKE,
                       0.15 + 0.25 * rand01(rng));
     } else if (t < 400u) {                                          // asphalt chunks
         d.y = abs(d.y) + 0.5;
-        spawnParticle(c + vec3(0.0, 0.2, 0.0), normalize(d) * (5.0 + 10.0 * rand01(rng)), 4.0, PT_DEBRIS, 0.06 + 0.1 * rand01(rng));
+        spawnParticle(c + vec3(0.0, 0.2, 0.0), normalize(d) * (5.0 + 10.0 * rand01(rng)) * sqrt(s), 4.0, PT_DEBRIS, 0.06 + 0.1 * rand01(rng));
     } else {                                                         // sparks
         d.y = abs(d.y) + 0.2;
-        spawnParticle(c + vec3(0.0, 0.4, 0.0), normalize(d) * (8.0 + 14.0 * rand01(rng)), 0.3 + 0.5 * rand01(rng), PT_SPARK, 0.03);
+        spawnParticle(c + vec3(0.0, 0.4, 0.0), normalize(d) * (8.0 + 14.0 * rand01(rng)) * sqrt(s), 0.3 + 0.5 * rand01(rng), PT_SPARK, 0.03);
     }
     // scorch decal: a ragged disc
     float cell = 1.0 / (world.w * 3.0);

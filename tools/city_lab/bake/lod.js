@@ -1,6 +1,6 @@
 // Tile LODs from a baked MESH section (FORMAT.md 2/3), used by bake.js and relod.js:
 //  - relodMesh(MESH): the same quads reordered for the stricter LOD1 (drops details whose longest edge < 1 m; upward
-//    quads use v1's 0.35 m rule so ground and roofs stay closed).
+//    quads use v1's 0.35 m rule so ground and roofs stay closed; road raster / curb / sidewalk quads are always kept).
 //  - lod2Mesh(MESH): far LOD, a 2.5D block model of the tile: tops rasterised at 0.5 m, reduced to 2 m cells (median
 //    height, majority material), greedy-merged rectangles; walls between cells of different height with facade
 //    materials sampled per 3 m storey band (majority of the facade quads behind the edge: brick / lit windows / glass),
@@ -10,6 +10,9 @@ const B = require('./lib.js');
 
 const L1_EDGE = 1.0;            // m: LOD1 keeps quads whose longest edge is >= this
 const L1_GROUND = 0.35;         // m: same for upward quads (road raster / roof pieces: v1's LOD1 rule, no big holes)
+// Road raster materials (palette ids: asphalt .. park path, parking, crosswalk, drive, plot overlays) are always kept in
+// LOD1: dropping their small pieces / vertical curb faces opened dashed gaps along every kerb at distance.
+const isRaster = (m) => m <= 18 || m === 23 || m === 24 || m === 29 || (m >= 30 && m <= 53);
 const C = 2.0, S = 0.5, SUB = C / S, BAND = 3.0;   // LOD2 cell, top sample step, facade band height (m)
 const MIN_WALL = 0.3;           // m: height steps below this get no wall (curbs)
 
@@ -29,14 +32,14 @@ function quadsOf(buf) {
 }
 
 function relodMesh(buf) {
-  const { m, Q, P, N } = quadsOf(buf);
+  const { m, Q, P, N, M } = quadsOf(buf);
   const keep = new Uint8Array(Q); let K = 0;
   const l2 = L1_EDGE * L1_EDGE, G2 = L1_GROUND * L1_GROUND;
   for (let q = 0; q < Q; ++q) {
     const o = q * 12, d = (a, b) => { const x = P[o + b * 3] - P[o + a * 3], y = P[o + b * 3 + 1] - P[o + a * 3 + 1], z = P[o + b * 3 + 2] - P[o + a * 3 + 2]; return x * x + y * y + z * z; };
     // upward quads (road raster, markings, decks, roofs) use the finer rule: no big holes in ground or roofs
     const ground = N[q * 3 + 1] > 0.9, e2 = Math.max(d(0, 1), d(1, 2));
-    if (e2 >= (ground ? G2 : l2)) { keep[q] = 1; ++K; }
+    if (isRaster(M[q]) || e2 >= (ground ? G2 : l2)) { keep[q] = 1; ++K; }
   }
   const out = Buffer.from(buf); let w = m.vo;
   for (const pass of [1, 0]) for (let q = 0; q < Q; ++q) if (keep[q] === pass) { buf.copy(out, w, m.vo + q * 48, m.vo + q * 48 + 48); w += 48; }

@@ -33,7 +33,15 @@ public:
     // spawn with a fixed appearance (showcase / validation) or as settling corpses (benchmarks / tests)
     void requestSpawnLook(const Rect& r, uint32_t count, uint32_t lookX, uint32_t lookY, bool asCorpse = false);
     void requestSpawnCorpses(const Rect& r, uint32_t count);
-    void requestExplosion(float x, float y, float z);
+    // scale: blast radius / strength / effect size multiplier (vehicles: 1-2.2). Every accepted explosion is also
+    // appended to explosionLog() (consumers such as CityVehicles take it once per frame).
+    void requestExplosion(float x, float y, float z, float scale = 1.f);
+    // Flames + smoke only (a burning vehicle, footprint `size` m): uses explosion slots left free in the next step.
+    void requestFire(float x, float y, float z, float size);
+    struct ExplosionEvent { float x, y, z, scale; };
+    std::vector<ExplosionEvent> takeExplosionLog() { std::vector<ExplosionEvent> v; v.swap(explosionLog_); return v; }
+    // Rows [z0, z0 + rows) of the static height grid (gridW floats per row), recorded into cmd (dynamic obstacles).
+    void uploadStaticRows(SDL_GPUCommandBuffer* cmd, uint32_t z0, uint32_t rows, const float* data);
     void setGoals(const std::vector<float>& xz);
     const std::vector<float>& goals() const { return goals_; }
 
@@ -118,7 +126,9 @@ private:
     std::vector<float> goals_;
     struct SpawnRequest { Rect rect; uint32_t count; uint32_t lookX = 0, lookY = 0; bool forced = false, corpse = false; };
     std::vector<SpawnRequest> pendingSpawns_;   // one request is consumed per step
-    std::vector<std::array<float, 3>> pendingExplosions_;
+    std::vector<std::array<float, 4>> pendingExplosions_;
+    std::vector<std::array<float, 4>> pendingFires_;
+    std::vector<ExplosionEvent> explosionLog_;
     double simTime_ = 0.0;
     uint64_t stepIndex_ = 0;
     uint32_t spawnSeed_ = 1;

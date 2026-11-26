@@ -404,6 +404,80 @@ function tcWater(P, x, z, m) {
   }
   return 0;
 }
+// ---- water bodies as terrain (tensor maps): signed distance to the shore (m, > 0 in the water), river / lake banks
+// sloping from the ground (+0.15) down to a bed under a smooth water surface at WATER.level (the engine draws the
+// surface from the baked WATR grid), and road bridges over the water (the bank raster is carved under them).
+const WATER = { level: -1.9, bank: 3.5, top: 0.15, toe: -2.3, bed: -3.6, bedRun: 8, carve: -2.6 };
+function waterSD(net, x, z) {
+  const P = net.plan; if (!P || P.kind !== 'tensor') return -1e9;
+  const f = tcRiver(P.river, x, z); let sd = tcRiverHW(P.river, f[0]) - Math.abs(f[1]);
+  for (const l of P.lakes) {
+    const dx = x - l.c[0], dz = z - l.c[1], R0 = l.r * 1.2 + 20;
+    if (dx * dx + dz * dz > R0 * R0) { sd = Math.max(sd, l.r * 0.8 - Math.hypot(dx, dz)); continue; }
+    sd = Math.max(sd, lakeR(l, x, z) - Math.hypot(dx, dz));
+  }
+  return sd;
+}
+// bank surface height (m) at signed shore distance sd
+function bankY(sd) {
+  const W = WATER;
+  if (sd <= -W.bank) return W.top;
+  if (sd <= 0) return W.top + (W.toe - W.top) * (sd + W.bank) / W.bank;
+  return W.toe + (W.bed - W.toe) * Math.min(1, sd / W.bedRun);
+}
+// bridges: every road stretch over (or within the bank of) the water, as a straight deck rectangle from 3 m of land
+// before the bank to 3 m after it. { A, B, ux, uz, len, hw, cw, road, cls, profile }. Cached per network.
+const BRIDGES = new WeakMap();
+function bridgePlan(net) {
+  let L = BRIDGES.get(net); if (L) return L;
+  L = [];
+  const P = net.plan;
+  if (P && P.kind === 'tensor') for (const r of net.roads) {
+    const pr = PROFILES[r.profile] || {}, cw = (pr.bands || []).reduce((s, b) => s + b[2], 0), hw = cw / 2 + (pr.sidewalk || 2) + 0.4;
+    const pts = r.pts, S = [];
+    for (let i = 0; i + 1 < pts.length; ++i) {
+      const [ax, az] = pts[i], [bx, bz] = pts[i + 1], l = Math.hypot(bx - ax, bz - az), n = Math.max(1, Math.ceil(l));
+      for (let k = (i ? 1 : 0); k <= n; ++k) S.push([ax + (bx - ax) * k / n, az + (bz - az) * k / n]);
+    }
+    let a = -1, wet = false;
+    const flush = (b) => {
+      if (a >= 0 && wet && a > 0 && b < S.length - 1) {
+        const i0 = Math.max(0, a - 3), i1 = Math.min(S.length - 1, b + 3), A = S[i0], Bp = S[i1], len = Math.hypot(Bp[0] - A[0], Bp[1] - A[1]);
+        if (len > 4) L.push({ A, B: Bp, ux: (Bp[0] - A[0]) / len, uz: (Bp[1] - A[1]) / len, len, hw, cw, road: r.id, cls: r.cls || pr.cls || '', profile: r.profile, side: pr.sidewalk || 2 });
+      }
+      a = -1; wet = false;
+    };
+    for (let k = 0; k < S.length; ++k) {
+      const sd = waterSD(net, S[k][0], S[k][1]);
+      if (sd > -WATER.bank - Math.min(hw, 6)) { if (a < 0) a = k; if (sd > 0) wet = true; }
+      else if (a >= 0) flush(k - 1);
+    }
+    if (a >= 0) flush(S.length - 1);
+  }
+  BRIDGES.set(net, L);
+  return L;
+}
+function bridgeAt(net, x, z, pad) {
+  for (const b of bridgePlan(net)) {
+    const rx = x - b.A[0], rz = z - b.A[1], t = rx * b.ux + rz * b.uz, d = -rx * b.uz + rz * b.ux;
+    if (t >= -(pad || 0) && t <= b.len + (pad || 0) && Math.abs(d) <= b.hw + (pad || 0)) return { b, t, d };
+  }
+  return null;
+}
+// raster column of a bank / bed / bridge cut at (x, z), or null away from water: [y (m), material]
+function waterColumn(net, x, z, onRoad) {
+  const P = net.plan; if (!P || P.kind !== 'tensor' || !tcWater(P, x, z, WATER.bank + 0.2)) return null;
+  const sd = waterSD(net, x, z); if (sd <= -WATER.bank) return null;
+  const br = bridgeAt(net, x, z, 0);
+  let y = bankY(sd);
+  if (br) return [Math.min(y, WATER.carve), y < WATER.level ? GROUND.WATER : GROUND.SOIL];
+  if (onRoad && sd < -0.8) return null;                  // a road grazing the bank stays flat
+  if (y < WATER.level - 0.05) return [y, GROUND.WATER];   // under the surface (bed)
+  const h = hash2(Math.floor(x * 2), Math.floor(z * 2), 77), h2 = hash2(Math.floor(x / 1.5), Math.floor(z / 1.5), 78);
+  const m = y < WATER.level + 0.35 ? (h2 < 0.45 ? GROUND.GRAVEL : GROUND.SOIL) : sd > -1.6 ? (h < 0.3 ? GROUND.GRAVEL : h < 0.55 ? GROUND.SOIL : GROUND.VERGE)
+    : (h < 0.12 ? GROUND.SOIL : GROUND.VERGE);
+  return [y, m];
+}
 function gridAt(G, x, z) {                      // bilinear sample of a Float32Array grid { x0, z0, cell, nx, nz, a }
   const fx = (x - G.x0) / G.cell, fz = (z - G.z0) / G.cell;
   const ix = clamp(Math.floor(fx), 0, G.nx - 2), iz = clamp(Math.floor(fz), 0, G.nz - 2), tx = clamp(fx - ix, 0, 1), tz = clamp(fz - iz, 0, 1), a = G.a, k = iz * G.nx + ix;
@@ -2126,6 +2200,10 @@ class Rasterizer {
   classify(x, z, o, out) {
     const F = this.F, hs = this.hs, v = this.v;
     F.sample(x, z, o);
+    if (this.net.plan && this.net.plan.kind === 'tensor') {
+      const wc = waterColumn(this.net, x, z, o.road >= 0 && o.car <= 900 && o.car / (o.g || 1) < (o.sw || 0));
+      if (wc) { out[0] = Math.round(wc[0] / v); out[1] = wc[1]; return; }
+    }
     if (o.road < 0 || o.car > 900) { const rg = this.net.plan && ruralGround(this.net, x, z, 99); out[0] = hs; out[1] = rg ? rg.mat : MAT.PLOT; return; }
     // near the curb line the carriageway field is evaluated exactly (no interpolation wobble), and divided
     // by its gradient so that curb, gutter and sidewalk widths are true metres in the curb returns too
@@ -2566,7 +2644,9 @@ class MeshBuffer {
 // normal ids: 0 +y, 1 +x, 2 -x, 3 +z, 4 -z
 // H, M: column arrays of size (w+2)*(d+2) with a one-cell apron; (ox, oz) = world voxel coords of interior cell (0,0)
 // matTopFn: optional remap of the top material; wallMatFn(m) -> material for walls of a column
-function meshColumns(H, M, w, d, ox, oz, wallMat, mb) {
+function meshColumns(H, M, w, d, ox, oz, wallMat, mb, none) {
+  const NEG = none !== undefined;   // heights may be negative; `none` marks absent columns
+  const absent = (h) => NEG ? h === none : h < 0, base = (h) => NEG ? (h === none ? 0 : h) : Math.max(h, 0);
   const W2 = w + 2;
   const at = (x, z) => (z + 1) * W2 + (x + 1);
   // tops
@@ -2575,7 +2655,7 @@ function meshColumns(H, M, w, d, ox, oz, wallMat, mb) {
     for (let x = 0; x < w; ++x) {
       if (done[z * w + x]) continue;
       const i = at(x, z), h = H[i], m = M[i];
-      if (h < 0) { done[z * w + x] = 1; continue; }
+      if (absent(h)) { done[z * w + x] = 1; continue; }
       let x1 = x + 1;
       while (x1 < w && !done[z * w + x1] && H[at(x1, z)] === h && M[at(x1, z)] === m) ++x1;
       let z1 = z + 1;
@@ -2600,16 +2680,16 @@ function meshColumns(H, M, w, d, ox, oz, wallMat, mb) {
         // only emit edges owned by this chunk: interior cells on at least one side; aprons handled by neighbours
         const ownL = dir === 0 ? a - 1 >= 0 : a - 1 >= 0, ownR = dir === 0 ? a < w : a < d;
         let face = 0, lo = 0, hi = 0, m = 0;
-        if (hL > hR && ownL) { face = 1; lo = Math.max(hR, 0); hi = hL; m = wallMat(M[iL]); }          // left column taller: face +axis
-        else if (hR > hL && ownR) { face = -1; lo = Math.max(hL, 0); hi = hR; m = wallMat(M[iR]); }
+        if (hL > hR && ownL) { face = 1; lo = base(hR); hi = hL; m = wallMat(M[iL]); }          // left column taller: face +axis
+        else if (hR > hL && ownR) { face = -1; lo = base(hL); hi = hR; m = wallMat(M[iR]); }
         if (!face || hi <= lo) { ++b; continue; }
         let b1 = b + 1;
         while (b1 < nB) {
           const jL = dir === 0 ? at(a - 1, b1) : at(b1, a - 1), jR = dir === 0 ? at(a, b1) : at(b1, a);
           const gL = H[jL], gR = H[jR];
           let f2 = 0, lo2 = 0, hi2 = 0, m2 = 0;
-          if (gL > gR && ownL) { f2 = 1; lo2 = Math.max(gR, 0); hi2 = gL; m2 = wallMat(M[jL]); }
-          else if (gR > gL && ownR) { f2 = -1; lo2 = Math.max(gL, 0); hi2 = gR; m2 = wallMat(M[jR]); }
+          if (gL > gR && ownL) { f2 = 1; lo2 = base(gR); hi2 = gL; m2 = wallMat(M[jL]); }
+          else if (gR > gL && ownR) { f2 = -1; lo2 = base(gL); hi2 = gR; m2 = wallMat(M[jR]); }
           if (f2 !== face || lo2 !== lo || hi2 !== hi || m2 !== m) break;
           ++b1;
         }
@@ -2630,7 +2710,7 @@ function meshColumns(H, M, w, d, ox, oz, wallMat, mb) {
 
 // ------------------------------------------------------------------------------------------------ pipeline
 // The build is split so it can run in parallel workers: fields -> chunks (any order, any worker) -> buildings.
-const WALL_MAT = (m) => (m === MAT.MEDIAN_GRASS || m === MAT.MEDIAN_CURB) ? MAT.MEDIAN_CURB : MAT.CURB;
+const WALL_MAT = (m) => (m === MAT.MEDIAN_GRASS || m === MAT.MEDIAN_CURB) ? MAT.MEDIAN_CURB : (m === 206 || m === 140 || m === 207 || m === 16) ? m : MAT.CURB;   // banks: earth risers
 function prepareBuild(net, voxel, opts) {
   opts = opts || {};
   const F = new FieldSampler(net, opts.fieldCell || 0.5);
@@ -2671,12 +2751,12 @@ function buildChunk(ctx, c) {
   for (let z = -1; z <= d; ++z)
     for (let x = -1; x <= w; ++x) {
       const gx = ox + x, gz = oz + z, i = (z + 1) * W2 + (x + 1);
-      if (gx < VX0 || gx >= VX1 || gz < VZ0 || gz >= VZ1) { H[i] = -1; M[i] = 0; continue; }
+      if (gx < VX0 || gx >= VX1 || gz < VZ0 || gz >= VZ1) { H[i] = -32768; M[i] = 0; continue; }
       R.classify((gx + 0.5) * voxel, (gz + 0.5) * voxel, o, out);
       H[i] = out[0]; M[i] = out[1];
     }
   const mb = new MeshBuffer();
-  meshColumns(H, M, w, d, ox, oz, WALL_MAT, mb);
+  meshColumns(H, M, w, d, ox, oz, WALL_MAT, mb, -32768);
   return mb.finish();
 }
 // building blockouts + plot overlay on a coarser grid (an integer multiple of the road voxel)
@@ -4376,6 +4456,6 @@ function exportNetwork(net) {
 Object.assign(PROP_PALETTE, VEH_PALETTE);
 // rural ground (city_core GROUND): crop green, furrow, wheat, forest floor, water, farmyard gravel
 Object.assign(PROP_PALETTE, { 202: [112, 146, 74], 203: [128, 104, 78], 204: [204, 182, 116], 205: [86, 100, 66], 206: [76, 114, 138], 207: [166, 156, 138] });
-const CityCore = { roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { WATER, waterSD, bankY, bridgePlan, bridgeAt, waterColumn, roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

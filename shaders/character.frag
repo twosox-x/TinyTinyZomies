@@ -80,18 +80,20 @@ void main() {
         }
     }
     vec3 N = normalize(vNormal);
-    if (tag == TAG_EYE) {                         // emissive, unlit (Zombie Lab: 0.55, 2.2, 0.45 linear)
-        outColor = vec4(finish(vec3(0.55, 2.2, 0.45), vWorld), 1.0);
+    bool dead = (vInfo.z & (1u << 24)) != 0u;
+    if (tag == TAG_EYE && !dead) {                // emissive, unlit (Zombie Lab: 0.55, 2.2, 0.45 linear)
+        outColor = finishA(vec3(0.55, 2.2, 0.45), vWorld);
         return;
     }
-    vec3 albedo = srgbToLinear(clamp(tagColorSRGB(tag, look), 0.0, 1.0));
+    // dead eyes: dull, lit like the rest of the body
+    vec3 albedo = tag == TAG_EYE ? vec3(0.05, 0.07, 0.045) : srgbToLinear(clamp(tagColorSRGB(tag, look), 0.0, 1.0));
     // per-voxel tonal noise, exactly Zombie Lab: voxel centre from the rest-pose surface position
     uint tier = (look >> 22) & 3u;
     float amp = tier == 0u ? 0.0 : (tier == 1u ? 0.07 : 0.13);
     if (amp > 0.0) albedo *= 1.0 + (labHash3(ctr, ZP_SEEDS[(look >> 27) & 3u]) - 0.5) * 2.0 * amp;
     // gore: raw flesh where a neighbouring segment was blown off (stumps and the cut ends of flying parts),
     // blood splashes on zombies hit by explosions (bloodiness 0..3)
-    uint slot = (vInfo.z >> 4) & 15u, sev = vInfo.z >> 8;
+    uint slot = (vInfo.z >> 4) & 15u, sev = (vInfo.z >> 8) & 0xFFFFu;
     if (sev != 0u) {
         float cut = 0.0;
         int par = (slot == 6u || slot == 8u) ? 1 : ZP_SLOT_PARENT[slot];      // legs hang from the torso's hips
@@ -116,5 +118,5 @@ void main() {
     vec3 col = shadeV(albedo * 2.0, N, vWorld, 1.0, moonVisibility(vWorld, N));
     vec3 V = normalize(camPos.xyz - vWorld);
     col += vec3(0.10, 0.12, 0.22) * pow(1.0 - max(dot(N, V), 0.0), 3.0) * vAO;   // rim, as the previous renderer
-    outColor = vec4(finish(col, vWorld), 1.0);
+    outColor = finishA(col, vWorld);
 }

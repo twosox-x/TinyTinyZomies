@@ -90,5 +90,5 @@ void main() {
     }
     albedo = pow(albedo, vec3(2.2)) * 2.0;
     vec3 col = shadeV(albedo, N, vWorld, ao, moonVisibility(vWorld, N)) + emissive;
-    outColor = vec4(finish(col, vWorld), 1.0);
+    outColor = finishA(col, vWorld);
 }

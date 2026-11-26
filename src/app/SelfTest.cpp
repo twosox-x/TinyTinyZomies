@@ -1,6 +1,8 @@
 // Headless validation of the GPU crowd simulation. Uses synchronous readbacks (test-only).
 #include "app/SelfTest.h"
 
+#include "city/CityVehicles.h"
+
 #include "render/CharacterRenderer.h"
 #include "render/Math.h"
 #include "sim/CrowdSim.h"
@@ -316,6 +318,202 @@ void testMovingWindow(World& w, GpuContext& gpu, const SimParams& params) {
     }
 }
 
+
+// ---------------------------------------------------------------- 10. dynamic city vehicles
+// A jammed row of cars (+ a fuel tanker at the end) on an open street of the test map, zombies around them; one blast
+// at the head of the row. Rigid bodies, fuses, chain reaction, settling, obstacle stamping, persistence.
+void testVehicles(World& w, GpuContext& gpu, const SimParams& params) {
+    std::printf("[10] city vehicles: blast -> move, fuse, explode, chain reaction, settle, obstacles for zombies\n");
+    Sandbox street = w.sb;   // the test map without its abandoned cars / barricades: an open avenue between buildings
+    if (std::getenv("TTZ_VEH_SHIFT")) { street.originX += 64 * params.cellSize; street.originZ += 32 * params.cellSize; w.sb = street; }
+    street.boxes.erase(std::remove_if(street.boxes.begin(), street.boxes.end(),
+                                      [](const Box& b) { return b.kind == BoxKind::Car || b.kind == BoxKind::Barricade; }),
+                       street.boxes.end());
+    w.sim.reset(street);
+    w.sim.setGoals({});
+    const std::vector<float> heights = street.rasterize();
+    const int W = params.gridW, H = params.gridH;
+    const float cell = params.cellSize, ox = w.sb.originX, oz = w.sb.originZ;
+    // open strip 66 x 9 cells (~50 x 7 m) with a building within 8 m of its side
+    int bx = -1, bz = -1;
+    for (int z = 12; z + 21 < H && bx < 0; ++z)
+        for (int x = 8; x + 74 < W && bx < 0; x += 2) {
+            bool open = true;
+            for (int k = 0; k < 9 && open; ++k)
+                for (int i = 0; i < 66 && open; ++i) open = heights[(size_t)(z + k) * W + x + i] == 0.f;
+            if (!open) continue;
+            bool wall = false;
+            for (int k = -10; k < 19 && !wall; ++k)
+                if (k < 0 || k >= 9) wall = heights[(size_t)(z + k) * W + x + 33] > 2.f;
+            if (wall) { bx = x; bz = z; }
+        }
+    check(bx >= 0, "test map has an open street next to a building", fmt("cell (%.0f, %.0f)", bx, bz));
+    if (bx < 0) return;
+    const float rowZ = oz + (bz + 4.5f) * cell, rowX = ox + (bx + 4) * cell;
+    // models: sedan ok / damaged / burnt (lower), fuel tanker (no burnt mesh: damaged + charcoal paint)
+    std::vector<VehicleModel> models(4);
+    auto box = [](VehicleModel& m, float l, float h, float wd) { m.bmin[0] = -l / 2; m.bmax[0] = l / 2; m.bmin[1] = 0; m.bmax[1] = h; m.bmin[2] = -wd / 2; m.bmax[2] = wd / 2; };
+    for (int k = 0; k < 3; ++k) { models[k].kind = "sedan"; models[k].stateTag = k == 2 ? 3 : k; box(models[k], 4.8f, k == 2 ? 1.3f : 1.5f, 2.f); models[k].damaged = 1; models[k].burnt = 2; }
+    models[3].kind = "tanker_trailer"; box(models[3], 12.f, 3.6f, 2.5f); models[3].mass = 4.5f; models[3].blastScale = 2.2f; models[3].darkenBurnt = true;
+    CityVehicles veh;
+    veh.initModels(models);
+    if (const char* sd = std::getenv("TTZ_VEH_SEED")) veh.seed((uint32_t)std::atoi(sd));
+    veh.setWindow(ox, oz, cell, W, H, heights);
+    std::vector<CityInstance> inst;
+    const int nCars = 7;
+    for (int k = 0; k < nCars; ++k) inst.push_back({rowX + 2.4f + k * 5.4f, 0.f, rowZ, {0, 0, 0, 1}, {0.5f, 0.1f, 0.1f, 1.f}, 0, 0});
+    inst.push_back({rowX + 2.4f + (nCars - 1) * 5.4f + 2.4f + 2.2f + 6.f, 0.f, rowZ, {0, 0, 0, 1}, {0.8f, 0.8f, 0.8f, 1.f}, 3, 0});
+    veh.registerTile(0, inst);
+    const uint32_t nV = veh.count();
+    auto frame = [&](float dt) {
+        SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(gpu.device());
+        veh.update(cmd, dt, w.sim);
+        if (dt > 0) w.sim.step(cmd);
+        SDL_GPUFence* f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+        SDL_WaitForGPUFences(gpu.device(), true, &f, 1);
+        SDL_ReleaseGPUFence(gpu.device(), f);
+    };
+    frame(0.f);   // parked cars stamped into the obstacle grid
+    w.read();
+    bool stamped = std::equal(veh.simHeights().begin(), veh.simHeights().end(), w.staticH.begin());
+    int carCells = 0;
+    for (size_t c = 0; c < w.staticH.size(); ++c) carCells += w.staticH[c] > 1.f && heights[c] == 0.f;
+    check(stamped && carCells > nCars * 12, "parked vehicles are obstacles in the simulation grid", fmt("vehicle cells=%.0f", carCells));
+    // zombies on both sides of the row
+    w.sim.requestSpawn(Rect{rowX - 6.f, rowZ - 3.2f, rowX + 50.f, rowZ - 1.4f}, 300);
+    w.sim.requestSpawn(Rect{rowX - 6.f, rowZ + 1.4f, rowX + 50.f, rowZ + 3.2f}, 300);
+    for (int k = 0; k < 30; ++k) frame(1.f / 60.f);
+    // the blast: just off the head of the row
+    w.sim.requestExplosion(rowX - 1.5f, 0.4f, rowZ - 0.5f);
+    std::vector<float> explodedAt(nV, -1.f);
+    float maxMove0 = 0, maxAngle0 = 0, maxHeight = 0;
+    int nanFrames = 0, explosionsPerFrameMax = 0;
+    const float dt = 1.f / 60.f;
+    float t = 0;
+    auto runUntilSettled = [&](float maxSeconds) {
+        for (int f = 0; f < (int)(60 * maxSeconds); ++f, t += dt) {
+            uint32_t before = veh.stats().explosions;
+            frame(dt);
+            explosionsPerFrameMax = std::max(explosionsPerFrameMax, (int)(veh.stats().explosions - before));
+            bool fuses = false;
+            for (uint32_t i = 0; i < nV; ++i) {
+                const Vehicle& v = veh.vehicle(i);
+                if (!std::isfinite(v.p[0]) || !std::isfinite(v.p[1]) || !std::isfinite(v.p[2]) || !std::isfinite(v.q[3])) ++nanFrames;
+                if (v.state == VehState::Wrecked && explodedAt[i] < 0) explodedAt[i] = t;
+                maxHeight = std::max(maxHeight, v.p[1]);
+                fuses |= v.state == VehState::Burning;
+            }
+            const Vehicle& v0 = veh.vehicle(0);
+            maxMove0 = std::max(maxMove0, std::hypot(v0.ro[0] - v0.bp[0], v0.ro[2] - v0.bp[2]));
+            maxAngle0 = std::max(maxAngle0, 2.f * std::acos(std::min(1.f, std::fabs(v0.q[3]))) * 57.3f);
+            if (f > 60 * 4 && veh.stats().active == 0 && !fuses) break;
+        }
+    };
+    runUntilSettled(25.f);
+    // the fuel tanker at the end of the row: blown up directly if the chain did not reach it
+    const float tankerHit = t;
+    if (explodedAt[nV - 1] < 0) {
+        const Vehicle& tk = veh.vehicle(nV - 1);
+        w.sim.requestExplosion(tk.p[0], 0.4f, tk.p[2] - 2.5f);
+        runUntilSettled(15.f);
+    }
+    int carsExploded = 0;
+    for (int k = 0; k < nCars; ++k) carsExploded += explodedAt[k] >= 0;
+    std::printf("  exploded at (s):");
+    for (uint32_t i = 0; i < nV; ++i) std::printf(" %.2f", explodedAt[i]);
+    std::printf("   (%u explosions, max %d per frame, peak height %.1f m)\n", veh.stats().explosions, explosionsPerFrameMax, maxHeight);
+    check(maxMove0 > 0.8f || maxAngle0 > 25.f, "the blast moves / tumbles the nearest car", fmt("moved %.2f m, turned %.0f deg", maxMove0, maxAngle0));
+    check(explodedAt[0] >= 0.4f && explodedAt[0] <= 3.7f, "the car blows up after a 0.5-3 s fuse", fmt("%.2f s", explodedAt[0]));
+    // (each explosion also throws the next car away, so the chain may stop before the end of the row)
+    check(carsExploded >= 3, "chain reaction along the jammed row", fmt("%.0f of %.0f cars", carsExploded, nCars));
+    check(explodedAt[nV - 1] > explodedAt[0], explodedAt[nV - 1] <= tankerHit ? "the fuel tanker explodes (chain)" : "the fuel tanker explodes (direct hit)",
+          fmt("at %.2f s", explodedAt[nV - 1]));
+    bool ordered = true;   // the chain travels down the row (later cars do not go first)
+    for (int k = 2; k < nCars; ++k) ordered &= explodedAt[k] < 0 || explodedAt[k] >= explodedAt[0];
+    check(ordered && explosionsPerFrameMax <= CityVehicles::kMaxBlastsPerFrame, "chain is sequential, explosions per frame capped",
+          fmt("max per frame %.0f", explosionsPerFrameMax));
+    check(nanFrames == 0, "no NaN vehicle states", fmt("%.0f", nanFrames));
+    check(veh.vehicle(0).variant == 2 && veh.vehicle(nV - 1).paint[0] < 0.05f, "wrecks swap to the burnt variant (charcoal paint without one)", "");
+    // settled: asleep, resting on the ground (or another wreck), not sunk, not inside a building
+    int awake = 0, floating = 0, sunk = 0, inBuilding = 0, onSideOrRoof = 0;
+    for (uint32_t i = 0; i < nV; ++i) {
+        const Vehicle& v = veh.vehicle(i);
+        awake += v.active;
+        float c[8][3], clear = 1e9f;
+        veh.worldCorners(v, c);
+        for (auto& k : c) {
+            // corners pulled 0.2 m towards the centre: the contact skin (corners resolve against 0.75 m cells)
+            float dx = v.p[0] - k[0], dz = v.p[2] - k[2], dl = std::max(1e-3f, std::hypot(dx, dz));
+            k[0] += dx / dl * 0.2f;
+            k[2] += dz / dl * 0.2f;
+            float g = veh.groundAt(k[0], k[2]);
+            clear = std::min(clear, k[1] - g);
+            if (g > k[1] + 1.0f) ++inBuilding;
+        }
+        if (veh.groundAt(v.p[0], v.p[2]) > v.p[1] + 0.3f) ++inBuilding;
+        bool onOther = false;
+        for (uint32_t j = 0; j < nV; ++j)
+            if (j != i && std::hypot(veh.vehicle(j).p[0] - v.p[0], veh.vehicle(j).p[2] - v.p[2]) < 5.f && veh.vehicle(j).p[1] < v.p[1]) onOther = true;
+        if (std::getenv("TTZ_VEH_DEBUG"))
+            std::printf("  vehicle %u: p (%.2f %.2f %.2f) state %d clear %.2f ground %.2f baked (%.1f %.1f)\n", i, v.p[0], v.p[1], v.p[2], (int)v.state,
+                        clear, veh.groundAt(v.p[0], v.p[2]), v.bp[0], v.bp[2]);
+        if (std::getenv("TTZ_VEH_DEBUG"))
+            for (auto& k : c) std::printf("     corner (%.2f %.2f %.2f) ground %.2f\n", k[0], k[1], k[2], veh.groundAt(k[0], k[2]));
+        if (clear > 0.4f && !onOther) ++floating;
+        if (clear < -0.3f) ++sunk;
+        float uy = 1 - 2 * (v.q[0] * v.q[0] + v.q[2] * v.q[2]);   // local up . world up
+        onSideOrRoof += uy < 0.5f;
+    }
+    std::printf("  settled: %d on side / roof of %u\n", onSideOrRoof, nV);
+    check(awake == 0 && floating == 0 && sunk == 0, "vehicles settle on the ground", fmt("awake=%.0f floating=%.0f sunk=%.0f", awake, floating, sunk));
+    check(inBuilding == 0, "no vehicle inside a building", fmt("corners / centres inside=%.0f", inBuilding));
+    // zombies vs vehicles: obstacle grid uploaded, nobody walking inside a car
+    for (int k = 0; k < 90; ++k) frame(dt);
+    w.read();
+    stamped = std::equal(veh.simHeights().begin(), veh.simHeights().end(), w.staticH.begin());
+    int inside = 0, checkedAgents = 0;
+    for (const GpuAgent& a : w.agents) {
+        uint32_t st = a.info.x & 0xFF;
+        if (st == ST_FALL || st == ST_DYING || st == ST_DEAD || !std::isfinite(a.pos.x)) continue;
+        ++checkedAgents;
+        for (uint32_t i = 0; i < nV; ++i) {
+            const Vehicle& v = veh.vehicle(i);
+            const VehicleModel& M = veh.model(v.variant);
+            // agent position in the vehicle frame (model origin)
+            float d[3] = {a.pos.x - v.ro[0], a.pos.y + 0.5f - v.ro[1], a.pos.z - v.ro[2]};
+            float qx = -v.q[0], qy = -v.q[1], qz = -v.q[2], qw = v.q[3];   // inverse rotation
+            float tx = 2 * (qy * d[2] - qz * d[1]), ty = 2 * (qz * d[0] - qx * d[2]), tz = 2 * (qx * d[1] - qy * d[0]);
+            float l[3] = {d[0] + qw * tx + (qy * tz - qz * ty), d[1] + qw * ty + (qz * tx - qx * tz), d[2] + qw * tz + (qx * ty - qy * tx)};
+            const float in = 0.25f;
+            if (l[0] > M.bmin[0] + in && l[0] < M.bmax[0] - in && l[1] > M.bmin[1] + in && l[1] < M.bmax[1] - in && l[2] > M.bmin[2] + in &&
+                l[2] < M.bmax[2] - in) {
+                if (std::getenv("TTZ_VEH_DEBUG"))
+                    std::printf("  inside: agent (%.2f %.2f %.2f) st %u local (%.2f %.2f %.2f) of vehicle %u, cell top %.2f\n", a.pos.x, a.pos.y,
+                                a.pos.z, st, l[0], l[1], l[2], i, w.staticH[w.cellOf(a.pos.x, a.pos.z)]);
+                ++inside;
+                break;
+            }
+        }
+    }
+    check(stamped, "moved vehicles update the simulation's obstacle grid", "");
+    check(checkedAgents > 100 && inside <= std::max(2, checkedAgents / 200), "zombies are not inside vehicles",
+          fmt("%.0f of %.0f standing zombies inside a vehicle box", inside, checkedAgents));
+    // persistence: window away and back -> same wrecks, same poses, same obstacle grid
+    std::vector<Vehicle> snap;
+    for (uint32_t i = 0; i < nV; ++i) snap.push_back(veh.vehicle(i));
+    std::vector<float> gridBefore = veh.simHeights();
+    std::vector<float> away(heights.size(), 0.f);
+    veh.setWindow(ox + 300.f, oz, cell, W, H, away);
+    frame(0.f);
+    veh.registerTile(0, inst);   // the renderer re-uploading the tile must not reset it
+    veh.setWindow(ox, oz, cell, W, H, heights);
+    frame(0.f);
+    bool same = true;
+    for (uint32_t i = 0; i < nV; ++i)
+        same &= std::memcmp(snap[i].ro, veh.vehicle(i).ro, 12) == 0 && snap[i].state == veh.vehicle(i).state && snap[i].variant == veh.vehicle(i).variant;
+    check(same && veh.simHeights() == gridBefore, "destroyed vehicles persist when the window moves away and back", "");
+    w.sim.reset(w.sb);
+}
 } // namespace
 
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
@@ -326,6 +524,11 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     w.sb.build(params.cellSize, params.gridW, params.gridH);
     if (!w.sim.init(gpu, params, w.sb)) { std::printf("sim init failed\n"); return 2; }
 
+    if (std::getenv("TTZ_SELFTEST_VEHICLES")) {   // only the vehicle test
+        testVehicles(w, gpu, params);
+        w.sim.shutdown();
+        return g_fail ? 1 : 0;
+    }
     if (std::getenv("TTZ_SELFTEST_MOVE")) {   // only the moving-window test
         testMovingWindow(w, gpu, params);
         w.sim.shutdown();
@@ -748,6 +951,7 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     chars.shutdown();
 
     testMovingWindow(w, gpu, params);
+    testVehicles(w, gpu, params);
 
     w.sim.shutdown();
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
