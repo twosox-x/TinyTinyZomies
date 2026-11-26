@@ -258,3 +258,4 @@ for (const seed of SEEDS) {
   if (o.bad.length > LIST) console.log(`  ... ${o.bad.length - LIST} more`);
 }
 if (JSONF) fs.writeFileSync(JSONF, JSON.stringify(all, null, 1));
+process.exitCode = all.some(o => o.bad.length) ? 1 : 0;    // any vehicle target without a drive aisle / curb cut fails (check.js)

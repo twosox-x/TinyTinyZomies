@@ -8,7 +8,7 @@
 // A view fails when more than MAX_FRAC of its pixels differ by more than TOL in any channel; a diff image (changed
 // pixels in red over a dimmed render) is written next to each render.
 const fs = require('fs'), path = require('path'), zlib = require('zlib');
-const { chromium } = require('playwright');
+const PW = require('./lib/pw.js'), { chromium } = PW;
 const args = process.argv.slice(2);
 const opt = (k, d) => { const a = args.find(x => x.startsWith('--' + k + '=')); return a ? a.slice(k.length + 3) : d; };
 const ROOT = path.resolve(opt('root', __dirname + '/..')), OUT = opt('out', process.env.OUT || '/tmp/city_shots');
@@ -62,12 +62,7 @@ function crc(b) { let c = -1; for (const x of b) c = CRC[(c ^ x) & 255] ^ (c >>>
   fs.mkdirSync(OUT, { recursive: true }); if (UPDATE) fs.mkdirSync(BASE, { recursive: true });
   const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const ctx = await b.newContext({ viewport: { width: W, height: H } });
-  await ctx.route('http://citylab.local/**', (route) => {
-    const u = new URL(route.request().url()), f = path.join(ROOT, decodeURIComponent(u.pathname));
-    if (!f.startsWith(ROOT) || !fs.existsSync(f)) return route.fulfill({ status: 404, body: '' });
-    const ext = path.extname(f), type = ext === '.html' ? 'text/html' : ext === '.js' ? 'application/javascript' : 'application/octet-stream';
-    route.fulfill({ status: 200, contentType: type, body: fs.readFileSync(f) });
-  });
+  await PW.serve(ctx, ROOT);
   const p = await ctx.newPage();
   const logs = []; p.on('pageerror', e => logs.push('PAGEERROR ' + e.message));
   // frozen animation clock: every frame sees t = 1 s
