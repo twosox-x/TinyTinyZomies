@@ -100,7 +100,7 @@ public:
         return variant < models_[0].size() && variant < asset_->variants.size() && models_[0][variant].vb ? &models_[0][variant] : nullptr;
     }
     size_t vehicleVariantCount() const { return asset_ ? asset_->variants.size() : 0; }
-    struct ExtDraw { const GpuMesh* mesh; uint32_t first, count; };
+    struct ExtDraw { const GpuMesh* mesh; uint32_t first, count; float clamp[8] = {0, 0, 0, 0, 0, 0, 0, 0}; };   // clamp: rect + heights (city.vert)
     // Inside the scene pass: instances (GpuInstance layout, `insts`) drawn with the given palette.
     void drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* materials, SDL_GPUBuffer* insts,
                       SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH, SDL_GPUBuffer* corpseH, const std::vector<ExtDraw>& draws);

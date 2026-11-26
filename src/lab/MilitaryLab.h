@@ -49,6 +49,12 @@ private:
         int script = -1;           // stress script state (-1: none)
         float stateLeft = 0;
         bool fxEvents = true;
+        // cross-fade (anims.json transitions): previous clip keeps playing underneath for blendDur
+        int prevClip = -1;
+        float prevT = 0, blend = 0, blendDur = 0;
+        float prevDelta[4] = {0, 0, 0, 0};   // root motion already committed while the previous clip still blends out
+        V3 home{};
+        bool mover = false;                  // stress: walk / run along the street instead of in place
     };
     struct Drop {                  // parachute sequence
         bool cargo = false;
@@ -60,6 +66,7 @@ private:
         bool released = false;     // harness released: canopy frozen
         float relCanopy[MC_STRIDE] = {};
         V3 relPos{};
+        float clamp[8] = {0, 0, 0, 0, 0, 0, 0, 0};   // canopy clamp: roof footprint rect + heights (city.vert)
     };
     struct Fx { int model; V3 p, v; float q[4]; float age, life; int kind; };   // kind 0 static, 1 ballistic, 2 drift, 3 tracer
     V3 world(float lx, float lz, float y = 0.f) const;
@@ -71,6 +78,10 @@ private:
     void soldierEvent(const Soldier& so, const CharU& C, const MilFxEvent& e);
     void pushSoldier(const Soldier& so, int lod, CharU* out = nullptr);
     void sampleSoldier(const Soldier& so, CharU& C, float mountQ[4], int lod) const;
+    bool sampleBody(const Soldier& so, int lod, float* B) const;      // blended clip pose + left-arm re-solve
+    void switchClip(Soldier& so, int clip);                           // cross-fade per the transition table
+    void commitRootMotion(Soldier& so, const MilKeyClip& k);
+    void placeDrops(AppState& s);
     void muzzleFrame(const Soldier& so, const CharU& C, const float mountQ[4], const float wsPoint[3], V3& outP, float outQ[4]) const;
     void spawnFx(int model, V3 p, V3 v, const float q[4], float life, int kind);
     void putInst(int model, V3 p, const float q[4], const CityRenderer::GpuMesh* mesh = nullptr, int kind = 1, const float* paint = nullptr);
@@ -112,7 +123,9 @@ private:
     std::vector<std::vector<CityRenderer::GpuInstance>> instBuckets_;
     std::vector<CityRenderer::GpuInstance> cpuInst_;
     std::vector<CityRenderer::ExtDraw> draws_, vehDraws_;
-    std::vector<CityRenderer::GpuInstance> vehInst_;
+    std::vector<CityRenderer::GpuInstance> vehInst_, canopyInst_;
+    std::vector<CityRenderer::ExtDraw> canopyDraws_;
+    bool dropsPlaced_ = false;
     float frustum_[6][4];
     V3 eye_{};
 

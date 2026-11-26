@@ -10,6 +10,8 @@ struct CityDraw
     float4 origin;
     float4 qscale;
     uint4 mode;
+    float4 clampRect;
+    float4 clampH;
 };
 
 struct Inst
@@ -72,7 +74,7 @@ float3 qrot(thread const float4& q, thread const float3& v)
     return v + (cross(q.xyz, cross(q.xyz, v) + (v * q.w)) * 2.0);
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _265 [[buffer(0)]], constant CityDraw& _41 [[buffer(1)]], const device Insts& _99 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _314 [[buffer(0)]], constant CityDraw& _41 [[buffer(1)]], const device Insts& _99 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
 {
     main0_out out = {};
     float3 p = _41.origin.xyz + (float3(in.inPos.xyz) * _41.qscale.xyx);
@@ -93,10 +95,52 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _265 [[buffer(0
             float4 param = I.quat;
             float3 param_1 = float3((p.x * I.paint.x) + (sh.x * p.y), p.y * I.paint.y, (p.z * I.paint.x) + (sh.y * p.y));
             p = I.pos.xyz + qrot(param, param_1);
-            float x = (p.y - I.paint.w) / 0.07999999821186065673828125;
-            if ((I.paint.w > (-1000.0)) && (x < 20.0))
+            float g = I.paint.w;
+            if ((_41.clampH.w > 0.5) && (g > (-1000.0)))
             {
-                p.y = I.paint.w + (0.07999999821186065673828125 * log(1.0 + exp(x)));
+                bool _186 = p.x >= _41.clampRect.x;
+                bool _194;
+                if (_186)
+                {
+                    _194 = p.x <= _41.clampRect.z;
+                }
+                else
+                {
+                    _194 = _186;
+                }
+                bool _202;
+                if (_194)
+                {
+                    _202 = p.z >= _41.clampRect.y;
+                }
+                else
+                {
+                    _202 = _194;
+                }
+                bool _210;
+                if (_202)
+                {
+                    _210 = p.z <= _41.clampRect.w;
+                }
+                else
+                {
+                    _210 = _202;
+                }
+                float _211;
+                if (_210)
+                {
+                    _211 = _41.clampH.x;
+                }
+                else
+                {
+                    _211 = _41.clampH.y;
+                }
+                g = _211;
+            }
+            float x = (p.y - g) / 0.07999999821186065673828125;
+            if ((g > (-1000.0)) && (x < 20.0))
+            {
+                p.y = g + (0.07999999821186065673828125 * log(1.0 + exp(x)));
             }
         }
         else
@@ -115,17 +159,17 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _265 [[buffer(0
         {
             if (I.pos.w < 0.5)
             {
-                bool _226 = (in.inPos.w & 1) != 0;
-                bool _232;
-                if (_226)
+                bool _275 = (in.inPos.w & 1) != 0;
+                bool _281;
+                if (_275)
                 {
-                    _232 = I.paint.w > 0.5;
+                    _281 = I.paint.w > 0.5;
                 }
                 else
                 {
-                    _232 = _226;
+                    _281 = _275;
                 }
-                if (_232)
+                if (_281)
                 {
                     out.vPaint = float4(I.paint.xyz, 1.0);
                 }
@@ -138,7 +182,7 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _265 [[buffer(0
     }
     out.vWorld = p;
     out.vNormal = n;
-    out.gl_Position = _265.viewProj * float4(p, 1.0);
+    out.gl_Position = _314.viewProj * float4(p, 1.0);
     return out;
 }
 

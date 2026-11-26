@@ -10,6 +10,8 @@ layout(std140, set = 1, binding = 1) uniform CityDraw {
     vec4 origin;      // xyz: world (tiles) or model (instances) position of quantised 0
     vec4 qscale;      // x metres per unit in x / z, y in y
     uvec4 mode;       // x: 0 tile, 1 instanced model; y: first instance
+    vec4 clampRect;   // deformed props (lab canopies): xz rect of a raised surface (roof footprint)
+    vec4 clampH;      // x surface height inside the rect, y outside (street), w 1 = use the rect
 };
 struct Inst { vec4 pos; vec4 quat; vec4 paint; };   // pos.w kind (0 vehicle, 1 prop); paint.w tint / signal phase
 layout(std430, set = 0, binding = 0) readonly buffer Insts { Inst inst[]; };
@@ -30,8 +32,11 @@ void main() {
         if (I.pos.w > 1.5) {   // deformed prop (parachute canopy, docs/MILITARY_ANIMS.md 2.3): xz radial / y height scale
             vec2 sh = unpackHalf2x16(floatBitsToUint(I.paint.z));   // shear x, z (collapse drift), proportional to height
             p = I.pos.xyz + qrot(I.quat, vec3(p.x * I.paint.x + sh.x * p.y, p.y * I.paint.y, p.z * I.paint.x + sh.y * p.y));
-            float x = (p.y - I.paint.w) / 0.08;   // soft ground clamp (paint.w = surface height, < -1000 off)
-            if (I.paint.w > -1000.0 && x < 20.0) p.y = I.paint.w + 0.08 * log(1.0 + exp(x));
+            float g = I.paint.w;   // soft ground clamp (paint.w = surface height, < -1000 off); roof footprint: street outside
+            if (clampH.w > 0.5 && g > -1000.0)
+                g = (p.x >= clampRect.x && p.x <= clampRect.z && p.z >= clampRect.y && p.z <= clampRect.w) ? clampH.x : clampH.y;
+            float x = (p.y - g) / 0.08;
+            if (g > -1000.0 && x < 20.0) p.y = g + 0.08 * log(1.0 + exp(x));
         } else p = I.pos.xyz + qrot(I.quat, p);
         n = qrot(I.quat, n);
         if (I.pos.w > 1.5) {}

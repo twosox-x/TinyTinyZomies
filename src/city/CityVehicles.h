@@ -107,6 +107,7 @@ public:
     float groundAt(float x, float z) const;             // base heights (no vehicles)
     float solidAt(float x, float z) const;              // base + sleeping vehicles
     void worldCorners(const Vehicle& v, float out[8][3]) const;
+    const std::vector<Vehicle>& vehicles() const { return all_; }   // read-only (Military Lab landing spots)
     const VehicleStats& stats() const { return stats_; }
     void seed(uint32_t s) { rng_ = s ? s : 1u; }
     bool enabled = true;

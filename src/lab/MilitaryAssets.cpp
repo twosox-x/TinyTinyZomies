@@ -90,6 +90,25 @@ bool MilKeyClip::sample(const std::vector<float>& track, int stride, float t, fl
     return true;
 }
 
+float MilitaryLibrary::transitionTime(const std::string& from, const std::string& to, bool& sync) const {
+    auto match = [](const std::string& pat, const std::string& a) {
+        if (pat == "*") return true;
+        if (!pat.empty() && pat.back() == '*') return a.rfind(pat.substr(0, pat.size() - 1), 0) == 0;
+        return pat == a;
+    };
+    sync = false;
+    const Transition* best = nullptr;
+    int bestScore = -1;
+    for (const Transition& t : transitions)
+        if (match(t.from, from) && match(t.to, to)) {
+            int score = (t.from != "*" ? 2 : 0) + (t.to.find('*') == std::string::npos ? 1 : 0);
+            if (score > bestScore) { bestScore = score; best = &t; }
+        }
+    if (!best) return 0.2f;
+    sync = best->sync;
+    return best->s;
+}
+
 int MilitaryLibrary::findClip(const std::string& cls, const std::string& action) const {
     for (size_t i = 0; i < keyClips.size(); ++i)
         if (keyClips[i].cls == cls && keyClips[i].action == action) return (int)i;
@@ -358,6 +377,18 @@ void MilitaryLibrary::buildLabHelpers() {
         const float puff[3] = {0.04f, 0.055f, 0.07f};
         for (int k = 0; k < 3; ++k) { Builder b("fx_puff", 1, 1, 1, puff[k]); b.box(0, 0, 0, 1, 1, 1, P_PUFF); b.centred(0.5f, 0.5f, 0.5f); fxModels[FX_PUFF_S + k] = add(b); }
         { Builder b("fx_dust", 1, 1, 1, 0.06f); b.box(0, 0, 0, 1, 1, 1, P_DUST); b.centred(0.5f, 0.f, 0.5f); fxModels[FX_DUST] = add(b); }
+        // hand items (left hand, docs/MILITARY_ANIMS.md 2.1): boxes along the forearm axis (y), 2 cm voxels
+        auto item = [&](const char* name, int x, int y, int z, uint8_t pal, uint8_t pal2) {
+            Builder b(name, x, y, z, 0.02f);
+            b.box(0, 0, 0, x, y, z, pal); b.box(0, 0, 0, x, 1, z, pal2);
+            b.centred(x * 0.5f, y * 0.5f, z * 0.5f);
+            return add(b);
+        };
+        handItemModels[1] = item("hand_rifle_mag", 2, 7, 4, P_GUNMETAL, P_BLACK);
+        handItemModels[2] = item("hand_mg_box", 5, 6, 8, P_OLIVE_DARK, P_GUNMETAL);
+        handItemModels[3] = item("hand_sniper_mag", 2, 5, 3, P_BLACK, P_GUNMETAL);
+        handItemModels[4] = item("hand_ammo_can", 5, 9, 14, P_OLIVE, P_OLIVE_DARK);
+        handItemModels[5] = item("hand_belt_end", 2, 2, 7, P_BRASS, P_GUNMETAL);
         { Builder b("fx_dust_l", 1, 1, 1, 0.08f); b.box(0, 0, 0, 1, 1, 1, P_DUST); b.centred(0.5f, 0.f, 0.5f); fxModels[FX_DUST_L] = add(b); }
     }
     { const float av = 1.7f / 36.f;   // muzzle flash, half body voxels, centred
@@ -564,6 +595,9 @@ bool MilitaryLibrary::loadAnims(const std::string& dir) {
         for (int a = 0; a < 3; ++a) { sm.grip[a] = (float)v["gripFromTorsoPivot"][(size_t)a].n(); sm.rot[a] = (float)v["rot"][(size_t)a].n(); }
         slungMounts.push_back(sm);
     }
+    transitions.clear();
+    for (const json::Value& t : j["transitions"].arr)
+        transitions.push_back({t["from"].str, t["to"].str, (float)t["s"].n(0.2), t["sync"].str == "phase"});
     int loaded = 0;
     for (const json::Value* cp : list) {
         const json::Value& c = *cp;

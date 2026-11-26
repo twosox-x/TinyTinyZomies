@@ -28,6 +28,27 @@ void qrotv(const float q[4], const float v[3], float out[3]) {
     float r[3] = {v[0] + q[3] * tx + (q[1] * tz - q[2] * ty), v[1] + q[3] * ty + (q[2] * tx - q[0] * tz), v[2] + q[3] * tz + (q[0] * ty - q[1] * tx)};
     std::memcpy(out, r, sizeof(r));
 }
+void qconj(const float q[4], float o[4]) { o[0] = -q[0]; o[1] = -q[1]; o[2] = -q[2]; o[3] = q[3]; }
+void qnorm(float q[4]) { float l = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]); for (int k = 0; k < 4; ++k) q[k] /= l > 0 ? l : 1.f; }
+void qnlerp(const float a[4], const float b[4], float w, float o[4]) {   // shortest arc
+    float d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3], sg = d < 0 ? -1.f : 1.f;
+    for (int k = 0; k < 4; ++k) o[k] = a[k] * (1.f - w) + sg * b[k] * w;
+    qnorm(o);
+}
+void qarc(const float u[3], const float v[3], float o[4]) {   // shortest rotation taking unit u to unit v
+    float c[3] = {u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]}, d = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    if (d < -0.9999f) { o[0] = 1; o[1] = 0; o[2] = 0; o[3] = 0; return; }
+    o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; o[3] = 1.f + d;
+    qnorm(o);
+}
+void quatToEulerXYZ(const float q[4], float e[3]) {   // R = Rx * Ry * Rz (three.js 'XYZ')
+    float x = q[0], y = q[1], z = q[2], w = q[3];
+    float m11 = 1 - 2 * (y * y + z * z), m12 = 2 * (x * y - w * z), m13 = 2 * (x * z + w * y);
+    float m22 = 1 - 2 * (x * x + z * z), m23 = 2 * (y * z - w * x), m32 = 2 * (y * z + w * x), m33 = 1 - 2 * (x * x + y * y);
+    e[1] = std::asin(std::clamp(m13, -1.f, 1.f));
+    if (std::fabs(m13) < 0.9999f) { e[0] = std::atan2(-m23, m33); e[2] = std::atan2(-m12, m11); }
+    else { e[0] = std::atan2(m32, m22); e[2] = 0.f; }
+}
 void yawQuat(float yaw, float q[4]) { q[0] = 0; q[1] = std::sin(0.5f * yaw); q[2] = 0; q[3] = std::cos(0.5f * yaw); }
 uint16_t packHalf(float f) {   // float -> IEEE half (round toward zero; small values flush to 0)
     uint32_t x;
@@ -348,7 +369,7 @@ void MilitaryLab::sampleSoldier(const Soldier& so, CharU& C, float mountQ[4], in
     if (!c || !c->available) { C.anim[0] = 8.f; return; }
     if (c->keyClip >= 0 && c->keyClip < (int)lib_.keyClips.size()) {
         float B[MB_STRIDE];
-        if (lib_.keyClips[(size_t)c->keyClip].sampleBody(t, B)) {
+        if (sampleBody(so, lod, B)) {
             C.anim[0] = 9.f; C.anim[1] = t;
             for (int s = 0; s < 10; ++s) for (int k = 0; k < 3; ++k) C.rot[s][k] = B[MB_ROT + s * 3 + k];
             eulerXYZToQuat(&B[MB_ROOTROT], C.rootQ);
@@ -361,6 +382,120 @@ void MilitaryLab::sampleSoldier(const Soldier& so, CharU& C, float mountQ[4], in
     C.anim[0] = (float)c->anim; C.anim[1] = t;
     C.anim[2] = c->length > 0 ? t / c->length * 2.f * kPi : 0.f; C.anim[3] = c->speed;
     if (inf.weaponAtt >= 0) std::memcpy(mountQ, inf.atts[(size_t)inf.weaponAtt].quat, sizeof(float) * 4);
+}
+
+// Clip pose of a soldier: the current clip, cross-faded with the previous one while a transition runs
+// (docs/MILITARY_ANIMS.md 4: per-slot quaternion nlerp, rootPos / supportTarget lerp, rootRot / weaponMount nlerp,
+// flags from the dominant clip), then the left arm re-solved to the weapon support point (2-bone IK, 3.5 V bones,
+// elbow pole down / out) weighted by the blended supportW. Single clips are already IK-solved at bake time.
+bool MilitaryLab::sampleBody(const Soldier& so, int lod, float* B) const {
+    const MilInfantry& inf = lib_.infantry[(size_t)so.inf];
+    auto keyOf = [&](int clip) -> const MilKeyClip* {
+        if (clip < 0 || clip >= (int)inf.clips.size()) return nullptr;
+        int k = inf.clips[(size_t)clip].keyClip;
+        return k >= 0 && k < (int)lib_.keyClips.size() && !lib_.keyClips[(size_t)k].body.empty() ? &lib_.keyClips[(size_t)k] : nullptr;
+    };
+    auto q = [&](float t) { return lod == 1 ? std::floor(t * 15.f) / 15.f : lod >= 2 ? std::floor(t * 5.f) / 5.f : t; };
+    const MilKeyClip* k = keyOf(so.clip);
+    if (!k || !k->sampleBody(q(so.t), B)) return false;
+    const MilKeyClip* kp = so.blendDur > 0.f && so.blend < so.blendDur ? keyOf(so.prevClip) : nullptr;
+    if (!kp || lod >= 2) return true;
+    float P[MB_STRIDE];
+    kp->sampleBody(q(so.prevT), P);
+    if (so.prevDelta[0] != 0.f || so.prevDelta[2] != 0.f || so.prevDelta[3] != 0.f) {   // root motion committed: into the new agent frame
+        float dx = P[MB_ROOTPOS] - so.prevDelta[0], dz = P[MB_ROOTPOS + 2] - so.prevDelta[2], c = std::cos(-so.prevDelta[3]), s = std::sin(-so.prevDelta[3]);
+        P[MB_ROOTPOS] = dx * c + dz * s; P[MB_ROOTPOS + 2] = -dx * s + dz * c;
+        P[MB_ROOTPOS + 1] -= so.prevDelta[1];
+        P[MB_ROOTROT + 1] -= so.prevDelta[3];
+    }
+    float u = std::clamp(so.blend / so.blendDur, 0.f, 1.f), w = u * u * (3.f - 2.f * u);
+    float qa[4], qb[4], qo[4];
+    auto blendEuler = [&](int off) {
+        eulerXYZToQuat(&P[off], qa); eulerXYZToQuat(&B[off], qb); qnlerp(qa, qb, w, qo); quatToEulerXYZ(qo, &B[off]);
+    };
+    for (int sl = 0; sl < 10; ++sl) blendEuler(MB_ROT + sl * 3);
+    blendEuler(MB_ROOTROT);
+    blendEuler(MB_MOUNT);
+    for (int k3 = 0; k3 < 3; ++k3) {
+        B[MB_ROOTPOS + k3] = P[MB_ROOTPOS + k3] + (B[MB_ROOTPOS + k3] - P[MB_ROOTPOS + k3]) * w;
+        B[MB_SUPPORT + k3] = P[MB_SUPPORT + k3] + (B[MB_SUPPORT + k3] - P[MB_SUPPORT + k3]) * w;
+    }
+    B[MB_SUPPORTW] = P[MB_SUPPORTW] + (B[MB_SUPPORTW] - P[MB_SUPPORTW]) * w;
+    if (w < 0.5f) B[MB_FLAGS] = P[MB_FLAGS];
+    // left arm re-solve (pose space, before the clip root)
+    const float sw = std::clamp(B[MB_SUPPORTW], 0.f, 1.f);
+    if (sw < 0.01f || ((int)B[MB_FLAGS] & 64)) return true;
+    const float sc = bodyVoxel_;
+    auto E = [&](int sl, float o[4]) { eulerXYZToQuat(&B[MB_ROT + sl * 3], o); };
+    auto rel = [&](int s, int par, float o[3]) { for (int k3 = 0; k3 < 3; ++k3) o[k3] = (kPivot[s][k3] - kPivot[par][k3]) * sc; };
+    float q1[4], q4[4], q5[4], ql[4], t1[3], t4[3], t5[3], r[3], v[3];
+    E(1, q1);
+    for (int k3 = 0; k3 < 3; ++k3) t1[k3] = kPivot[1][k3] * sc;
+    E(4, ql); qmul(q1, ql, q4); rel(4, 1, v); qrotv(q1, v, r); for (int k3 = 0; k3 < 3; ++k3) t4[k3] = t1[k3] + r[k3];
+    E(5, ql); qmul(q4, ql, q5); rel(5, 4, v); qrotv(q4, v, r); for (int k3 = 0; k3 < 3; ++k3) t5[k3] = t4[k3] + r[k3];
+    float mq[4], qw[4], hand[3] = {0.f, -3.5f * sc, 0.f}, T[3];
+    eulerXYZToQuat(&B[MB_MOUNT], mq);
+    qmul(q5, mq, qw);
+    qrotv(q5, hand, r);
+    float st[3] = {B[MB_SUPPORT], B[MB_SUPPORT + 1], B[MB_SUPPORT + 2]};
+    if (st[0] == 0.f && st[1] == 0.f && st[2] == 0.f) std::memcpy(st, inf.support, sizeof(st));
+    qrotv(qw, st, v);
+    for (int k3 = 0; k3 < 3; ++k3) T[k3] = t5[k3] + r[k3] + v[k3];
+    float S[3];
+    rel(2, 1, v); qrotv(q1, v, r); for (int k3 = 0; k3 < 3; ++k3) S[k3] = t1[k3] + r[k3];
+    const float a = 3.5f * sc;
+    float D[3] = {T[0] - S[0], T[1] - S[1], T[2] - S[2]}, dl = std::sqrt(D[0] * D[0] + D[1] * D[1] + D[2] * D[2]);
+    if (dl < 1e-4f) return true;
+    float dir[3] = {D[0] / dl, D[1] / dl, D[2] / dl};
+    float d = std::clamp(dl, 1e-3f, 2.f * a * 0.999f);
+    float alpha = std::acos(std::clamp(d / (2.f * a), -1.f, 1.f));
+    float poleL[3] = {0.6f, -1.f, 0.f}, pole[3];
+    qrotv(q1, poleL, pole);
+    float n[3] = {dir[1] * pole[2] - dir[2] * pole[1], dir[2] * pole[0] - dir[0] * pole[2], dir[0] * pole[1] - dir[1] * pole[0]};
+    float nl = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    if (nl < 1e-5f) return true;
+    float qa2[4] = {n[0] / nl * std::sin(0.5f * alpha), n[1] / nl * std::sin(0.5f * alpha), n[2] / nl * std::sin(0.5f * alpha), std::cos(0.5f * alpha)};
+    float U[3], Eb[3], F[3];
+    qrotv(qa2, dir, U);
+    for (int k3 = 0; k3 < 3; ++k3) Eb[k3] = S[k3] + U[k3] * a;
+    float fl = std::sqrt((T[0] - Eb[0]) * (T[0] - Eb[0]) + (T[1] - Eb[1]) * (T[1] - Eb[1]) + (T[2] - Eb[2]) * (T[2] - Eb[2]));
+    for (int k3 = 0; k3 < 3; ++k3) F[k3] = (T[k3] - Eb[k3]) / std::max(fl, 1e-5f);
+    float down[3] = {0, -1, 0}, q2[4], q3[4], cur[3], arc[4], q2n[4], q3p[4], q3n[4], ql2[4], ql3[4], inv[4];
+    E(2, ql); qmul(q1, ql, q2);
+    qrotv(q2, down, cur); qarc(cur, U, arc); qmul(arc, q2, q2n);
+    E(3, ql); qmul(q2n, ql, q3p);
+    qrotv(q3p, down, cur); qarc(cur, F, arc); qmul(arc, q3p, q3n);
+    qconj(q1, inv); qmul(inv, q2n, ql2);
+    qconj(q2n, inv); qmul(inv, q3n, ql3);
+    float o2[4], o3[4];
+    E(2, qa); qnlerp(qa, ql2, sw, o2); quatToEulerXYZ(o2, &B[MB_ROT + 2 * 3]);
+    E(3, qa); qnlerp(qa, ql3, sw, o3); quatToEulerXYZ(o3, &B[MB_ROT + 3 * 3]);
+    (void)q3;
+    return true;
+}
+
+void MilitaryLab::commitRootMotion(Soldier& so, const MilKeyClip& k) {   // root-motion clip finished: move the agent
+    float c = std::cos(so.yaw), s = std::sin(so.yaw);
+    so.pos = so.pos + V3{k.delta[0] * c + k.delta[2] * s, k.delta[1], -k.delta[0] * s + k.delta[2] * c};
+    so.yaw += k.delta[3];
+}
+
+void MilitaryLab::switchClip(Soldier& so, int clip) {
+    const MilInfantry& inf = lib_.infantry[(size_t)so.inf];
+    if (clip == so.clip || clip < 0 || clip >= (int)inf.clips.size()) return;
+    const MilClip* old = so.clip >= 0 && so.clip < (int)inf.clips.size() ? &inf.clips[(size_t)so.clip] : nullptr;
+    const MilClip& nw = inf.clips[(size_t)clip];
+    bool sync = false;
+    float dur = old ? lib_.transitionTime(old->name, nw.name, sync) : 0.f;
+    for (float& v : so.prevDelta) v = 0.f;
+    if (old && old->keyClip >= 0) {   // a finished one-shot root-motion clip: commit its displacement first
+        const MilKeyClip& k = lib_.keyClips[(size_t)old->keyClip];
+        if (k.rootMotion && !k.loop && so.t >= k.duration - 1e-3f) { commitRootMotion(so, k); std::memcpy(so.prevDelta, k.delta, sizeof(k.delta)); }
+    }
+    float phase = old && old->length > 0 ? so.t / old->length : 0.f;
+    so.prevClip = so.clip; so.prevT = so.t; so.blend = 0.f; so.blendDur = old ? dur : 0.f;
+    so.clip = clip;
+    so.t = sync ? std::fmod(phase, 1.f) * nw.length : 0.f;   // locomotion: phase-matched (same foot)
 }
 
 // Weapon frame of a sampled soldier on the CPU (forward kinematics torso -> upperArmR -> forearmR, clip root, heading),
@@ -411,9 +546,8 @@ void MilitaryLab::soldierEvent(const Soldier& so, const CharU& C, const MilFxEve
     const int* M = lib_.fxModels;
     float mountQ[4] = {0, 0, 0, 1};
     if (C.anim[0] > 8.5f) {
-        const MilClip& c = inf.clips[(size_t)so.clip];
         float B[MB_STRIDE];
-        if (lib_.keyClips[(size_t)c.keyClip].sampleBody(C.anim[1], B)) eulerXYZToQuat(&B[MB_MOUNT], mountQ);
+        if (sampleBody(so, 0, B)) eulerXYZToQuat(&B[MB_MOUNT], mountQ);
     } else if (inf.weaponAtt >= 0) std::memcpy(mountQ, inf.atts[(size_t)inf.weaponAtt].quat, sizeof(mountQ));
     const std::string kind = !e.fx.empty() ? e.fx : inf.weaponKind.empty() ? std::string("rifle") : inf.weaponKind;
     V3 mp;
@@ -503,6 +637,13 @@ void MilitaryLab::pushSoldier(const Soldier& so, int lod, CharU* out) {
                 }
         }
         attBuckets_[(size_t)A.model].push_back(O);
+    }
+    const int item = C.anim[0] > 8.5f ? ((int)C.anim[3] & 15) : 0;   // hand item at the left hand: (0, -3.5, 0) V in forearmL space
+    if (item > 0 && item < 6 && lib_.handItemModels[item] >= 0) {
+        AttU O{};
+        O.info[0] = ci; O.info[1] = 3;
+        O.offset[1] = -3.5f; O.quat[3] = 1.f;
+        attBuckets_[(size_t)lib_.handItemModels[item]].push_back(O);
     }
     ++st_.lod[std::min(lod, 2)];
 }

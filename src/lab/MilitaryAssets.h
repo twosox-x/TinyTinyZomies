@@ -107,7 +107,11 @@ struct MilitaryLibrary {
     std::vector<MilProp> props;
     std::vector<MilKeyClip> keyClips;
     struct Slung { std::string cls; float grip[3]; float rot[3]; };
-    std::vector<Slung> slungMounts;   // anims.json slungMount[class]: weapon on the torso while flag bit 6 is set
+    std::vector<Slung> slungMounts;
+    struct Transition { std::string from, to; float s; bool sync; };
+    std::vector<Transition> transitions;   // anims.json transitions (cross-fade seconds, phase sync)
+    float transitionTime(const std::string& from, const std::string& to, bool& sync) const;
+    int handItemModels[6] = {-1, -1, -1, -1, -1, -1};   // flags bits 0..3: none, rifle mag, MG box, sniper mag, ammo can, belt end   // anims.json slungMount[class]: weapon on the torso while flag bit 6 is set
     std::string animSource;           // anims.json status
     int findClip(const std::string& cls, const std::string& action) const;
     bool loadAnims(const std::string& dir);   // assets/military/anims.{json,bin}: per-class clips appended to the infantry

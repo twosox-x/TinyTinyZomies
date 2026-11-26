@@ -15,6 +15,8 @@ struct DrawU {               // std140, vertex uniform slot 1 (shaders/city.vert
     float origin[4];         // xyz
     float scale[4];          // x = metres per unit in x/z, y = in y
     uint32_t mode, instOffset, pad0, pad1;   // mode 0 tile, 1 instanced model
+    float clampRect[4] = {0, 0, 0, 0};       // external deformed props: roof footprint (x0, z0, x1, z1)
+    float clampH[4] = {0, 0, 0, 0};          // x inside, y outside, w 1 = use
 };
 struct GpuMat {              // std430, shaders/city.frag
     float albedo[4];         // linear rgb, w gloss
@@ -664,7 +666,7 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
         if (!g->vb || g->ranges.empty() || (L.shared ? !quadIB_ : !g->ib)) continue;
         // chunk ranges use LOD0's vertex offset / quantisation (lods[0] == lods[1] for implicit quad lists)
         const GpuTile::Lod& Q = ((g->lod == 2 && g->hasLod2) || g->chunks.empty()) ? L : g->lods[0];
-        DrawU u{{Q.origin[0], Q.origin[1], Q.origin[2], 0}, {Q.scale[0], Q.scale[1], 0, 0}, 0, 0, 0, 0};
+        DrawU u{{Q.origin[0], Q.origin[1], Q.origin[2], 0}, {Q.scale[0], Q.scale[1], 0, 0}, 0, 0, 0, 0, {}, {}};
         SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
         SDL_GPUBufferBinding vb{g->vb, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
@@ -679,7 +681,7 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
     for (const VDraw& v : vdraws_) {
         const GpuMesh& m = models_[v.lod][v.model];
         if (!m.vb) continue;
-        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, v.first, 0, 0};
+        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, v.first, 0, 0, {}, {}};
         SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
         SDL_GPUBufferBinding vb{m.vb, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
@@ -719,7 +721,9 @@ void CityRenderer::drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* c
     for (const ExtDraw& d : draws) {
         if (!d.mesh || !d.mesh->vb || !d.count) continue;
         const GpuMesh& m = *d.mesh;
-        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, d.first, 0, 0};
+        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, d.first, 0, 0, {}, {}};
+        std::memcpy(u.clampRect, d.clamp, sizeof(u.clampRect));
+        std::memcpy(u.clampH, d.clamp + 4, sizeof(u.clampH));
         SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
         SDL_GPUBufferBinding vb{m.vb, 0};
         SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
