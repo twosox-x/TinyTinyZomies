@@ -1,3 +1,4 @@
+// usage: node shot.js "<view.html url>" out.png  (headless screenshot of bake/view.html; Playwright + SwiftShader)
 const { chromium } = require('playwright');
 (async () => {
   const [url, out] = process.argv.slice(2);
