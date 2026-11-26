@@ -1736,8 +1736,10 @@ function modelTrashSteel() {
 function modelRecycle() {
   // recycling pair on a shared plinth: blue (bottles / cans) and green (paper), round openings in the lids
   const M = new VoxModel(26, 21, 14, 13, 7);
-  M.box(-12, 0, -6, 12, 1, 6, PM.CONCRETE);
+  // (no plinth voxel layer: props stand one voxel into the sidewalk slab, so a 1-voxel plinth's top lay exactly in
+  // the sidewalk surface and fought it - dev/groundfight.js; the bins reach down into the slab instead)
   for (const [x0, m] of [[-11, PM.RECYCLE_BLUE], [1, PM.LITTER]]) {
+    M.box(x0, 0, -5, x0 + 10, 1, 5, m);
     M.box(x0, 1, -5, x0 + 10, 17, 5, m).box(x0 - 1, 17, -6, x0 + 11, 19, 6, m);
     M.box(x0 + 3, 18, -3, x0 + 7, 19, 1, PM.HOUSING);
     M.box(x0 + 2, 9, -6, x0 + 8, 13, -5, PM.SIGN_WHITE);
@@ -1749,7 +1751,7 @@ function modelNewsboxes(cols) {
   const n = cols.length, M = new VoxModel(n * 10 + 2, 26, 12, (n * 10) >> 1, 6);
   cols.forEach(([m, h], k) => {
     const x = -((n * 10) >> 1) + k * 10 + 1;
-    M.box(x + 2, 0, -2, x + 7, 6, 2, PM.POLE_DARK).box(x + 1, 0, -3, x + 8, 1, 3, PM.POLE_DARK);
+    M.box(x + 2, 0, -2, x + 7, 6, 2, PM.POLE_DARK);          // pedestal (its foot plate lay in the sidewalk surface)
     M.box(x, 6, -4, x + 9, h, 4, m).box(x, h, -4, x + 9, h + 1, 3, PM.HOUSING);
     M.box(x + 1, h - 9, -5, x + 8, h - 3, -4, PM.PAPER).box(x + 1, h - 2, -5, x + 3, h - 1, -4, PM.STEEL);
     M.box(x + 2, 8, -5, x + 7, 9, -4, PM.HOUSING);
@@ -1802,7 +1804,7 @@ function modelCabinet(big) {
 function modelMeter() {
   // single-space parking meter: post, grey head with a dome window and a coin slot, display towards the sidewalk
   const M = new VoxModel(8, 30, 8, 4, 4);
-  M.box(-1, 0, -1, 1, 21, 1, PM.POLE_DARK).box(-2, 0, -2, 2, 1, 2, PM.POLE_DARK);
+  M.box(-1, 0, -1, 1, 21, 1, PM.POLE_DARK);                 // (no foot plate: it lay in the sidewalk surface)
   M.box(-2, 21, -2, 2, 27, 2, PM.STEEL).box(-1, 27, -2, 1, 28, 2, PM.STEEL);
   M.box(-1, 23, -3, 1, 26, -2, PM.PAPER).box(-1, 23, 2, 1, 26, 3, PM.HOUSING);
   return M;
