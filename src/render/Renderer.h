@@ -27,6 +27,7 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
     Vec4 blasts[kMaxBlasts];
     Vec4 lightPos[kMaxLights];
     Vec4 lightCol[kMaxLights];
+    Vec4 blastsP[kMaxBlasts];   // x effect scale
 };
 
 struct RenderSettings {
@@ -71,7 +72,7 @@ public:
     }
     void setCity(class CityRenderer* city) { city_ = city; }
 
-    void addBlast(float x, float y, float z);
+    void addBlast(float x, float y, float z, float scale = 1.f);   // flash + fire light (scale: effect size)
     void update(float dt);   // ages blast effects
 
     // Renders the scene into the internal target, then blits into `target` (swapchain) if given.
@@ -113,7 +114,7 @@ private:
     SimParams params_;
     Sandbox sandbox_;
     class CityRenderer* city_ = nullptr;
-    struct Blast { float x, y, z, age; };
+    struct Blast { float x, y, z, age, scale; };
     std::vector<Blast> blasts_;
 public:
     bool skipCharacterPrepare_ = false;   // benchmark: prepare recorded separately for timing

@@ -19,6 +19,7 @@ layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
     vec4  blasts[MAX_BLASTS];     // xyz, w age (s), < 0 inactive
     vec4  lightPos[MAX_LIGHTS];   // xyz, w radius
     vec4  lightCol[MAX_LIGHTS];   // rgb, w intensity
+    vec4  blastsP[MAX_BLASTS];    // x effect scale (1 car / grenade, 2.2 fuel tanker), yzw unused
 };
 #define DBG_DENSITY 1u
 #define DBG_FLOW    2u

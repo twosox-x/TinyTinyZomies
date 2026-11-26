@@ -38,6 +38,7 @@ int main(int argc, char** argv) {
     ttz::AppOptions o;
     ttz::BenchOptions b;
     bool bench = false, selftest = false;
+    float blastScale = 1.f;   // --blast-scale: effect scale of the following --blast options
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
         auto next = [&]() -> const char* { return i + 1 < argc ? argv[++i] : ""; };
@@ -59,8 +60,8 @@ int main(int argc, char** argv) {
             o.camSet = true;
         } else if (!std::strcmp(a, "--blast")) {
             float f = (float)std::atof(next()), x = (float)std::atof(next()), z = (float)std::atof(next());
-            o.scriptedBlasts.push_back({f, x, z});
-        } else if (!std::strcmp(a, "--chars")) o.characterModel = std::strcmp(next(), "placeholder") ? 1 : 0;
+            o.scriptedBlasts.push_back({f, x, z, blastScale});
+        } else if (!std::strcmp(a, "--blast-scale")) blastScale = (float)std::atof(next()); else if (!std::strcmp(a, "--chars")) o.characterModel = std::strcmp(next(), "placeholder") ? 1 : 0;
         else if (!std::strcmp(a, "--geom")) { const char* g = next(); o.charSettings.geometryLevel = !std::strcmp(g, "naive") ? 0 : !std::strcmp(g, "culled") ? 1 : !std::strcmp(g, "greedy") ? 2 : 3; }
         else if (!std::strcmp(a, "--classes")) o.charSettings.classMode = std::strcmp(next(), "family") ? 1 : 0;
         else if (!std::strcmp(a, "--no-cull")) o.charSettings.frustumCull = false;

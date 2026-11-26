@@ -123,6 +123,7 @@ VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json ./build/ttz_selftest
 | `--headless` | no window (offscreen render); combine with `--frames` and `--screenshot` |
 | `--cam x z yaw pitch dist` | camera target and orbit (radians, metres) |
 | `--blast frame x z` | scripted explosion (repeatable), for reproducible footage |
+| `--blast-scale s` | effect scale of the following `--blast`s (1 car / grenade, 1.5 truck, 2.2 fuel tanker) |
 | `--debug-flags N` | overlays bitmask: 1 density, 2 flow, 4 grid, 8 nav distance, 16 corpse height |
 | `--config path` | parameter file (default `config/sim.cfg`) |
 | `--save-config path` | write every parameter with its default value |

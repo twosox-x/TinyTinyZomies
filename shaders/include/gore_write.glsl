@@ -6,8 +6,9 @@
 void spawnParticle(vec3 pos, vec3 vel, float life, uint type, float size) {
     if (goreP.w < 0.5) return;
     uint slot = atomicAdd(gore[G_PARTICLE_HEAD], 1u) % goreCap.x;
-    particles[slot].pos = vec4(pos, life);
-    particles[slot].vel = vec4(vel, float(type) + clamp(size, 0.01, 0.99));
+    float k = clamp(floor(life * 8.0 + 0.5), 1.0, 127.0);     // initial life, quantised to 1/8 s
+    particles[slot].pos = vec4(pos, k * 0.125);
+    particles[slot].vel = vec4(vel, float(type) + 8.0 * k + clamp(size, 0.01, 0.99));
 }
 // A spray of blood droplets: n drops around pos, thrown along base velocity plus a random spread.
 void spawnBlood(vec3 pos, vec3 baseVel, float spread, float count, inout uint rng) {

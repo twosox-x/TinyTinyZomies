@@ -181,7 +181,7 @@ struct Gib
     uint4 info;
 };
 
-constant spvUnsafeArray<int2, 4> _641 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
+constant spvUnsafeArray<int2, 4> _654 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
 
 static inline __attribute__((always_inline))
 uint agentState(thread const Agent& a)
@@ -225,43 +225,43 @@ uint cellIndex(thread const int2& c, constant SimUniforms& _204)
 }
 
 static inline __attribute__((always_inline))
-float corpseAt(thread int2& c, constant SimUniforms& _204, device CorpseH& _493)
+float corpseAt(thread int2& c, constant SimUniforms& _204, device CorpseH& _506)
 {
     c = clamp(c, int2(0), int2(int(_204.grid.x) - 1, int(_204.grid.y) - 1));
     int2 param = c;
-    return float(_493.corpseH[cellIndex(param, _204)]) * 0.001000000047497451305389404296875;
+    return float(_506.corpseH[cellIndex(param, _204)]) * 0.001000000047497451305389404296875;
 }
 
 static inline __attribute__((always_inline))
-float corpseBilinear(thread const float2& xz, constant SimUniforms& _204, device CorpseH& _493)
+float corpseBilinear(thread const float2& xz, constant SimUniforms& _204, device CorpseH& _506)
 {
     float2 g = ((xz - _204.world.xy) * _204.world.w) - float2(0.5);
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
     int2 param = c0;
-    float _528 = corpseAt(param, _204, _493);
-    float h00 = _528;
+    float _541 = corpseAt(param, _204, _506);
+    float h00 = _541;
     int2 param_1 = c0 + int2(1, 0);
-    float _534 = corpseAt(param_1, _204, _493);
-    float h10 = _534;
+    float _547 = corpseAt(param_1, _204, _506);
+    float h10 = _547;
     int2 param_2 = c0 + int2(0, 1);
-    float _540 = corpseAt(param_2, _204, _493);
-    float h01 = _540;
+    float _553 = corpseAt(param_2, _204, _506);
+    float h01 = _553;
     int2 param_3 = c0 + int2(1);
-    float _546 = corpseAt(param_3, _204, _493);
-    float h11 = _546;
+    float _559 = corpseAt(param_3, _204, _506);
+    float h11 = _559;
     return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
 
 static inline __attribute__((always_inline))
-float groundHeight(thread const float2& xz, thread const float& feetY, constant SimUniforms& _204, device CorpseH& _493, device StaticH& _566)
+float groundHeight(thread const float2& xz, thread const float& feetY, constant SimUniforms& _204, device CorpseH& _506, device StaticH& _579)
 {
     float2 param = xz;
     int2 param_1 = cellCoord(param, _204);
-    float s = _566.staticH[cellIndex(param_1, _204)];
+    float s = _579.staticH[cellIndex(param_1, _204)];
     float base = (feetY >= (s - _204.moveP.w)) ? s : 0.0;
     float2 param_2 = xz;
-    return base + corpseBilinear(param_2, _204, _493);
+    return base + corpseBilinear(param_2, _204, _506);
 }
 
 static inline __attribute__((always_inline))
@@ -317,17 +317,17 @@ uint decalIndex(thread const int2& c, constant SimUniforms& _204)
 }
 
 static inline __attribute__((always_inline))
-void addBloodPool(thread const float2& xz, thread const float& radius, thread const uint& amount, constant SimUniforms& _204, device Decals& _457)
+void addBloodPool(thread const float2& xz, thread const float& radius, thread const uint& amount, constant SimUniforms& _204, device Decals& _470)
 {
     float cell = 1.0 / (_204.world.w * 3.0);
     int r = int(ceil(radius / cell));
     float2 param = xz;
     int2 c0 = decalCoord(param, _204);
-    int _401 = -r;
-    for (int y = _401; y <= r; y++)
+    int _414 = -r;
+    for (int y = _414; y <= r; y++)
     {
-        int _412 = -r;
-        for (int x = _412; x <= r; x++)
+        int _425 = -r;
+        for (int x = _425; x <= r; x++)
         {
             int2 c = c0 + int2(x, y);
             int2 param_1 = c;
@@ -342,9 +342,9 @@ void addBloodPool(thread const float2& xz, thread const float& radius, thread co
             }
             int2 param_2 = c;
             uint i = decalIndex(param_2, _204);
-            if (_457.decals[i] < 4000u)
+            if (_470.decals[i] < 4000u)
             {
-                uint _474 = atomic_fetch_add_explicit((device atomic_uint*)&_457.decals[i], uint(float(amount) * (1.2000000476837158203125 - d)), memory_order_relaxed);
+                uint _487 = atomic_fetch_add_explicit((device atomic_uint*)&_470.decals[i], uint(float(amount) * (1.2000000476837158203125 - d)), memory_order_relaxed);
             }
         }
     }
@@ -363,50 +363,50 @@ uint agentBlood(thread const uint& z)
 }
 
 static inline __attribute__((always_inline))
-void splatCorpse(thread const float2& xz, thread const float& heightM, constant SimUniforms& _204, device CorpseH& _493)
+void splatCorpse(thread const float2& xz, thread const float& heightM, constant SimUniforms& _204, device CorpseH& _506)
 {
     float2 g = ((xz - _204.world.xy) * _204.world.w) - float2(0.5);
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
-    spvUnsafeArray<float, 4> _637 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
-    spvUnsafeArray<float, 4> w = _637;
+    spvUnsafeArray<float, 4> _650 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
+    spvUnsafeArray<float, 4> w = _650;
     for (int k = 0; k < 4; k++)
     {
-        int2 c = c0 + _641[k];
-        bool _658 = c.x < 0;
-        bool _665;
-        if (!_658)
+        int2 c = c0 + _654[k];
+        bool _671 = c.x < 0;
+        bool _678;
+        if (!_671)
         {
-            _665 = c.y < 0;
+            _678 = c.y < 0;
         }
         else
         {
-            _665 = _658;
+            _678 = _671;
         }
-        bool _675;
-        if (!_665)
+        bool _688;
+        if (!_678)
         {
-            _675 = c.x >= int(_204.grid.x);
+            _688 = c.x >= int(_204.grid.x);
         }
         else
         {
-            _675 = _665;
+            _688 = _678;
         }
-        bool _685;
-        if (!_675)
+        bool _698;
+        if (!_688)
         {
-            _685 = c.y >= int(_204.grid.y);
+            _698 = c.y >= int(_204.grid.y);
         }
         else
         {
-            _685 = _675;
+            _698 = _688;
         }
-        if (_685)
+        if (_698)
         {
             continue;
         }
         int2 param = c;
-        int _702 = atomic_fetch_add_explicit((device atomic_int*)&_493.corpseH[cellIndex(param, _204)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
+        int _715 = atomic_fetch_add_explicit((device atomic_int*)&_506.corpseH[cellIndex(param, _204)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
     }
 }
 
@@ -434,7 +434,7 @@ float3 randDir(thread uint& s)
 }
 
 static inline __attribute__((always_inline))
-void spawnParticle(thread const float3& pos, thread const float3& vel, thread const float& life, thread const uint& type, thread const float& size, constant SimUniforms& _204, device GoreCnt& _351, device Particles& _361)
+void spawnParticle(thread const float3& pos, thread const float3& vel, thread const float& life, thread const uint& type, thread const float& size, constant SimUniforms& _204, device GoreCnt& _351, device Particles& _369)
 {
     if (_204.goreP.w < 0.5)
     {
@@ -442,8 +442,9 @@ void spawnParticle(thread const float3& pos, thread const float3& vel, thread co
     }
     uint _353 = atomic_fetch_add_explicit((device atomic_uint*)&_351.gore[0], 1u, memory_order_relaxed);
     uint slot = _353 % _204.goreCap.x;
-    _361.particles[slot].pos = float4(pos, life);
-    _361.particles[slot].vel = float4(vel, float(type) + fast::clamp(size, 0.00999999977648258209228515625, 0.9900000095367431640625));
+    float k = fast::clamp(floor((life * 8.0) + 0.5), 1.0, 127.0);
+    _369.particles[slot].pos = float4(pos, k * 0.125);
+    _369.particles[slot].vel = float4(vel, (float(type) + (8.0 * k)) + fast::clamp(size, 0.00999999977648258209228515625, 0.9900000095367431640625));
 }
 
 static inline __attribute__((always_inline))
@@ -453,35 +454,35 @@ float lerpAngle(thread const float& a, thread const float& b, thread const float
     return a + (d * t);
 }
 
-kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743 [[buffer(1)]], device PosFinal& _769 [[buffer(2)]], device ContactAux& _832 [[buffer(3)]], device StaticH& _566 [[buffer(4)]], device AgentsA& _1698 [[buffer(5)]], device Corpses& _1334 [[buffer(6)]], device CorpseH& _493 [[buffer(7)]], device Counters& _731 [[buffer(8)]], device Particles& _361 [[buffer(9)]], device GoreCnt& _351 [[buffer(10)]], device Decals& _457 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _756 [[buffer(1)]], device PosFinal& _782 [[buffer(2)]], device ContactAux& _845 [[buffer(3)]], device StaticH& _579 [[buffer(4)]], device AgentsA& _1710 [[buffer(5)]], device Corpses& _1346 [[buffer(6)]], device CorpseH& _506 [[buffer(7)]], device Counters& _744 [[buffer(8)]], device Particles& _369 [[buffer(9)]], device GoreCnt& _351 [[buffer(10)]], device Decals& _470 [[buffer(11)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint i = gl_GlobalInvocationID.x;
     spvUnsafeArray<Gib, 1> gibs;
-    if (i >= _731.counters[0])
+    if (i >= _744.counters[0])
     {
         return;
     }
     Agent a;
-    a.pos = _743.agentsB[i].pos;
-    a.vel = _743.agentsB[i].vel;
-    a.prev = _743.agentsB[i].prev;
-    a.dirs = _743.agentsB[i].dirs;
-    a.info = _743.agentsB[i].info;
+    a.pos = _756.agentsB[i].pos;
+    a.vel = _756.agentsB[i].vel;
+    a.prev = _756.agentsB[i].prev;
+    a.dirs = _756.agentsB[i].dirs;
+    a.info = _756.agentsB[i].info;
     float dt = _204.timeP.x;
-    float3 x = _769.posFinal[i].xyz;
+    float3 x = _782.posFinal[i].xyz;
     float3 v = (x - a.prev.xyz) / float3(dt);
     Agent param = a;
     uint st = agentState(param);
-    float _793;
+    float _806;
     if ((st == 2u) || (st == 3u))
     {
-        _793 = _204.extraP.x;
+        _806 = _204.extraP.x;
     }
     else
     {
-        _793 = fast::max(_204.agentP.w * 2.0, _204.moveP.z * 1.5);
+        _806 = fast::max(_204.agentP.w * 2.0, _204.moveP.z * 1.5);
     }
-    float vmax = _793;
+    float vmax = _806;
     float sp = length(v);
     if (sp > vmax)
     {
@@ -490,115 +491,115 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
     float timer = a.dirs.w;
     Agent param_1 = a;
     float vary = agentVary(param_1);
-    float4 aux = _832.contactAux[i];
+    float4 aux = _845.contactAux[i];
     float2 param_2 = x.xz;
     float param_3 = x.y;
-    float ground = groundHeight(param_2, param_3, _204, _493, _566);
+    float ground = groundHeight(param_2, param_3, _204, _506, _579);
     float elev = x.y - ground;
     bool grounded = elev < 0.0500000007450580596923828125;
-    bool _860;
+    bool _873;
     if (grounded)
     {
-        _860 = v.y < 0.0;
+        _873 = v.y < 0.0;
     }
     else
     {
-        _860 = grounded;
+        _873 = grounded;
     }
-    if (_860)
+    if (_873)
     {
         v.y = 0.0;
     }
-    bool _876;
+    bool _889;
     if (!grounded)
     {
-        _876 = aux.y > (x.y - 0.25);
+        _889 = aux.y > (x.y - 0.25);
     }
     else
     {
-        _876 = grounded;
+        _889 = grounded;
     }
-    bool supported = _876;
-    bool _883;
+    bool supported = _889;
+    bool _896;
     if (supported)
     {
-        _883 = v.y < 0.0;
+        _896 = v.y < 0.0;
     }
     else
     {
-        _883 = supported;
+        _896 = supported;
     }
-    if (_883 && (!grounded))
+    if (_896 && (!grounded))
     {
         v.y *= 0.5;
     }
-    float2 _899;
+    float2 _912;
     if ((st == 0u) || (st == 1u))
     {
-        _899 = a.dirs.xy;
+        _912 = a.dirs.xy;
     }
     else
     {
-        _899 = float2(0.0);
+        _912 = float2(0.0);
     }
-    float2 desired = _899;
+    float2 desired = _912;
     float dsp2 = dot(desired, desired);
-    float _916;
+    float _929;
     if (dsp2 > 0.0024999999441206455230712890625)
     {
-        _916 = fast::clamp(dot(v.xz, desired) / dsp2, 0.0, 1.0);
+        _929 = fast::clamp(dot(v.xz, desired) / dsp2, 0.0, 1.0);
     }
     else
     {
-        _916 = 1.0;
+        _929 = 1.0;
     }
-    float progress = _916;
+    float progress = _929;
     float blocked = mix(a.prev.w, 1.0 - progress, 1.0 - exp((-dt) / 0.60000002384185791015625));
-    bool _945 = (_204.misc.w & 1u) != 0u;
-    bool _952;
-    if (_945)
+    bool _958 = (_204.misc.w & 1u) != 0u;
+    bool _965;
+    if (_958)
     {
-        _952 = _204.climbP.x > 0.5;
+        _965 = _204.climbP.x > 0.5;
     }
     else
     {
-        _952 = _945;
+        _965 = _958;
     }
-    bool vertical = _952;
+    bool vertical = _965;
     float climbTarget = as_type<float>(a.info.w);
     float standH = _204.agentP.y;
     if (st == 0u)
     {
         float thr = _204.climbP.y * (0.800000011920928955078125 + (0.4000000059604644775390625 * vary));
-        bool _977 = vertical && (blocked > thr);
-        bool _984;
-        if (_977)
+        bool _990 = vertical && (blocked > thr);
+        bool _997;
+        if (_990)
         {
-            _984 = aux.w >= 4.0;
+            _997 = aux.w >= 4.0;
         }
         else
         {
-            _984 = _977;
+            _997 = _990;
         }
-        bool _994;
-        if (_984)
+        bool _1007;
+        if (_997)
         {
-            _994 = aux.x > (x.y + 0.300000011920928955078125);
+            _1007 = aux.x > (x.y + 0.300000011920928955078125);
         }
         else
         {
-            _994 = _984;
+            _1007 = _997;
         }
-        bool _1006;
-        if (_994)
+        bool _1019;
+        if (_1007)
         {
-            _1006 = aux.x < (x.y + (standH * 1.25));
+            _1019 = aux.x < (x.y + (standH * 1.25));
         }
         else
         {
-            _1006 = _994;
+            _1019 = _1007;
         }
-        if (_1006)
+        if (_1019)
         {
             st = 1u;
             timer = 0.0;
@@ -610,35 +611,35 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
         if (st == 1u)
         {
             timer += dt;
-            bool _1021 = !vertical;
-            bool _1031;
-            if (!_1021)
+            bool _1034 = !vertical;
+            bool _1044;
+            if (!_1034)
             {
-                _1031 = x.y >= (climbTarget - 0.02999999932944774627685546875);
+                _1044 = x.y >= (climbTarget - 0.02999999932944774627685546875);
             }
             else
             {
-                _1031 = _1021;
+                _1044 = _1034;
             }
-            bool _1039;
-            if (!_1031)
+            bool _1052;
+            if (!_1044)
             {
-                _1039 = timer > _204.climbP.w;
+                _1052 = timer > _204.climbP.w;
             }
             else
             {
-                _1039 = _1031;
+                _1052 = _1044;
             }
-            bool _1046;
-            if (!_1039)
+            bool _1059;
+            if (!_1052)
             {
-                _1046 = aux.w < 0.5;
+                _1059 = aux.w < 0.5;
             }
             else
             {
-                _1046 = _1039;
+                _1059 = _1052;
             }
-            if (_1046)
+            if (_1059)
             {
                 st = 0u;
                 timer = 0.0;
@@ -661,77 +662,77 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
                 {
                     timer += dt;
                     float spd = length(v);
-                    bool _1077 = grounded || supported;
-                    bool _1086;
-                    if (_1077)
+                    bool _1090 = grounded || supported;
+                    bool _1099;
+                    if (_1090)
                     {
-                        _1086 = spd < fast::max(_204.corpseP.z * 3.0, 1.2000000476837158203125);
+                        _1099 = spd < fast::max(_204.corpseP.z * 3.0, 1.2000000476837158203125);
                     }
                     else
                     {
-                        _1086 = _1077;
+                        _1099 = _1090;
                     }
-                    bool resting = _1086;
+                    bool resting = _1099;
                     float2 param_4 = x.xz + float2(0.4000000059604644775390625, 0.0);
                     float2 param_5 = x.xz - float2(0.4000000059604644775390625, 0.0);
-                    float hx = corpseBilinear(param_4, _204, _493) - corpseBilinear(param_5, _204, _493);
+                    float hx = corpseBilinear(param_4, _204, _506) - corpseBilinear(param_5, _204, _506);
                     float2 param_6 = x.xz + float2(0.0, 0.4000000059604644775390625);
                     float2 param_7 = x.xz - float2(0.0, 0.4000000059604644775390625);
-                    float hz = corpseBilinear(param_6, _204, _493) - corpseBilinear(param_7, _204, _493);
+                    float hz = corpseBilinear(param_6, _204, _506) - corpseBilinear(param_7, _204, _506);
                     float2 grad = float2(hx, hz) / float2(0.800000011920928955078125);
                     float slope = length(grad);
                     bool steep = slope > 0.64999997615814208984375;
                     if ((steep && grounded) && (timer < 8.0))
                     {
-                        float3 _1148 = v;
-                        float2 _1150 = _1148.xz - (((((grad / float2(fast::max(slope, 0.001000000047497451305389404296875))) * fast::min(slope, 2.0)) * 4.0) * dt) * 10.0);
-                        v.x = _1150.x;
-                        v.z = _1150.y;
+                        float3 _1160 = v;
+                        float2 _1162 = _1160.xz - (((((grad / float2(fast::max(slope, 0.001000000047497451305389404296875))) * fast::min(slope, 2.0)) * 4.0) * dt) * 10.0);
+                        v.x = _1162.x;
+                        v.z = _1162.y;
                     }
-                    bool _1159 = grounded && (!steep);
-                    bool _1166;
-                    if (_1159)
-                    {
-                        _1166 = spd < _204.corpseP.z;
-                    }
-                    else
-                    {
-                        _1166 = _1159;
-                    }
-                    bool _1170 = _1166 && (timer > 0.3499999940395355224609375);
+                    bool _1171 = grounded && (!steep);
                     bool _1178;
-                    if (!_1170)
+                    if (_1171)
                     {
-                        _1178 = resting && (timer > 1.5);
+                        _1178 = spd < _204.corpseP.z;
                     }
                     else
                     {
-                        _1178 = _1170;
+                        _1178 = _1171;
                     }
-                    bool settled = _1178 || (timer > 4.0);
+                    bool _1182 = _1178 && (timer > 0.3499999940395355224609375);
+                    bool _1190;
+                    if (!_1182)
+                    {
+                        _1190 = resting && (timer > 1.5);
+                    }
+                    else
+                    {
+                        _1190 = _1182;
+                    }
+                    bool settled = _1190 || (timer > 4.0);
                     uint param_8 = a.info.z;
                     uint sevD = agentSevered(param_8);
                     if (settled && (sevD == 1023u))
                     {
                         st = 4u;
-                        uint _1194 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[3], 1u, memory_order_relaxed);
+                        uint _1206 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[3], 1u, memory_order_relaxed);
                         float2 param_9 = x.xz;
                         float param_10 = 0.699999988079071044921875;
                         uint param_11 = 120u;
-                        addBloodPool(param_9, param_10, param_11, _204, _457);
+                        addBloodPool(param_9, param_10, param_11, _204, _470);
                     }
                     else
                     {
                         if (settled)
                         {
                             st = 4u;
-                            uint _1208 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[3], 1u, memory_order_relaxed);
+                            uint _1220 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[3], 1u, memory_order_relaxed);
                             if ((_204.misc.w & 2u) != 0u)
                             {
                                 float yaw = a.dirs.z;
                                 float2 fwd = float2(sin(yaw), cos(yaw));
-                                uint _1226 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[2], 1u, memory_order_relaxed);
-                                uint idx = _1226;
+                                uint _1238 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[2], 1u, memory_order_relaxed);
+                                uint idx = _1238;
                                 float h = _204.corpseP.y;
                                 Corpse cp;
                                 cp.pos = float4(x.x, ground, x.z, yaw);
@@ -741,18 +742,18 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
                                 uint j = 0u;
                                 for (;;)
                                 {
-                                    bool _1267 = j < 8u;
-                                    bool _1279;
-                                    if (_1267)
+                                    bool _1279 = j < 8u;
+                                    bool _1291;
+                                    if (_1279)
                                     {
                                         uint param_13 = (k * 8u) + 9137u;
-                                        _1279 = (hash01(param_13) > 0.5) != faceUp;
+                                        _1291 = (hash01(param_13) > 0.5) != faceUp;
                                     }
                                     else
                                     {
-                                        _1279 = _1267;
+                                        _1291 = _1279;
                                     }
-                                    if (_1279)
+                                    if (_1291)
                                     {
                                         k = (k + 1u) % 64u;
                                         j++;
@@ -770,22 +771,22 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
                                 float2 param_17 = x.xz;
                                 float param_18 = 0.3499999940395355224609375 + (0.300000011920928955078125 * vary);
                                 uint param_19 = (agentBlood(param_16) > 1u) ? 90u : 40u;
-                                addBloodPool(param_17, param_18, param_19, _204, _457);
+                                addBloodPool(param_17, param_18, param_19, _204, _470);
                                 if (idx < uint(_204.corpseP.w))
                                 {
-                                    _1334.corpses[idx].pos = cp.pos;
-                                    _1334.corpses[idx].info = cp.info;
+                                    _1346.corpses[idx].pos = cp.pos;
+                                    _1346.corpses[idx].info = cp.info;
                                 }
                                 else
                                 {
-                                    uint _1347 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[9], 1u, memory_order_relaxed);
+                                    uint _1359 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[9], 1u, memory_order_relaxed);
                                 }
                                 float2 param_20 = x.xz + (fwd * 0.449999988079071044921875);
                                 float param_21 = h;
-                                splatCorpse(param_20, param_21, _204, _493);
+                                splatCorpse(param_20, param_21, _204, _506);
                                 float2 param_22 = x.xz - (fwd * 0.449999988079071044921875);
                                 float param_23 = h;
-                                splatCorpse(param_22, param_23, _204, _493);
+                                splatCorpse(param_22, param_23, _204, _506);
                             }
                         }
                     }
@@ -793,47 +794,47 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
             }
         }
     }
-    float2 _1373;
+    float2 _1385;
     if ((st == 2u) || (st == 3u))
     {
-        _1373 = a.dirs.xy;
+        _1385 = a.dirs.xy;
     }
     else
     {
-        _1373 = float2(0.0);
+        _1385 = float2(0.0);
     }
-    float2 tumble = _1373;
+    float2 tumble = _1385;
     if ((st == 2u) || (st == 3u))
     {
-        bool _1396;
+        bool _1408;
         if (!supported)
         {
-            _1396 = aux.w >= 1.0;
+            _1408 = aux.w >= 1.0;
         }
         else
         {
-            _1396 = supported;
+            _1408 = supported;
         }
-        bool _1403;
-        if (!_1396)
+        bool _1415;
+        if (!_1408)
         {
-            _1403 = aux.z > 0.5;
+            _1415 = aux.z > 0.5;
         }
         else
         {
-            _1403 = _1396;
+            _1415 = _1408;
         }
-        bool touching = _1403;
-        float _1407;
+        bool touching = _1415;
+        float _1419;
         if (touching)
         {
-            _1407 = _204.goreQ.x;
+            _1419 = _204.goreQ.x;
         }
         else
         {
-            _1407 = 0.300000011920928955078125;
+            _1419 = 0.300000011920928955078125;
         }
-        tumble.y *= exp((-dt) * _1407);
+        tumble.y *= exp((-dt) * _1419);
         tumble.x += (tumble.y * dt);
         if (touching)
         {
@@ -849,33 +850,33 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
         uint param_25 = a.info.y ^ (uint(_204.timeP.z) * 1597334677u);
         uint rng = pcgHash(param_25);
         uint param_26 = rng;
-        float _1486 = rand01(param_26);
+        float _1498 = rand01(param_26);
         rng = param_26;
-        if (_1486 < (dt * 4.0))
+        if (_1498 < (dt * 4.0))
         {
             uint param_27 = rng;
-            float3 _1501 = randDir(param_27);
+            float3 _1513 = randDir(param_27);
             rng = param_27;
             float3 param_28 = x + float3(0.0, 0.89999997615814208984375, 0.0);
-            float3 param_29 = (v * 0.5) + (_1501 * 0.60000002384185791015625);
+            float3 param_29 = (v * 0.5) + (_1513 * 0.60000002384185791015625);
             float param_30 = 2.0;
             uint param_31 = 0u;
             float param_32 = 0.0500000007450580596923828125;
-            spawnParticle(param_28, param_29, param_30, param_31, param_32, _204, _351, _361);
+            spawnParticle(param_28, param_29, param_30, param_31, param_32, _204, _351, _369);
         }
     }
     float proneTarget = 0.0;
-    bool _1513 = st == 1u;
-    bool _1521;
-    if (!_1513)
+    bool _1525 = st == 1u;
+    bool _1533;
+    if (!_1525)
     {
-        _1521 = (elev > 0.449999988079071044921875) && supported;
+        _1533 = (elev > 0.449999988079071044921875) && supported;
     }
     else
     {
-        _1521 = _1513;
+        _1533 = _1525;
     }
-    if (_1521)
+    if (_1533)
     {
         proneTarget = 1.0;
     }
@@ -896,16 +897,16 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
     float heading = a.dirs.z;
     if ((st == 0u) || (st == 1u))
     {
-        float2 _1567;
+        float2 _1579;
         if (hsp > 0.25)
         {
-            _1567 = v.xz;
+            _1579 = v.xz;
         }
         else
         {
-            _1567 = desired;
+            _1579 = desired;
         }
-        float2 face = _1567;
+        float2 face = _1579;
         if (dot(face, face) > 9.9999997473787516355514526367188e-05)
         {
             float param_33 = heading;
@@ -914,31 +915,31 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
             heading = lerpAngle(param_33, param_34, param_35);
         }
     }
-    float _1604;
+    float _1616;
     if (st == 1u)
     {
-        _1604 = 9.0;
+        _1616 = 9.0;
     }
     else
     {
-        _1604 = 1.0 + (hsp * 4.19999980926513671875);
+        _1616 = 1.0 + (hsp * 4.19999980926513671875);
     }
-    float phase = a.vel.w + (dt * _1604);
+    float phase = a.vel.w + (dt * _1616);
     if (st == 1u)
     {
-        uint _1621 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[4], 1u, memory_order_relaxed);
+        uint _1633 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[4], 1u, memory_order_relaxed);
     }
     if ((st == 2u) || (st == 3u))
     {
-        uint _1631 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[5], 1u, memory_order_relaxed);
+        uint _1643 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[5], 1u, memory_order_relaxed);
     }
     if ((elev > 0.5) && (st != 4u))
     {
-        uint _1640 = atomic_fetch_add_explicit((device atomic_uint*)&_731.counters[8], 1u, memory_order_relaxed);
+        uint _1652 = atomic_fetch_add_explicit((device atomic_uint*)&_744.counters[8], 1u, memory_order_relaxed);
     }
     if (st != 4u)
     {
-        uint _1651 = atomic_fetch_max_explicit((device atomic_uint*)&_731.counters[6], uint(fast::max(elev, 0.0) * 1000.0), memory_order_relaxed);
+        uint _1663 = atomic_fetch_max_explicit((device atomic_uint*)&_744.counters[6], uint(fast::max(elev, 0.0) * 1000.0), memory_order_relaxed);
     }
     a.pos = float4(x, prone);
     a.vel = float4(v, mod(phase, 6283.0));
@@ -953,10 +954,10 @@ kernel void main0(constant SimUniforms& _204 [[buffer(0)]], device AgentsB& _743
     Agent param_36 = a;
     a.info.x = st | agentLookX(param_36);
     a.info.w = as_type<uint>(climbTarget);
-    _1698.agentsA[i].pos = a.pos;
-    _1698.agentsA[i].vel = a.vel;
-    _1698.agentsA[i].prev = a.prev;
-    _1698.agentsA[i].dirs = a.dirs;
-    _1698.agentsA[i].info = a.info;
+    _1710.agentsA[i].pos = a.pos;
+    _1710.agentsA[i].vel = a.vel;
+    _1710.agentsA[i].prev = a.prev;
+    _1710.agentsA[i].dirs = a.dirs;
+    _1710.agentsA[i].info = a.info;
 }
 

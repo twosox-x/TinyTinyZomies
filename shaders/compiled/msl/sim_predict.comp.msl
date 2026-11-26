@@ -170,27 +170,27 @@ struct CorpseH
     int corpseH[1];
 };
 
-constant spvUnsafeArray<float3, 10> _864 = spvUnsafeArray<float3, 10>({ float3(0.0, 14.0, 0.0), float3(0.0, 8.0, 0.0), float3(3.0, 13.5, 0.0), float3(3.0, 10.0, 0.0), float3(-3.0, 13.5, 0.0), float3(-3.0, 10.0, 0.0), float3(1.5, 8.0, 0.0), float3(1.5, 4.0, 0.0), float3(-1.5, 8.0, 0.0), float3(-1.5, 4.0, 0.0) });
-constant spvUnsafeArray<uint, 7> _1310 = spvUnsafeArray<uint, 7>({ 0u, 2u, 3u, 4u, 5u, 6u, 8u });
-constant spvUnsafeArray<float, 7> _1339 = spvUnsafeArray<float, 7>({ 0.100000001490116119384765625, 0.2199999988079071044921875, 0.300000011920928955078125, 0.2199999988079071044921875, 0.300000011920928955078125, 0.119999997317790985107421875, 0.119999997317790985107421875 });
-constant spvUnsafeArray<int, 10> _1676 = spvUnsafeArray<int, 10>({ 0, 1, 2, 3, 2, 3, 4, 5, 4, 5 });
-constant spvUnsafeArray<int, 10> _1679 = spvUnsafeArray<int, 10>({ 1, -1, 1, 2, 1, 4, -1, 6, -1, 8 });
-constant spvUnsafeArray<uint, 10> _1689 = spvUnsafeArray<uint, 10>({ 0u, 264u, 495u, 825u, 1023u, 1353u, 1551u, 1716u, 1914u, 2079u });
-constant spvUnsafeArray<uint, 10> _1690 = spvUnsafeArray<uint, 10>({ 1u, 1u, 2u, 1u, 2u, 1u, 1u, 1u, 1u, 1u });
-constant spvUnsafeArray<uint, 6> _1692 = spvUnsafeArray<uint, 6>({ 8u, 7u, 5u, 6u, 5u, 6u });
-constant spvUnsafeArray<uint, 6> _1695 = spvUnsafeArray<uint, 6>({ 0u, 8u, 15u, 20u, 26u, 31u });
-constant spvUnsafeArray<uint, 37> _1698 = spvUnsafeArray<uint, 37>({ 0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 0u, 0u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 1u, 2u });
-constant spvUnsafeArray<uint, 7> _1699 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });
-constant spvUnsafeArray<float3, 8> _1732 = spvUnsafeArray<float3, 8>({ float3(0.623529016971588134765625, 0.68235301971435546875, 0.3333329856395721435546875), float3(0.541176021099090576171875, 0.607842981815338134765625, 0.2980389893054962158203125), float3(0.698038995265960693359375, 0.705882012844085693359375, 0.41568601131439208984375), float3(0.4980390071868896484375, 0.57647097110748291015625, 0.3450979888439178466796875), float3(0.639216005802154541015625, 0.658824026584625244140625, 0.41960799694061279296875), float3(0.58039200305938720703125, 0.654901981353759765625, 0.4784309864044189453125), float3(0.721569001674652099609375, 0.690195977687835693359375, 0.4784309864044189453125), float3(0.43137300014495849609375, 0.5215690135955810546875, 0.313724994659423828125) });
-constant spvUnsafeArray<float3, 9> _1760 = spvUnsafeArray<float3, 9>({ float3(0.3333329856395721435546875, 0.41960799694061279296875, 0.2274509966373443603515625), float3(0.4784309864044189453125, 0.41568601131439208984375, 0.2274509966373443603515625), float3(0.43137300014495849609375, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.2980389893054962158203125, 0.3333329856395721435546875, 0.3764710128307342529296875), float3(0.360783994197845458984375, 0.1921570003032684326171875, 0.21960799396038055419921875), float3(0.372548997402191162109375, 0.372548997402191162109375, 0.3450979888439178466796875), float3(0.24705900251865386962890625, 0.3529410064220428466796875, 0.3294120132923126220703125), float3(0.21176500618457794189453125, 0.22352899610996246337890625, 0.290196001529693603515625), float3(0.4901959896087646484375, 0.450980007648468017578125, 0.3764710128307342529296875) });
-constant spvUnsafeArray<float3, 4> _1772 = spvUnsafeArray<float3, 4>({ float3(0.72548997402191162109375, 0.71372497081756591796875, 0.627451002597808837890625), float3(0.654901981353759765625, 0.662744998931884765625, 0.60392200946807861328125), float3(0.760783970355987548828125, 0.72548997402191162109375, 0.627451002597808837890625), float3(0.623529016971588134765625, 0.662744998931884765625, 0.658824026584625244140625) });
-constant spvUnsafeArray<float3, 6> _1786 = spvUnsafeArray<float3, 6>({ float3(0.23137299716472625732421875, 0.2745099961757659912109375, 0.337255001068115234375), float3(0.18431399762630462646484375, 0.1921570003032684326171875, 0.21176500618457794189453125), float3(0.42745101451873779296875, 0.4000000059604644775390625, 0.313724994659423828125), float3(0.290196001529693603515625, 0.23529399931430816650390625, 0.18431399762630462646484375), float3(0.23529399931430816650390625, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.3333329856395721435546875, 0.313724994659423828125, 0.290196001529693603515625) });
-constant spvUnsafeArray<float3, 6> _1800 = spvUnsafeArray<float3, 6>({ float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.117646999657154083251953125), float3(0.3529410064220428466796875, 0.2745099961757659912109375, 0.18823499977588653564453125), float3(0.117646999657154083251953125, 0.117646999657154083251953125, 0.1333329975605010986328125), float3(0.549019992351531982421875, 0.4784309864044189453125, 0.360783994197845458984375), float3(0.41568601131439208984375, 0.23137299716472625732421875, 0.13725499808788299560546875), float3(0.23137299716472625732421875, 0.20000000298023223876953125, 0.18823499977588653564453125) });
-constant spvUnsafeArray<float3, 3> _1809 = spvUnsafeArray<float3, 3>({ float3(0.41960799694061279296875, 0.121569000184535980224609375, 0.14902000129222869873046875), float3(0.17254899442195892333984375, 0.2274509966373443603515625, 0.360783994197845458984375), float3(0.24705900251865386962890625, 0.290196001529693603515625, 0.16470600664615631103515625) });
-constant spvUnsafeArray<float3, 5> _1817 = spvUnsafeArray<float3, 5>({ float3(0.41960799694061279296875, 0.16470600664615631103515625, 0.16470600664615631103515625), float3(0.21960799396038055419921875, 0.290196001529693603515625, 0.3529410064220428466796875), float3(0.3529410064220428466796875, 0.3529410064220428466796875, 0.1803919970989227294921875), float3(0.18431399762630462646484375, 0.18431399762630462646484375, 0.20000000298023223876953125), float3(0.4784309864044189453125, 0.3529410064220428466796875, 0.16470600664615631103515625) });
-constant spvUnsafeArray<float3, 3> _1823 = spvUnsafeArray<float3, 3>({ float3(0.16470600664615631103515625, 0.14117600023746490478515625, 0.12548999488353729248046875), float3(0.2274509966373443603515625, 0.20000000298023223876953125, 0.17254899442195892333984375), float3(0.121569000184535980224609375, 0.113724999129772186279296875, 0.113724999129772186279296875) });
-constant spvUnsafeArray<float3, 9> _1846 = spvUnsafeArray<float3, 9>({ float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875), float3(0.24705900251865386962890625, 0.0392160005867481231689453125, 0.04313699901103973388671875), float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.8392159938812255859375, 0.800000011920928955078125, 0.670588016510009765625), float3(0.662744998931884765625, 0.615685999393463134765625, 0.4862749874591827392578125), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), float3(0.337255001068115234375, 0.070588000118732452392578125, 0.08627499639987945556640625), float3(0.10196100175380706787109375, 0.047058999538421630859375, 0.0549019984900951385498046875), float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.121569000184535980224609375) });
-constant spvUnsafeArray<uint, 4> _1852 = spvUnsafeArray<uint, 4>({ 101u, 202u, 303u, 404u });
+constant spvUnsafeArray<float3, 10> _876 = spvUnsafeArray<float3, 10>({ float3(0.0, 14.0, 0.0), float3(0.0, 8.0, 0.0), float3(3.0, 13.5, 0.0), float3(3.0, 10.0, 0.0), float3(-3.0, 13.5, 0.0), float3(-3.0, 10.0, 0.0), float3(1.5, 8.0, 0.0), float3(1.5, 4.0, 0.0), float3(-1.5, 8.0, 0.0), float3(-1.5, 4.0, 0.0) });
+constant spvUnsafeArray<uint, 7> _1322 = spvUnsafeArray<uint, 7>({ 0u, 2u, 3u, 4u, 5u, 6u, 8u });
+constant spvUnsafeArray<float, 7> _1351 = spvUnsafeArray<float, 7>({ 0.100000001490116119384765625, 0.2199999988079071044921875, 0.300000011920928955078125, 0.2199999988079071044921875, 0.300000011920928955078125, 0.119999997317790985107421875, 0.119999997317790985107421875 });
+constant spvUnsafeArray<int, 10> _1688 = spvUnsafeArray<int, 10>({ 0, 1, 2, 3, 2, 3, 4, 5, 4, 5 });
+constant spvUnsafeArray<int, 10> _1691 = spvUnsafeArray<int, 10>({ 1, -1, 1, 2, 1, 4, -1, 6, -1, 8 });
+constant spvUnsafeArray<uint, 10> _1701 = spvUnsafeArray<uint, 10>({ 0u, 264u, 495u, 825u, 1023u, 1353u, 1551u, 1716u, 1914u, 2079u });
+constant spvUnsafeArray<uint, 10> _1702 = spvUnsafeArray<uint, 10>({ 1u, 1u, 2u, 1u, 2u, 1u, 1u, 1u, 1u, 1u });
+constant spvUnsafeArray<uint, 6> _1704 = spvUnsafeArray<uint, 6>({ 8u, 7u, 5u, 6u, 5u, 6u });
+constant spvUnsafeArray<uint, 6> _1707 = spvUnsafeArray<uint, 6>({ 0u, 8u, 15u, 20u, 26u, 31u });
+constant spvUnsafeArray<uint, 37> _1710 = spvUnsafeArray<uint, 37>({ 0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 0u, 0u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 1u, 2u });
+constant spvUnsafeArray<uint, 7> _1711 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });
+constant spvUnsafeArray<float3, 8> _1744 = spvUnsafeArray<float3, 8>({ float3(0.623529016971588134765625, 0.68235301971435546875, 0.3333329856395721435546875), float3(0.541176021099090576171875, 0.607842981815338134765625, 0.2980389893054962158203125), float3(0.698038995265960693359375, 0.705882012844085693359375, 0.41568601131439208984375), float3(0.4980390071868896484375, 0.57647097110748291015625, 0.3450979888439178466796875), float3(0.639216005802154541015625, 0.658824026584625244140625, 0.41960799694061279296875), float3(0.58039200305938720703125, 0.654901981353759765625, 0.4784309864044189453125), float3(0.721569001674652099609375, 0.690195977687835693359375, 0.4784309864044189453125), float3(0.43137300014495849609375, 0.5215690135955810546875, 0.313724994659423828125) });
+constant spvUnsafeArray<float3, 9> _1772 = spvUnsafeArray<float3, 9>({ float3(0.3333329856395721435546875, 0.41960799694061279296875, 0.2274509966373443603515625), float3(0.4784309864044189453125, 0.41568601131439208984375, 0.2274509966373443603515625), float3(0.43137300014495849609375, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.2980389893054962158203125, 0.3333329856395721435546875, 0.3764710128307342529296875), float3(0.360783994197845458984375, 0.1921570003032684326171875, 0.21960799396038055419921875), float3(0.372548997402191162109375, 0.372548997402191162109375, 0.3450979888439178466796875), float3(0.24705900251865386962890625, 0.3529410064220428466796875, 0.3294120132923126220703125), float3(0.21176500618457794189453125, 0.22352899610996246337890625, 0.290196001529693603515625), float3(0.4901959896087646484375, 0.450980007648468017578125, 0.3764710128307342529296875) });
+constant spvUnsafeArray<float3, 4> _1784 = spvUnsafeArray<float3, 4>({ float3(0.72548997402191162109375, 0.71372497081756591796875, 0.627451002597808837890625), float3(0.654901981353759765625, 0.662744998931884765625, 0.60392200946807861328125), float3(0.760783970355987548828125, 0.72548997402191162109375, 0.627451002597808837890625), float3(0.623529016971588134765625, 0.662744998931884765625, 0.658824026584625244140625) });
+constant spvUnsafeArray<float3, 6> _1798 = spvUnsafeArray<float3, 6>({ float3(0.23137299716472625732421875, 0.2745099961757659912109375, 0.337255001068115234375), float3(0.18431399762630462646484375, 0.1921570003032684326171875, 0.21176500618457794189453125), float3(0.42745101451873779296875, 0.4000000059604644775390625, 0.313724994659423828125), float3(0.290196001529693603515625, 0.23529399931430816650390625, 0.18431399762630462646484375), float3(0.23529399931430816650390625, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.3333329856395721435546875, 0.313724994659423828125, 0.290196001529693603515625) });
+constant spvUnsafeArray<float3, 6> _1812 = spvUnsafeArray<float3, 6>({ float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.117646999657154083251953125), float3(0.3529410064220428466796875, 0.2745099961757659912109375, 0.18823499977588653564453125), float3(0.117646999657154083251953125, 0.117646999657154083251953125, 0.1333329975605010986328125), float3(0.549019992351531982421875, 0.4784309864044189453125, 0.360783994197845458984375), float3(0.41568601131439208984375, 0.23137299716472625732421875, 0.13725499808788299560546875), float3(0.23137299716472625732421875, 0.20000000298023223876953125, 0.18823499977588653564453125) });
+constant spvUnsafeArray<float3, 3> _1821 = spvUnsafeArray<float3, 3>({ float3(0.41960799694061279296875, 0.121569000184535980224609375, 0.14902000129222869873046875), float3(0.17254899442195892333984375, 0.2274509966373443603515625, 0.360783994197845458984375), float3(0.24705900251865386962890625, 0.290196001529693603515625, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 5> _1829 = spvUnsafeArray<float3, 5>({ float3(0.41960799694061279296875, 0.16470600664615631103515625, 0.16470600664615631103515625), float3(0.21960799396038055419921875, 0.290196001529693603515625, 0.3529410064220428466796875), float3(0.3529410064220428466796875, 0.3529410064220428466796875, 0.1803919970989227294921875), float3(0.18431399762630462646484375, 0.18431399762630462646484375, 0.20000000298023223876953125), float3(0.4784309864044189453125, 0.3529410064220428466796875, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 3> _1835 = spvUnsafeArray<float3, 3>({ float3(0.16470600664615631103515625, 0.14117600023746490478515625, 0.12548999488353729248046875), float3(0.2274509966373443603515625, 0.20000000298023223876953125, 0.17254899442195892333984375), float3(0.121569000184535980224609375, 0.113724999129772186279296875, 0.113724999129772186279296875) });
+constant spvUnsafeArray<float3, 9> _1858 = spvUnsafeArray<float3, 9>({ float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875), float3(0.24705900251865386962890625, 0.0392160005867481231689453125, 0.04313699901103973388671875), float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.8392159938812255859375, 0.800000011920928955078125, 0.670588016510009765625), float3(0.662744998931884765625, 0.615685999393463134765625, 0.4862749874591827392578125), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), float3(0.337255001068115234375, 0.070588000118732452392578125, 0.08627499639987945556640625), float3(0.10196100175380706787109375, 0.047058999538421630859375, 0.0549019984900951385498046875), float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.121569000184535980224609375) });
+constant spvUnsafeArray<uint, 4> _1864 = spvUnsafeArray<uint, 4>({ 101u, 202u, 303u, 404u });
 
 static inline __attribute__((always_inline))
 uint agentState(thread const Agent& a)
@@ -268,7 +268,7 @@ float3 randDir(thread uint& s)
 }
 
 static inline __attribute__((always_inline))
-void spawnParticle(thread const float3& pos, thread const float3& vel, thread const float& life, thread const uint& type, thread const float& size, constant SimUniforms& _277, device GoreCnt& _507, device Particles& _518)
+void spawnParticle(thread const float3& pos, thread const float3& vel, thread const float& life, thread const uint& type, thread const float& size, constant SimUniforms& _277, device GoreCnt& _507, device Particles& _526)
 {
     if (_277.goreP.w < 0.5)
     {
@@ -276,39 +276,40 @@ void spawnParticle(thread const float3& pos, thread const float3& vel, thread co
     }
     uint _509 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[0], 1u, memory_order_relaxed);
     uint slot = _509 % _277.goreCap.x;
-    _518.particles[slot].pos = float4(pos, life);
-    _518.particles[slot].vel = float4(vel, float(type) + fast::clamp(size, 0.00999999977648258209228515625, 0.9900000095367431640625));
+    float k = fast::clamp(floor((life * 8.0) + 0.5), 1.0, 127.0);
+    _526.particles[slot].pos = float4(pos, k * 0.125);
+    _526.particles[slot].vel = float4(vel, (float(type) + (8.0 * k)) + fast::clamp(size, 0.00999999977648258209228515625, 0.9900000095367431640625));
 }
 
 static inline __attribute__((always_inline))
-void spawnBlood(thread const float3& pos, thread const float3& baseVel, thread const float& spread, thread const float& count, thread uint& rng, constant SimUniforms& _277, device GoreCnt& _507, device Particles& _518)
+void spawnBlood(thread const float3& pos, thread const float3& baseVel, thread const float& spread, thread const float& count, thread uint& rng, constant SimUniforms& _277, device GoreCnt& _507, device Particles& _526)
 {
     uint param = rng;
-    float _548 = rand01(param);
+    float _561 = rand01(param);
     rng = param;
-    int n = int((count * _277.goreP.x) + _548);
+    int n = int((count * _277.goreP.x) + _561);
     for (int k = 0; (k < n) && (k < 48); k++)
     {
         uint param_1 = rng;
-        float3 _568 = randDir(param_1);
+        float3 _581 = randDir(param_1);
         rng = param_1;
-        float3 d = _568;
+        float3 d = _581;
         d.y = (abs(d.y) * 0.800000011920928955078125) + 0.20000000298023223876953125;
         uint param_2 = rng;
-        float _590 = rand01(param_2);
+        float _603 = rand01(param_2);
         rng = param_2;
         uint param_3 = rng;
-        float _598 = rand01(param_3);
+        float _611 = rand01(param_3);
         rng = param_3;
         uint param_4 = rng;
-        float _607 = rand01(param_4);
+        float _620 = rand01(param_4);
         rng = param_4;
         float3 param_5 = pos + (d * 0.119999997317790985107421875);
-        float3 param_6 = baseVel + ((d * spread) * (0.300000011920928955078125 + _590));
-        float param_7 = 2.5 + (_598 * 1.5);
+        float3 param_6 = baseVel + ((d * spread) * (0.300000011920928955078125 + _603));
+        float param_7 = 2.5 + (_611 * 1.5);
         uint param_8 = 0u;
-        float param_9 = 0.04500000178813934326171875 + (0.0599999986588954925537109375 * _607);
-        spawnParticle(param_5, param_6, param_7, param_8, param_9, _277, _507, _518);
+        float param_9 = 0.04500000178813934326171875 + (0.0599999986588954925537109375 * _620);
+        spawnParticle(param_5, param_6, param_7, param_8, param_9, _277, _507, _526);
     }
 }
 
@@ -321,16 +322,16 @@ uint lookBits(thread const uint& w, thread const uint& lo, thread const uint& n)
 static inline __attribute__((always_inline))
 uint severWithChildren(thread const uint& s)
 {
-    uint _805;
+    uint _818;
     if ((((s == 2u) || (s == 4u)) || (s == 6u)) || (s == 8u))
     {
-        _805 = 3u << s;
+        _818 = 3u << s;
     }
     else
     {
-        _805 = 1u << s;
+        _818 = 1u << s;
     }
-    return _805;
+    return _818;
 }
 
 static inline __attribute__((always_inline))
@@ -419,27 +420,27 @@ uint slotModule(thread const uint& lx, thread const uint& ly, thread const uint&
 }
 
 static inline __attribute__((always_inline))
-void spawnGib(thread const float3& pos, thread const float3& vel, thread const float4& rot, thread const float3& angVel, thread const uint& lookX, thread const uint& lookY, thread const uint& slot, thread const bool& stump, thread const uint& blood, constant SimUniforms& _277, device GoreCnt& _507, device Gibs& _675)
+void spawnGib(thread const float3& pos, thread const float3& vel, thread const float4& rot, thread const float3& angVel, thread const uint& lookX, thread const uint& lookY, thread const uint& slot, thread const bool& stump, thread const uint& blood, constant SimUniforms& _277, device GoreCnt& _507, device Gibs& _688)
 {
     if (_277.goreP.w < 0.5)
     {
         return;
     }
-    uint _627 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[1], 1u, memory_order_relaxed);
-    uint g = _627 % _277.goreCap.y;
+    uint _640 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[1], 1u, memory_order_relaxed);
+    uint g = _640 % _277.goreCap.y;
     Gib o;
     o.pos = float4(pos, 0.0);
     o.vel = float4(vel, 1.0);
     o.rot = rot;
     o.info = uint4(((lookX & 4294967040u) | slot) | (stump ? 16u : 0u), lookY, as_type<uint>(half2(angVel.xy)), as_type<uint>(half2(float2(angVel.z, float(blood)))));
-    _675.gibs[g].pos = o.pos;
-    _675.gibs[g].vel = o.vel;
-    _675.gibs[g].rot = o.rot;
-    _675.gibs[g].info = o.info;
+    _688.gibs[g].pos = o.pos;
+    _688.gibs[g].vel = o.vel;
+    _688.gibs[g].rot = o.rot;
+    _688.gibs[g].info = o.info;
 }
 
 static inline __attribute__((always_inline))
-void blowOff(thread const uint& mask, thread const float3& p, thread const float3& v, thread const float& yaw, thread const float& f, thread const uint& lx, thread const uint& ly, thread const uint& blood, thread uint& rng, constant SimUniforms& _277, device GoreCnt& _507, device Particles& _518, device Gibs& _675)
+void blowOff(thread const uint& mask, thread const float3& p, thread const float3& v, thread const float& yaw, thread const float& f, thread const uint& lx, thread const uint& ly, thread const uint& blood, thread uint& rng, constant SimUniforms& _277, device GoreCnt& _507, device Particles& _526, device Gibs& _688)
 {
     float scale = _277.goreQ.y;
     float3 param = float3(0.0, 1.0, 0.0);
@@ -452,53 +453,53 @@ void blowOff(thread const uint& mask, thread const float3& p, thread const float
             continue;
         }
         float4 param_2 = qy;
-        float3 param_3 = _864[s] * scale;
+        float3 param_3 = _876[s] * scale;
         float3 joint = p + qrot(param_2, param_3);
-        bool _881 = (s == 3u) || (s == 5u);
-        bool _892;
-        if (_881)
+        bool _893 = (s == 3u) || (s == 5u);
+        bool _904;
+        if (_893)
         {
             uint param_4 = lx;
             uint param_5 = ly;
             uint param_6 = s;
-            _892 = slotModule(param_4, param_5, param_6) == 5u;
+            _904 = slotModule(param_4, param_5, param_6) == 5u;
         }
         else
         {
-            _892 = _881;
+            _904 = _893;
         }
-        if (_892)
+        if (_904)
         {
             continue;
         }
         uint param_7 = rng;
-        float3 _899 = randDir(param_7);
+        float3 _911 = randDir(param_7);
         rng = param_7;
-        float3 kick = _899;
+        float3 kick = _911;
         kick.y = abs(kick.y) + 0.4000000059604644775390625;
         uint param_8 = rng;
-        float _912 = rand01(param_8);
+        float _924 = rand01(param_8);
         rng = param_8;
-        float3 gv = (v * (0.60000002384185791015625 + (0.5 * _912))) + (kick * (2.0 + (4.0 * f)));
+        float3 gv = (v * (0.60000002384185791015625 + (0.5 * _924))) + (kick * (2.0 + (4.0 * f)));
         uint param_9 = rng;
-        float3 _925 = randDir(param_9);
+        float3 _937 = randDir(param_9);
         rng = param_9;
         float3 param_10 = joint;
         float3 param_11 = gv;
         float4 param_12 = qy;
-        float3 param_13 = _925 * (5.0 + (12.0 * f));
+        float3 param_13 = _937 * (5.0 + (12.0 * f));
         uint param_14 = lx;
         uint param_15 = ly;
         uint param_16 = s;
         bool param_17 = (s == 2u) || (s == 4u);
         uint param_18 = 3u;
-        spawnGib(param_10, param_11, param_12, param_13, param_14, param_15, param_16, param_17, param_18, _277, _507, _675);
+        spawnGib(param_10, param_11, param_12, param_13, param_14, param_15, param_16, param_17, param_18, _277, _507, _688);
         float3 param_19 = joint;
         float3 param_20 = gv * 0.4000000059604644775390625;
         float param_21 = 2.0;
         float param_22 = 3.0 + (3.0 * f);
         uint param_23 = rng;
-        spawnBlood(param_19, param_20, param_21, param_22, param_23, _277, _507, _518);
+        spawnBlood(param_19, param_20, param_21, param_22, param_23, _277, _507, _526);
         rng = param_23;
     }
 }
@@ -510,39 +511,39 @@ uint cellIndex(thread const int2& c, constant SimUniforms& _277)
 }
 
 static inline __attribute__((always_inline))
-float2 dirAt(thread int2& c, constant SimUniforms& _277, device NavDir& _703)
+float2 dirAt(thread int2& c, constant SimUniforms& _277, device NavDir& _716)
 {
     c = clamp(c, int2(0), int2(int(_277.grid.x) - 1, int(_277.grid.y) - 1));
     int2 param = c;
-    return _703.navDir[cellIndex(param, _277)];
+    return _716.navDir[cellIndex(param, _277)];
 }
 
 static inline __attribute__((always_inline))
-float2 sampleDir(thread const float2& xz, constant SimUniforms& _277, device NavDir& _703)
+float2 sampleDir(thread const float2& xz, constant SimUniforms& _277, device NavDir& _716)
 {
     float2 g = ((xz - _277.world.xy) * _277.world.w) - float2(0.5);
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
     int2 param = c0;
-    float2 _735 = dirAt(param, _277, _703);
+    float2 _748 = dirAt(param, _277, _716);
     int2 param_1 = c0 + int2(1, 0);
-    float2 _740 = dirAt(param_1, _277, _703);
+    float2 _753 = dirAt(param_1, _277, _716);
     int2 param_2 = c0 + int2(0, 1);
-    float2 _749 = dirAt(param_2, _277, _703);
+    float2 _762 = dirAt(param_2, _277, _716);
     int2 param_3 = c0 + int2(1);
-    float2 _754 = dirAt(param_3, _277, _703);
-    float2 d = mix(mix(_735, _740, float2(f.x)), mix(_749, _754, float2(f.x)), float2(f.y));
+    float2 _767 = dirAt(param_3, _277, _716);
+    float2 d = mix(mix(_748, _753, float2(f.x)), mix(_762, _767, float2(f.x)), float2(f.y));
     float l = length(d);
-    float2 _769;
+    float2 _782;
     if (l > 0.001000000047497451305389404296875)
     {
-        _769 = d / float2(l);
+        _782 = d / float2(l);
     }
     else
     {
-        _769 = float2(0.0);
+        _782 = float2(0.0);
     }
-    return _769;
+    return _782;
 }
 
 static inline __attribute__((always_inline))
@@ -553,11 +554,11 @@ int2 cellCoord(thread const float2& xz, constant SimUniforms& _277)
 }
 
 static inline __attribute__((always_inline))
-float sampleDensity(thread const float2& xz, constant SimUniforms& _277, device Density& _784)
+float sampleDensity(thread const float2& xz, constant SimUniforms& _277, device Density& _797)
 {
     float2 param = xz;
     int2 param_1 = cellCoord(param, _277);
-    return ((device float*)&_784.density[cellIndex(param_1, _277)])[0u];
+    return ((device float*)&_797.density[cellIndex(param_1, _277)])[0u];
 }
 
 static inline __attribute__((always_inline))
@@ -566,19 +567,19 @@ uint packAgentZ(thread const float& health, thread const uint& severed, thread c
     return ((as_type<uint>(half2(float2(fast::clamp(health, -60000.0, 60000.0), 0.0))) & 65535u) | ((severed & 1023u) << uint(16))) | (min(blood, 3u) << uint(26));
 }
 
-kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 [[buffer(1)]], device Density& _784 [[buffer(2)]], device Agents& _993 [[buffer(3)]], device CellCount& _1040 [[buffer(4)]], device CellLocal& _1033 [[buffer(5)]], device Counters& _981 [[buffer(6)]], device Particles& _518 [[buffer(7)]], device Gibs& _675 [[buffer(8)]], device GoreCnt& _507 [[buffer(9)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _716 [[buffer(1)]], device Density& _797 [[buffer(2)]], device Agents& _1005 [[buffer(3)]], device CellCount& _1052 [[buffer(4)]], device CellLocal& _1045 [[buffer(5)]], device Counters& _993 [[buffer(6)]], device Particles& _526 [[buffer(7)]], device Gibs& _688 [[buffer(8)]], device GoreCnt& _507 [[buffer(9)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint i = gl_GlobalInvocationID.x;
-    if (i >= _981.counters[0])
+    if (i >= _993.counters[0])
     {
         return;
     }
     Agent a;
-    a.pos = _993.agents[i].pos;
-    a.vel = _993.agents[i].vel;
-    a.prev = _993.agents[i].prev;
-    a.dirs = _993.agents[i].dirs;
-    a.info = _993.agents[i].info;
+    a.pos = _1005.agents[i].pos;
+    a.vel = _1005.agents[i].vel;
+    a.prev = _1005.agents[i].prev;
+    a.dirs = _1005.agents[i].dirs;
+    a.info = _1005.agents[i].info;
     Agent param = a;
     uint st = agentState(param);
     uint param_1 = a.info.y ^ (uint(_277.timeP.z) * 2654435761u);
@@ -586,8 +587,8 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
     float dt = _277.timeP.x;
     if (st == 4u)
     {
-        uint _1044 = atomic_fetch_add_explicit((device atomic_uint*)&_1040.cellCount[_277.grid.z], 1u, memory_order_relaxed);
-        _1033.cellLocal[i] = uint2(_277.grid.z, _1044);
+        uint _1056 = atomic_fetch_add_explicit((device atomic_uint*)&_1052.cellCount[_277.grid.z], 1u, memory_order_relaxed);
+        _1045.cellLocal[i] = uint2(_277.grid.z, _1056);
         return;
     }
     float3 p = a.pos.xyz;
@@ -599,23 +600,23 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
     uint sev = agentSevered(param_3);
     uint param_4 = a.info.z;
     uint blood = agentBlood(param_4);
-    float2 _1081;
+    float2 _1093;
     if ((st == 2u) || (st == 3u))
     {
-        _1081 = a.dirs.xy;
+        _1093 = a.dirs.xy;
     }
     else
     {
-        _1081 = float2(0.0);
+        _1093 = float2(0.0);
     }
-    float2 tumble = _1081;
+    float2 tumble = _1093;
     Agent param_5 = a;
     float vary = agentVary(param_5);
     Agent param_6 = a;
     uint lx = agentLookX(param_6);
     uint ly = a.info.y;
-    float3 _1144;
-    uint _1260;
+    float3 _1156;
+    uint _1272;
     for (uint e = 0u; e < _277.counts.y; e++)
     {
         float3 c = _277.explo[e].xyz;
@@ -629,26 +630,26 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
         float f = 1.0 - (dist / r);
         if (dist > 0.001000000047497451305389404296875)
         {
-            _1144 = d / float3(dist);
+            _1156 = d / float3(dist);
         }
         else
         {
-            _1144 = float3(0.0, 1.0, 0.0);
+            _1156 = float3(0.0, 1.0, 0.0);
         }
-        float3 dir = _1144;
+        float3 dir = _1156;
         dir.y = abs(dir.y) + _277.exploP[e].z;
         dir = fast::normalize(dir);
         uint param_7 = rng;
-        float _1167 = rand01(param_7);
+        float _1179 = rand01(param_7);
         rng = param_7;
-        float rnd = _1167;
+        float rnd = _1179;
         v += (((dir * _277.exploP[e].x) * f) * (0.550000011920928955078125 + (0.89999997615814208984375 * rnd)));
         if (st < 3u)
         {
             uint param_8 = rng;
-            float _1197 = rand01(param_8);
+            float _1209 = rand01(param_8);
             rng = param_8;
-            health -= (((f * f) * _277.exploP[e].y) * (0.60000002384185791015625 + (0.800000011920928955078125 * _1197)));
+            health -= (((f * f) * _277.exploP[e].y) * (0.60000002384185791015625 + (0.800000011920928955078125 * _1209)));
             if (health <= 0.0)
             {
                 st = 3u;
@@ -661,9 +662,9 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
             }
         }
         uint param_9 = rng;
-        float _1217 = rand01(param_9);
+        float _1229 = rand01(param_9);
         rng = param_9;
-        tumble.y += (((_1217 - 0.5) * 2.0) * (3.0 + (9.0 * f)));
+        tumble.y += (((_1229 - 0.5) * 2.0) * (3.0 + (9.0 * f)));
         if (_277.goreP.w > 0.5)
         {
             float3 param_10 = p + float3(0.0, 1.10000002384185791015625, 0.0);
@@ -671,29 +672,29 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
             float param_12 = 1.5 + (2.5 * f);
             float param_13 = 0.300000011920928955078125 + ((5.0 * f) * f);
             uint param_14 = rng;
-            spawnBlood(param_10, param_11, param_12, param_13, param_14, _277, _507, _518);
+            spawnBlood(param_10, param_11, param_12, param_13, param_14, _277, _507, _526);
             rng = param_14;
             if (f > 0.550000011920928955078125)
             {
-                _1260 = 3u;
+                _1272 = 3u;
             }
             else
             {
-                _1260 = (f > 0.25) ? 2u : 1u;
+                _1272 = (f > 0.25) ? 2u : 1u;
             }
-            blood = max(blood, _1260);
+            blood = max(blood, _1272);
             uint add = 0u;
-            bool _1272 = st == 3u;
-            bool _1279;
-            if (_1272)
+            bool _1284 = st == 3u;
+            bool _1291;
+            if (_1284)
             {
-                _1279 = f > _277.goreP.z;
+                _1291 = f > _277.goreP.z;
             }
             else
             {
-                _1279 = _1272;
+                _1291 = _1284;
             }
-            if (_1279)
+            if (_1291)
             {
                 add = 1023u;
             }
@@ -705,16 +706,16 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
                 float k = ((_277.goreP.y * f) * f) * (1.0 + (0.5 * float(lookBits(param_15, param_16, param_17))));
                 for (int c_1 = 0; c_1 < 7; c_1++)
                 {
-                    uint param_18 = _1310[c_1];
+                    uint param_18 = _1322[c_1];
                     uint b = severWithChildren(param_18);
-                    if (((sev | add) & (1u << _1310[c_1])) != 0u)
+                    if (((sev | add) & (1u << _1322[c_1])) != 0u)
                     {
                         continue;
                     }
                     uint param_19 = rng;
-                    float _1333 = rand01(param_19);
+                    float _1345 = rand01(param_19);
                     rng = param_19;
-                    if (_1333 < (k * _1339[c_1]))
+                    if (_1345 < (k * _1351[c_1]))
                     {
                         add |= b;
                     }
@@ -741,58 +742,58 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
                 uint param_26 = ly;
                 uint param_27 = blood;
                 uint param_28 = rng;
-                blowOff(param_20, param_21, param_22, param_23, param_24, param_25, param_26, param_27, param_28, _277, _507, _518, _675);
+                blowOff(param_20, param_21, param_22, param_23, param_24, param_25, param_26, param_27, param_28, _277, _507, _526, _688);
                 rng = param_28;
-                uint _1398 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[4], uint(int(popcount(add))), memory_order_relaxed);
+                uint _1410 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[4], uint(int(popcount(add))), memory_order_relaxed);
                 if ((sev | add) == 1023u)
                 {
-                    uint _1407 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[5], 1u, memory_order_relaxed);
+                    uint _1419 = atomic_fetch_add_explicit((device atomic_uint*)&_507.gore[5], 1u, memory_order_relaxed);
                 }
                 sev |= add;
             }
         }
     }
     float2 param_29 = p.xz;
-    float2 flow = sampleDir(param_29, _277, _703);
+    float2 flow = sampleDir(param_29, _277, _716);
     float wob = sin((_277.timeP.y * (0.5 + vary)) + (vary * 40.0)) * _277.extraP.y;
     float cw = cos(wob);
     float sw = sin(wob);
     flow = float2((cw * flow.x) - (sw * flow.y), (sw * flow.x) + (cw * flow.y));
     float2 param_30 = p.xz + (flow * _277.crowdP.w);
-    float rhoAhead = sampleDensity(param_30, _277, _784);
+    float rhoAhead = sampleDensity(param_30, _277, _797);
     float speedF = fast::clamp(1.0 - ((rhoAhead - _277.crowdP.x) / fast::max(_277.crowdP.y - _277.crowdP.x, 0.001000000047497451305389404296875)), _277.crowdP.z, 1.0);
     float baseSpeed = _277.agentP.w * (0.699999988079071044921875 + (0.60000002384185791015625 * vary));
     float speed = mix(baseSpeed * speedF, _277.extraP.w * (0.800000011920928955078125 + (0.4000000059604644775390625 * vary)), fast::clamp(a.pos.w, 0.0, 1.0));
     float2 desired = flow * speed;
     if ((st == 0u) || (st == 1u))
     {
-        float3 _1517 = v;
-        float3 _1526 = v;
-        float2 _1528 = _1526.xz + ((desired - _1517.xz) * fast::min(1.0, _277.moveP.x * dt));
-        v.x = _1528.x;
-        v.z = _1528.y;
+        float3 _1529 = v;
+        float3 _1538 = v;
+        float2 _1540 = _1538.xz + ((desired - _1529.xz) * fast::min(1.0, _277.moveP.x * dt));
+        v.x = _1540.x;
+        v.z = _1540.y;
     }
     else
     {
         desired = float2(0.0);
-        float3 _1538 = v;
-        float2 _1540 = _1538.xz * (1.0 - fast::min(1.0, 0.300000011920928955078125 * dt));
-        v.x = _1540.x;
-        v.z = _1540.y;
+        float3 _1550 = v;
+        float2 _1552 = _1550.xz * (1.0 - fast::min(1.0, 0.300000011920928955078125 * dt));
+        v.x = _1552.x;
+        v.z = _1552.y;
     }
     if (st == 1u)
     {
         float target = as_type<float>(a.info.w);
-        float _1557;
+        float _1569;
         if (p.y < target)
         {
-            _1557 = _277.moveP.z;
+            _1569 = _277.moveP.z;
         }
         else
         {
-            _1557 = fast::min(v.y, 0.0);
+            _1569 = fast::min(v.y, 0.0);
         }
-        v.y = _1557;
+        v.y = _1569;
     }
     else
     {
@@ -813,9 +814,9 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
     a.vel.x = v.x;
     a.vel.y = v.y;
     a.vel.z = v.z;
-    float2 _1627 = select(desired, tumble, bool2((st == 2u) || (st == 3u)));
-    a.dirs.x = _1627.x;
-    a.dirs.y = _1627.y;
+    float2 _1639 = select(desired, tumble, bool2((st == 2u) || (st == 3u)));
+    a.dirs.x = _1639.x;
+    a.dirs.y = _1639.y;
     a.dirs.w = timer;
     Agent param_31 = a;
     a.info.x = st | agentLookX(param_31);
@@ -823,15 +824,15 @@ kernel void main0(constant SimUniforms& _277 [[buffer(0)]], device NavDir& _703 
     uint param_33 = sev;
     uint param_34 = blood;
     a.info.z = packAgentZ(param_32, param_33, param_34);
-    _993.agents[i].pos = a.pos;
-    _993.agents[i].vel = a.vel;
-    _993.agents[i].prev = a.prev;
-    _993.agents[i].dirs = a.dirs;
-    _993.agents[i].info = a.info;
+    _1005.agents[i].pos = a.pos;
+    _1005.agents[i].vel = a.vel;
+    _1005.agents[i].prev = a.prev;
+    _1005.agents[i].dirs = a.dirs;
+    _1005.agents[i].info = a.info;
     float2 param_35 = p.xz;
     int2 param_36 = cellCoord(param_35, _277);
     uint cell = cellIndex(param_36, _277);
-    uint _1672 = atomic_fetch_add_explicit((device atomic_uint*)&_1040.cellCount[cell], 1u, memory_order_relaxed);
-    _1033.cellLocal[i] = uint2(cell, _1672);
+    uint _1684 = atomic_fetch_add_explicit((device atomic_uint*)&_1052.cellCount[cell], 1u, memory_order_relaxed);
+    _1045.cellLocal[i] = uint2(cell, _1684);
 }
 

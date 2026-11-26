@@ -33,6 +33,7 @@ struct Frame
     float4 blasts[8];
     float4 lightPos[24];
     float4 lightCol[24];
+    float4 blastsP[8];
 };
 
 struct Corpse
@@ -129,7 +130,7 @@ float3x3 rotZ(thread const float& a)
 }
 
 static inline __attribute__((always_inline))
-float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _405)
+float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _406)
 {
     float sw = sin(s.phase);
     float gait = fast::clamp(s.speed / 1.60000002384185791015625, 0.0, 1.0);
@@ -174,7 +175,7 @@ float3 animateVertex(thread const float3& p, thread const float3& pivot, thread 
     float param_6 = ((0.119999997317790985107421875 * gait) * (1.0 - s.prone)) + (s.prone * 1.4500000476837158203125);
     float param_7 = s.roll;
     float3x3 B = rotX(param_6) * rotZ(param_7);
-    float3 c = float3(0.0, _405.modelP.y * 0.5, 0.0);
+    float3 c = float3(0.0, _406.modelP.y * 0.5, 0.0);
     q = (B * (q - c)) + mix(c, float3(0.0, 0.17000000178813934326171875, 0.0), float3(s.prone));
     n = B * n;
     return q;
@@ -188,12 +189,12 @@ float3x3 rotY(thread const float& a)
     return float3x3(float3(c, 0.0, -s), float3(0.0, 1.0, 0.0), float3(s, 0.0, c));
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0)]], const device Corpses& _438 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _406 [[buffer(0)]], const device Corpses& _439 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
 {
     main0_out out = {};
     Corpse c;
-    c.pos = _438.corpses[int(gl_InstanceIndex)].pos;
-    c.info = _438.corpses[int(gl_InstanceIndex)].info;
+    c.pos = _439.corpses[int(gl_InstanceIndex)].pos;
+    c.info = _439.corpses[int(gl_InstanceIndex)].info;
     float3 n = in.inNormal;
     if ((c.info.z & 1u) == 0u)
     {
@@ -221,9 +222,9 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0
     int param_3 = int(in.inPart + 0.5);
     Pose param_4 = s;
     float3 param_5 = n;
-    float3 _540 = animateVertex(param_1, param_2, param_3, param_4, param_5, _405);
+    float3 _541 = animateVertex(param_1, param_2, param_3, param_4, param_5, _406);
     n = param_5;
-    float3 q = _540;
+    float3 q = _541;
     if (s.roll > 1.5)
     {
         q.y += 0.2599999904632568359375;
@@ -232,9 +233,9 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0
     float3x3 Y = rotY(param_6);
     out.vWorld = c.pos.xyz + (Y * q);
     out.vNormal = Y * n;
-    out.vUv = in.inUv + float2(0.0, float(((c.info.x >> uint(8)) & 255u) % uint(_405.modelP.x)) / _405.modelP.x);
+    out.vUv = in.inUv + float2(0.0, float(((c.info.x >> uint(8)) & 255u) % uint(_406.modelP.x)) / _406.modelP.x);
     out.vAo = 0.550000011920928955078125;
-    out.gl_Position = _405.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _406.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

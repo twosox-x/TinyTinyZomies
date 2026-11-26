@@ -10,14 +10,21 @@ vec3 pointLights(vec3 P, vec3 N) {
         att *= att;
         c += lightCol[i].rgb * lightCol[i].w * att * (0.25 + 0.75 * max(dot(N, L / max(d, 1e-3)), 0.0));
     }
+    // explosions: a short intense white flash (~0.1 s), then a flickering orange fire light that rises with the
+    // fireball and fades (~1.5 s x sqrt(scale)); blastsP.x = effect scale (1 car, 2.2 fuel tanker)
     for (int i = 0; i < MAX_BLASTS; ++i) {
         float age = blasts[i].w;
-        if (age < 0.0 || age > 0.9) continue;
-        vec3 L = blasts[i].xyz + vec3(0.0, 2.0, 0.0) - P;
+        float s = max(blastsP[i].x, 0.1), ss = sqrt(s);
+        float fireDur = 1.6 * ss;
+        if (age < 0.0 || age > fireDur) continue;
+        vec3 L = blasts[i].xyz + vec3(0.0, 1.5 + 1.2 * age * ss, 0.0) - P;
         float d = length(L);
-        float att = clamp(1.0 - d / 28.0, 0.0, 1.0);
-        float k = (1.0 - age / 0.9);
-        c += vec3(1.0, 0.55, 0.2) * 9.0 * k * k * att * att * max(dot(N, L / max(d, 1e-3)), 0.2);
+        float flash = age < 0.1 ? 1.0 - age / 0.1 : 0.0;
+        float fire = smoothstep(0.0, 0.06, age) * (1.0 - age / fireDur);
+        fire *= fire * (0.75 + 0.25 * sin(age * 41.0 + float(i) * 2.1) * sin(age * 23.0 + 1.3));
+        float attF = clamp(1.0 - d / (20.0 * ss), 0.0, 1.0), attR = clamp(1.0 - d / (15.0 * ss), 0.0, 1.0);
+        float lam = max(dot(N, L / max(d, 1e-3)), 0.15);
+        c += (vec3(1.0, 0.88, 0.7) * 5.0 * flash * attF * attF + vec3(1.0, 0.42, 0.1) * 2.6 * fire * attR * attR) * ss * lam;
     }
     return c;
 }

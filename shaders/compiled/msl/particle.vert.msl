@@ -44,6 +44,13 @@ struct spvUnsafeArray
     }
 };
 
+// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()
+template<typename Tx, typename Ty>
+inline Tx mod(Tx x, Ty y)
+{
+    return x - y * floor(x / y);
+}
+
 // Implementation of signed integer mod accurate to SPIR-V specification
 template<typename Tx, typename Ty>
 inline Tx spvSMod(Tx x, Ty y)
@@ -90,6 +97,7 @@ struct Frame
     float4 blasts[8];
     float4 lightPos[24];
     float4 lightCol[24];
+    float4 blastsP[8];
 };
 
 struct SimUniforms
@@ -119,28 +127,41 @@ struct SimUniforms
     float4 goreQ;
 };
 
-constant spvUnsafeArray<int3, 24> _180 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
-constant spvUnsafeArray<int, 6> _188 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
-constant spvUnsafeArray<float3, 6> _443 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+constant spvUnsafeArray<int3, 24> _264 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _272 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
+constant spvUnsafeArray<float3, 6> _414 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
 
 struct main0_out
 {
     float3 vWorld [[user(locn0)]];
     float3 vNormal [[user(locn1)]];
     float4 vColor [[user(locn2)]];
+    float3 vGlow [[user(locn3)]];
     float4 gl_Position [[position]];
 };
 
 static inline __attribute__((always_inline))
 float ptType(thread const Particle& p)
 {
-    return floor(p.vel.w);
+    return mod(floor(p.vel.w), 8.0);
 }
 
 static inline __attribute__((always_inline))
 float ptSize(thread const Particle& p)
 {
     return fract(p.vel.w);
+}
+
+static inline __attribute__((always_inline))
+float ptLife0(thread const Particle& p)
+{
+    return fast::max(floor(floor(p.vel.w) * 0.125) * 0.125, 0.125);
+}
+
+static inline __attribute__((always_inline))
+uint ptHash(thread const uint& idx)
+{
+    return idx * 2654435761u;
 }
 
 static inline __attribute__((always_inline))
@@ -171,40 +192,50 @@ float3 qrot(thread const float4& q, thread const float3& v)
     return (v + (t * q.w)) + cross(q.xyz, t);
 }
 
-vertex main0_out main0(constant Frame& _248 [[buffer(0)]], const device Particles& _141 [[buffer(1)]], const device PList& _128 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+static inline __attribute__((always_inline))
+float3 firePalette(thread const float& k)
+{
+    float3 c = mix(float3(9.0, 8.0, 5.5), float3(6.0, 2.599999904632568359375, 0.449999988079071044921875), float3(smoothstep(0.0, 0.300000011920928955078125, k)));
+    c = mix(c, float3(2.2000000476837158203125, 0.37999999523162841796875, 0.0500000007450580596923828125), float3(smoothstep(0.300000011920928955078125, 0.64999997615814208984375, k)));
+    return mix(c, float3(0.449999988079071044921875, 0.0500000007450580596923828125, 0.00999999977648258209228515625), float3(smoothstep(0.64999997615814208984375, 1.0, k)));
+}
+
+static inline __attribute__((always_inline))
+float smokeMergeFrac(thread const float& age)
+{
+    return fast::clamp((age - 1.5) * 0.119999997317790985107421875, 0.0, 0.75);
+}
+
+vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particles& _215 [[buffer(1)]], const device PList& _202 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
-    uint idx = _128.plist[int(gl_InstanceIndex)];
+    uint idx = _202.plist[int(gl_InstanceIndex)];
     Particle pt;
-    pt.pos = _141.particles[idx].pos;
-    pt.vel = _141.particles[idx].vel;
+    pt.pos = _215.particles[idx].pos;
+    pt.vel = _215.particles[idx].vel;
     Particle param = pt;
     uint type = uint(ptType(param));
     Particle param_1 = pt;
     float size = ptSize(param_1);
-    float life = pt.pos.w;
+    float life = fast::max(pt.pos.w, 0.0);
+    Particle param_2 = pt;
+    float life0 = ptLife0(param_2);
+    float age = fast::max(life0 - life, 0.0);
     int f = int(gl_VertexIndex) / 6;
-    float3 c = float3(_180[(f * 4) + _188[spvSMod(int(gl_VertexIndex), 6)]]) - float3(0.5);
-    uint param_2 = idx * 2654435761u;
-    float h = hash01(param_2);
-    float _215;
-    if (type == 0u)
-    {
-        _215 = 0.0;
-    }
-    else
-    {
-        _215 = (type == 3u) ? 9.0 : 2.0;
-    }
-    float spin = _215;
-    float3 param_3 = fast::normalize(float3(h - 0.5, 0.699999988079071044921875, fract(h * 13.69999980926513671875) - 0.5));
-    float param_4 = (h * 6.283100128173828125) + ((_248.camPos.w * spin) * (h - 0.5));
-    float4 q = qaxis(param_3, param_4);
+    float3 c = float3(_264[(f * 4) + _272[spvSMod(int(gl_VertexIndex), 6)]]) - float3(0.5);
+    uint param_3 = idx;
+    uint param_4 = ptHash(param_3);
+    float h = hash01(param_4);
+    float h2 = fract(h * 97.30999755859375);
+    float3 col = float3(0.0);
+    float3 glow = float3(0.0);
     float emissive = 0.0;
     float3 scale3 = float3(size);
-    float3 col;
     if (type == 0u)
     {
+        float3 param_5 = fast::normalize(float3(h - 0.5, 0.699999988079071044921875, fract(h * 13.69999980926513671875) - 0.5));
+        float param_6 = h * 6.283100128173828125;
+        float4 q = qaxis(param_5, param_6);
         col = mix(float3(0.054999999701976776123046875, 0.00200000009499490261077880859375, 0.0040000001899898052215576171875), float3(0.10999999940395355224609375, 0.0040000001899898052215576171875, 0.008000000379979610443115234375), float3(fract(h * 7.30000019073486328125)));
         float sp = length(pt.vel.xyz);
         if (sp > 2.0)
@@ -213,48 +244,194 @@ vertex main0_out main0(constant Frame& _248 [[buffer(0)]], const device Particle
             q = float4(fast::normalize(cross(float3(0.0, 1.0, 0.0), d) + float3(9.9999997473787516355514526367188e-05, 0.0, 0.0)) * sin(0.5 * acos(fast::clamp(d.y, -1.0, 1.0))), cos(0.5 * acos(fast::clamp(d.y, -1.0, 1.0))));
             scale3.y *= (1.0 + fast::min(sp * 0.07999999821186065673828125, 0.800000011920928955078125));
         }
+        float4 param_7 = q;
+        float3 param_8 = c * scale3;
+        out.vWorld = pt.pos.xyz + qrot(param_7, param_8);
+        float4 param_9 = q;
+        float3 param_10 = _414[f];
+        out.vNormal = qrot(param_9, param_10);
+        out.vColor = float4(col, 0.0);
+        out.vGlow = float3(0.0);
+        out.gl_Position = _446.viewProj * float4(out.vWorld, 1.0);
+        return out;
     }
-    else
+    float grow = 1.0;
+    if (type == 1u)
     {
-        if (type == 1u)
+        float fireT = 0.25 * life0;
+        float k = age / fireT;
+        float flick = 0.800000011920928955078125 + (0.4000000059604644775390625 * fract((h * 31.0) + (floor(_446.camPos.w * 24.0) * 0.37000000476837158203125)));
+        if (k < 1.0)
         {
-            float k = fast::clamp(life / 0.60000002384185791015625, 0.0, 1.0);
-            col = mix(float3(1.60000002384185791015625, 0.25, 0.02999999932944774627685546875), float3(5.0, 3.2000000476837158203125, 0.89999997615814208984375), float3(k * k)) * (0.699999988079071044921875 + (0.60000002384185791015625 * h));
+            float param_11 = fast::clamp(k + (0.25 * (h - 0.5)), 0.0, 1.0);
+            col = firePalette(param_11) * mix(flick, 1.0, smoothstep(0.0, 0.20000000298023223876953125, 1.0 - k));
             emissive = 1.0;
-            scale3 *= (0.3499999940395355224609375 + (0.89999997615814208984375 * k));
+            grow = (0.550000011920928955078125 + (0.699999988079071044921875 * smoothstep(0.0, 0.119999997317790985107421875, age))) + (0.4000000059604644775390625 * k);
         }
         else
         {
-            if (type == 2u)
+            float sk = fast::clamp((age - fireT) / (life0 - fireT), 0.0, 1.0);
+            col = mix(float3(0.02199999988079071044921875, 0.01899999938905239105224609375, 0.0170000009238719940185546875), float3(0.0500000007450580596923828125, 0.048000000417232513427734375, 0.048000000417232513427734375), float3(sk)) * (0.75 + (0.5 * h));
+            glow = (float3(1.2000000476837158203125, 0.25, 0.039999999105930328369140625) * (1.0 - smoothstep(0.0, 0.180000007152557373046875, sk))) * 1.5;
+            grow = 1.60000002384185791015625 + (1.0 * sk);
+        }
+        float param_12 = age;
+        grow /= powr(1.0 - smokeMergeFrac(param_12), 0.25);
+        grow *= fast::min(1.0, life * 1.5);
+    }
+    else
+    {
+        if (type == 2u)
+        {
+            float sk_1 = fast::clamp(age / life0, 0.0, 1.0);
+            col = mix(float3(0.017999999225139617919921875, 0.01600000075995922088623046875, 0.014999999664723873138427734375), float3(0.054999999701976776123046875, 0.05200000107288360595703125, 0.05200000107288360595703125), float3(sk_1)) * (0.75 + (0.5 * h));
+            glow = (float3(0.89999997615814208984375, 0.2199999988079071044921875, 0.039999999105930328369140625) * (1.0 - smoothstep(0.300000011920928955078125, 1.2000000476837158203125, age))) * 0.800000011920928955078125;
+            float param_13 = age;
+            grow = (smoothstep(0.1500000059604644775390625, 0.89999997615814208984375, age) * (1.0 + (1.60000002384185791015625 * sqrt(sk_1)))) / powr(1.0 - smokeMergeFrac(param_13), 0.25);
+            grow *= fast::min(1.0, life * 0.699999988079071044921875);
+        }
+        else
+        {
+            if (type == 3u)
             {
-                col = float3(0.0500000007450580596923828125, 0.04500000178813934326171875, 0.0500000007450580596923828125) * (0.699999988079071044921875 + (0.60000002384185791015625 * h));
-                scale3 *= (1.0 + (0.4000000059604644775390625 * fast::clamp(1.0 - (life / 2.2000000476837158203125), 0.0, 1.0)));
-                scale3 *= fast::clamp(life * 2.0, 0.0, 1.0);
-            }
-            else
-            {
-                if (type == 3u)
+                float m = fract(h * 5.309999942779541015625);
+                float3 _627;
+                if (m < 0.3499999940395355224609375)
                 {
-                    col = float3(0.0500000007450580596923828125, 0.048000000417232513427734375, 0.054999999701976776123046875) * (0.699999988079071044921875 + (0.60000002384185791015625 * h));
-                    scale3 *= fast::clamp(life * 2.0, 0.0, 1.0);
+                    _627 = float3(0.04500000178813934326171875, 0.04500000178813934326171875, 0.0500000007450580596923828125);
                 }
                 else
                 {
-                    col = float3(6.0, 4.0, 1.5);
+                    float3 _636;
+                    if (m < 0.60000002384185791015625)
+                    {
+                        _636 = float3(0.319999992847442626953125, 0.310000002384185791015625, 0.2899999916553497314453125);
+                    }
+                    else
+                    {
+                        float3 _647;
+                        if (m < 0.7799999713897705078125)
+                        {
+                            _647 = float3(0.20000000298023223876953125, 0.20999999344348907470703125, 0.23000000417232513427734375);
+                        }
+                        else
+                        {
+                            float3 _657;
+                            if (m < 0.87999999523162841796875)
+                            {
+                                _657 = float3(0.2800000011920928955078125, 0.0500000007450580596923828125, 0.0350000001490116119384765625);
+                            }
+                            else
+                            {
+                                _657 = select(float3(0.0199999995529651641845703125, 0.017999999225139617919921875, 0.01600000075995922088623046875), float3(0.3499999940395355224609375, 0.449999988079071044921875, 0.5), bool3(m < 0.939999997615814208984375));
+                            }
+                            _647 = _657;
+                        }
+                        _636 = _647;
+                    }
+                    _627 = _636;
+                }
+                col = _627;
+                col *= (0.800000011920928955078125 + (0.4000000059604644775390625 * h2));
+                if (h2 < 0.20000000298023223876953125)
+                {
+                    glow = float3(3.0, 0.89999997615814208984375, 0.1500000059604644775390625) * (1.0 - smoothstep(0.20000000298023223876953125, 1.39999997615814208984375, age));
+                }
+                grow = fast::min(1.0, life * 1.2000000476837158203125);
+            }
+            else
+            {
+                if (type == 4u)
+                {
+                    float k_1 = fast::clamp(age / life0, 0.0, 1.0);
+                    float3 _708;
+                    if (h < 0.449999988079071044921875)
+                    {
+                        float param_14 = 0.449999988079071044921875 + (0.4000000059604644775390625 * k_1);
+                        _708 = firePalette(param_14) * (0.60000002384185791015625 + (0.60000002384185791015625 * fract((h * 17.0) + (floor(_446.camPos.w * 18.0) * 0.4099999964237213134765625))));
+                    }
+                    else
+                    {
+                        float param_15 = k_1 * 0.800000011920928955078125;
+                        _708 = firePalette(param_15) * 1.2000000476837158203125;
+                    }
+                    col = _708;
                     emissive = 1.0;
-                    scale3 *= fast::clamp(life * 4.0, 0.0, 1.0);
+                    grow = fast::min(1.0, life * 4.0);
+                }
+                else
+                {
+                    if (type == 5u)
+                    {
+                        float k_2 = fast::clamp(age / life0, 0.0, 1.0);
+                        col = float3(0.100000001490116119384765625, 0.0949999988079071044921875, 0.0900000035762786865234375) * (0.800000011920928955078125 + (0.4000000059604644775390625 * h));
+                        grow = (1.0 + (1.2000000476837158203125 * k_2)) * (1.0 - smoothstep(0.449999988079071044921875, 1.0, k_2));
+                    }
+                    else
+                    {
+                        if (type == 6u)
+                        {
+                            float k_3 = fast::clamp(age / life0, 0.0, 1.0);
+                            float param_16 = 0.1500000059604644775390625 + (0.85000002384185791015625 * k_3);
+                            col = firePalette(param_16) * (0.75 + (0.5 * fract((h * 29.0) + (floor(_446.camPos.w * 20.0) * 0.430000007152557373046875))));
+                            emissive = 1.0;
+                            grow = 1.0 - (0.60000002384185791015625 * k_3);
+                        }
+                        else
+                        {
+                            float k_4 = fast::clamp(age / 0.100000001490116119384765625, 0.0, 1.0);
+                            col = float3(12.0, 10.5, 7.5) * (1.0 - (0.60000002384185791015625 * k_4));
+                            emissive = 1.0;
+                            grow = (1.0 + (1.5 * k_4)) * step(age, 0.100000001490116119384765625);
+                        }
+                    }
                 }
             }
         }
     }
-    float4 param_5 = q;
-    float3 param_6 = c * scale3;
-    out.vWorld = pt.pos.xyz + qrot(param_5, param_6);
-    float4 param_7 = q;
-    float3 param_8 = _443[f];
-    out.vNormal = qrot(param_7, param_8);
+    float dist = length(_446.camPos.xyz - pt.pos.xyz);
+    if ((((type == 2u) || (type == 1u)) || (type == 5u)) && (dist > 70.0))
+    {
+        float drop = fast::clamp((dist - 70.0) / 60.0, 0.0, 0.5);
+        float _854;
+        if (h < drop)
+        {
+            _854 = 0.0;
+        }
+        else
+        {
+            _854 = grow * powr(1.0 / (1.0 - drop), 0.33329999446868896484375);
+        }
+        grow = _854;
+    }
+    float sz = size * grow;
+    float _874;
+    if (sz < 0.14000000059604644775390625)
+    {
+        _874 = 0.0500000007450580596923828125;
+    }
+    else
+    {
+        _874 = (sz < 0.60000002384185791015625) ? 0.100000001490116119384765625 : 0.25;
+    }
+    float g = _874;
+    float n = floor((sz / g) + 0.5);
+    float S = n * g;
+    float3 lo = floor(((pt.pos.xyz - float3(0.5 * S)) / float3(g)) + float3(0.5)) * g;
+    out.vWorld = lo + ((c + float3(0.5)) * S);
+    out.vNormal = _414[f];
     out.vColor = float4(col, emissive);
-    out.gl_Position = _248.viewProj * float4(out.vWorld, 1.0);
+    out.vGlow = glow;
+    float4 _928;
+    if (n > 0.0)
+    {
+        _928 = _446.viewProj * float4(out.vWorld, 1.0);
+    }
+    else
+    {
+        _928 = float4(0.0, 0.0, -2.0, 1.0);
+    }
+    out.gl_Position = _928;
     return out;
 }
 

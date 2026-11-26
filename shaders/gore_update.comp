@@ -2,10 +2,11 @@
 #extension GL_GOOGLE_include_directive : require
 // Gore physics, one pipeline, mode in misc.y:
 //   0  reset the per-step alive counters (1 thread)
-//   1  particles: blood / fire / smoke / debris / sparks; blood leaves decals where it lands
+//   1  particles: blood / fire / smoke / debris / sparks / dust / flames; blood leaves decals where it lands
 //   2  body parts (gibs): rigid bodies that tumble, bounce off the ground and walls, bleed, then rest
 //   3  write the particle draw arguments (1 thread)
-//   4  explosion effects: fireball, smoke, debris, sparks, scorch decal (workgroup y = explosion)
+//   4  explosion effects: flash, fireball, smoke, debris, sparks / embers, dust, scorch decal (workgroup y = explosion,
+//      4 workgroups each); burning-wreck flames / smoke / embers for negative scales
 #include "common.glsl"
 #define TTZ_GORE_SPAWN
 #define TTZ_GORE_DECALS
@@ -27,6 +28,10 @@ bool outsideWorld(vec2 xz) {
     return g.x < 0.0 || g.y < 0.0 || g.x >= float(grid.x) || g.y >= float(grid.y);
 }
 
+// Smoke merging: as a cloud ages, a growing fraction of its cubes dies and the survivors grow (particle.vert scales them
+// by smokeMergeGrow), so lingering columns cost fewer and fewer voxels. Shared with particle.vert through ptHash.
+float smokeMergeFrac(float age) { return clamp((age - 1.5) * 0.12, 0.0, 0.75); }
+
 void updateParticle(uint i) {
     Particle pt = particles[i];
     if (pt.pos.w <= 0.0) return;
@@ -34,33 +39,75 @@ void updateParticle(uint i) {
     uint type = uint(ptType(pt));
     vec3 p = pt.pos.xyz, v = pt.vel.xyz;
     float life = pt.pos.w - dt;
-    if (type == PT_FIRE || type == PT_SMOKE) {
-        v.y += (type == PT_FIRE ? 3.0 : 1.2) * dt;                   // hot gas rises
-        v *= exp(-dt * (type == PT_FIRE ? 2.5 : 1.6));
+    float life0 = ptLife0(pt), age = life0 - life;
+    float h = hash01(ptHash(i)), h2 = fract(h * 97.31);
+    const vec3 wind = vec3(0.55, 0.0, 0.25);
+    bool gas = type == PT_FIRE || type == PT_SMOKE || type == PT_DUST || type == PT_FLAME || type == PT_FLASH;
+    if (type == PT_FIRE) {
+        // fireball voxel: a fast radial burst killed by drag, then hot buoyant gas; the rising core pushes the top
+        // outward (a rolling cap: mushrooming for big blasts); after ~1/4 of its life it is a cooling smoke puff
+        float hot = 1.0 - smoothstep(0.15, 0.35, age / life0);
+        v.y += (2.2 + 5.0 * hot) * (0.6 + 0.8 * h) * exp(-age * 0.2) * dt;
+        float sp = length(v.xz);
+        if (sp > 1e-3 && v.y > 1.0) v.xz += v.xz / sp * min(v.y, 6.0) * 0.4 * hot * dt;   // roll outward under the cap
+        v.xz *= exp(-dt * mix(1.2, 3.4, hot));
+        v.y *= exp(-dt * mix(0.8, 2.0, hot));
+        v += (wind * (1.0 - hot) + vec3(sin(timeP.y * 1.3 + h * 40.0), 0.0, cos(timeP.y * 1.1 + h2 * 30.0)) * 0.4) * dt;
+        if (smokeMergeFrac(age) > h2) life = 0.0;
+    } else if (type == PT_SMOKE) {
+        // the lingering column: rises (less and less), drifts with the wind, wobbles; cubes merge as they age
+        v.y += (2.0 * exp(-age * 0.25) + 1.0) * (0.6 + 0.8 * h) * dt;
+        v *= exp(-dt * 0.9);
+        v += (wind * 1.2 + vec3(sin(timeP.y * 0.9 + h * 50.0), 0.0, cos(timeP.y * 0.7 + h2 * 40.0)) * 0.45) * dt;
+        if (smokeMergeFrac(age) > h2) life = 0.0;
+    } else if (type == PT_DUST) {
+        v *= exp(-dt * 3.2);                                           // pushed out by the blast, stopped by drag
+        v.y += 0.25 * dt;
+        v.xz += wind.xz * 0.5 * dt;
+    } else if (type == PT_FLAME) {
+        v.y += 4.0 * dt;
+        v.xz += vec2(sin(timeP.y * 17.0 + h * 60.0), cos(timeP.y * 13.0 + h2 * 60.0)) * 1.5 * dt;   // flicker
+        v *= exp(-dt * 2.2);
+    } else if (type == PT_FLASH) {
+        v = vec3(0.0);
+    } else if (type == PT_SPARK && h < 0.45) {                       // ember: buoyant, flutters up with the heat
+        v.y += (1.8 * exp(-age * 0.8) - 0.6) * dt;
+        v.xz += vec2(sin(timeP.y * 7.0 + h * 80.0), cos(timeP.y * 6.0 + h2 * 80.0)) * 1.2 * dt;
+        v *= exp(-dt * 1.8);
     } else {
         v.y -= moveP.y * dt;
-        v *= exp(-dt * (type == PT_BLOOD ? 0.25 : 0.4));
+        v *= exp(-dt * (type == PT_BLOOD ? 0.25 : type == PT_SPARK ? 0.9 : 0.3));
     }
     vec3 np = p + v * dt;
     if (outsideWorld(np.xz)) life = 0.0;
     float top = staticTop(np.xz);
     bool solid = np.y < top - 0.02;
-    if (solid && type != PT_FIRE && type != PT_SMOKE) {
+    if (solid && !gas) {
         bool fromAbove = p.y >= top - 0.02;
         if (type == PT_BLOOD) {
             if (fromAbove) addGroundBlood(np.xz, 40u);                // roof / car top
             else addWallBlood(p.xz, np.y);                            // splat on the wall face it hit
         }
-        if (type == PT_DEBRIS && !fromAbove) { v.xz *= -0.3; np.xz = p.xz; }
-        else life = 0.0;
-    }
+        if ((type == PT_DEBRIS || type == PT_SPARK) && !fromAbove) { v.xz *= -0.3; np.xz = p.xz; }
+        else if (type != PT_DEBRIS && type != PT_SPARK) life = 0.0;
+    } else if (solid && type == PT_DUST) { np.xz = p.xz; v.xz *= -0.2; }   // dust stops at walls
     float ground = (np.y >= top - moveP.w ? max(top, 0.0) : 0.0) + corpseBilinear(np.xz);
     if (np.y <= ground && life > 0.0) {
         if (type == PT_BLOOD) { addGroundBlood(np.xz, uint(40.0 + 600.0 * ptSize(pt))); life = 0.0; }
-        else if (type == PT_DEBRIS) {
+        else if (type == PT_DEBRIS || type == PT_SPARK) {
+            // chunks bounce (a little scatter), slide, and settle; they rest a while before shrinking away
             np.y = ground;
-            if (v.y < -2.0) { v.y *= -0.3; v.xz *= 0.6; } else { v = vec3(0.0); life = min(life, 1.5); }
-        } else np.y = ground + 0.01;
+            if (v.y < -1.5) {
+                v.y *= -(type == PT_SPARK ? 0.25 : 0.35);
+                v.xz = v.xz * 0.55 + vec2(h - 0.5, h2 - 0.5) * abs(v.y) * 0.6;
+            } else {
+                v.y = 0.0;
+                v.xz *= exp(-dt * 9.0);
+                if (dot(v.xz, v.xz) < 0.04) v = vec3(0.0);
+                if (type == PT_SPARK) life = min(life, 0.35);
+            }
+        } else if (type == PT_DUST) { np.y = ground; v.y = max(v.y, 0.0); }
+        else { np.y = max(np.y, ground + 0.02); v.y = max(v.y, 0.0); }
     }
     particles[i].pos = vec4(np, life);
     particles[i].vel.xyz = v;
@@ -144,6 +191,56 @@ void updateGib(uint i) {
     gibs[i].info.w = packHalf2x16(vec2(w.z, unpackHalf2x16(g.info.w).y));
 }
 
+// Explosion effects, one thread per voxel (1024 threads per explosion; the counts scale with the effect size s):
+//   flash  8 s       white-hot core cubes, 0.1 s
+//   fire   100 s     fireball voxels: burst out, rise and roll, cool through orange / red into black smoke (3-6 s)
+//   smoke  60 s      the lingering column (6-15 s): appears as the fireball cools, rises, drifts, merges
+//   debris 80 s      asphalt / concrete / metal / glass chunks on ballistic arcs; bounce, settle, rest
+//   sparks 70 s      sparks (ballistic streaks) and embers (buoyant)
+//   dust   40 s      grey voxels pushed out along the ground (the blast wave, low and subtle)
+// car (s = 1) ~ 358 voxels, truck (1.5) ~ 537, fuel tanker (2.2) ~ 787. The pool is a ring buffer (goreCap.x): chains
+// overwrite the oldest particles, so any number of blasts stays bounded.
+void spawnFx(uint t, vec3 c, float s, uint e, inout uint rng) {
+    vec3 d = randDir(rng);
+    float r1 = rand01(rng), r2 = rand01(rng), r3 = rand01(rng);
+    float ss = sqrt(s);
+    uint nFlash = uint(8.0 * s), nFire = nFlash + uint(100.0 * s), nSmoke = nFire + uint(60.0 * s),
+         nDebris = nSmoke + uint(80.0 * s), nSpark = nDebris + uint(70.0 * s), nDust = nSpark + uint(40.0 * s);
+    if (t < nFlash) {
+        spawnParticle(c + d * 0.4 * ss + vec3(0.0, 0.5, 0.0), vec3(0.0), 0.125, PT_FLASH, (0.45 + 0.35 * r1) * min(ss, 1.4));
+    } else if (t < nFire) {
+        // a dense ball: offsets and burst directions independent (no radial spokes); the core gets the strongest
+        // updraft, so big blasts grow a stem under a rolling cap (mushroom)
+        vec3 o = randDir(rng);
+        o.y = abs(o.y) * 0.7;
+        d.y = abs(d.y) * 0.6 + 0.15;
+        d = normalize(d);
+        float sb = pow(s, 0.8);
+        spawnParticle(c + o * (0.15 + 0.85 * sqrt(r1)) * sb + vec3(0.0, 0.5, 0.0),
+                      d * (1.5 + 4.5 * r2 * r2) * sb + vec3(0.0, (1.0 + 3.0 * (1.0 - r1)) * (0.6 + 0.4 * r3), 0.0) * sb,
+                      (2.6 + 2.4 * rand01(rng)) * ss, PT_FIRE, (0.3 + 0.22 * rand01(rng)) * min(ss, 1.35));
+    } else if (t < nSmoke) {
+        d.y = abs(d.y) * 0.5 + 0.2;
+        spawnParticle(c + d * (0.3 + 1.0 * r1) * ss + vec3(0.0, 0.8 + 1.2 * r3, 0.0) * ss, (d * (1.0 + 2.5 * r2) + vec3(0.0, 2.0, 0.0)) * ss,
+                      (6.0 + 6.0 * rand01(rng)) * ss, PT_SMOKE, (0.3 + 0.2 * rand01(rng)) * min(ss, 1.35));
+    } else if (t < nDebris) {
+        d.y = abs(d.y) + 0.35;
+        d = normalize(d);
+        spawnParticle(c + vec3(d.x, 0.0, d.z) * 0.6 + vec3(0.0, 0.25, 0.0), d * (4.0 + 11.0 * r1 * r1 + 3.0 * r2) * ss, 6.0 + 4.0 * r3,
+                      PT_DEBRIS, 0.05 + 0.13 * r2 * r2);
+    } else if (t < nSpark) {
+        d.y = abs(d.y) + 0.2;
+        d = normalize(d);
+        spawnParticle(c + vec3(0.0, 0.5, 0.0) + d * 0.3, d * (5.0 + 14.0 * r1) * ss, 0.8 + 1.8 * r2, PT_SPARK, 0.05);
+    } else if (t < nDust) {
+        float a = 6.2831853 * (float(t - nSpark) + r1) / (40.0 * s);
+        vec2 dir = vec2(cos(a), sin(a));
+        spawnParticle(vec3(c.x, 0.0, c.z) + vec3(dir.x, 0.0, dir.y) * (0.8 + 0.8 * r2) * ss + vec3(0.0, 0.1 + 0.25 * r3, 0.0),
+                      vec3(dir.x, 0.0, dir.y) * (7.0 + 7.0 * rand01(rng)) * ss + vec3(0.0, 0.4, 0.0), 1.6 + 1.6 * rand01(rng),
+                      PT_DUST, 0.15 + 0.12 * rand01(rng));
+    }
+}
+
 void explosionFx(uint e, uint t) {
     vec3 c = explo[e].xyz;
     uint rng = pcgHash(t * 7919u ^ e * 104729u ^ uint(timeP.z) * 31u);
@@ -153,36 +250,25 @@ void explosionFx(uint e, uint t) {
     float s = exploP[e].w;
     if (s < 0.0) {
         float sz = -s;
-        vec3 o = vec3((rand01(rng) - 0.5) * sz, 0.0, (rand01(rng) - 0.5) * sz * 0.5);
-        if (t < 14u)
-            spawnParticle(c + o, vec3(d.x * 0.6, 1.2 + 2.0 * rand01(rng), d.z * 0.6), 0.45 + 0.45 * rand01(rng), PT_FIRE,
-                          0.25 + 0.3 * rand01(rng));
-        else if (t < 17u)
-            spawnParticle(c + o + vec3(0.0, 0.8, 0.0), vec3(d.x * 0.5, 1.5 + 1.5 * rand01(rng), d.z * 0.5), 1.2 + 1.3 * rand01(rng),
-                          PT_SMOKE, 0.2 + 0.25 * rand01(rng));
+        vec3 o = vec3((rand01(rng) - 0.5) * sz, 0.0, (rand01(rng) - 0.5) * sz * 0.45);
+        if (t < 9u)                                                     // flames licking up from the wreck
+            spawnParticle(c + o + vec3(0.0, -0.2, 0.0), vec3(d.x * 0.5, 0.8 + 1.6 * rand01(rng), d.z * 0.5), 0.35 + 0.5 * rand01(rng),
+                          PT_FLAME, 0.1 + 0.2 * rand01(rng));
+        else if (t < 10u)                                               // thick black smoke
+            spawnParticle(c + o * 0.6 + vec3(0.0, 0.6, 0.0), vec3(d.x * 0.4, 1.8 + 1.2 * rand01(rng), d.z * 0.4), 4.0 + 3.0 * rand01(rng),
+                          PT_SMOKE, 0.3 + 0.15 * rand01(rng));
+        else if (t == 10u && rand01(rng) < 0.3)                        // an ember now and then
+            spawnParticle(c + o, vec3(d.x, 2.0 + 2.0 * rand01(rng), d.z), 1.5 + rand01(rng), PT_SPARK, 0.05);
         return;
     }
-    if (t < 140u) {                                                 // fireball
-        d.y = abs(d.y);
-        spawnParticle(c + d * (0.3 + 1.2 * rand01(rng)) * s + vec3(0.0, 0.5, 0.0), (d * (2.0 + 9.0 * rand01(rng)) + vec3(0.0, 2.0, 0.0)) * s,
-                      (0.35 + 0.5 * rand01(rng)) * sqrt(s), PT_FIRE, 0.25 + 0.35 * rand01(rng));
-    } else if (t < 230u) {                                          // smoke
-        d.y = abs(d.y) * 0.6 + 0.2;
-        spawnParticle(c + d * 1.2 * s + vec3(0.0, 0.8, 0.0), d * (1.0 + 3.5 * rand01(rng)) * s, (0.8 + 1.4 * rand01(rng)) * s, PT_SMOKE,
-                      0.15 + 0.25 * rand01(rng));
-    } else if (t < 400u) {                                          // asphalt chunks
-        d.y = abs(d.y) + 0.5;
-        spawnParticle(c + vec3(0.0, 0.2, 0.0), normalize(d) * (5.0 + 10.0 * rand01(rng)) * sqrt(s), 4.0, PT_DEBRIS, 0.06 + 0.1 * rand01(rng));
-    } else {                                                         // sparks
-        d.y = abs(d.y) + 0.2;
-        spawnParticle(c + vec3(0.0, 0.4, 0.0), normalize(d) * (8.0 + 14.0 * rand01(rng)) * sqrt(s), 0.3 + 0.5 * rand01(rng), PT_SPARK, 0.03);
-    }
-    // scorch decal: a ragged disc
+    spawnFx(t, c, s, e, rng);
+    // scorch decal: a ragged disc (radius ~2.4-3.5 m x sqrt(scale))
     float cell = 1.0 / (world.w * 3.0);
-    for (uint k = t; k < 1024u; k += 512u) {
-        ivec2 o = ivec2(int(k % 32u) - 16, int(k / 32u) - 16);
+    float rs = 3.2 * sqrt(max(s, 0.5));
+    for (uint k = t; k < 2304u; k += 1024u) {
+        ivec2 o = ivec2(int(k % 48u) - 24, int(k / 48u) - 24);
         vec2 xz = c.xz + vec2(o) * cell;
-        float r = length(vec2(o)) * cell / 3.2;
+        float r = length(vec2(o)) * cell / rs;
         float n = hash01(uint(o.x * 73 + o.y * 977) ^ e * 31u + uint(timeP.z));
         if (r < 0.75 + 0.35 * n) addScorch(xz, uint(255.0 * clamp(1.25 - r, 0.0, 1.0)));
     }

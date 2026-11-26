@@ -354,8 +354,8 @@ void App::frame(double dt) {
     // scripted blasts (for reproducible demo footage / screenshots)
     for (auto& b : s.opt.scriptedBlasts)
         if ((uint64_t)b[0] == s.frameIndex) {
-            s.sim.requestExplosion(b[1], 0.4f, b[2]);
-            s.renderer.addBlast(b[1], 0.4f, b[2]);
+            s.sim.requestExplosion(b[1], 0.4f, b[2], b[3]);
+            s.renderer.addBlast(b[1], 0.4f, b[2], b[3]);
             if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.75f);   // no shake in headless captures
         }
     // screen shake: offset ~ trauma^2, smooth pseudo-noise, scaled with zoom so it reads the same at any distance
@@ -397,7 +397,7 @@ void App::frame(double dt) {
     }
     if (s.cityMode && !s.paused) {   // vehicles: blasts of this frame, rigid bodies, fuses -> new explosions, obstacle rows
         s.vehicles.update(cmd, (float)(dt * s.simSpeed), s.sim, [&](float x, float y, float z, float scale) {
-            s.renderer.addBlast(x, y, z);
+            s.renderer.addBlast(x, y, z, scale);
             if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.3f * scale);
         });
     }
@@ -481,6 +481,7 @@ void App::frame(double dt) {
         std::snprintf(name, sizeof(name), "%s/f%05d.png", s.opt.shotDir.c_str(), (int)s.frameIndex);
         SDL_WaitForGPUIdle(s.gpu.device());
         s.renderer.saveScreenshot(name);
+        SDL_Log("  frame %d: particles alive %u (read back a few frames late)", (int)s.frameIndex, s.sim.stats().particlesAlive);
     }
     if (s.opt.cityBench > 0) {
         s.benchFrameMs.push_back(nowMs() - t0);

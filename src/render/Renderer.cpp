@@ -302,8 +302,8 @@ void Renderer::ensureTargets(uint32_t w, uint32_t h) {
     targetH_ = h;
 }
 
-void Renderer::addBlast(float x, float y, float z) {
-    blasts_.push_back({x, y, z, 0.f});
+void Renderer::addBlast(float x, float y, float z, float scale) {
+    blasts_.push_back({x, y, z, 0.f, std::max(scale, 0.1f)});
     if (blasts_.size() > (size_t)kMaxBlasts) blasts_.erase(blasts_.begin());
 }
 
@@ -367,7 +367,10 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const auto& g = sim.goals();
     for (size_t i = 0; i + 1 < g.size() && i / 2 < 4; i += 2) fu.goals[i / 2] = {g[i], 0, g[i + 1], 1};
     for (int i = 0; i < kMaxBlasts; ++i) fu.blasts[i] = {0, 0, 0, -1};
-    for (size_t i = 0; i < blasts_.size(); ++i) fu.blasts[i] = {blasts_[i].x, blasts_[i].y, blasts_[i].z, blasts_[i].age};
+    for (size_t i = 0; i < blasts_.size(); ++i) {
+        fu.blasts[i] = {blasts_[i].x, blasts_[i].y, blasts_[i].z, blasts_[i].age};
+        fu.blastsP[i] = {blasts_[i].scale, 0, 0, 0};
+    }
     for (uint32_t i = 0; i < nl; ++i) {
         const PointLight& L = sandbox_.lights[i];
         fu.lightPos[i] = {L.x, L.y, L.z, L.radius};

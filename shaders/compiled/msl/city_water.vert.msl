@@ -24,6 +24,7 @@ struct Frame
     float4 blasts[8];
     float4 lightPos[24];
     float4 lightCol[24];
+    float4 blastsP[8];
 };
 
 struct main0_out
@@ -38,13 +39,13 @@ struct main0_in
     float3 inPos [[attribute(0)]];
 };
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _53 [[buffer(0)]], constant WaterDraw& _20 [[buffer(1)]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _54 [[buffer(0)]], constant WaterDraw& _20 [[buffer(1)]])
 {
     main0_out out = {};
     float3 p = float3(in.inPos.x, _20.level0.x, in.inPos.y);
     out.vWorld = p;
     out.vShore = in.inPos.z;
-    out.gl_Position = _53.viewProj * float4(p, 1.0);
+    out.gl_Position = _54.viewProj * float4(p, 1.0);
     return out;
 }
 

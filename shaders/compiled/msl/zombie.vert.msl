@@ -33,6 +33,7 @@ struct Frame
     float4 blasts[8];
     float4 lightPos[24];
     float4 lightCol[24];
+    float4 blastsP[8];
 };
 
 struct Agent
@@ -135,7 +136,7 @@ float3x3 rotZ(thread const float& a)
 }
 
 static inline __attribute__((always_inline))
-float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _405)
+float3 animateVertex(thread const float3& p, thread const float3& pivot, thread const int& part, thread const Pose& s, thread float3& n, constant Frame& _406)
 {
     float sw = sin(s.phase);
     float gait = fast::clamp(s.speed / 1.60000002384185791015625, 0.0, 1.0);
@@ -180,7 +181,7 @@ float3 animateVertex(thread const float3& p, thread const float3& pivot, thread 
     float param_6 = ((0.119999997317790985107421875 * gait) * (1.0 - s.prone)) + (s.prone * 1.4500000476837158203125);
     float param_7 = s.roll;
     float3x3 B = rotX(param_6) * rotZ(param_7);
-    float3 c = float3(0.0, _405.modelP.y * 0.5, 0.0);
+    float3 c = float3(0.0, _406.modelP.y * 0.5, 0.0);
     q = (B * (q - c)) + mix(c, float3(0.0, 0.17000000178813934326171875, 0.0), float3(s.prone));
     n = B * n;
     return q;
@@ -194,15 +195,15 @@ float3x3 rotY(thread const float& a)
     return float3x3(float3(c, 0.0, -s), float3(0.0, 1.0, 0.0), float3(s, 0.0, c));
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0)]], const device Agents& _438 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _406 [[buffer(0)]], const device Agents& _439 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]])
 {
     main0_out out = {};
     Agent a;
-    a.pos = _438.agents[int(gl_InstanceIndex)].pos;
-    a.vel = _438.agents[int(gl_InstanceIndex)].vel;
-    a.prev = _438.agents[int(gl_InstanceIndex)].prev;
-    a.dirs = _438.agents[int(gl_InstanceIndex)].dirs;
-    a.info = _438.agents[int(gl_InstanceIndex)].info;
+    a.pos = _439.agents[int(gl_InstanceIndex)].pos;
+    a.vel = _439.agents[int(gl_InstanceIndex)].vel;
+    a.prev = _439.agents[int(gl_InstanceIndex)].prev;
+    a.dirs = _439.agents[int(gl_InstanceIndex)].dirs;
+    a.info = _439.agents[int(gl_InstanceIndex)].info;
     uint st = a.info.x & 255u;
     uint variant = (a.info.x >> uint(8)) & 255u;
     uint param = a.info.y;
@@ -211,32 +212,32 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0
     s.phase = a.vel.w;
     s.speed = length(a.vel.xz);
     s.prone = fast::clamp(a.pos.w, 0.0, 1.0);
-    float _491;
+    float _492;
     if (st == 1u)
     {
-        _491 = 1.0;
+        _492 = 1.0;
     }
     else
     {
-        _491 = s.prone * 0.60000002384185791015625;
+        _492 = s.prone * 0.60000002384185791015625;
     }
-    s.climb = _491;
+    s.climb = _492;
     s.flail = float((st == 2u) || (st == 3u));
-    float _510;
+    float _511;
     if (st == 3u)
     {
-        _510 = (a.dirs.w * (2.0 + (3.0 * vary))) * ((vary > 0.5) ? 1.0 : (-1.0));
+        _511 = (a.dirs.w * (2.0 + (3.0 * vary))) * ((vary > 0.5) ? 1.0 : (-1.0));
     }
     else
     {
-        _510 = 0.0;
+        _511 = 0.0;
     }
-    s.roll = _510;
+    s.roll = _511;
     s.vary = vary;
     s.dead = 0.0;
     if ((st == 3u) || (st == 2u))
     {
-        s.phase = (_405.camPos.w * 6.0) + (vary * 20.0);
+        s.phase = (_406.camPos.w * 6.0) + (vary * 20.0);
     }
     float3 n = in.inNormal;
     float3 param_1 = in.inPos * (0.89999997615814208984375 + (0.20000000298023223876953125 * vary));
@@ -244,16 +245,16 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _405 [[buffer(0
     int param_3 = int(in.inPart + 0.5);
     Pose param_4 = s;
     float3 param_5 = n;
-    float3 _575 = animateVertex(param_1, param_2, param_3, param_4, param_5, _405);
+    float3 _576 = animateVertex(param_1, param_2, param_3, param_4, param_5, _406);
     n = param_5;
-    float3 q = _575;
+    float3 q = _576;
     float param_6 = a.dirs.z;
     float3x3 Y = rotY(param_6);
     out.vWorld = a.pos.xyz + (Y * q);
     out.vNormal = Y * n;
-    out.vUv = in.inUv + float2(0.0, float(variant % uint(_405.modelP.x)) / _405.modelP.x);
-    out.vAo = fast::clamp(0.449999988079071044921875 + ((in.inPos.y / _405.modelP.y) * 0.699999988079071044921875), 0.0, 1.0) * ((st == 3u) ? 0.699999988079071044921875 : 1.0);
-    out.gl_Position = _405.viewProj * float4(out.vWorld, 1.0);
+    out.vUv = in.inUv + float2(0.0, float(variant % uint(_406.modelP.x)) / _406.modelP.x);
+    out.vAo = fast::clamp(0.449999988079071044921875 + ((in.inPos.y / _406.modelP.y) * 0.699999988079071044921875), 0.0, 1.0) * ((st == 3u) ? 0.699999988079071044921875 : 1.0);
+    out.gl_Position = _406.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

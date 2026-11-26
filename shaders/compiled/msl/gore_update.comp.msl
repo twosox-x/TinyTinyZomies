@@ -7,6 +7,13 @@
 
 using namespace metal;
 
+// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()
+template<typename Tx, typename Ty>
+inline Tx mod(Tx x, Ty y)
+{
+    return x - y * floor(x / y);
+}
+
 struct Particle
 {
     float4 pos;
@@ -102,175 +109,208 @@ constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
 static inline __attribute__((always_inline))
 float ptType(thread const Particle& p)
 {
-    return floor(p.vel.w);
+    return mod(floor(p.vel.w), 8.0);
 }
 
 static inline __attribute__((always_inline))
-bool outsideWorld(thread const float2& xz, constant SimUniforms& _201)
+float ptLife0(thread const Particle& p)
 {
-    float2 g = (xz - _201.world.xy) * _201.world.w;
-    bool _844 = g.x < 0.0;
-    bool _851;
-    if (!_844)
+    return fast::max(floor(floor(p.vel.w) * 0.125) * 0.125, 0.125);
+}
+
+static inline __attribute__((always_inline))
+uint ptHash(thread const uint& idx)
+{
+    return idx * 2654435761u;
+}
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float smokeMergeFrac(thread const float& age)
+{
+    return fast::clamp((age - 1.5) * 0.119999997317790985107421875, 0.0, 0.75);
+}
+
+static inline __attribute__((always_inline))
+bool outsideWorld(thread const float2& xz, constant SimUniforms& _219)
+{
+    float2 g = (xz - _219.world.xy) * _219.world.w;
+    bool _890 = g.x < 0.0;
+    bool _897;
+    if (!_890)
     {
-        _851 = g.y < 0.0;
+        _897 = g.y < 0.0;
     }
     else
     {
-        _851 = _844;
+        _897 = _890;
     }
-    bool _861;
-    if (!_851)
+    bool _907;
+    if (!_897)
     {
-        _861 = g.x >= float(_201.grid.x);
+        _907 = g.x >= float(_219.grid.x);
     }
     else
     {
-        _861 = _851;
+        _907 = _897;
     }
-    bool _871;
-    if (!_861)
+    bool _917;
+    if (!_907)
     {
-        _871 = g.y >= float(_201.grid.y);
+        _917 = g.y >= float(_219.grid.y);
     }
     else
     {
-        _871 = _861;
+        _917 = _907;
     }
-    return _871;
+    return _917;
 }
 
 static inline __attribute__((always_inline))
-int2 cellCoord(thread const float2& xz, constant SimUniforms& _201)
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _219)
 {
-    float2 g = (xz - _201.world.xy) * _201.world.w;
-    return clamp(int2(floor(g)), int2(0), int2(int(_201.grid.x) - 1, int(_201.grid.y) - 1));
+    float2 g = (xz - _219.world.xy) * _219.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_219.grid.x) - 1, int(_219.grid.y) - 1));
 }
 
 static inline __attribute__((always_inline))
-uint cellIndex(thread const int2& c, constant SimUniforms& _201)
+uint cellIndex(thread const int2& c, constant SimUniforms& _219)
 {
-    return (uint(c.y) * _201.grid.x) + uint(c.x);
+    return (uint(c.y) * _219.grid.x) + uint(c.x);
 }
 
 static inline __attribute__((always_inline))
-float staticTop(thread const float2& xz, constant SimUniforms& _201, device StaticH& _799)
+float staticTop(thread const float2& xz, constant SimUniforms& _219, device StaticH& _845)
 {
     float2 param = xz;
-    int2 param_1 = cellCoord(param, _201);
-    return _799.staticH[cellIndex(param_1, _201)];
+    int2 param_1 = cellCoord(param, _219);
+    return _845.staticH[cellIndex(param_1, _219)];
 }
 
 static inline __attribute__((always_inline))
-int2 decalCoord(thread const float2& xz, constant SimUniforms& _201)
+int2 decalCoord(thread const float2& xz, constant SimUniforms& _219)
 {
-    return int2(floor(((xz - _201.world.xy) * _201.world.w) * 3.0));
+    return int2(floor(((xz - _219.world.xy) * _219.world.w) * 3.0));
 }
 
 static inline __attribute__((always_inline))
-bool decalInside(thread const int2& c, constant SimUniforms& _201)
+bool decalInside(thread const int2& c, constant SimUniforms& _219)
 {
-    bool _281 = c.x >= 0;
-    bool _287;
-    if (_281)
+    bool _316 = c.x >= 0;
+    bool _322;
+    if (_316)
     {
-        _287 = c.y >= 0;
+        _322 = c.y >= 0;
     }
     else
     {
-        _287 = _281;
+        _322 = _316;
     }
-    bool _296;
-    if (_287)
+    bool _331;
+    if (_322)
     {
-        _296 = c.x < int(_201.goreCap.z);
+        _331 = c.x < int(_219.goreCap.z);
     }
     else
     {
-        _296 = _287;
+        _331 = _322;
     }
-    bool _305;
-    if (_296)
+    bool _340;
+    if (_331)
     {
-        _305 = c.y < int(_201.goreCap.w);
+        _340 = c.y < int(_219.goreCap.w);
     }
     else
     {
-        _305 = _296;
+        _340 = _331;
     }
-    return _305;
+    return _340;
 }
 
 static inline __attribute__((always_inline))
-uint decalIndex(thread const int2& c, constant SimUniforms& _201)
+uint decalIndex(thread const int2& c, constant SimUniforms& _219)
 {
-    return (uint(c.y) * _201.goreCap.z) + uint(c.x);
+    return (uint(c.y) * _219.goreCap.z) + uint(c.x);
 }
 
 static inline __attribute__((always_inline))
-void addGroundBlood(thread const float2& xz, thread const uint& amount, constant SimUniforms& _201, device Decals& _564)
+void addGroundBlood(thread const float2& xz, thread const uint& amount, constant SimUniforms& _219, device Decals& _610)
 {
     float2 param = xz;
-    int2 c = decalCoord(param, _201);
+    int2 c = decalCoord(param, _219);
     int2 param_1 = c;
-    if (!decalInside(param_1, _201))
+    if (!decalInside(param_1, _219))
     {
         return;
     }
     int2 param_2 = c;
-    uint i = decalIndex(param_2, _201);
-    if (_564.decals[i] < 4000u)
+    uint i = decalIndex(param_2, _219);
+    if (_610.decals[i] < 4000u)
     {
-        uint _575 = atomic_fetch_add_explicit((device atomic_uint*)&_564.decals[i], amount, memory_order_relaxed);
+        uint _621 = atomic_fetch_add_explicit((device atomic_uint*)&_610.decals[i], amount, memory_order_relaxed);
     }
 }
 
 static inline __attribute__((always_inline))
-uint decalCount(constant SimUniforms& _201)
+uint decalCount(constant SimUniforms& _219)
 {
-    return _201.goreCap.z * _201.goreCap.w;
+    return _219.goreCap.z * _219.goreCap.w;
 }
 
 static inline __attribute__((always_inline))
-void addWallBlood(thread const float2& xzOutside, thread const float& height, constant SimUniforms& _201, device Decals& _564)
+void addWallBlood(thread const float2& xzOutside, thread const float& height, constant SimUniforms& _219, device Decals& _610)
 {
     float2 param = xzOutside;
-    int2 c = decalCoord(param, _201);
+    int2 c = decalCoord(param, _219);
     int2 param_1 = c;
-    if (!decalInside(param_1, _201))
+    if (!decalInside(param_1, _219))
     {
         return;
     }
     int2 param_2 = c;
-    uint _689 = atomic_fetch_max_explicit((device atomic_uint*)&_564.decals[decalCount(_201) + decalIndex(param_2, _201)], uint(fast::clamp(height, 0.0, 60.0) * 1000.0), memory_order_relaxed);
+    uint _735 = atomic_fetch_max_explicit((device atomic_uint*)&_610.decals[decalCount(_219) + decalIndex(param_2, _219)], uint(fast::clamp(height, 0.0, 60.0) * 1000.0), memory_order_relaxed);
 }
 
 static inline __attribute__((always_inline))
-float corpseAt(thread int2& c, constant SimUniforms& _201, device CorpseH& _726)
+float corpseAt(thread int2& c, constant SimUniforms& _219, device CorpseH& _772)
 {
-    c = clamp(c, int2(0), int2(int(_201.grid.x) - 1, int(_201.grid.y) - 1));
+    c = clamp(c, int2(0), int2(int(_219.grid.x) - 1, int(_219.grid.y) - 1));
     int2 param = c;
-    return float(_726.corpseH[cellIndex(param, _201)]) * 0.001000000047497451305389404296875;
+    return float(_772.corpseH[cellIndex(param, _219)]) * 0.001000000047497451305389404296875;
 }
 
 static inline __attribute__((always_inline))
-float corpseBilinear(thread const float2& xz, constant SimUniforms& _201, device CorpseH& _726)
+float corpseBilinear(thread const float2& xz, constant SimUniforms& _219, device CorpseH& _772)
 {
-    float2 g = ((xz - _201.world.xy) * _201.world.w) - float2(0.5);
+    float2 g = ((xz - _219.world.xy) * _219.world.w) - float2(0.5);
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
     int2 param = c0;
-    float _761 = corpseAt(param, _201, _726);
-    float h00 = _761;
+    float _807 = corpseAt(param, _219, _772);
+    float h00 = _807;
     int2 param_1 = c0 + int2(1, 0);
-    float _767 = corpseAt(param_1, _201, _726);
-    float h10 = _767;
+    float _813 = corpseAt(param_1, _219, _772);
+    float h10 = _813;
     int2 param_2 = c0 + int2(0, 1);
-    float _773 = corpseAt(param_2, _201, _726);
-    float h01 = _773;
+    float _819 = corpseAt(param_2, _219, _772);
+    float h01 = _819;
     int2 param_3 = c0 + int2(1);
-    float _779 = corpseAt(param_3, _201, _726);
-    float h11 = _779;
+    float _825 = corpseAt(param_3, _219, _772);
+    float h11 = _825;
     return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
 }
 
@@ -281,139 +321,272 @@ float ptSize(thread const Particle& p)
 }
 
 static inline __attribute__((always_inline))
-void updateParticle(thread const uint& i, constant SimUniforms& _201, device GoreCnt& _435, device Particles& _445, device Decals& _564, device CorpseH& _726, device StaticH& _799, device PList& _1151)
+void updateParticle(thread const uint& i, constant SimUniforms& _219, device GoreCnt& _470, device Particles& _487, device Decals& _610, device CorpseH& _772, device StaticH& _845, device PList& _1634)
 {
     Particle pt;
-    pt.pos = _445.particles[i].pos;
-    pt.vel = _445.particles[i].vel;
+    pt.pos = _487.particles[i].pos;
+    pt.vel = _487.particles[i].vel;
     if (pt.pos.w <= 0.0)
     {
         return;
     }
-    float dt = _201.timeP.x;
+    float dt = _219.timeP.x;
     Particle param = pt;
     uint type = uint(ptType(param));
     float3 p = pt.pos.xyz;
     float3 v = pt.vel.xyz;
     float life = pt.pos.w - dt;
-    if ((type == 1u) || (type == 2u))
+    Particle param_1 = pt;
+    float life0 = ptLife0(param_1);
+    float age = life0 - life;
+    uint param_2 = i;
+    uint param_3 = ptHash(param_2);
+    float h = hash01(param_3);
+    float h2 = fract(h * 97.30999755859375);
+    bool gas = ((((type == 1u) || (type == 2u)) || (type == 5u)) || (type == 6u)) || (type == 7u);
+    if (type == 1u)
     {
-        v.y += (((type == 1u) ? 3.0 : 1.2000000476837158203125) * dt);
-        v *= exp((-dt) * ((type == 1u) ? 2.5 : 1.60000002384185791015625));
+        float hot = 1.0 - smoothstep(0.1500000059604644775390625, 0.3499999940395355224609375, age / life0);
+        v.y += ((((2.2000000476837158203125 + (5.0 * hot)) * (0.60000002384185791015625 + (0.800000011920928955078125 * h))) * exp((-age) * 0.20000000298023223876953125)) * dt);
+        float sp = length(v.xz);
+        bool _1040 = sp > 0.001000000047497451305389404296875;
+        bool _1046;
+        if (_1040)
+        {
+            _1046 = v.y > 1.0;
+        }
+        else
+        {
+            _1046 = _1040;
+        }
+        if (_1046)
+        {
+            float3 _1049 = v;
+            float _1055 = v.y;
+            float3 _1065 = v;
+            float2 _1067 = _1065.xz + (((((_1049.xz / float2(sp)) * fast::min(_1055, 6.0)) * 0.4000000059604644775390625) * hot) * dt);
+            v.x = _1067.x;
+            v.z = _1067.y;
+        }
+        float3 _1079 = v;
+        float2 _1081 = _1079.xz * exp((-dt) * mix(1.2000000476837158203125, 3.400000095367431640625, hot));
+        v.x = _1081.x;
+        v.z = _1081.y;
+        v.y *= exp((-dt) * mix(0.800000011920928955078125, 2.0, hot));
+        v += (((float3(0.550000011920928955078125, 0.0, 0.25) * (1.0 - hot)) + (float3(sin((_219.timeP.y * 1.2999999523162841796875) + (h * 40.0)), 0.0, cos((_219.timeP.y * 1.10000002384185791015625) + (h2 * 30.0))) * 0.4000000059604644775390625)) * dt);
+        float param_4 = age;
+        if (smokeMergeFrac(param_4) > h2)
+        {
+            life = 0.0;
+        }
     }
     else
     {
-        v.y -= (_201.moveP.y * dt);
-        v *= exp((-dt) * ((type == 0u) ? 0.25 : 0.4000000059604644775390625));
+        if (type == 2u)
+        {
+            v.y += ((((2.0 * exp((-age) * 0.25)) + 1.0) * (0.60000002384185791015625 + (0.800000011920928955078125 * h))) * dt);
+            v *= exp((-dt) * 0.89999997615814208984375);
+            v += ((float3(0.660000026226043701171875, 0.0, 0.300000011920928955078125) + (float3(sin((_219.timeP.y * 0.89999997615814208984375) + (h * 50.0)), 0.0, cos((_219.timeP.y * 0.699999988079071044921875) + (h2 * 40.0))) * 0.449999988079071044921875)) * dt);
+            float param_5 = age;
+            if (smokeMergeFrac(param_5) > h2)
+            {
+                life = 0.0;
+            }
+        }
+        else
+        {
+            if (type == 5u)
+            {
+                v *= exp((-dt) * 3.2000000476837158203125);
+                v.y += (0.25 * dt);
+                float3 _1217 = v;
+                float2 _1219 = _1217.xz + (float2(0.2750000059604644775390625, 0.125) * dt);
+                v.x = _1219.x;
+                v.z = _1219.y;
+            }
+            else
+            {
+                if (type == 6u)
+                {
+                    v.y += (4.0 * dt);
+                    float3 _1256 = v;
+                    float2 _1258 = _1256.xz + ((float2(sin((_219.timeP.y * 17.0) + (h * 60.0)), cos((_219.timeP.y * 13.0) + (h2 * 60.0))) * 1.5) * dt);
+                    v.x = _1258.x;
+                    v.z = _1258.y;
+                    v *= exp((-dt) * 2.2000000476837158203125);
+                }
+                else
+                {
+                    if (type == 7u)
+                    {
+                        v = float3(0.0);
+                    }
+                    else
+                    {
+                        if ((type == 4u) && (h < 0.449999988079071044921875))
+                        {
+                            v.y += (((1.7999999523162841796875 * exp((-age) * 0.800000011920928955078125)) - 0.60000002384185791015625) * dt);
+                            float3 _1316 = v;
+                            float2 _1318 = _1316.xz + ((float2(sin((_219.timeP.y * 7.0) + (h * 80.0)), cos((_219.timeP.y * 6.0) + (h2 * 80.0))) * 1.2000000476837158203125) * dt);
+                            v.x = _1318.x;
+                            v.z = _1318.y;
+                            v *= exp((-dt) * 1.7999999523162841796875);
+                        }
+                        else
+                        {
+                            v.y -= (_219.moveP.y * dt);
+                            float _1342;
+                            if (type == 0u)
+                            {
+                                _1342 = 0.25;
+                            }
+                            else
+                            {
+                                _1342 = (type == 4u) ? 0.89999997615814208984375 : 0.300000011920928955078125;
+                            }
+                            v *= exp((-dt) * _1342);
+                        }
+                    }
+                }
+            }
+        }
     }
     float3 np = p + (v * dt);
-    float2 param_1 = np.xz;
-    if (outsideWorld(param_1, _201))
+    float2 param_6 = np.xz;
+    if (outsideWorld(param_6, _219))
     {
         life = 0.0;
     }
-    float2 param_2 = np.xz;
-    float top = staticTop(param_2, _201, _799);
+    float2 param_7 = np.xz;
+    float top = staticTop(param_7, _219, _845);
     bool solid = np.y < (top - 0.0199999995529651641845703125);
-    if ((solid && (type != 1u)) && (type != 2u))
+    if (solid && (!gas))
     {
         bool fromAbove = p.y >= (top - 0.0199999995529651641845703125);
         if (type == 0u)
         {
             if (fromAbove)
             {
-                float2 param_3 = np.xz;
-                uint param_4 = 40u;
-                addGroundBlood(param_3, param_4, _201, _564);
+                float2 param_8 = np.xz;
+                uint param_9 = 40u;
+                addGroundBlood(param_8, param_9, _219, _610);
             }
             else
             {
-                float2 param_5 = p.xz;
-                float param_6 = np.y;
-                addWallBlood(param_5, param_6, _201, _564);
+                float2 param_10 = p.xz;
+                float param_11 = np.y;
+                addWallBlood(param_10, param_11, _219, _610);
             }
         }
-        if ((type == 3u) && (!fromAbove))
+        if (((type == 3u) || (type == 4u)) && (!fromAbove))
         {
-            float3 _1026 = v;
-            float2 _1028 = _1026.xz * (-0.300000011920928955078125);
-            v.x = _1028.x;
-            v.z = _1028.y;
+            float3 _1422 = v;
+            float2 _1424 = _1422.xz * (-0.300000011920928955078125);
+            v.x = _1424.x;
+            v.z = _1424.y;
             np.x = p.xz.x;
             np.z = p.xz.y;
         }
         else
         {
-            life = 0.0;
+            if ((type != 3u) && (type != 4u))
+            {
+                life = 0.0;
+            }
         }
-    }
-    float _1048;
-    if (np.y >= (top - _201.moveP.w))
-    {
-        _1048 = fast::max(top, 0.0);
     }
     else
     {
-        _1048 = 0.0;
+        if (solid && (type == 5u))
+        {
+            np.x = p.xz.x;
+            np.z = p.xz.y;
+            float3 _1457 = v;
+            float2 _1459 = _1457.xz * (-0.20000000298023223876953125);
+            v.x = _1459.x;
+            v.z = _1459.y;
+        }
     }
-    float2 param_7 = np.xz;
-    float ground = _1048 + corpseBilinear(param_7, _201, _726);
+    float _1472;
+    if (np.y >= (top - _219.moveP.w))
+    {
+        _1472 = fast::max(top, 0.0);
+    }
+    else
+    {
+        _1472 = 0.0;
+    }
+    float2 param_12 = np.xz;
+    float ground = _1472 + corpseBilinear(param_12, _219, _772);
     if ((np.y <= ground) && (life > 0.0))
     {
         if (type == 0u)
         {
-            Particle param_8 = pt;
-            float2 param_9 = np.xz;
-            uint param_10 = uint(40.0 + (600.0 * ptSize(param_8)));
-            addGroundBlood(param_9, param_10, _201, _564);
+            Particle param_13 = pt;
+            float2 param_14 = np.xz;
+            uint param_15 = uint(40.0 + (600.0 * ptSize(param_13)));
+            addGroundBlood(param_14, param_15, _219, _610);
             life = 0.0;
         }
         else
         {
-            if (type == 3u)
+            if ((type == 3u) || (type == 4u))
             {
                 np.y = ground;
-                if (v.y < (-2.0))
+                if (v.y < (-1.5))
                 {
-                    v.y *= (-0.300000011920928955078125);
-                    float3 _1104 = v;
-                    float2 _1106 = _1104.xz * 0.60000002384185791015625;
-                    v.x = _1106.x;
-                    v.z = _1106.y;
+                    v.y *= (-((type == 4u) ? 0.25 : 0.3499999940395355224609375));
+                    float3 _1533 = v;
+                    float _1542 = v.y;
+                    float2 _1546 = (_1533.xz * 0.550000011920928955078125) + ((float2(h - 0.5, h2 - 0.5) * abs(_1542)) * 0.60000002384185791015625);
+                    v.x = _1546.x;
+                    v.z = _1546.y;
                 }
                 else
                 {
-                    v = float3(0.0);
-                    life = fast::min(life, 1.5);
+                    v.y = 0.0;
+                    float3 _1558 = v;
+                    float2 _1560 = _1558.xz * exp((-dt) * 9.0);
+                    v.x = _1560.x;
+                    v.z = _1560.y;
+                    if (dot(v.xz, v.xz) < 0.039999999105930328369140625)
+                    {
+                        v = float3(0.0);
+                    }
+                    if (type == 4u)
+                    {
+                        life = fast::min(life, 0.3499999940395355224609375);
+                    }
                 }
             }
             else
             {
-                np.y = ground + 0.00999999977648258209228515625;
+                if (type == 5u)
+                {
+                    np.y = ground;
+                    v.y = fast::max(v.y, 0.0);
+                }
+                else
+                {
+                    np.y = fast::max(np.y, ground + 0.0199999995529651641845703125);
+                    v.y = fast::max(v.y, 0.0);
+                }
             }
         }
     }
-    _445.particles[i].pos = float4(np, life);
-    ((device float*)&_445.particles[i].vel)[0u] = v.x;
-    ((device float*)&_445.particles[i].vel)[1u] = v.y;
-    ((device float*)&_445.particles[i].vel)[2u] = v.z;
+    _487.particles[i].pos = float4(np, life);
+    ((device float*)&_487.particles[i].vel)[0u] = v.x;
+    ((device float*)&_487.particles[i].vel)[1u] = v.y;
+    ((device float*)&_487.particles[i].vel)[2u] = v.z;
     if (life > 0.0)
     {
-        uint _1141 = atomic_fetch_add_explicit((device atomic_uint*)&_435.gore[2], 1u, memory_order_relaxed);
-        uint k = _1141;
-        if (k < _201.goreCap.x)
+        uint _1624 = atomic_fetch_add_explicit((device atomic_uint*)&_470.gore[2], 1u, memory_order_relaxed);
+        uint k = _1624;
+        if (k < _219.goreCap.x)
         {
-            _1151.plist[k] = i;
+            _1634.plist[k] = i;
         }
     }
-}
-
-static inline __attribute__((always_inline))
-uint pcgHash(thread const uint& v)
-{
-    uint state = (v * 747796405u) + 2891336453u;
-    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
 }
 
 static inline __attribute__((always_inline))
@@ -428,44 +601,44 @@ static inline __attribute__((always_inline))
 float3 randDir(thread uint& s)
 {
     uint param = s;
-    float _392 = rand01(param);
+    float _427 = rand01(param);
     s = param;
-    float z = (_392 * 2.0) - 1.0;
+    float z = (_427 * 2.0) - 1.0;
     uint param_1 = s;
-    float _400 = rand01(param_1);
+    float _435 = rand01(param_1);
     s = param_1;
-    float a = _400 * 6.283185482025146484375;
+    float a = _435 * 6.283185482025146484375;
     float r = sqrt(fast::max(0.0, 1.0 - (z * z)));
     return float3(r * cos(a), z, r * sin(a));
 }
 
 static inline __attribute__((always_inline))
-float groundHeight(thread const float2& xz, thread const float& feetY, constant SimUniforms& _201, device CorpseH& _726, device StaticH& _799)
+float groundHeight(thread const float2& xz, thread const float& feetY, constant SimUniforms& _219, device CorpseH& _772, device StaticH& _845)
 {
     float2 param = xz;
-    int2 param_1 = cellCoord(param, _201);
-    float s = _799.staticH[cellIndex(param_1, _201)];
-    float base = (feetY >= (s - _201.moveP.w)) ? s : 0.0;
+    int2 param_1 = cellCoord(param, _219);
+    float s = _845.staticH[cellIndex(param_1, _219)];
+    float base = (feetY >= (s - _219.moveP.w)) ? s : 0.0;
     float2 param_2 = xz;
-    return base + corpseBilinear(param_2, _201, _726);
+    return base + corpseBilinear(param_2, _219, _772);
 }
 
 static inline __attribute__((always_inline))
-void addBloodPool(thread const float2& xz, thread const float& radius, thread const uint& amount, constant SimUniforms& _201, device Decals& _564)
+void addBloodPool(thread const float2& xz, thread const float& radius, thread const uint& amount, constant SimUniforms& _219, device Decals& _610)
 {
-    float cell = 1.0 / (_201.world.w * 3.0);
+    float cell = 1.0 / (_219.world.w * 3.0);
     int r = int(ceil(radius / cell));
     float2 param = xz;
-    int2 c0 = decalCoord(param, _201);
-    int _593 = -r;
-    for (int y = _593; y <= r; y++)
+    int2 c0 = decalCoord(param, _219);
+    int _639 = -r;
+    for (int y = _639; y <= r; y++)
     {
-        int _604 = -r;
-        for (int x = _604; x <= r; x++)
+        int _650 = -r;
+        for (int x = _650; x <= r; x++)
         {
             int2 c = c0 + int2(x, y);
             int2 param_1 = c;
-            if (!decalInside(param_1, _201))
+            if (!decalInside(param_1, _219))
             {
                 continue;
             }
@@ -475,57 +648,58 @@ void addBloodPool(thread const float2& xz, thread const float& radius, thread co
                 continue;
             }
             int2 param_2 = c;
-            uint i = decalIndex(param_2, _201);
-            if (_564.decals[i] < 4000u)
+            uint i = decalIndex(param_2, _219);
+            if (_610.decals[i] < 4000u)
             {
-                uint _661 = atomic_fetch_add_explicit((device atomic_uint*)&_564.decals[i], uint(float(amount) * (1.2000000476837158203125 - d)), memory_order_relaxed);
+                uint _707 = atomic_fetch_add_explicit((device atomic_uint*)&_610.decals[i], uint(float(amount) * (1.2000000476837158203125 - d)), memory_order_relaxed);
             }
         }
     }
 }
 
 static inline __attribute__((always_inline))
-void spawnParticle(thread const float3& pos, thread const float3& vel, thread const float& life, thread const uint& type, thread const float& size, constant SimUniforms& _201, device GoreCnt& _435, device Particles& _445)
+void spawnParticle(thread const float3& pos, thread const float3& vel, thread const float& life, thread const uint& type, thread const float& size, constant SimUniforms& _219, device GoreCnt& _470, device Particles& _487)
 {
-    if (_201.goreP.w < 0.5)
+    if (_219.goreP.w < 0.5)
     {
         return;
     }
-    uint _437 = atomic_fetch_add_explicit((device atomic_uint*)&_435.gore[0], 1u, memory_order_relaxed);
-    uint slot = _437 % _201.goreCap.x;
-    _445.particles[slot].pos = float4(pos, life);
-    _445.particles[slot].vel = float4(vel, float(type) + fast::clamp(size, 0.00999999977648258209228515625, 0.9900000095367431640625));
+    uint _472 = atomic_fetch_add_explicit((device atomic_uint*)&_470.gore[0], 1u, memory_order_relaxed);
+    uint slot = _472 % _219.goreCap.x;
+    float k = fast::clamp(floor((life * 8.0) + 0.5), 1.0, 127.0);
+    _487.particles[slot].pos = float4(pos, k * 0.125);
+    _487.particles[slot].vel = float4(vel, (float(type) + (8.0 * k)) + fast::clamp(size, 0.00999999977648258209228515625, 0.9900000095367431640625));
 }
 
 static inline __attribute__((always_inline))
-void spawnBlood(thread const float3& pos, thread const float3& baseVel, thread const float& spread, thread const float& count, thread uint& rng, constant SimUniforms& _201, device GoreCnt& _435, device Particles& _445)
+void spawnBlood(thread const float3& pos, thread const float3& baseVel, thread const float& spread, thread const float& count, thread uint& rng, constant SimUniforms& _219, device GoreCnt& _470, device Particles& _487)
 {
     uint param = rng;
-    float _475 = rand01(param);
+    float _521 = rand01(param);
     rng = param;
-    int n = int((count * _201.goreP.x) + _475);
+    int n = int((count * _219.goreP.x) + _521);
     for (int k = 0; (k < n) && (k < 48); k++)
     {
         uint param_1 = rng;
-        float3 _495 = randDir(param_1);
+        float3 _541 = randDir(param_1);
         rng = param_1;
-        float3 d = _495;
+        float3 d = _541;
         d.y = (abs(d.y) * 0.800000011920928955078125) + 0.20000000298023223876953125;
         uint param_2 = rng;
-        float _517 = rand01(param_2);
+        float _563 = rand01(param_2);
         rng = param_2;
         uint param_3 = rng;
-        float _525 = rand01(param_3);
+        float _571 = rand01(param_3);
         rng = param_3;
         uint param_4 = rng;
-        float _534 = rand01(param_4);
+        float _580 = rand01(param_4);
         rng = param_4;
         float3 param_5 = pos + (d * 0.119999997317790985107421875);
-        float3 param_6 = baseVel + ((d * spread) * (0.300000011920928955078125 + _517));
-        float param_7 = 2.5 + (_525 * 1.5);
+        float3 param_6 = baseVel + ((d * spread) * (0.300000011920928955078125 + _563));
+        float param_7 = 2.5 + (_571 * 1.5);
         uint param_8 = 0u;
-        float param_9 = 0.04500000178813934326171875 + (0.0599999986588954925537109375 * _534);
-        spawnParticle(param_5, param_6, param_7, param_8, param_9, _201, _435, _445);
+        float param_9 = 0.04500000178813934326171875 + (0.0599999986588954925537109375 * _580);
+        spawnParticle(param_5, param_6, param_7, param_8, param_9, _219, _470, _487);
     }
 }
 
@@ -549,70 +723,70 @@ float4 qaxis(thread const float3& axis, thread const float& ang)
 }
 
 static inline __attribute__((always_inline))
-void updateGib(thread const uint& i, constant SimUniforms& _201, device GoreCnt& _435, device Particles& _445, device Decals& _564, device CorpseH& _726, device StaticH& _799, device Gibs& _1162)
+void updateGib(thread const uint& i, constant SimUniforms& _219, device GoreCnt& _470, device Particles& _487, device Decals& _610, device CorpseH& _772, device StaticH& _845, device Gibs& _1645)
 {
     Gib g;
-    g.pos = _1162.gibs[i].pos;
-    g.vel = _1162.gibs[i].vel;
-    g.rot = _1162.gibs[i].rot;
-    g.info = _1162.gibs[i].info;
+    g.pos = _1645.gibs[i].pos;
+    g.vel = _1645.gibs[i].vel;
+    g.rot = _1645.gibs[i].rot;
+    g.info = _1645.gibs[i].info;
     if (g.vel.w < 0.5)
     {
         return;
     }
-    float dt = _201.timeP.x;
+    float dt = _219.timeP.x;
     float3 p = g.pos.xyz;
     float3 v = g.vel.xyz;
     float3 w = float3(float2(as_type<half2>(g.info.z)), float2(as_type<half2>(g.info.w)).x);
-    uint param = (i * 9781u) ^ (uint(_201.timeP.z) * 6271u);
+    uint param = (i * 9781u) ^ (uint(_219.timeP.z) * 6271u);
     uint rng = pcgHash(param);
     bool resting = g.vel.w > 1.5;
-    float3 _1267;
+    float3 _1750;
     uint e = 0u;
     for (;;)
     {
-        bool _1231 = e < _201.counts.y;
-        bool _1237;
-        if (_1231)
+        bool _1714 = e < _219.counts.y;
+        bool _1720;
+        if (_1714)
         {
-            _1237 = g.pos.w > 0.0;
+            _1720 = g.pos.w > 0.0;
         }
         else
         {
-            _1237 = _1231;
+            _1720 = _1714;
         }
-        if (_1237)
+        if (_1720)
         {
-            float3 d = p - _201.explo[e].xyz;
+            float3 d = p - _219.explo[e].xyz;
             float dist = length(d);
-            if (dist >= _201.explo[e].w)
+            if (dist >= _219.explo[e].w)
             {
-                uint _1314 = e;
-                e = _1314 + uint(1);
+                uint _1797 = e;
+                e = _1797 + uint(1);
                 continue;
             }
-            float f = 1.0 - (dist / _201.explo[e].w);
+            float f = 1.0 - (dist / _219.explo[e].w);
             if (dist > 0.001000000047497451305389404296875)
             {
-                _1267 = d / float3(dist);
+                _1750 = d / float3(dist);
             }
             else
             {
-                _1267 = float3(0.0, 1.0, 0.0);
+                _1750 = float3(0.0, 1.0, 0.0);
             }
-            float3 dir = _1267;
-            dir.y = abs(dir.y) + _201.exploP[e].z;
+            float3 dir = _1750;
+            dir.y = abs(dir.y) + _219.exploP[e].z;
             uint param_1 = rng;
-            float _1296 = rand01(param_1);
+            float _1779 = rand01(param_1);
             rng = param_1;
-            v += (((fast::normalize(dir) * _201.exploP[e].x) * f) * (0.60000002384185791015625 + (0.800000011920928955078125 * _1296)));
+            v += (((fast::normalize(dir) * _219.exploP[e].x) * f) * (0.60000002384185791015625 + (0.800000011920928955078125 * _1779)));
             uint param_2 = rng;
-            float3 _1305 = randDir(param_2);
+            float3 _1788 = randDir(param_2);
             rng = param_2;
-            w += ((_1305 * 14.0) * f);
+            w += ((_1788 * 14.0) * f);
             resting = false;
-            uint _1314 = e;
-            e = _1314 + uint(1);
+            uint _1797 = e;
+            e = _1797 + uint(1);
             continue;
         }
         else
@@ -624,7 +798,7 @@ void updateGib(thread const uint& i, constant SimUniforms& _201, device GoreCnt&
     {
         return;
     }
-    v.y -= (_201.moveP.y * dt);
+    v.y -= (_219.moveP.y * dt);
     v *= exp((-dt) * 0.1500000059604644775390625);
     float sp = length(v);
     if (sp > 16.0)
@@ -633,23 +807,23 @@ void updateGib(thread const uint& i, constant SimUniforms& _201, device GoreCnt&
     }
     float3 np = p + (v * dt);
     float2 param_3 = np.xz;
-    float top = staticTop(param_3, _201, _799);
-    bool _1363 = np.y < (top - 0.0500000007450580596923828125);
-    bool _1371;
-    if (_1363)
+    float top = staticTop(param_3, _219, _845);
+    bool _1845 = np.y < (top - 0.0500000007450580596923828125);
+    bool _1853;
+    if (_1845)
     {
-        _1371 = p.y < (top - 0.0500000007450580596923828125);
+        _1853 = p.y < (top - 0.0500000007450580596923828125);
     }
     else
     {
-        _1371 = _1363;
+        _1853 = _1845;
     }
-    if (_1371)
+    if (_1853)
     {
         float2 param_4 = float2(np.x, p.z);
-        bool bx = staticTop(param_4, _201, _799) > p.y;
+        bool bx = staticTop(param_4, _219, _845) > p.y;
         float2 param_5 = float2(p.x, np.z);
-        bool bz = staticTop(param_5, _201, _799) > p.y;
+        bool bz = staticTop(param_5, _219, _845) > p.y;
         if (bx || (!bz))
         {
             np.x = p.x;
@@ -662,18 +836,18 @@ void updateGib(thread const uint& i, constant SimUniforms& _201, device GoreCnt&
         }
         float2 param_6 = p.xz;
         float param_7 = p.y + 0.20000000298023223876953125;
-        addWallBlood(param_6, param_7, _201, _564);
+        addWallBlood(param_6, param_7, _219, _610);
         w *= 0.60000002384185791015625;
     }
     float2 param_8 = np.xz;
-    if (outsideWorld(param_8, _201))
+    if (outsideWorld(param_8, _219))
     {
-        ((device float*)&_1162.gibs[i].vel)[3u] = 0.0;
+        ((device float*)&_1645.gibs[i].vel)[3u] = 0.0;
         return;
     }
     float2 param_9 = np.xz;
     float param_10 = np.y;
-    float ground = groundHeight(param_9, param_10, _201, _726, _799) + 0.0900000035762786865234375;
+    float ground = groundHeight(param_9, param_10, _219, _772, _845) + 0.0900000035762786865234375;
     bool onGround = np.y <= ground;
     if (onGround)
     {
@@ -683,63 +857,63 @@ void updateGib(thread const uint& i, constant SimUniforms& _201, device GoreCnt&
             float2 param_11 = np.xz;
             float param_12 = 0.25;
             uint param_13 = 60u;
-            addBloodPool(param_11, param_12, param_13, _201, _564);
+            addBloodPool(param_11, param_12, param_13, _219, _610);
             float3 param_14 = np;
             float3 param_15 = float3(v.x, -v.y, v.z) * 0.20000000298023223876953125;
             float param_16 = 1.5;
             float param_17 = 3.0;
             uint param_18 = rng;
-            spawnBlood(param_14, param_15, param_16, param_17, param_18, _201, _435, _445);
+            spawnBlood(param_14, param_15, param_16, param_17, param_18, _219, _470, _487);
             rng = param_18;
             v.y *= (-0.300000011920928955078125);
-            float3 _1497 = v;
-            float2 _1499 = _1497.xz * 0.64999997615814208984375;
-            v.x = _1499.x;
-            v.z = _1499.y;
+            float3 _1980 = v;
+            float2 _1982 = _1980.xz * 0.64999997615814208984375;
+            v.x = _1982.x;
+            v.z = _1982.y;
             uint param_19 = rng;
-            float3 _1509 = randDir(param_19);
+            float3 _1991 = randDir(param_19);
             rng = param_19;
-            w = (w * 0.550000011920928955078125) + (_1509 * 2.0);
+            w = (w * 0.550000011920928955078125) + (_1991 * 2.0);
         }
         else
         {
             v.y = 0.0;
-            float3 _1520 = v;
-            float2 _1522 = _1520.xz * exp((-dt) * 7.0);
-            v.x = _1522.x;
-            v.z = _1522.y;
+            float3 _2001 = v;
+            float2 _2003 = _2001.xz * exp((-dt) * 7.0);
+            v.x = _2003.x;
+            v.z = _2003.y;
             w *= exp((-dt) * 7.0);
         }
     }
     else
     {
-        bool _1536 = g.pos.w < 1.2000000476837158203125;
-        bool _1547;
-        if (_1536)
+        bool _2017 = g.pos.w < 1.2000000476837158203125;
+        bool _2028;
+        if (_2017)
         {
             uint param_20 = rng;
-            float _1541 = rand01(param_20);
+            float _2022 = rand01(param_20);
             rng = param_20;
-            _1547 = _1541 < (dt * 25.0);
+            _2028 = _2022 < (dt * 25.0);
         }
         else
         {
-            _1547 = _1536;
+            _2028 = _2017;
         }
-        if (_1547)
+        if (_2028)
         {
             uint param_21 = rng;
-            float3 _1554 = randDir(param_21);
+            float3 _2035 = randDir(param_21);
             rng = param_21;
             uint param_22 = rng;
-            float _1561 = rand01(param_22);
+            float _2041 = rand01(param_22);
             rng = param_22;
             float3 param_23 = np;
-            float3 param_24 = (v * 0.300000011920928955078125) + (_1554 * 0.4000000059604644775390625);
+            float3 param_24 = (v * 0.300000011920928955078125) + (_2035 * 0.4000000059604644775390625);
             float param_25 = 2.0;
             uint param_26 = 0u;
-            float param_27 = 0.039999999105930328369140625 + (0.039999999105930328369140625 * _1561);
-            spawnParticle(param_23, param_24, param_25, param_26, param_27, _201, _435, _445);
+            float param_27 = 0.039999999105930328369140625 + (0.039999999105930328369140625 * _2041);
+            spawnParticle(param_23, param_24, param_25, param_26, param_27, _219, _470, _487);
         }
     }
     float4 q = g.rot;
@@ -764,238 +938,324 @@ void updateGib(thread const uint& i, constant SimUniforms& _201, device GoreCnt&
         }
     }
     float age = g.pos.w + dt;
-    bool _1653;
+    bool _2132;
     if (onGround)
     {
-        _1653 = length(v) < 0.25;
+        _2132 = length(v) < 0.25;
     }
     else
     {
-        _1653 = onGround;
+        _2132 = onGround;
     }
-    bool _1659;
-    if (_1653)
+    bool _2138;
+    if (_2132)
     {
-        _1659 = length(w) < 0.60000002384185791015625;
+        _2138 = length(w) < 0.60000002384185791015625;
     }
     else
     {
-        _1659 = _1653;
+        _2138 = _2132;
     }
-    bool rest = _1659 && (age > 0.300000011920928955078125);
-    _1162.gibs[i].pos = float4(np, age);
-    _1162.gibs[i].vel = float4(select(v, float3(0.0), bool3(rest)), rest ? 2.0 : 1.0);
-    _1162.gibs[i].rot = q;
-    ((device uint*)&_1162.gibs[i].info)[2u] = as_type<uint>(half2(w.xy));
-    ((device uint*)&_1162.gibs[i].info)[3u] = as_type<uint>(half2(float2(w.z, float2(as_type<half2>(g.info.w)).y)));
+    bool rest = _2138 && (age > 0.300000011920928955078125);
+    _1645.gibs[i].pos = float4(np, age);
+    _1645.gibs[i].vel = float4(select(v, float3(0.0), bool3(rest)), rest ? 2.0 : 1.0);
+    _1645.gibs[i].rot = q;
+    ((device uint*)&_1645.gibs[i].info)[2u] = as_type<uint>(half2(w.xy));
+    ((device uint*)&_1645.gibs[i].info)[3u] = as_type<uint>(half2(float2(w.z, float2(as_type<half2>(g.info.w)).y)));
 }
 
 static inline __attribute__((always_inline))
-float hash01(thread const uint& v)
+void spawnFx(thread const uint& t, thread const float3& c, thread const float& s, thread const uint& e, thread uint& rng, constant SimUniforms& _219, device GoreCnt& _470, device Particles& _487)
 {
-    uint param = v;
-    return float(pcgHash(param) & 16777215u) / 16777216.0;
+    uint param = rng;
+    float3 _2184 = randDir(param);
+    rng = param;
+    float3 d = _2184;
+    uint param_1 = rng;
+    float _2189 = rand01(param_1);
+    rng = param_1;
+    float r1 = _2189;
+    uint param_2 = rng;
+    float _2194 = rand01(param_2);
+    rng = param_2;
+    float r2 = _2194;
+    uint param_3 = rng;
+    float _2199 = rand01(param_3);
+    rng = param_3;
+    float r3 = _2199;
+    float ss = sqrt(s);
+    uint nFlash = uint(8.0 * s);
+    uint nFire = nFlash + uint(100.0 * s);
+    uint nSmoke = nFire + uint(60.0 * s);
+    uint nDebris = nSmoke + uint(80.0 * s);
+    uint nSpark = nDebris + uint(70.0 * s);
+    uint nDust = nSpark + uint(40.0 * s);
+    if (t < nFlash)
+    {
+        float3 param_4 = (c + ((d * 0.4000000059604644775390625) * ss)) + float3(0.0, 0.5, 0.0);
+        float3 param_5 = float3(0.0);
+        float param_6 = 0.125;
+        uint param_7 = 7u;
+        float param_8 = (0.449999988079071044921875 + (0.3499999940395355224609375 * r1)) * fast::min(ss, 1.39999997615814208984375);
+        spawnParticle(param_4, param_5, param_6, param_7, param_8, _219, _470, _487);
+    }
+    else
+    {
+        if (t < nFire)
+        {
+            uint param_9 = rng;
+            float3 _2275 = randDir(param_9);
+            rng = param_9;
+            float3 o = _2275;
+            o.y = abs(o.y) * 0.699999988079071044921875;
+            d.y = (abs(d.y) * 0.60000002384185791015625) + 0.1500000059604644775390625;
+            d = fast::normalize(d);
+            float sb = powr(s, 0.800000011920928955078125);
+            uint param_10 = rng;
+            float _2331 = rand01(param_10);
+            rng = param_10;
+            uint param_11 = rng;
+            float _2340 = rand01(param_11);
+            rng = param_11;
+            float3 param_12 = (c + ((o * (0.1500000059604644775390625 + (0.85000002384185791015625 * sqrt(r1)))) * sb)) + float3(0.0, 0.5, 0.0);
+            float3 param_13 = ((d * (1.5 + ((4.5 * r2) * r2))) * sb) + (float3(0.0, (1.0 + (3.0 * (1.0 - r1))) * (0.60000002384185791015625 + (0.4000000059604644775390625 * r3)), 0.0) * sb);
+            float param_14 = (2.599999904632568359375 + (2.400000095367431640625 * _2331)) * ss;
+            uint param_15 = 1u;
+            float param_16 = (0.300000011920928955078125 + (0.2199999988079071044921875 * _2340)) * fast::min(ss, 1.35000002384185791015625);
+            spawnParticle(param_12, param_13, param_14, param_15, param_16, _219, _470, _487);
+        }
+        else
+        {
+            if (t < nSmoke)
+            {
+                d.y = (abs(d.y) * 0.5) + 0.20000000298023223876953125;
+                uint param_17 = rng;
+                float _2393 = rand01(param_17);
+                rng = param_17;
+                uint param_18 = rng;
+                float _2401 = rand01(param_18);
+                rng = param_18;
+                float3 param_19 = (c + ((d * (0.300000011920928955078125 + (1.0 * r1))) * ss)) + (float3(0.0, 0.800000011920928955078125 + (1.2000000476837158203125 * r3), 0.0) * ss);
+                float3 param_20 = ((d * (1.0 + (2.5 * r2))) + float3(0.0, 2.0, 0.0)) * ss;
+                float param_21 = (6.0 + (6.0 * _2393)) * ss;
+                uint param_22 = 2u;
+                float param_23 = (0.300000011920928955078125 + (0.20000000298023223876953125 * _2401)) * fast::min(ss, 1.35000002384185791015625);
+                spawnParticle(param_19, param_20, param_21, param_22, param_23, _219, _470, _487);
+            }
+            else
+            {
+                if (t < nDebris)
+                {
+                    d.y = abs(d.y) + 0.3499999940395355224609375;
+                    d = fast::normalize(d);
+                    float3 param_24 = (c + (float3(d.x, 0.0, d.z) * 0.60000002384185791015625)) + float3(0.0, 0.25, 0.0);
+                    float3 param_25 = (d * ((4.0 + ((11.0 * r1) * r1)) + (3.0 * r2))) * ss;
+                    float param_26 = 6.0 + (4.0 * r3);
+                    uint param_27 = 3u;
+                    float param_28 = 0.0500000007450580596923828125 + ((0.12999999523162841796875 * r2) * r2);
+                    spawnParticle(param_24, param_25, param_26, param_27, param_28, _219, _470, _487);
+                }
+                else
+                {
+                    if (t < nSpark)
+                    {
+                        d.y = abs(d.y) + 0.20000000298023223876953125;
+                        d = fast::normalize(d);
+                        float3 param_29 = (c + float3(0.0, 0.5, 0.0)) + (d * 0.300000011920928955078125);
+                        float3 param_30 = (d * (5.0 + (14.0 * r1))) * ss;
+                        float param_31 = 0.800000011920928955078125 + (1.7999999523162841796875 * r2);
+                        uint param_32 = 4u;
+                        float param_33 = 0.0500000007450580596923828125;
+                        spawnParticle(param_29, param_30, param_31, param_32, param_33, _219, _470, _487);
+                    }
+                    else
+                    {
+                        if (t < nDust)
+                        {
+                            float a = (6.283185482025146484375 * (float(t - nSpark) + r1)) / (40.0 * s);
+                            float2 dir = float2(cos(a), sin(a));
+                            uint param_34 = rng;
+                            float _2552 = rand01(param_34);
+                            rng = param_34;
+                            uint param_35 = rng;
+                            float _2564 = rand01(param_35);
+                            rng = param_35;
+                            uint param_36 = rng;
+                            float _2570 = rand01(param_36);
+                            rng = param_36;
+                            float3 param_37 = (float3(c.x, 0.0, c.z) + ((float3(dir.x, 0.0, dir.y) * (0.800000011920928955078125 + (0.800000011920928955078125 * r2))) * ss)) + float3(0.0, 0.100000001490116119384765625 + (0.25 * r3), 0.0);
+                            float3 param_38 = ((float3(dir.x, 0.0, dir.y) * (7.0 + (7.0 * _2552))) * ss) + float3(0.0, 0.4000000059604644775390625, 0.0);
+                            float param_39 = 1.60000002384185791015625 + (1.60000002384185791015625 * _2564);
+                            uint param_40 = 5u;
+                            float param_41 = 0.1500000059604644775390625 + (0.119999997317790985107421875 * _2570);
+                            spawnParticle(param_37, param_38, param_39, param_40, param_41, _219, _470, _487);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 static inline __attribute__((always_inline))
-void addScorch(thread const float2& xz, thread const uint& v, constant SimUniforms& _201, device Decals& _564)
+void addScorch(thread const float2& xz, thread const uint& v, constant SimUniforms& _219, device Decals& _610)
 {
     float2 param = xz;
-    int2 c = decalCoord(param, _201);
+    int2 c = decalCoord(param, _219);
     int2 param_1 = c;
-    if (!decalInside(param_1, _201))
+    if (!decalInside(param_1, _219))
     {
         return;
     }
     int2 param_2 = c;
-    uint _711 = atomic_fetch_max_explicit((device atomic_uint*)&_564.decals[(2u * decalCount(_201)) + decalIndex(param_2, _201)], min(v, 255u), memory_order_relaxed);
+    uint _757 = atomic_fetch_max_explicit((device atomic_uint*)&_610.decals[(2u * decalCount(_219)) + decalIndex(param_2, _219)], min(v, 255u), memory_order_relaxed);
 }
 
 static inline __attribute__((always_inline))
-void explosionFx(thread const uint& e, thread const uint& t, constant SimUniforms& _201, device GoreCnt& _435, device Particles& _445, device Decals& _564)
+void explosionFx(thread const uint& e, thread const uint& t, constant SimUniforms& _219, device GoreCnt& _470, device Particles& _487, device Decals& _610)
 {
-    float3 c = _201.explo[e].xyz;
-    uint param = ((t * 7919u) ^ (e * 104729u)) ^ (uint(_201.timeP.z) * 31u);
+    float3 c = _219.explo[e].xyz;
+    uint param = ((t * 7919u) ^ (e * 104729u)) ^ (uint(_219.timeP.z) * 31u);
     uint rng = pcgHash(param);
     uint param_1 = rng;
-    float3 _1726 = randDir(param_1);
+    float3 _2604 = randDir(param_1);
     rng = param_1;
-    float3 d = _1726;
-    float s = _201.exploP[e].w;
+    float3 d = _2604;
+    float s = _219.exploP[e].w;
     if (s < 0.0)
     {
         float sz = -s;
         uint param_2 = rng;
-        float _1742 = rand01(param_2);
+        float _2620 = rand01(param_2);
         rng = param_2;
         uint param_3 = rng;
-        float _1749 = rand01(param_3);
+        float _2627 = rand01(param_3);
         rng = param_3;
-        float3 o = float3((_1742 - 0.5) * sz, 0.0, ((_1749 - 0.5) * sz) * 0.5);
-        if (t < 14u)
+        float3 o = float3((_2620 - 0.5) * sz, 0.0, ((_2627 - 0.5) * sz) * 0.449999988079071044921875);
+        if (t < 9u)
         {
             uint param_4 = rng;
-            float _1769 = rand01(param_4);
+            float _2649 = rand01(param_4);
             rng = param_4;
             uint param_5 = rng;
-            float _1780 = rand01(param_5);
+            float _2659 = rand01(param_5);
             rng = param_5;
             uint param_6 = rng;
-            float _1786 = rand01(param_6);
+            float _2665 = rand01(param_6);
             rng = param_6;
-            float3 param_7 = c + o;
-            float3 param_8 = float3(d.x * 0.60000002384185791015625, 1.2000000476837158203125 + (2.0 * _1769), d.z * 0.60000002384185791015625);
-            float param_9 = 0.449999988079071044921875 + (0.449999988079071044921875 * _1780);
-            uint param_10 = 1u;
-            float param_11 = 0.25 + (0.300000011920928955078125 * _1786);
-            spawnParticle(param_7, param_8, param_9, param_10, param_11, _201, _435, _445);
+            float3 param_7 = (c + o) + float3(0.0, -0.20000000298023223876953125, 0.0);
+            float3 param_8 = float3(d.x * 0.5, 0.800000011920928955078125 + (1.60000002384185791015625 * _2649), d.z * 0.5);
+            float param_9 = 0.3499999940395355224609375 + (0.5 * _2659);
+            uint param_10 = 6u;
+            float param_11 = 0.100000001490116119384765625 + (0.20000000298023223876953125 * _2665);
+            spawnParticle(param_7, param_8, param_9, param_10, param_11, _219, _470, _487);
         }
         else
         {
-            if (t < 17u)
+            if (t < 10u)
             {
                 uint param_12 = rng;
-                float _1812 = rand01(param_12);
+                float _2692 = rand01(param_12);
                 rng = param_12;
                 uint param_13 = rng;
-                float _1823 = rand01(param_13);
+                float _2702 = rand01(param_13);
                 rng = param_13;
                 uint param_14 = rng;
-                float _1829 = rand01(param_14);
+                float _2708 = rand01(param_14);
                 rng = param_14;
-                float3 param_15 = (c + o) + float3(0.0, 0.800000011920928955078125, 0.0);
-                float3 param_16 = float3(d.x * 0.5, 1.5 + (1.5 * _1812), d.z * 0.5);
-                float param_17 = 1.2000000476837158203125 + (1.2999999523162841796875 * _1823);
+                float3 param_15 = (c + (o * 0.60000002384185791015625)) + float3(0.0, 0.60000002384185791015625, 0.0);
+                float3 param_16 = float3(d.x * 0.4000000059604644775390625, 1.7999999523162841796875 + (1.2000000476837158203125 * _2692), d.z * 0.4000000059604644775390625);
+                float param_17 = 4.0 + (3.0 * _2702);
                 uint param_18 = 2u;
-                float param_19 = 0.20000000298023223876953125 + (0.25 * _1829);
-                spawnParticle(param_15, param_16, param_17, param_18, param_19, _201, _435, _445);
+                float param_19 = 0.300000011920928955078125 + (0.1500000059604644775390625 * _2708);
+                spawnParticle(param_15, param_16, param_17, param_18, param_19, _219, _470, _487);
+            }
+            else
+            {
+                bool _2720 = t == 10u;
+                bool _2728;
+                if (_2720)
+                {
+                    uint param_20 = rng;
+                    float _2725 = rand01(param_20);
+                    rng = param_20;
+                    _2728 = _2725 < 0.300000011920928955078125;
+                }
+                else
+                {
+                    _2728 = _2720;
+                }
+                if (_2728)
+                {
+                    uint param_21 = rng;
+                    float _2738 = rand01(param_21);
+                    rng = param_21;
+                    uint param_22 = rng;
+                    float _2747 = rand01(param_22);
+                    rng = param_22;
+                    float3 param_23 = c + o;
+                    float3 param_24 = float3(d.x, 2.0 + (2.0 * _2738), d.z);
+                    float param_25 = 1.5 + _2747;
+                    uint param_26 = 4u;
+                    float param_27 = 0.0500000007450580596923828125;
+                    spawnParticle(param_23, param_24, param_25, param_26, param_27, _219, _470, _487);
+                }
             }
         }
         return;
     }
-    if (t < 140u)
+    uint param_28 = t;
+    float3 param_29 = c;
+    float param_30 = s;
+    uint param_31 = e;
+    uint param_32 = rng;
+    spawnFx(param_28, param_29, param_30, param_31, param_32, _219, _470, _487);
+    rng = param_32;
+    float cell = 1.0 / (_219.world.w * 3.0);
+    float rs = 3.2000000476837158203125 * sqrt(fast::max(s, 0.5));
+    for (uint k = t; k < 2304u; k += 1024u)
     {
-        d.y = abs(d.y);
-        uint param_20 = rng;
-        float _1853 = rand01(param_20);
-        rng = param_20;
-        uint param_21 = rng;
-        float _1867 = rand01(param_21);
-        rng = param_21;
-        uint param_22 = rng;
-        float _1879 = rand01(param_22);
-        rng = param_22;
-        uint param_23 = rng;
-        float _1888 = rand01(param_23);
-        rng = param_23;
-        float3 param_24 = (c + ((d * (0.300000011920928955078125 + (1.2000000476837158203125 * _1853))) * s)) + float3(0.0, 0.5, 0.0);
-        float3 param_25 = ((d * (2.0 + (9.0 * _1867))) + float3(0.0, 2.0, 0.0)) * s;
-        float param_26 = (0.3499999940395355224609375 + (0.5 * _1879)) * sqrt(s);
-        uint param_27 = 1u;
-        float param_28 = 0.25 + (0.3499999940395355224609375 * _1888);
-        spawnParticle(param_24, param_25, param_26, param_27, param_28, _201, _435, _445);
-    }
-    else
-    {
-        if (t < 230u)
-        {
-            d.y = (abs(d.y) * 0.60000002384185791015625) + 0.20000000298023223876953125;
-            uint param_29 = rng;
-            float _1921 = rand01(param_29);
-            rng = param_29;
-            uint param_30 = rng;
-            float _1931 = rand01(param_30);
-            rng = param_30;
-            uint param_31 = rng;
-            float _1939 = rand01(param_31);
-            rng = param_31;
-            float3 param_32 = (c + ((d * 1.2000000476837158203125) * s)) + float3(0.0, 0.800000011920928955078125, 0.0);
-            float3 param_33 = (d * (1.0 + (3.5 * _1921))) * s;
-            float param_34 = (0.800000011920928955078125 + (1.39999997615814208984375 * _1931)) * s;
-            uint param_35 = 2u;
-            float param_36 = 0.1500000059604644775390625 + (0.25 * _1939);
-            spawnParticle(param_32, param_33, param_34, param_35, param_36, _201, _435, _445);
-        }
-        else
-        {
-            if (t < 400u)
-            {
-                d.y = abs(d.y) + 0.5;
-                uint param_37 = rng;
-                float _1969 = rand01(param_37);
-                rng = param_37;
-                uint param_38 = rng;
-                float _1981 = rand01(param_38);
-                rng = param_38;
-                float3 param_39 = c + float3(0.0, 0.20000000298023223876953125, 0.0);
-                float3 param_40 = (fast::normalize(d) * (5.0 + (10.0 * _1969))) * sqrt(s);
-                float param_41 = 4.0;
-                uint param_42 = 3u;
-                float param_43 = 0.0599999986588954925537109375 + (0.100000001490116119384765625 * _1981);
-                spawnParticle(param_39, param_40, param_41, param_42, param_43, _201, _435, _445);
-            }
-            else
-            {
-                d.y = abs(d.y) + 0.20000000298023223876953125;
-                uint param_44 = rng;
-                float _2005 = rand01(param_44);
-                rng = param_44;
-                uint param_45 = rng;
-                float _2015 = rand01(param_45);
-                rng = param_45;
-                float3 param_46 = c + float3(0.0, 0.4000000059604644775390625, 0.0);
-                float3 param_47 = (fast::normalize(d) * (8.0 + (14.0 * _2005))) * sqrt(s);
-                float param_48 = 0.300000011920928955078125 + (0.5 * _2015);
-                uint param_49 = 4u;
-                float param_50 = 0.02999999932944774627685546875;
-                spawnParticle(param_46, param_47, param_48, param_49, param_50, _201, _435, _445);
-            }
-        }
-    }
-    float cell = 1.0 / (_201.world.w * 3.0);
-    for (uint k = t; k < 1024u; k += 512u)
-    {
-        int2 o_1 = int2(int(k % 32u) - 16, int(k / 32u) - 16);
+        int2 o_1 = int2(int(k % 48u) - 24, int(k / 48u) - 24);
         float2 xz = c.xz + (float2(o_1) * cell);
-        float r = (length(float2(o_1)) * cell) / 3.2000000476837158203125;
-        uint param_51 = uint((o_1.x * 73) + (o_1.y * 977)) ^ ((e * 31u) + uint(_201.timeP.z));
-        float n = hash01(param_51);
+        float r = (length(float2(o_1)) * cell) / rs;
+        uint param_33 = uint((o_1.x * 73) + (o_1.y * 977)) ^ ((e * 31u) + uint(_219.timeP.z));
+        float n = hash01(param_33);
         if (r < (0.75 + (0.3499999940395355224609375 * n)))
         {
-            float2 param_52 = xz;
-            uint param_53 = uint(255.0 * fast::clamp(1.25 - r, 0.0, 1.0));
-            addScorch(param_52, param_53, _201, _564);
+            float2 param_34 = xz;
+            uint param_35 = uint(255.0 * fast::clamp(1.25 - r, 0.0, 1.0));
+            addScorch(param_34, param_35, _219, _610);
         }
     }
 }
 
-kernel void main0(constant SimUniforms& _201 [[buffer(0)]], device StaticH& _799 [[buffer(1)]], device CorpseH& _726 [[buffer(2)]], device Particles& _445 [[buffer(3)]], device Gibs& _1162 [[buffer(4)]], device GoreCnt& _435 [[buffer(5)]], device Decals& _564 [[buffer(6)]], device PList& _1151 [[buffer(7)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
+kernel void main0(constant SimUniforms& _219 [[buffer(0)]], device StaticH& _845 [[buffer(1)]], device CorpseH& _772 [[buffer(2)]], device Particles& _487 [[buffer(3)]], device Gibs& _1645 [[buffer(4)]], device GoreCnt& _470 [[buffer(5)]], device Decals& _610 [[buffer(6)]], device PList& _1634 [[buffer(7)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]])
 {
     uint i = gl_GlobalInvocationID.x;
-    uint mode = _201.misc.y;
+    uint mode = _219.misc.y;
     if (mode == 0u)
     {
         if (i == 0u)
         {
-            _435.gore[2] = 0u;
+            _470.gore[2] = 0u;
         }
         return;
     }
     if (mode == 1u)
     {
-        if (i < _201.goreCap.x)
+        if (i < _219.goreCap.x)
         {
             uint param = i;
-            updateParticle(param, _201, _435, _445, _564, _726, _799, _1151);
+            updateParticle(param, _219, _470, _487, _610, _772, _845, _1634);
         }
         return;
     }
     if (mode == 2u)
     {
-        if (i < _201.goreCap.y)
+        if (i < _219.goreCap.y)
         {
             uint param_1 = i;
-            updateGib(param_1, _201, _435, _445, _564, _726, _799, _1162);
+            updateGib(param_1, _219, _470, _487, _610, _772, _845, _1645);
         }
         return;
     }
@@ -1003,28 +1263,28 @@ kernel void main0(constant SimUniforms& _201 [[buffer(0)]], device StaticH& _799
     {
         if (i == 0u)
         {
-            _435.gore[8] = 36u;
-            _435.gore[9] = min(_435.gore[2], _201.goreCap.x);
-            _435.gore[10] = 0u;
-            _435.gore[11] = 0u;
+            _470.gore[8] = 36u;
+            _470.gore[9] = min(_470.gore[2], _219.goreCap.x);
+            _470.gore[10] = 0u;
+            _470.gore[11] = 0u;
         }
         return;
     }
-    bool _2183 = mode == 4u;
-    bool _2192;
-    if (_2183)
+    bool _2930 = mode == 4u;
+    bool _2939;
+    if (_2930)
     {
-        _2192 = gl_WorkGroupID.y < _201.counts.y;
+        _2939 = gl_WorkGroupID.y < _219.counts.y;
     }
     else
     {
-        _2192 = _2183;
+        _2939 = _2930;
     }
-    if (_2192)
+    if (_2939)
     {
         uint param_2 = gl_WorkGroupID.y;
         uint param_3 = gl_LocalInvocationID.x + (256u * gl_WorkGroupID.x);
-        explosionFx(param_2, param_3, _201, _435, _445, _564);
+        explosionFx(param_2, param_3, _219, _470, _487, _610);
     }
 }
 

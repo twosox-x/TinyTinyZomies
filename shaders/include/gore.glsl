@@ -1,7 +1,8 @@
 // Gore: blood / fire / smoke / debris particles, flying body parts (gibs), blood and scorch decals.
 // Layouts must match src/sim/GpuTypes.h. Requires common.glsl.
 //
-// Particle (32 B): pos (xyz, remaining life s), vel (xyz, type + size in metres: floor = type, fract = size)
+// Particle (32 B): pos (xyz, remaining life s), vel (xyz, w = type + 8 * initial life in 1/8 s + size in metres:
+//                  floor % 8 = type, floor / 8 = initial life (0.125 s units, <= 15.9 s), fract = size)
 // Gib      (64 B): pos (xyz, age s), vel (xyz, state 0 free / 1 flying / 2 resting), rot (quaternion),
 //                  info (x = look X with slot in bits 0..3 and stump flag in bit 4, y = look Y,
 //                        z = packHalf2x16(angular velocity xy), w = packHalf2x16(angular velocity z, bloodiness))
@@ -17,7 +18,10 @@ struct Gib { vec4 pos; vec4 vel; vec4 rot; uvec4 info; };
 #define PT_FIRE   1u
 #define PT_SMOKE  2u
 #define PT_DEBRIS 3u
-#define PT_SPARK  4u
+#define PT_SPARK  4u   // sparks (ballistic) and embers (buoyant), tiny bright voxels
+#define PT_DUST   5u   // ground dust pushed outward by a blast (replaces the old shock ring)
+#define PT_FLAME  6u   // short-lived flame voxels licking from burning wrecks
+#define PT_FLASH  7u   // the 50-100 ms white-hot core of a blast
 
 #define G_PARTICLE_HEAD   0u
 #define G_GIB_HEAD        1u
@@ -27,7 +31,9 @@ struct Gib { vec4 pos; vec4 vel; vec4 rot; uvec4 info; };
 #define G_GIBBED          5u
 #define G_DRAW_ARGS       8u   // 4 uints: vertex count, instance count, first vertex, first instance
 
-float ptType(Particle p) { return floor(p.vel.w); }
+float ptType(Particle p) { return mod(floor(p.vel.w), 8.0); }
+float ptLife0(Particle p) { return max(floor(floor(p.vel.w) * 0.125) * 0.125, 0.125); }
+uint  ptHash(uint idx) { return idx * 2654435761u; }   // per-slot hash shared by gore_update and particle.vert
 float ptSize(Particle p) { return fract(p.vel.w); }
 
 uint decalCount() { return goreCap.z * goreCap.w; }
