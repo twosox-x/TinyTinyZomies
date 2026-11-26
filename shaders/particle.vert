@@ -53,7 +53,7 @@ void main() {
         return;
     }
     // Explosion voxels: axis-aligned cubes, size quantised to multiples of a world voxel grid and snapped to it
-    // (5 cm for sparks / small debris like the props, 10 cm for flames / fire / dust, 25 cm for big smoke cubes).
+    // (debris / sparks: 0.125 m, half the building voxel; fire / smoke / dust are voxel volumes, see fx_volume.frag).
     float grow = 1.0, fade = 1.0;
     if (type == PT_FIRE) {
         // fireball voxel: flash-white for ~0.08 s, orange, deep red, then soot that keeps growing (lit by fire / moon)
@@ -120,7 +120,7 @@ void main() {
     }
     float sz = size * grow;
     if (type == PT_FIRE || type == PT_SMOKE || type == PT_DUST) sz = min(sz, 0.5);   // gas cubes: at most 50 cm
-    float g = sz < 0.14 ? 0.05 : (sz < 0.6 ? 0.1 : 0.25);
+    float g = (type == PT_DEBRIS || type == PT_SPARK) ? 0.125 : (sz < 0.14 ? 0.05 : (sz < 0.6 ? 0.1 : 0.25));
     float n = floor(sz / g + 0.5);                                    // whole voxels (0 = gone)
     float S = n * g;
     vec3 lo = floor((pt.pos.xyz - 0.5 * S) / g + 0.5) * g;           // min corner on the world voxel grid

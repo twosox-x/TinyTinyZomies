@@ -1,0 +1,217 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+// Implementation of signed integer mod accurate to SPIR-V specification
+template<typename Tx, typename Ty>
+inline Tx spvSMod(Tx x, Ty y)
+{
+    Tx remainder = x - y * (x / y);
+    return select(Tx(remainder + y), remainder, remainder == 0 || (x >= 0) == (y >= 0));
+}
+
+struct BlastShape
+{
+    float3 ball;
+    float r;
+    float flt;
+    float stemR;
+    float hc;
+    float ringR;
+    float ringT;
+    float ringK;
+    float3 drift;
+};
+
+struct FxVolumes
+{
+    float4 fxA[24];
+    float4 fxB[24];
+    uint4 fxCount;
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+    float4 blastsP[8];
+};
+
+constant spvUnsafeArray<int3, 24> _403 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _410 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    int vIdx [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+static inline __attribute__((always_inline))
+BlastShape blastShape(thread const float3& c, thread const float& s, thread const float& t)
+{
+    float sb = powr(s, 0.800000011920928955078125);
+    float ss = sqrt(s);
+    float R = 1.89999997615814208984375 * sb;
+    float grow = 1.0 - exp((-t) / 0.07999999821186065673828125);
+    BlastShape b;
+    b.r = (R * grow) * (1.0 + (0.2199999988079071044921875 * t));
+    b.hc = (0.550000011920928955078125 * R) + (((2.599999904632568359375 * ss) * t) / (1.0 + (0.119999997317790985107421875 * t)));
+    b.drift = (float3(0.550000011920928955078125, 0.0, 0.25) * t) * 0.60000002384185791015625;
+    b.ball = (c + float3(0.0, b.hc, 0.0)) + b.drift;
+    float _111;
+    if (s > 1.39999997615814208984375)
+    {
+        _111 = smoothstep(0.4000000059604644775390625, 2.0, t);
+    }
+    else
+    {
+        _111 = 0.25 * smoothstep(0.60000002384185791015625, 2.5, t);
+    }
+    b.flt = _111;
+    b.stemR = (R * ((s > 1.39999997615814208984375) ? 0.37999999523162841796875 : 0.2199999988079071044921875)) * smoothstep(0.25, 1.2000000476837158203125, t);
+    b.ringR = 0.800000011920928955078125 + ((3.7999999523162841796875 * sb) * (1.0 - exp((-t) / 0.300000011920928955078125)));
+    b.ringT = (0.3499999940395355224609375 + (0.1500000059604644775390625 * t)) * ss;
+    b.ringK = 1.0 - smoothstep(0.60000002384185791015625, 2.400000095367431640625, t);
+    return b;
+}
+
+static inline __attribute__((always_inline))
+void blastBox(thread const float3& c, thread const float& s, thread const float& t, thread float3& lo, thread float3& hi)
+{
+    float3 param = c;
+    float param_1 = s;
+    float param_2 = t;
+    BlastShape b = blastShape(param, param_1, param_2);
+    float rx = (b.r * (1.60000002384185791015625 + (0.89999997615814208984375 * b.flt))) + 0.5;
+    lo = float3(b.ball.x - rx, c.y - 0.60000002384185791015625, b.ball.z - rx);
+    hi = float3(b.ball.x + rx, (b.ball.y + (b.r * 1.60000002384185791015625)) + 0.5, b.ball.z + rx);
+    float3 _221 = lo;
+    float2 _231 = fast::min(_221.xz, (c.xz - float2(b.stemR)) - float2(0.60000002384185791015625));
+    lo.x = _231.x;
+    lo.z = _231.y;
+    float3 _236 = hi;
+    float2 _246 = fast::max(_236.xz, (c.xz + float2(b.stemR)) + float2(0.60000002384185791015625));
+    hi.x = _246.x;
+    hi.z = _246.y;
+    if (b.ringK > 0.0)
+    {
+        float e = (b.ringR + (b.ringT * 1.60000002384185791015625)) + 0.5;
+        float3 _264 = lo;
+        float2 _271 = fast::min(_264.xz, c.xz - float2(e));
+        lo.x = _271.x;
+        lo.z = _271.y;
+        float3 _276 = hi;
+        float2 _283 = fast::max(_276.xz, c.xz + float2(e));
+        hi.x = _283.x;
+        hi.z = _283.y;
+    }
+}
+
+static inline __attribute__((always_inline))
+void wreckBox(thread const float3& c, thread const float& len, thread float3& lo, thread float3& hi)
+{
+    float rTop = 4.7259998321533203125;
+    float3 top = (c + float3(0.0, 13.0, 0.0)) + float3(3.2174999713897705078125, 0.0, 1.46249997615814208984375);
+    float rf = (((0.319999992847442626953125 * len) + 0.300000011920928955078125) * 1.60000002384185791015625) + 0.5;
+    lo = fast::min(c - float3(rf, 0.60000002384185791015625, rf), top - float3(rTop, 0.0, rTop));
+    hi = fast::max(c + float3(rf, 3.0, rf), top + float3(rTop, 0.5, rTop));
+}
+
+static inline __attribute__((always_inline))
+void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _336)
+{
+    if (_336.fxB[i].y < 0.5)
+    {
+        float3 param = _336.fxA[i].xyz;
+        float param_1 = _336.fxB[i].x;
+        float param_2 = _336.fxA[i].w;
+        float3 param_3;
+        float3 param_4;
+        blastBox(param, param_1, param_2, param_3, param_4);
+        lo = param_3;
+        hi = param_4;
+    }
+    else
+    {
+        float3 param_5 = _336.fxA[i].xyz;
+        float param_6 = _336.fxB[i].x;
+        float3 param_7;
+        float3 param_8;
+        wreckBox(param_5, param_6, param_7, param_8);
+        lo = param_7;
+        hi = param_8;
+    }
+}
+
+vertex main0_out main0(constant Frame& _447 [[buffer(0)]], constant FxVolumes& _336 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    int i = int(gl_InstanceIndex);
+    int param = i;
+    float3 param_1;
+    float3 param_2;
+    fxBox(param, param_1, param_2, _336);
+    float3 lo = param_1;
+    float3 hi = param_2;
+    float3 c = float3(_403[((int(gl_VertexIndex) / 6) * 4) + _410[spvSMod(int(gl_VertexIndex), 6)]]);
+    out.vWorld = mix(lo, hi, c);
+    out.vIdx = i;
+    out.gl_Position = _447.viewProj * float4(out.vWorld, 1.0);
+    return out;
+}
+

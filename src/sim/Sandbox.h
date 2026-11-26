@@ -5,6 +5,7 @@
 //  Arena: open ground with a few pillars and a full-width wall, for large-count benchmarks
 //         (the city streets physically hold only ~20k agents at full packing).
 // Pure data: rasterised into the static height grid for the simulation and drawn as boxes.
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,9 @@ struct Scenario {
 };
 
 struct PointLight { float x, y, z, radius, r, g, b, intensity; };
+// A burning wreck drawn as a voxel flame + smoke volume (Renderer::setFireVolumes, shaders/fx_volume.frag): box centre,
+// footprint length (m), strength 0..1, noise seed.
+struct FireVolume { float x, y, z, length, strength; uint32_t seed; };
 
 struct Sandbox {
     float originX = -96.f, originZ = -96.f, cellSize = 0.75f;

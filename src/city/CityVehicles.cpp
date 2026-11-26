@@ -684,4 +684,22 @@ void CityVehicles::fireLights(float x, float z, double time, int maxCount, std::
     }
 }
 
+void CityVehicles::fireVolumes(float x, float z, int maxCount, std::vector<FireVolume>& out) const {
+    std::vector<std::pair<float, uint32_t>> c;
+    for (uint32_t i : window_) {
+        const Vehicle& v = all_[i];
+        if (!(v.state == VehState::Burning || (v.state == VehState::Wrecked && v.burn > 0.f))) continue;
+        float dx = v.p[0] - x, dz = v.p[2] - z;
+        c.push_back({dx * dx + dz * dz, i});
+    }
+    size_t n = std::min<size_t>(c.size(), (size_t)std::max(0, maxCount));
+    std::partial_sort(c.begin(), c.begin() + n, c.end());
+    for (size_t k = 0; k < n; ++k) {
+        const Vehicle& v = all_[c[k].second];
+        const VehicleModel& M = models_[v.variant];
+        float strength = v.state == VehState::Burning ? 0.7f : std::min(1.f, v.burn / 8.f);
+        out.push_back(FireVolume{v.p[0], v.p[1] + 0.25f * (M.bmax[1] - M.bmin[1]), v.p[2], M.bmax[0] - M.bmin[0], strength, c[k].second});
+    }
+}
+
 } // namespace ttz

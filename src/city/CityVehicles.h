@@ -33,6 +33,7 @@ namespace ttz {
 
 class CrowdSim;
 struct PointLight;
+struct FireVolume;
 
 enum class VehState : uint8_t { Intact = 0, Damaged = 1, Burning = 2, Wrecked = 3 };
 
@@ -98,6 +99,8 @@ public:
     uint32_t vehicleIndex(int key, uint32_t i) const;   // UINT32_MAX if unknown
     // Up to maxCount flickering lights of burning vehicles nearest (x, z).
     void fireLights(float x, float z, double time, int maxCount, std::vector<PointLight>& out) const;
+    // Burning vehicles nearest (x, z) as voxel fire / smoke volumes for the renderer (centre, length, strength 0..1).
+    void fireVolumes(float x, float z, int maxCount, std::vector<FireVolume>& out) const;
 
     // Window grids (tests): the obstacle heights uploaded to the sim, the ground used for vehicle collisions.
     const std::vector<float>& simHeights() const { return simH_; }

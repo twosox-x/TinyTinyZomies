@@ -30,6 +30,14 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
     Vec4 blastsP[kMaxBlasts];   // x effect scale
 };
 
+// Voxel explosion / fire volumes (shaders/include/fx_volume.glsl): pushed to vertex and fragment uniform slot 1.
+constexpr int kMaxFxVolumes = 24;
+struct FxVolumeUniforms {   // std140
+    Vec4 a[kMaxFxVolumes];  // xyz origin, w age (s)
+    Vec4 b[kMaxFxVolumes];  // x scale (blast) / footprint length (wreck), y kind (0 blast, 1 wreck), z seed, w strength
+    UVec4 count;
+};
+
 struct RenderSettings {
     uint32_t debugFlags = 0;      // DBG_* bits (see frame.glsl)
     bool drawZombies = true, drawCorpses = true, drawBoxes = true, drawGround = true;
@@ -72,7 +80,9 @@ public:
     }
     void setCity(class CityRenderer* city) { city_ = city; }
 
-    void addBlast(float x, float y, float z, float scale = 1.f);   // flash + fire light (scale: effect size)
+    // flash + fire light + a voxel fireball / smoke / dust volume (scale: effect size, 1 car .. 2.2 fuel tanker)
+    void addBlast(float x, float y, float z, float scale = 1.f);
+    void setFireVolumes(const std::vector<FireVolume>& fires) { fires_ = fires; }   // burning wrecks, this frame
     void update(float dt);   // ages blast effects
 
     // Renders the scene into the internal target, then blits into `target` (swapchain) if given.
@@ -94,7 +104,7 @@ private:
     GpuContext* gpu_ = nullptr;
     SDL_GPUTextureFormat swapFormat_ = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUSampleCount samples_ = SDL_GPU_SAMPLECOUNT_1;
-    SDL_GPUGraphicsPipeline *pZombie_ = nullptr, *pCorpse_ = nullptr, *pBox_ = nullptr, *pGround_ = nullptr, *pParticle_ = nullptr;
+    SDL_GPUGraphicsPipeline *pZombie_ = nullptr, *pCorpse_ = nullptr, *pBox_ = nullptr, *pGround_ = nullptr, *pParticle_ = nullptr, *pFx_ = nullptr;
     SDL_GPUBuffer *zombieVB_ = nullptr, *zombieIB_ = nullptr, *cubeVB_ = nullptr, *cubeIB_ = nullptr, *boxes_ = nullptr,
                   *shadowH_ = nullptr;
     void buildShadowField(const Sandbox& sb);
@@ -116,6 +126,10 @@ private:
     class CityRenderer* city_ = nullptr;
     struct Blast { float x, y, z, age, scale; };
     std::vector<Blast> blasts_;
+    struct FxBlast { float x, y, z, age, scale, seed; };
+    std::vector<FxBlast> fxBlasts_;   // voxel fireball volumes (live ~7-10 s, see fxLife in fx_volume.glsl)
+    std::vector<FireVolume> fires_;
+    uint32_t fxSeed_ = 1;
 public:
     bool skipCharacterPrepare_ = false;   // benchmark: prepare recorded separately for timing
 };

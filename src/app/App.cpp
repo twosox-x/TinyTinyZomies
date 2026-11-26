@@ -436,6 +436,9 @@ void App::frame(double dt) {
             lamps.insert(lamps.begin(), fires.begin(), fires.end());
         }
         s.renderer.setLights(lamps);
+        std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns
+        s.vehicles.fireVolumes(p.x, p.z, 10, fireVols);
+        s.renderer.setFireVolumes(fireVols);
     }
     if (!s.window || swap) {
         s.renderTime += dt;

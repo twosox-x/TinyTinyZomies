@@ -299,7 +299,7 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
             dispatch(D(pGore_, {staticH_, corpseH_}, {particles_, gibs_, gore_, decals_, particleList_}), gx, gy);
         };
         G(0, 1);
-        if (ne > 0 && p_.goreEnabled) G(4, 4, ne);   // 1024 effect threads per explosion (gore_update.comp)
+        if (ne > 0 && p_.goreEnabled) G(4, 4, ne);   // 1024 threads per explosion (scorch decal; debris / sparks)
         G(1, groups((uint32_t)p_.particleCapacity, 256));
         G(2, groups((uint32_t)p_.gibCapacity, 256));
         G(3, 1);

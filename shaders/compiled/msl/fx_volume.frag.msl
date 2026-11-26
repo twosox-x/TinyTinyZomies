@@ -1,0 +1,655 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct BlastShape
+{
+    float3 ball;
+    float r;
+    float flt;
+    float stemR;
+    float hc;
+    float ringR;
+    float ringT;
+    float ringK;
+    float3 drift;
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+    float4 blastsP[8];
+};
+
+struct FxVolumes
+{
+    float4 fxA[24];
+    float4 fxB[24];
+    uint4 fxCount;
+};
+
+struct main0_out
+{
+    float4 outColor [[color(0)]];
+    float gl_FragDepth [[depth(any)]];
+};
+
+struct main0_in
+{
+    float3 vWorld [[user(locn0)]];
+    int vIdx [[user(locn1)]];
+};
+
+static inline __attribute__((always_inline))
+BlastShape blastShape(thread const float3& c, thread const float& s, thread const float& t)
+{
+    float sb = powr(s, 0.800000011920928955078125);
+    float ss = sqrt(s);
+    float R = 1.89999997615814208984375 * sb;
+    float grow = 1.0 - exp((-t) / 0.07999999821186065673828125);
+    BlastShape b;
+    b.r = (R * grow) * (1.0 + (0.2199999988079071044921875 * t));
+    b.hc = (0.550000011920928955078125 * R) + (((2.599999904632568359375 * ss) * t) / (1.0 + (0.119999997317790985107421875 * t)));
+    b.drift = (float3(0.550000011920928955078125, 0.0, 0.25) * t) * 0.60000002384185791015625;
+    b.ball = (c + float3(0.0, b.hc, 0.0)) + b.drift;
+    float _585;
+    if (s > 1.39999997615814208984375)
+    {
+        _585 = smoothstep(0.4000000059604644775390625, 2.0, t);
+    }
+    else
+    {
+        _585 = 0.25 * smoothstep(0.60000002384185791015625, 2.5, t);
+    }
+    b.flt = _585;
+    b.stemR = (R * ((s > 1.39999997615814208984375) ? 0.37999999523162841796875 : 0.2199999988079071044921875)) * smoothstep(0.25, 1.2000000476837158203125, t);
+    b.ringR = 0.800000011920928955078125 + ((3.7999999523162841796875 * sb) * (1.0 - exp((-t) / 0.300000011920928955078125)));
+    b.ringT = (0.3499999940395355224609375 + (0.1500000059604644775390625 * t)) * ss;
+    b.ringK = 1.0 - smoothstep(0.60000002384185791015625, 2.400000095367431640625, t);
+    return b;
+}
+
+static inline __attribute__((always_inline))
+void blastBox(thread const float3& c, thread const float& s, thread const float& t, thread float3& lo, thread float3& hi)
+{
+    float3 param = c;
+    float param_1 = s;
+    float param_2 = t;
+    BlastShape b = blastShape(param, param_1, param_2);
+    float rx = (b.r * (1.60000002384185791015625 + (0.89999997615814208984375 * b.flt))) + 0.5;
+    lo = float3(b.ball.x - rx, c.y - 0.60000002384185791015625, b.ball.z - rx);
+    hi = float3(b.ball.x + rx, (b.ball.y + (b.r * 1.60000002384185791015625)) + 0.5, b.ball.z + rx);
+    float3 _682 = lo;
+    float2 _692 = fast::min(_682.xz, (c.xz - float2(b.stemR)) - float2(0.60000002384185791015625));
+    lo.x = _692.x;
+    lo.z = _692.y;
+    float3 _697 = hi;
+    float2 _707 = fast::max(_697.xz, (c.xz + float2(b.stemR)) + float2(0.60000002384185791015625));
+    hi.x = _707.x;
+    hi.z = _707.y;
+    if (b.ringK > 0.0)
+    {
+        float e = (b.ringR + (b.ringT * 1.60000002384185791015625)) + 0.5;
+        float3 _725 = lo;
+        float2 _732 = fast::min(_725.xz, c.xz - float2(e));
+        lo.x = _732.x;
+        lo.z = _732.y;
+        float3 _737 = hi;
+        float2 _744 = fast::max(_737.xz, c.xz + float2(e));
+        hi.x = _744.x;
+        hi.z = _744.y;
+    }
+}
+
+static inline __attribute__((always_inline))
+void wreckBox(thread const float3& c, thread const float& len, thread float3& lo, thread float3& hi)
+{
+    float rTop = 4.7259998321533203125;
+    float3 top = (c + float3(0.0, 13.0, 0.0)) + float3(3.2174999713897705078125, 0.0, 1.46249997615814208984375);
+    float rf = (((0.319999992847442626953125 * len) + 0.300000011920928955078125) * 1.60000002384185791015625) + 0.5;
+    lo = fast::min(c - float3(rf, 0.60000002384185791015625, rf), top - float3(rTop, 0.0, rTop));
+    hi = fast::max(c + float3(rf, 3.0, rf), top + float3(rTop, 0.5, rTop));
+}
+
+static inline __attribute__((always_inline))
+void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _794)
+{
+    if (_794.fxB[i].y < 0.5)
+    {
+        float3 param = _794.fxA[i].xyz;
+        float param_1 = _794.fxB[i].x;
+        float param_2 = _794.fxA[i].w;
+        float3 param_3;
+        float3 param_4;
+        blastBox(param, param_1, param_2, param_3, param_4);
+        lo = param_3;
+        hi = param_4;
+    }
+    else
+    {
+        float3 param_5 = _794.fxA[i].xyz;
+        float param_6 = _794.fxB[i].x;
+        float3 param_7;
+        float3 param_8;
+        wreckBox(param_5, param_6, param_7, param_8);
+        lo = param_7;
+        hi = param_8;
+    }
+}
+
+static inline __attribute__((always_inline))
+float fxLife(thread const float& s)
+{
+    return 5.5 + (2.0 * s);
+}
+
+static inline __attribute__((always_inline))
+uint fxHash(thread const uint3& p)
+{
+    uint h = ((p.x * 73856093u) ^ (p.y * 19349663u)) ^ (p.z * 83492791u);
+    h ^= (h >> uint(16));
+    h *= 2146121005u;
+    h ^= (h >> uint(15));
+    h *= 2221713035u;
+    h ^= (h >> uint(16));
+    return h;
+}
+
+static inline __attribute__((always_inline))
+float fxH01(thread const int3& p)
+{
+    uint3 param = uint3(p);
+    return float(fxHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float vnoise(thread const float3& p)
+{
+    int3 i = int3(floor(p));
+    float3 f = fract(p);
+    f = (f * f) * (float3(3.0) - (f * 2.0));
+    int3 param = i;
+    int3 param_1 = i + int3(1, 0, 0);
+    float a = mix(fxH01(param), fxH01(param_1), f.x);
+    int3 param_2 = i + int3(0, 1, 0);
+    int3 param_3 = i + int3(1, 1, 0);
+    float b = mix(fxH01(param_2), fxH01(param_3), f.x);
+    int3 param_4 = i + int3(0, 0, 1);
+    int3 param_5 = i + int3(1, 0, 1);
+    float c = mix(fxH01(param_4), fxH01(param_5), f.x);
+    int3 param_6 = i + int3(0, 1, 1);
+    int3 param_7 = i + int3(1);
+    float d = mix(fxH01(param_6), fxH01(param_7), f.x);
+    return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
+}
+
+static inline __attribute__((always_inline))
+float fbm(thread const float3& p)
+{
+    float3 param = p;
+    float3 param_1 = (p * 2.13000011444091796875) + float3(17.1000003814697265625);
+    return (((0.64999997615814208984375 * vnoise(param)) + (0.3499999940395355224609375 * vnoise(param_1))) * 2.0) - 1.0;
+}
+
+static inline __attribute__((always_inline))
+float blastDensity(thread const float3& q, thread const float3& c, thread const float& s, thread const float& t, thread const float& seed, thread const BlastShape& b, thread float3& mat)
+{
+    mat = float3(0.0);
+    float param = s;
+    float life = fxLife(param);
+    float ss = sqrt(s);
+    if (q.y < (c.y - 0.550000011920928955078125))
+    {
+        return -1.0;
+    }
+    float thr = 0.0500000007450580596923828125 + (1.7999999523162841796875 * powr(smoothstep(0.119999997317790985107421875 * life, 0.85000002384185791015625 * life, t), 1.10000002384185791015625));
+    float3 d = q - b.ball;
+    d.y /= (1.0 - (0.449999988079071044921875 * b.flt));
+    float3 _1061 = d;
+    float2 _1064 = _1061.xz / float2(1.0 + (0.550000011920928955078125 * b.flt));
+    d.x = _1064.x;
+    d.z = _1064.y;
+    float fb = 1.0 - (length(d) / fast::max(b.r, 0.001000000047497451305389404296875));
+    bool _1079 = b.flt > 0.0;
+    bool _1085;
+    if (_1079)
+    {
+        _1085 = d.y < 0.0;
+    }
+    else
+    {
+        _1085 = _1079;
+    }
+    if (_1085)
+    {
+        fb -= (((0.3499999940395355224609375 * b.flt) * smoothstep(0.0, 0.60000002384185791015625, (-d.y) / b.r)) * (1.0 - (length(d.xz) / b.r)));
+    }
+    float hh = fast::clamp((q.y - c.y) / fast::max(b.ball.y - c.y, 0.001000000047497451305389404296875), 0.0, 1.0);
+    float3 axis = mix(c, b.ball, float3(hh));
+    bool _1133 = b.stemR > 0.00999999977648258209228515625;
+    bool _1141;
+    if (_1133)
+    {
+        _1141 = q.y < b.ball.y;
+    }
+    else
+    {
+        _1141 = _1133;
+    }
+    float _1142;
+    if (_1141)
+    {
+        _1142 = 0.85000002384185791015625 * (1.0 - (length(q.xz - axis.xz) / (b.stemR * (0.699999988079071044921875 + (0.5 * hh)))));
+    }
+    else
+    {
+        _1142 = -1.0;
+    }
+    float fs = _1142;
+    float rr = length(q.xz - c.xz) - b.ringR;
+    float _1176;
+    if (b.ringK > 0.0)
+    {
+        _1176 = (1.0 - (length(float2(rr, ((q.y - c.y) + 0.25) * 1.60000002384185791015625)) / b.ringT)) * b.ringK;
+    }
+    else
+    {
+        _1176 = -1.0;
+    }
+    float fr = _1176;
+    float base = fast::max(fb, fs);
+    bool dust = fr > base;
+    base = fast::max(base, fr);
+    if ((base + 0.699999988079071044921875) < thr)
+    {
+        return -1.0;
+    }
+    float3 param_1 = (q * (0.5 / ss)) + float3(seed, (seed * 0.37000000476837158203125) - (t * 1.10000002384185791015625), seed * 1.7000000476837158203125);
+    float n = fbm(param_1);
+    float dens = (base + (0.699999988079071044921875 * n)) - thr;
+    if (dens <= 0.0)
+    {
+        return dens;
+    }
+    float T = fast::clamp(1.0 - (t / (1.10000002384185791015625 * ss)), 0.0, 1.0);
+    T *= fast::clamp(((fb * 2.2000000476837158203125) + 0.3499999940395355224609375) + (0.5 * n), 0.0, 1.0);
+    if (t < 0.0900000035762786865234375)
+    {
+        T = fast::max(T, step(-0.20000000298023223876953125, fb));
+    }
+    mat = float3(dust ? 0.0 : T, float(dust), 1.0 - smoothstep(0.60000002384185791015625, 3.5 * ss, t));
+    return dens;
+}
+
+static inline __attribute__((always_inline))
+float wreckDensity(thread const float3& q, thread const float3& c, thread const float& len, thread const float& t, thread const float& k, thread const float& seed, thread float3& mat)
+{
+    mat = float3(0.0);
+    float y = q.y - (c.y - 0.5);
+    if (y < 0.0)
+    {
+        return -1.0;
+    }
+    float rf = (0.319999992847442626953125 * len) + 0.300000011920928955078125;
+    float ff = (1.0 - (length(q.xz - c.xz) / rf)) - (y / (0.60000002384185791015625 + (1.7999999523162841796875 * k)));
+    if (ff > (-0.60000002384185791015625))
+    {
+        float3 param = (q * 1.2999999523162841796875) + float3(seed, seed - (t * 4.0), seed * 0.5);
+        float n = fbm(param);
+        float df = (ff + (0.60000002384185791015625 * n)) - 0.100000001490116119384765625;
+        if (df > 0.0)
+        {
+            mat = float3(fast::clamp((0.3499999940395355224609375 + (0.800000011920928955078125 * ff)) + (0.300000011920928955078125 * n), 0.0, 1.0), 0.0, 1.0);
+            return df;
+        }
+    }
+    if (y < 0.89999997615814208984375)
+    {
+        return -1.0;
+    }
+    float3 axis = c + ((float3(0.550000011920928955078125, 0.0, 0.25) * y) * 0.449999988079071044921875);
+    float rc = (0.699999988079071044921875 + (0.1599999964237213134765625 * y)) * (0.60000002384185791015625 + (0.4000000059604644775390625 * k));
+    float fsm = 1.0 - (length(q.xz - axis.xz) / rc);
+    float thr = (0.1500000059604644775390625 + (1.2000000476837158203125 * powr(y / 13.0, 0.800000011920928955078125))) + (0.60000002384185791015625 * (1.0 - k));
+    if ((fsm + 0.699999988079071044921875) < thr)
+    {
+        return -1.0;
+    }
+    float3 param_1 = (q * 0.60000002384185791015625) + float3(seed * 3.0, seed - (t * 2.400000095367431640625), seed * 2.0);
+    float n2 = fbm(param_1);
+    float ds = (fsm + (0.699999988079071044921875 * n2)) - thr;
+    mat = float3(0.0, 0.0, 1.0 - smoothstep(2.0, 10.0, y));
+    return ds;
+}
+
+static inline __attribute__((always_inline))
+float3 firePalette(thread const float& k)
+{
+    float3 c = mix(float3(9.0, 8.0, 5.5), float3(6.0, 2.599999904632568359375, 0.449999988079071044921875), float3(smoothstep(0.0, 0.300000011920928955078125, k)));
+    c = mix(c, float3(2.2000000476837158203125, 0.37999999523162841796875, 0.0500000007450580596923828125), float3(smoothstep(0.300000011920928955078125, 0.64999997615814208984375, k)));
+    return mix(c, float3(0.5, 0.0599999986588954925537109375, 0.00999999977648258209228515625), float3(smoothstep(0.64999997615814208984375, 1.0, k)));
+}
+
+static inline __attribute__((always_inline))
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _143)
+{
+    float3 c = float3(0.0);
+    for (uint i = 0u; i < _143.gridDim.z; i++)
+    {
+        float3 L = _143.lightPos[i].xyz - P;
+        float d = length(L);
+        float att = fast::clamp(1.0 - (d / _143.lightPos[i].w), 0.0, 1.0);
+        att *= att;
+        c += (((_143.lightCol[i].xyz * _143.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+    }
+    float _266;
+    for (int i_1 = 0; i_1 < 8; i_1++)
+    {
+        float age = _143.blasts[i_1].w;
+        float s = fast::max(_143.blastsP[i_1].x, 0.100000001490116119384765625);
+        float ss = sqrt(s);
+        float fireDur = 1.60000002384185791015625 * ss;
+        if ((age < 0.0) || (age > fireDur))
+        {
+            continue;
+        }
+        float3 L_1 = (_143.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float d_1 = length(L_1);
+        if (age < 0.100000001490116119384765625)
+        {
+            _266 = 1.0 - (age / 0.100000001490116119384765625);
+        }
+        else
+        {
+            _266 = 0.0;
+        }
+        float flash = _266;
+        float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
+        fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
+        float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
+        float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
+        float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
+        c += ((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam);
+    }
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _143)
+{
+    float3 hemi = mix(_143.groundColor.xyz, _143.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 moon = (_143.sunColor.xyz * fast::max(dot(N, _143.sunDir.xyz), 0.0)) * vis;
+    float3 param = P;
+    float3 param_1 = N;
+    return albedo * ((hemi + moon) + pointLights(param, param_1, _143));
+}
+
+static inline __attribute__((always_inline))
+float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _143)
+{
+    float3 param = albedo;
+    float3 param_1 = N;
+    float3 param_2 = P;
+    float param_3 = ao;
+    float param_4 = 1.0;
+    return shadeV(param, param_1, param_2, param_3, param_4, _143);
+}
+
+static inline __attribute__((always_inline))
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _143)
+{
+    float d = length(P - _143.camPos.xyz);
+    float f = (1.0 - exp((-_143.fogColor.w) * fast::max(d - _143.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    col = mix(col, _143.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _455;
+    if (_143.sunColor.w > 0.0)
+    {
+        _455 = _143.sunColor.w;
+    }
+    else
+    {
+        _455 = 1.0;
+    }
+    col *= _455;
+    col /= (float3(1.0) + (col * 0.300000011920928955078125));
+    return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
+}
+
+static inline __attribute__((always_inline))
+float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _143)
+{
+    float d = length(P - _143.camPos.xyz);
+    float _491;
+    if (_143.skyColor.w > 0.0)
+    {
+        _491 = fast::clamp(abs(d - _143.sunDir.w) / _143.skyColor.w, 0.0, 1.0);
+    }
+    else
+    {
+        _491 = 0.0;
+    }
+    float coc = _491;
+    float3 param = col;
+    float3 param_1 = P;
+    float3 _509 = finish(param, param_1, _143);
+    return float4(_509, 1.0 - coc);
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _143 [[buffer(0)]], constant FxVolumes& _794 [[buffer(1)]])
+{
+    main0_out out = {};
+    int i = in.vIdx;
+    float4 A = _794.fxA[i];
+    float4 B = _794.fxB[i];
+    int param = i;
+    float3 param_1;
+    float3 param_2;
+    fxBox(param, param_1, param_2, _794);
+    float3 lo = param_1;
+    float3 hi = param_2;
+    float3 ro = _143.camPos.xyz;
+    float3 rd = fast::normalize(in.vWorld - ro);
+    float3 inv = (float3(1.0) / (abs(rd) + float3(9.9999999747524270787835121154785e-07))) * sign(rd + float3(9.999999717180685365747194737196e-10));
+    float3 ta = (lo - ro) * inv;
+    float3 tb = (hi - ro) * inv;
+    float3 tmin = fast::min(ta, tb);
+    float3 tmax = fast::max(ta, tb);
+    float t0 = fast::max(fast::max(tmin.x, tmin.y), tmin.z);
+    float t1 = fast::min(fast::min(tmax.x, tmax.y), tmax.z);
+    if (t1 <= fast::max(t0, 0.0))
+    {
+        discard_fragment();
+    }
+    bool _1535 = tmin.x >= tmin.y;
+    bool _1543;
+    if (_1535)
+    {
+        _1543 = tmin.x >= tmin.z;
+    }
+    else
+    {
+        _1543 = _1535;
+    }
+    int _1544;
+    if (_1543)
+    {
+        _1544 = 0;
+    }
+    else
+    {
+        _1544 = (tmin.y >= tmin.z) ? 1 : 2;
+    }
+    int axis0 = _1544;
+    if (t0 < 0.0)
+    {
+        t0 = 0.0;
+        float3 a = abs(rd);
+        bool _1566 = a.x >= a.y;
+        bool _1574;
+        if (_1566)
+        {
+            _1574 = a.x >= a.z;
+        }
+        else
+        {
+            _1574 = _1566;
+        }
+        int _1575;
+        if (_1574)
+        {
+            _1575 = 0;
+        }
+        else
+        {
+            _1575 = (a.y >= a.z) ? 1 : 2;
+        }
+        axis0 = _1575;
+    }
+    float dist = length(((lo + hi) * 0.5) - ro);
+    float v = (dist > 110.0) ? 0.5 : 0.25;
+    if (((t1 - t0) / v) > 150.0)
+    {
+        v = 0.5;
+    }
+    float3 p = ro + (rd * (t0 + 9.9999997473787516355514526367188e-05));
+    int3 cell = int3(floor(p / float3(v)));
+    int3 stp = int3(sign(rd));
+    float3 tMax = (((float3(cell) + step(float3(0.0), rd)) * v) - ro) * inv;
+    float3 tDel = abs(inv * v);
+    float tEnter = t0;
+    int ax = axis0;
+    bool blast = B.y < 0.5;
+    BlastShape bs;
+    if (blast)
+    {
+        float3 param_3 = A.xyz;
+        float param_4 = B.x;
+        float param_5 = A.w;
+        bs = blastShape(param_3, param_4, param_5);
+    }
+    bool hit = false;
+    float _1686;
+    float3 mat;
+    float3 param_12;
+    float3 param_19;
+    int _1742;
+    for (int k = 0; k < 160; k++)
+    {
+        float3 q = (float3(cell) + float3(0.5)) * v;
+        if (blast)
+        {
+            float3 param_6 = q;
+            float3 param_7 = A.xyz;
+            float param_8 = B.x;
+            float param_9 = A.w;
+            float param_10 = B.z;
+            BlastShape param_11 = bs;
+            float _1707 = blastDensity(param_6, param_7, param_8, param_9, param_10, param_11, param_12);
+            mat = param_12;
+            _1686 = _1707;
+        }
+        else
+        {
+            float3 param_13 = q;
+            float3 param_14 = A.xyz;
+            float param_15 = B.x;
+            float param_16 = A.w;
+            float param_17 = B.w;
+            float param_18 = B.z;
+            float _1728 = wreckDensity(param_13, param_14, param_15, param_16, param_17, param_18, param_19);
+            mat = param_19;
+            _1686 = _1728;
+        }
+        float d = _1686;
+        if (d > 0.0)
+        {
+            hit = true;
+            break;
+        }
+        if (tMax.x < tMax.y)
+        {
+            _1742 = (tMax.x < tMax.z) ? 0 : 2;
+        }
+        else
+        {
+            _1742 = (tMax.y < tMax.z) ? 1 : 2;
+        }
+        ax = _1742;
+        tEnter = tMax[ax];
+        if (tEnter > t1)
+        {
+            break;
+        }
+        cell[ax] += stp[ax];
+        tMax[ax] += tDel[ax];
+    }
+    if (!hit)
+    {
+        discard_fragment();
+    }
+    float3 P = ro + (rd * tEnter);
+    float3 N = float3(0.0);
+    N[ax] = -float(stp[ax]);
+    int3 param_20 = (cell * int3(7)) + int3(i * 131);
+    float jit = fxH01(param_20);
+    float T = mat.x;
+    float3 col;
+    if (T > 0.0599999986588954925537109375)
+    {
+        float param_21 = fast::clamp((1.0 - T) + (0.1500000059604644775390625 * (jit - 0.5)), 0.0, 1.0);
+        col = firePalette(param_21) * (0.85000002384185791015625 + (0.300000011920928955078125 * jit));
+    }
+    else
+    {
+        float3 _1842;
+        if (mat.y > 0.5)
+        {
+            _1842 = float3(0.119999997317790985107421875, 0.115000002086162567138671875, 0.104999996721744537353515625);
+        }
+        else
+        {
+            _1842 = mix(float3(0.100000001490116119384765625, 0.097999997437000274658203125, 0.09700000286102294921875), float3(0.02199999988079071044921875, 0.0199999995529651641845703125, 0.01899999938905239105224609375), float3(mat.z));
+        }
+        float3 alb = _1842;
+        alb *= (0.819999992847442626953125 + (0.36000001430511474609375 * jit));
+        float3 param_22 = alb * 2.0;
+        float3 param_23 = N;
+        float3 param_24 = P;
+        float param_25 = 1.0;
+        col = shade(param_22, param_23, param_24, param_25, _143);
+        float _1879;
+        if (blast)
+        {
+            _1879 = (1.0 - smoothstep(0.4000000059604644775390625, 1.60000002384185791015625 * sqrt(B.x), A.w)) * (1.0 - mat.y);
+        }
+        else
+        {
+            _1879 = 0.0;
+        }
+        float glow = _1879;
+        col += (((float3(1.60000002384185791015625, 0.3499999940395355224609375, 0.0500000007450580596923828125) * glow) * (0.300000011920928955078125 + (0.699999988079071044921875 * fast::max(-N.y, 0.0)))) * (0.5 + jit));
+    }
+    float4 clip = _143.viewProj * float4(P, 1.0);
+    out.gl_FragDepth = fast::clamp(clip.z / clip.w, 0.0, 1.0);
+    float3 param_26 = col;
+    float3 param_27 = P;
+    out.outColor = finishA(param_26, param_27, _143);
+    return out;
+}
+

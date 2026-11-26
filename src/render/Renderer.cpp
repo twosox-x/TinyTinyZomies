@@ -118,9 +118,10 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
     pBox_ = makePipeline("box", "box", false, true, true);
     pGround_ = makePipeline("ground", "ground", false, false, false);
     pParticle_ = makePipeline("particle", "particle", false, false, true);
+    pFx_ = makePipeline("fx_volume", "fx_volume", false, false, true);
     pBlur_ = makePostPipeline("post_blur");
     pComposite_ = makePostPipeline("post_composite");
-    if (!pZombie_ || !pCorpse_ || !pBox_ || !pGround_ || !pParticle_ || !pBlur_ || !pComposite_) return false;
+    if (!pZombie_ || !pCorpse_ || !pBox_ || !pGround_ || !pParticle_ || !pFx_ || !pBlur_ || !pComposite_) return false;
     {
         SDL_GPUSamplerCreateInfo sci{};
         sci.min_filter = sci.mag_filter = SDL_GPU_FILTER_LINEAR;
@@ -257,7 +258,7 @@ void Renderer::shutdown() {
     if (!gpu_) return;
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
-    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pBlur_, pComposite_})
+    for (auto p : {pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pFx_, pBlur_, pComposite_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
     for (auto b : {&zombieVB_, &zombieIB_, &cubeVB_, &cubeIB_, &boxes_, &shadowH_}) gpu_->releaseBuffer(*b);
     for (auto t : {palette_, colorMS_, depth_, resolved_, halfA_, halfB_, final_})
@@ -304,11 +305,16 @@ void Renderer::ensureTargets(uint32_t w, uint32_t h) {
 
 void Renderer::addBlast(float x, float y, float z, float scale) {
     blasts_.push_back({x, y, z, 0.f, std::max(scale, 0.1f)});
+    fxBlasts_.push_back({x, y, z, 0.f, std::clamp(scale, 0.3f, 3.f), (float)((fxSeed_++ * 2654435761u) % 997u)});
+    if (fxBlasts_.size() > (size_t)kMaxFxVolumes) fxBlasts_.erase(fxBlasts_.begin());
     if (blasts_.size() > (size_t)kMaxBlasts) blasts_.erase(blasts_.begin());
 }
 
 void Renderer::update(float dt) {
     for (auto& b : blasts_) b.age += dt;
+    for (auto& b : fxBlasts_) b.age += dt;
+    fxBlasts_.erase(std::remove_if(fxBlasts_.begin(), fxBlasts_.end(), [](const FxBlast& b) { return b.age > 5.5f + 2.f * b.scale; }),
+                    fxBlasts_.end());   // = fxLife()
     blasts_.erase(std::remove_if(blasts_.begin(), blasts_.end(), [](const Blast& b) { return b.age > 20.f; }), blasts_.end());
 }
 
@@ -427,6 +433,24 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_GPUBuffer* pb[2] = {sim.particles(), sim.particleList()};
         SDL_BindGPUVertexStorageBuffers(pass, 0, pb, 2);
         SDL_DrawGPUPrimitivesIndirect(pass, sim.goreCounters(), G_DRAW_ARGS * 4, 1);
+    }
+    if (rs.drawParticles && (!fxBlasts_.empty() || !fires_.empty())) {   // voxel fireballs / smoke / wreck fires
+        FxVolumeUniforms fx{};
+        uint32_t n = 0;
+        for (auto it = fxBlasts_.rbegin(); it != fxBlasts_.rend() && n < (uint32_t)kMaxFxVolumes; ++it, ++n) {
+            fx.a[n] = {it->x, it->y, it->z, it->age};
+            fx.b[n] = {it->scale, 0.f, it->seed, 1.f};
+        }
+        for (const FireVolume& f : fires_) {
+            if (n >= (uint32_t)kMaxFxVolumes) break;
+            fx.a[n] = {f.x, f.y, f.z, (float)time};
+            fx.b[n++] = {f.length, 1.f, (float)(f.seed % 997u), f.strength};
+        }
+        fx.count = {n, 0, 0, 0};
+        SDL_PushGPUVertexUniformData(cmd, 1, &fx, sizeof(fx));
+        SDL_PushGPUFragmentUniformData(cmd, 1, &fx, sizeof(fx));
+        SDL_BindGPUGraphicsPipeline(pass, pFx_);
+        SDL_DrawGPUPrimitives(pass, 36, n, 0, 0);
     }
 
     SDL_GPUBufferBinding zvb{zombieVB_, 0};

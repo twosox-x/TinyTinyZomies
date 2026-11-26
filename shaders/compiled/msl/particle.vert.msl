@@ -413,16 +413,25 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
     {
         sz = fast::min(sz, 0.5);
     }
-    float _888;
-    if (sz < 0.14000000059604644775390625)
+    float _890;
+    if ((type == 3u) || (type == 4u))
     {
-        _888 = 0.0500000007450580596923828125;
+        _890 = 0.125;
     }
     else
     {
-        _888 = (sz < 0.60000002384185791015625) ? 0.100000001490116119384765625 : 0.25;
+        float _897;
+        if (sz < 0.14000000059604644775390625)
+        {
+            _897 = 0.0500000007450580596923828125;
+        }
+        else
+        {
+            _897 = (sz < 0.60000002384185791015625) ? 0.100000001490116119384765625 : 0.25;
+        }
+        _890 = _897;
     }
-    float g = _888;
+    float g = _890;
     float n = floor((sz / g) + 0.5);
     float S = n * g;
     float3 lo = floor(((pt.pos.xyz - float3(0.5 * S)) / float3(g)) + float3(0.5)) * g;
@@ -431,16 +440,16 @@ vertex main0_out main0(constant Frame& _446 [[buffer(0)]], const device Particle
     out.vColor = float4(col, emissive);
     out.vGlow = glow;
     out.vFade = fade;
-    float4 _946;
+    float4 _956;
     if ((n > 0.0) && (fade > 0.0199999995529651641845703125))
     {
-        _946 = _446.viewProj * float4(out.vWorld, 1.0);
+        _956 = _446.viewProj * float4(out.vWorld, 1.0);
     }
     else
     {
-        _946 = float4(0.0, 0.0, -2.0, 1.0);
+        _956 = float4(0.0, 0.0, -2.0, 1.0);
     }
-    out.gl_Position = _946;
+    out.gl_Position = _956;
     return out;
 }
 
