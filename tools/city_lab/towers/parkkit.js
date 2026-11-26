@@ -767,20 +767,20 @@ function parkKit(K0) {
         for (const yaw of [yaw0, yaw0 + Math.PI / 2]) {
           if (!rectAll(cx, cz, yaw, -hu - 0.8, -hv - 0.8, hu + 0.8, hv + 0.8, (x, z) => cellOk(S, x, z, 0.6) && S.dOut[S.kAt(x, z)] >= 2.5)) continue;
           if (w === 'playground') {
-            pad(cx, cz, yaw, hu, hv, -0.02, 0.06, K.SOIL); pad(cx, cz, yaw, hu - 0.25, hv - 0.25, -0.02, 0.075, R() < 0.5 ? K.WOOD : BM.WOOD);
+            pad(cx, cz, yaw, hu, hv, -0.02, 0.06, K.SOIL); pad(cx, cz, yaw, hu - 0.25, hv - 0.25, -0.02, 0.09, R() < 0.5 ? K.WOOD : BM.WOOD);
             const pg = itemModel(C, 'playground', Math.floor(R() * 3));
-            put(pg.mesh, cx, 0.075 + sink(S, cx, cz, 5), cz, yaw + (R() < 0.5 ? 0 : Math.PI), 0.125, 0.125);
+            put(pg.mesh, cx, 0.09 + sink(S, cx, cz, 5), cz, yaw + (R() < 0.5 ? 0 : Math.PI), 0.125, 0.125);
             S.tall.push([cx, cz, Math.hypot(hu, hv) * 0.8]);
           } else if (w === 'court') {
             const cm = pick(R, [K.ASPH, K.SGREEN, BM.SLATE || K.SLATE]);
             pad(cx, cz, yaw, hu, hv, -0.02, 0.05, cm);
-            // painted lines: a 0.12 m border and a key, 1 cm proud of the court
+            // painted lines: a 0.12 m border and a key, 2.5 cm proud of the court (less fights the court in the depth buffer)
             const lm = K.PWHITE, c = Math.cos(yaw), s = Math.sin(yaw), Wp = (u, v) => [cx + u * c - v * s, cz + u * s + v * c];
             for (const [u, v, a, bb] of [[0, -hv + 0.3, hu - 0.3, 0.06], [0, hv - 0.3, hu - 0.3, 0.06], [-hu + 0.3, 0, 0.06, hv - 0.3], [hu - 0.3, 0, 0.06, hv - 0.3], [hu - 2.9, 0, 0.06, 1.8], [hu - 1.6, -1.8, 1.3, 0.06], [hu - 1.6, 1.8, 1.3, 0.06]]) {
-              const p = Wp(u, v); pad(p[0], p[1], yaw, a, bb, 0.03, 0.06, lm);
+              const p = Wp(u, v); pad(p[0], p[1], yaw, a, bb, 0.03, 0.075, lm);
             }
             const hp = itemModel(C, 'hoop'), p = Wp(hu - 0.55, 0);
-            put(hp.mesh, p[0], 0.06 + sink(S, p[0], p[1], 1), p[1], faceYaw(-c, -s), 0.125, 0.125);
+            put(hp.mesh, p[0], 0.075 + sink(S, p[0], p[1], 1), p[1], faceYaw(-c, -s), 0.125, 0.125);
             S.tall.push([cx, cz, Math.hypot(hu, hv) * 0.75]);
           } else {
             for (const [u, v] of [[-1.4, 0], [1.4, 0]]) { const c = Math.cos(yaw), s = Math.sin(yaw); placeItem(S, 'picnic', Math.floor(R() * 3), cx + u * c - v * s, cz + u * s + v * c, yaw, 0.2); }
@@ -963,11 +963,14 @@ function parkKit(K0) {
       const cx = ex + nx0 * dp / 2, cz = ez + nz0 * dp / 2, yaw = Math.atan2(tz, tx);
       const pm = pick(R, [K.PLAZA, K.PLAZA, K.CONC, BM.BRICK_RED]), em = pm === K.CONC ? K.PLAZA : K.CONC;
       pad(cx, cz, yaw, hw, dp / 2, -0.02, 0.05, em);
-      pad(cx, cz, yaw, hw - 0.35, dp / 2 - 0.35, -0.02, 0.06, pm);
+      // the field stands 3.5 cm proud of its edge band: stacked surfaces closer than ~2 cm fight in the depth buffer
+      // at RTS distance (dev/groundfight.js --self)
+      const PT = 0.085;
+      pad(cx, cz, yaw, hw - 0.35, dp / 2 - 0.35, -0.02, PT, pm);
       markRect(S, cx, cz, yaw, -hw - 0.3, -dp / 2 - 0.3, hw + 0.3, dp / 2 + 0.3);
       // undo the mark so items can stand on the pad: items check their own free cells via a pad-local list
       const U = (u, v) => [ex + tx * u + nx0 * v, ez + tz * u + nz0 * v];
-      const put2 = (name, u, v, yawI) => { const it = itemModel(C, name, Math.floor(R() * 3)), p = U(u, v); put(it.mesh, p[0], 0.06 + sink(S, p[0], p[1], 1.2), p[1], yawI, it.sc, it.sc); info.items.push(name); return p; };
+      const put2 = (name, u, v, yawI) => { const it = itemModel(C, name, Math.floor(R() * 3)), p = U(u, v); put(it.mesh, p[0], PT + sink(S, p[0], p[1], 1.2), p[1], yawI, it.sc, it.sc); info.items.push(name); return p; };
       // planters with trees along the back edge, benches between them facing the street
       // three layouts: trees in raised planters, trees in grates flush with the paving, or a fountain in the middle
       const style = hw >= 5 && dp >= 7.5 && R() < 0.4 ? 'fountain' : R() < 0.5 ? 'planters' : 'grates';
@@ -987,14 +990,14 @@ function parkKit(K0) {
         if (style === 'fountain' && i > 0 && i < n - 1) continue;
         if (style === 'grates') {
           const p = U(u, v);
-          pad(p[0], p[1], yaw, 0.6, 0.6, -0.02, 0.07, K.POLE_D); pad(p[0], p[1], yaw, 0.45, 0.45, -0.02, 0.075, K.SOIL);
-          treeAt(p, 0.075, 0.85);
-        } else treeAt(put2('planter', u, v, yaw), 0.06 + 0.75, 0.75);
+          pad(p[0], p[1], yaw, 0.6, 0.6, -0.02, PT + 0.025, K.POLE_D); pad(p[0], p[1], yaw, 0.45, 0.45, -0.02, PT + 0.05, K.SOIL);
+          treeAt(p, PT + 0.05, 0.85);
+        } else treeAt(put2('planter', u, v, yaw), PT + 0.75, 0.75);
         if (i < n - 1 && dp >= 5 && style !== 'fountain') put2('bench', u + (2 * hw - 2.6) / Math.max(1, n - 1) / 2, dp - 1.9, faceYaw(-nx0, -nz0));
       }
       if (style === 'fountain') {
         const p = U(0, dp / 2 + 0.3), fm = itemModel(C, 'fountain', Math.floor(R() * 3));
-        put(fm.mesh, p[0], 0.06 + sink(S, p[0], p[1], 2), p[1], yaw, fm.sc, fm.sc); info.items.push('fountain');
+        put(fm.mesh, p[0], PT + sink(S, p[0], p[1], 2), p[1], yaw, fm.sc, fm.sc); info.items.push('fountain');
         for (const sgn of [-1, 1]) put2('bench', sgn * 3.6, dp / 2 + 0.3, faceYaw(-tx * sgn, -tz * sgn));
       }
       if (dp >= 7 && style !== 'fountain') { put2('bench', -hw + 1.0, dp / 2 - 0.5, faceYaw(tx, tz)); }

@@ -1,35 +1,31 @@
-// Traffic kit: the abandoned city after the evacuation. Static vehicle scenes on the roads.
+// Traffic kit: the abandoned city after the evacuation. Static vehicle scenes on the roads, GPU-instanced.
 //
 // CityArch.lib.trafficKit(K) -> stats      (called from buildAll after every other part, just before the cull pass)
-//   K = { PL, C, R, jobs, mb, hs, voxel }
+//   K = { PL, C, R, jobs, hs, voxel }. Nothing is emitted into the building mesh: stats.out holds
+//   { variants: [{ key, kind, n, bb, hi: {pos (m), mat, nrm, quads}, lo: {...} | null }], M (Float32Array, 12 per
+//   instance: 3x4 row-major model -> world transform, metres), vid (Uint16Array variant), paint (Uint8Array body
+//   paint palette id, 0 = keep), obb (Float32Array, 8 per instance: x, z, hx, hz, cos, sin, y0, y1), count, paintPH }.
+//   buildAll moves it to res.traffic; the worker posts it; city_lab.html draws one InstancedMesh per variant (hi near the
+//   camera, lo = 20 cm resample far away). Body-paint faces carry the placeholder material paintPH (VM.BROWN), which
+//   the shader swaps for the instance paint.
 //
-// 1. Evacuation jam. Through roads (arterials, collectors) running radially out of the city: the OUTBOUND lanes
-//    (direction away from net.origins.core) are bumper to bumper (1-2.5 m gaps, lateral / yaw jitter, now and then
-//    pushed onto the parking lane, doors open, a few left crossways), densest near the map edge and thinning towards
-//    the core; the downtown grid gets no jam. Inbound lanes stay empty except for a few emergency vehicles driving
-//    in against the flow. Junction boxes are kept clear, so every road stays passable.
-// 2. Set pieces (2-4 per city): rolled-over fuel tanker across a carriageway with a fuel spill and a burnt-out car,
-//    overturned garbage truck with spilled bags, crashed bus, police roadblock (cruisers angled, barriers, cones,
-//    a gap left open) at the head of the jam. Dozens of small incidents: pile-ups at junction approaches, cars nosed
-//    into lamps / hydrants, burnt-out wrecks with scorch marks, ambulances with open rear doors, cars abandoned on
-//    wide sidewalks at odd angles, delivery vans left open with their parcels on the road, luggage, debris.
-// 3. Vehicles: CityCore.Vehicles.model() when that library is loaded, else a local box-model fallback. Each
-//    (kind, paint, state, doors) variant is meshed once (meshVoxels3D) and emitted as rigidly rotated copies
-//    (yaw, plus a roll of 90 / 180 degrees for vehicles on their side / roof) straight into the building mesh.
-// 4. Placement: an occupancy grid (0.25 m) holds the building footprints (+3 m for stoops / canopies), every piece
-//    of street furniture (CityCore.placeProps is evaluated here with the final footprints and curb cuts, so the
-//    result is exactly what the page places afterwards, incl. the curb-parked vans) and every vehicle / prop placed
-//    so far. A vehicle is accepted only when its footprint (+0.25 m) is free and every sample of it (+0.15 m) is
-//    road-level carriageway (asphalt, paint, parking, crosswalk; never curb, gutter, median, driveway, alley) - or,
-//    for cars left on the sidewalk, sidewalk at curb height clear of the curb and the lot line.
-// 5. Flat decals (fuel spill, scorch, oil) are single up-facing quads, each 15-40 mm above the road at its own
-//    height within the scene (scenes never overlap), so nothing is coplanar with the road or with each other.
-// Deterministic per seed. Triangle budget: the jam stops at QUAD_BUDGET quads.
+// 1. Roads leaving the map: every lane is an outbound queue facing the exit (a roadblock thins it past its line).
+// 2. Arterials / collectors: congested both ways (heavier outbound, the core lighter); downtown keeps one lane empty
+//    and a gap every 4 cars. Junction boxes are always clear.
+// 3. Parking lanes: bumper to bumper on every street. 4. Local streets: stalled / abandoned / some wrecked cars.
+// 5. Set pieces (6-10): tanker rollovers, overturned garbage trucks, bus crashes, police roadblocks, ambulance
+//    clusters, a jackknifed semi. ~120-165 small incidents (pile-ups, cars into lamps / hydrants, burnt wrecks,
+//    ambulances, delivery vans, police stops, sidewalk cars, abandoned cars with luggage). No ground decals.
+// 6. Placement: exact oriented-box tests (separating axes) against every placed vehicle / prop (>= 0.15 m), building
+//    footprints (+0.3 m; sidewalk cars keep off the stoop zone), street furniture footprints from the prop meshes
+//    (parts below 2 m for cars, below 4.4 m for tall vehicles; placeProps evaluated with the final footprints and
+//    cuts), plus road-surface sampling (carriageway at road height, never curb / gutter / median / driveway / alley)
+//    and the world bounds minus 3 m. dev/traffic_check.js re-checks the output independently.
+// Deterministic per seed.
 (function () {
 'use strict';
 const A = self.CityArch, L = A.lib;
 const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]];
-const QUAD_BUDGET = 280000;                     // ~560 k triangles for the whole kit
 const M = {
   TIRE: 59, RIM: 130, GLASS: 147, HEAD: 57, TAIL: 60, AMBER: 61, BUMPER: 55, CHROME: 99, BLACK: 58, BURNT: 156, RUST: 72,
   WHITE: 64, SILVER: 108, GREY: 99, RED: 95, BRED: 63, NAVY: 105, LBLUE: 82, BLUE: 139, GREEN: 103, BEIGE: 81, YELLOW: 132,
@@ -241,118 +237,160 @@ function propModel(C, name, seed) {
 }
 
 // ------------------------------------------------------------------------------------------ the kit
+// ------------------------------------------------------------------------------------------ the kit
+let PROP_FP = null;      // street-furniture footprints from the prop meshes: type -> { lo: [x0,x1,z0,z1] below 2 m, hi: below 4.4 m }
+function propFootprints(C) {
+  if (PROP_FP) return PROP_FP;
+  PROP_FP = {};
+  const PM = C.buildPropMeshes();
+  for (const t in PM) {
+    const m = PM[t], P = m.pos, nq = P.length / 12;
+    const lo = [1e9, -1e9, 1e9, -1e9], hi = [1e9, -1e9, 1e9, -1e9];
+    for (let q = 0; q < nq; ++q) {
+      let y0 = 1e9; for (let k = 0; k < 4; ++k) y0 = Math.min(y0, P[q * 12 + k * 3 + 1]);
+      for (const [B, lim] of [[lo, 2.0], [hi, 4.4]]) {
+        if (y0 >= lim) continue;
+        for (let k = 0; k < 4; ++k) { const x = P[q * 12 + k * 3], z = P[q * 12 + k * 3 + 2]; B[0] = Math.min(B[0], x); B[1] = Math.max(B[1], x); B[2] = Math.min(B[2], z); B[3] = Math.max(B[3], z); }
+      }
+    }
+    PROP_FP[t] = { lo: lo[0] < 1e8 ? lo : null, hi: hi[0] < 1e8 ? hi : null };
+  }
+  return PROP_FP;
+}
+// 2D oriented boxes { x, z, hx, hz, c, s }: separated by more than gap (separating axis test)
+function obbGap(a, b, gap) {
+  const dx = b.x - a.x, dz = b.z - a.z;
+  for (const [ux, uz] of [[a.c, a.s], [-a.s, a.c], [b.c, b.s], [-b.s, b.c]]) {
+    const ra = a.hx * Math.abs(a.c * ux + a.s * uz) + a.hz * Math.abs(-a.s * ux + a.c * uz);
+    const rb = b.hx * Math.abs(b.c * ux + b.s * uz) + b.hz * Math.abs(-b.s * ux + b.c * uz);
+    if (Math.abs(dx * ux + dz * uz) > ra + rb + gap) return true;
+  }
+  return false;
+}
+
 function trafficKit(K) {
-  const { PL, C, R, jobs, mb, hs, voxel } = K;
+  const { PL, C, R, jobs, hs, voxel } = K;
   if (!PL || !PL.net || !PL.net.roads || PL.net.kind === 'test') return null;
-  const t0 = Date.now(), q0 = mb.quads;
+  const t0 = Date.now();
   const net = PL.net, F = R.F, seed = (PL.seed || net.seed || 1) >>> 0;
   const MAT = C.MAT;
-  const stats = { jam: 0, emergency: 0, sets: [], incidents: {}, props: 0, decals: 0, vehicles: 0, quads: 0, ms: 0, capped: false, propMs: 0 };
+  const stats = { jam: 0, exit: 0, arterial: 0, parked: 0, stalled: 0, emergency: 0, sets: [], incidents: {}, props: 0, vehicles: 0, ms: 0, propMs: 0, meshMs: 0, fail: {}, hitK: {}, lane: {} };
   const inc = (k) => { stats.incidents[k] = (stats.incidents[k] || 0) + 1; };
   const core = (net.origins && net.origins.core) || [0, 0];
   const b = net.bounds;
 
-  // ---- library or fallback, cached meshes
+  // ---- variants: one mesh per (kind, state, doors, lights, variant, rolled); body paint per instance
   const VEH = C.Vehicles || (self.CityCore && self.CityCore.Vehicles) || null;
-  const cache = new Map();
+  const cache = new Map(), variants = [];
   const PAINT_PH = C.VM ? C.VM.BROWN : -1;
   const LIVERY = new Set(['taxi', 'police', 'ambulance', 'fire_engine', 'school_bus', 'city_bus', 'garbage_truck', 'fuel_tanker', 'tanker_cab', 'tanker_trailer']);
-  // o: { ps (paint seed), seed (variant 0..3), state, doors, lights, lod (jam: 10 cm resample of the 5 cm model) }
+  // quad mesh (pos in model units, scaled by f to metres) -> compact typed arrays; bottom faces on y = 0 dropped
+  // unless the variant is used rolled over
+  const pack = (m, f, keepBottom) => {
+    const nq = m.quads, keep = [];
+    for (let q = 0; q < nq; ++q) {
+      if (!keepBottom && m.nrm[q * 4] === 5) { let g = true; for (let k = 0; k < 4; ++k) if (m.pos[q * 12 + k * 3 + 1] * f > 1e-4) g = false; if (g) continue; }
+      keep.push(q);
+    }
+    const pos = new Float32Array(keep.length * 12), mat = new Uint8Array(keep.length * 4), nrm = new Uint8Array(keep.length * 4);
+    keep.forEach((q, i) => { for (let k = 0; k < 12; ++k) pos[i * 12 + k] = m.pos[q * 12 + k] * f; for (let k = 0; k < 4; ++k) { mat[i * 4 + k] = m.mat[q * 4 + k]; nrm[i * 4 + k] = m.nrm[q * 4 + k]; } });
+    return { pos, mat, nrm, quads: keep.length };
+  };
+  const bboxOf = (g) => {
+    let x0 = 1e9, x1 = -1e9, y1 = 0, z0 = 1e9, z1 = -1e9;
+    for (let i = 0; i < g.pos.length; i += 3) { const x = g.pos[i], y = g.pos[i + 1], z = g.pos[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+    return { x0, x1, y1, z0, z1 };
+  };
+  // o: { ps (paint seed), seed (variant), state, doors, lights, roll (used rolled over) }
   const vehicle = (kind, o) => {
-    // the body paint is applied at emission: one mesh per (kind, state, doors, lights, variant, lod), painted in a
-    // placeholder colour (VM.BROWN) that is swapped for the chosen paint per copy
     const info0 = VEH && VEH.INFO && VEH.INFO[kind];
     const want = !VEH || LIVERY.has(kind) || !info0 ? 0 : (info0.cls === 'car' ? VEH.paints.pick(o.ps | 0) : VEH.paints.pickFleet(o.ps | 0));
-    const key = kind + '|' + o.state + '|' + (o.doors ? 1 : 0) + '|' + (o.lights ? 1 : 0) + '|' + (o.seed & 3) + '|' + (o.lod ? 1 : 0) + (VEH ? '' : '|' + (o.ps | 0));
+    const key = kind + '|' + o.state + '|' + (o.doors || 0) + '|' + (o.lights ? 1 : 0) + '|' + ((o.seed | 0) & 3) + '|' + (o.roll ? 1 : 0) + (VEH ? '' : '|' + (o.ps | 0));
     let v = cache.get(key);
-    if (v) return want ? Object.assign({}, v, { paint: want }) : v;
-    let mesh = null, sc = VS;
-    const tm = Date.now();
-    if (VEH && VEH.model) {
-      try {
-        const info = VEH.INFO && VEH.INFO[kind];
-        const paint = LIVERY.has(kind) || !info ? undefined : PAINT_PH;
-        const opts = { seed: o.seed & 3, state: o.state === 'rolled' ? 'crashed' : o.state, doors: !!o.doors, lights: !!o.lights };
-        if (paint !== undefined) opts.paint = paint;
-        if (o.lod) { mesh = C.meshVoxels3D(half(VEH.model(kind, opts).M)); sc = 2 * C.PV; }
-        else { mesh = VEH.mesh(kind, opts).mesh; sc = C.PV; }
-      } catch (e) { mesh = null; }
+    if (!v) {
+      const tm = Date.now();
+      let Mv = null, f = 1;
+      if (VEH && VEH.model) {
+        try {
+          const info = VEH.INFO && VEH.INFO[kind];
+          const opts = { seed: (o.seed | 0) & 3, state: o.state === 'rolled' ? 'crashed' : o.state, doors: !!o.doors, lights: !!o.lights };
+          if (!(LIVERY.has(kind) || !info)) opts.paint = PAINT_PH;
+          Mv = VEH.model(kind, opts).M;
+        } catch (e) { Mv = null; }
+      }
+      if (!Mv) { const mdl = fallbackModel(C, kind, { paint: PAINTS[(o.ps | 0) % PAINTS.length], seed: (o.seed | 0) & 3, state: o.state === 'rolled' ? 'crashed' : o.state, doors: o.doors === true ? 'side' : o.doors, lights: o.lights }); Mv = mdl.M; f = mdl.sc / C.PV; }
+      // hi: 10 cm resample of the 5 cm library model (near the camera), lo: 20 cm (far)
+      const H = half(Mv);
+      const hi = pack(C.meshVoxels3D(H), 2 * f, !!o.roll);
+      const lo = o.roll ? pack(C.meshVoxels3D(half(H)), 4 * f, true) : proxy(bboxOf(hi), kind, o.state);
+      v = { id: variants.length, key, kind, hi, lo, bb: bboxOf(hi), n: 0 };
+      variants.push(v); cache.set(key, v);
+      stats.meshMs += Date.now() - tm;
     }
-    if (!mesh) { const mdl = fallbackModel(C, kind, { paint: PAINTS[(o.ps | 0) % PAINTS.length], seed: o.seed & 3, state: o.state === 'rolled' ? 'crashed' : o.state, doors: o.doors === true ? 'side' : o.doors, lights: o.lights }); mesh = C.meshVoxels3D(mdl.M); sc = mdl.sc; }
-    v = { mesh, sc, bb: meshBox(mesh, sc / C.PV), kind };
-    cache.set(key, v);
-    stats.meshMs = (stats.meshMs || 0) + Date.now() - tm;
-    return want ? Object.assign({}, v, { paint: want }) : v;
+    return { v, bb: v.bb, paint: want, kind };
   };
-  // 2x resample of a VoxModel (jam vehicles: about a quarter of the faces); a cell is solid when >= 4 of its 8
-  // children are, with their most common material
+  // far LOD: a handful of boxes (25 cm voxels) - body in the paint placeholder (livery kinds: white / their colour),
+  // dark cabin glass, dark wheels; burnt wrecks charred
+  const PROXY_BODY = { taxi: 171, police: 160, ambulance: 160, fire_engine: 173, school_bus: 172, city_bus: 160, garbage_truck: 193, fuel_tanker: 191, tanker_cab: 160, tanker_trailer: 191 };
+  const proxy = (bb, kind, state) => {
+    const Q = 0.25, x0 = Math.round(bb.x0 / Q), x1 = Math.round(bb.x1 / Q), z0 = Math.round(bb.z0 / Q), z1 = Math.round(bb.z1 / Q), h = Math.max(2, Math.round(bb.y1 / Q));
+    const Vm = new C.VoxModel(x1 - x0 + 2, h + 1, z1 - z0 + 2, -x0 + 1, -z0 + 1);
+    const burnt = state === 'burnt', dark = C.VM ? C.VM.TYRE : 58;
+    let body = burnt ? (C.VM ? C.VM.CHAR : 156) : (PROXY_BODY[kind] !== undefined && C.VM ? PROXY_BODY[kind] : PAINT_PH);
+    if (body < 0) body = 160;
+    const glass = burnt ? dark : (C.VM && C.VM.GLASS !== undefined ? C.VM.GLASS : 200);
+    const info = VEH && VEH.INFO && VEH.INFO[kind], car = info && info.cls === 'car';
+    const B = (a, b2, c, d, e, f2, m) => Vm.box(a, b2, c, d, e, f2, m);
+    const wy = 2;
+    B(x0, 1, z0, x1, car ? Math.max(wy + 1, Math.round(h * 0.55)) : h - 1, z1, body);
+    if (car) { const c0 = x0 + Math.round((x1 - x0) * 0.25), c1 = x1 - Math.round((x1 - x0) * 0.3); B(c0, Math.round(h * 0.55), z0 + 0, c1, h, z1, glass); B(c0 + 1, h - 1, z0, c1 - 1, h, z1, body); }
+    else { B(x1 - 2, Math.round(h * 0.45), z0, x1, h - 2, z1, glass); B(x0, h - 1, z0, x1 - (h > 8 ? 0 : 2), h, z1, body); }
+    for (const wx of [x0 + 2, x1 - 3]) { B(wx - 1, 0, z0, wx + 1, wy, z0 + 1, dark); B(wx - 1, 0, z1 - 1, wx + 1, wy, z1, dark); }
+    return pack(C.meshVoxels3D(Vm), Q / C.PV, false);
+  };
+  // 2x resample of a VoxModel (low LOD): a cell is solid when >= 4 of its 8 children are, most common material
   function half(S) {
     const w = Math.ceil(S.w / 2), h = Math.ceil(S.h / 2), d = Math.ceil(S.d / 2);
-    const D = new C.VoxModel(w, h, d, S.ox / 2, S.oz / 2);
-    const cnt = new Map();
+    const D = new C.VoxModel(w, h, d, Math.floor(S.ox / 2), Math.floor(S.oz / 2));
+    const mv = new Int32Array(8), Sv = S.v, Sw = S.w, Sh = S.h, Sd = S.d;
     for (let y = 0; y < h; ++y) for (let z = 0; z < d; ++z) for (let x = 0; x < w; ++x) {
-      cnt.clear(); let n = 0, best = 0, bm = 0;
+      let n = 0;
       for (let k = 0; k < 8; ++k) {
-        const m = S.at(2 * x + (k & 1), 2 * y + ((k >> 1) & 1), 2 * z + (k >> 2));
-        if (!m) continue; ++n;
-        const c = (cnt.get(m) || 0) + 1; cnt.set(m, c); if (c > best) { best = c; bm = m; }
+        const X = 2 * x + (k & 1), Y = 2 * y + ((k >> 1) & 1), Z = 2 * z + (k >> 2);
+        if (X >= Sw || Y >= Sh || Z >= Sd) continue;
+        const m = Sv[(Y * Sd + Z) * Sw + X];
+        if (m) mv[n++] = m;
       }
-      if (n >= 4 || (y === 0 && n >= 2)) D.v[(y * d + z) * w + x] = bm;
+      if (!(n >= 4 || (y === 0 && n >= 2))) continue;
+      let bm = 0, best = 0;
+      for (let i = 0; i < n; ++i) { let c = 0; for (let j = 0; j < n; ++j) if (mv[j] === mv[i]) ++c; if (c > best) { best = c; bm = mv[i]; } }
+      D.v[(y * d + z) * w + x] = bm;
     }
     return D;
   }
   const prop = (name, vr) => {
     const key = 'p|' + name + '|' + vr;
     let v = cache.get(key);
-    if (v) return v;
+    if (v) return { v, bb: v.bb, paint: 0 };
     const p = propModel(C, name, 977 * vr + 13);
-    const mesh = C.meshVoxels3D(p.M);
-    v = { mesh, sc: p.sc, bb: meshBox(mesh, p.sc / C.PV) };
-    cache.set(key, v);
-    return v;
+    const hi = pack(C.meshVoxels3D(p.M), p.sc / C.PV, false);
+    v = { id: variants.length, key, kind: 'prop:' + name, hi, lo: null, bb: bboxOf(hi), n: 0 };
+    variants.push(v); cache.set(key, v);
+    return { v, bb: v.bb, paint: 0 };
   };
-  function meshBox(m, f) {
-    let x0 = 1e9, x1 = -1e9, y1 = 0, z0 = 1e9, z1 = -1e9;
-    for (let i = 0; i < m.quads * 4; ++i) { const x = m.pos[i * 3] * f, y = m.pos[i * 3 + 1] * f, z = m.pos[i * 3 + 2] * f; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y1 = Math.max(y1, y); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
-    return { x0, x1, y1, z0, z1 };
-  }
 
-  // ---- emission (world metres; y relative to the road surface y = 0)
-  const quadW = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, m, Nx, Ny, Nz) => {
-    const v = voxel;
-    const Ax = ax / v, Ay = ay / v, Az = az / v, Bx = bx / v, By = by / v, Bz = bz / v;
-    const Cx = cx / v, Cy = cy / v, Cz = cz / v, Dx = dx / v, Dy = dy / v, Dz = dz / v;
-    const ux = Bx - Ax, uy = By - Ay, uz = Bz - Az, vx = Cx - Ax, vy = Cy - Ay, vz = Cz - Az;
-    const crx = uy * vz - uz * vy, cry = uz * vx - ux * vz, crz = ux * vy - uy * vx;
-    if (crx * Nx + cry * Ny + crz * Nz < 0) mb.quadN(Ax, Ay, Az, Dx, Dy, Dz, Cx, Cy, Cz, Bx, By, Bz, m, Nx, Ny, Nz);
-    else mb.quadN(Ax, Ay, Az, Bx, By, Bz, Cx, Cy, Cz, Dx, Dy, Dz, m, Nx, Ny, Nz);
+  // ---- instances: 3x4 row-major transform (model metres -> world metres), variant, paint, footprint
+  const inst = [];
+  const rollM = (roll, bb) => roll === 1 ? [1, 0, 0, 0, 0, 0, 1, -bb.z0, 0, -1, 0, bb.y1 / 2] : roll === 2 ? [1, 0, 0, 0, 0, -1, 0, bb.y1, 0, 0, -1, 0] : [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  const put = (V, x, y, z, yaw, roll, fp) => {
+    const c = Math.cos(yaw), s = Math.sin(yaw), Rm = rollM(roll || 0, V.bb);
+    const Y = [c, 0, -s, x, 0, 1, 0, y, s, 0, c, z], M = new Array(12);
+    for (let i = 0; i < 3; ++i) for (let j = 0; j < 4; ++j) M[i * 4 + j] = Y[i * 4] * Rm[j] + Y[i * 4 + 1] * Rm[4 + j] + Y[i * 4 + 2] * Rm[8 + j] + (j === 3 ? Y[i * 4 + 3] : 0);
+    const h = roll === 1 ? V.bb.z1 - V.bb.z0 : V.bb.y1;
+    inst.push({ v: V.v.id, M, paint: V.paint || 0, fp, y, h });
+    V.v.n++;
   };
-  // model point (u along +x, w up, v along +z) -> rolled about +x by roll (0, 1 = on its side, 2 = on its roof)
-  const rollP = (u, w, v, roll, bb) => {
-    if (roll === 1) return [u, v - bb.z0, bb.y1 / 2 - w];
-    if (roll === 2) return [u, bb.y1 - w, -v];
-    return [u, w, v];
-  };
-  const put = (V, x, y, z, yaw, roll) => {
-    roll = roll || 0;
-    const m = V.mesh, c = Math.cos(yaw), s = Math.sin(yaw), P = m.pos, f = V.sc / C.PV, bb = V.bb;
-    const X = new Float64Array(4), Y = new Float64Array(4), Z = new Float64Array(4);
-    for (let q = 0; q < m.quads; ++q) {
-      const n = m.nrm[q * 4], o = q * 12;
-      let N = NV[n];
-      N = roll === 1 ? [N[0], N[2], -N[1]] : roll === 2 ? [N[0], -N[1], -N[2]] : N;
-      let ground = true;
-      for (let i = 0; i < 4; ++i) {
-        const p = rollP(P[o + i * 3] * f, P[o + i * 3 + 1] * f, P[o + i * 3 + 2] * f, roll, bb);
-        X[i] = x + p[0] * c - p[2] * s; Y[i] = y + p[1]; Z[i] = z + p[0] * s + p[2] * c;
-        if (p[1] > 1e-6) ground = false;
-      }
-      if (ground && N[1] < -0.5) continue;                       // rests on the road
-      let mt = m.mat[q * 4]; if (V.paint && mt === PAINT_PH) mt = V.paint;
-      quadW(X[0], Y[0], Z[0], X[1], Y[1], Z[1], X[2], Y[2], Z[2], X[3], Y[3], Z[3], mt, N[0] * c - N[2] * s, N[1], N[0] * s + N[2] * c);
-    }
-  };
-  // footprint of a placed model: [cx, cz, hx (half along), hz (half across), yaw] in world metres
+  // footprint of a placed model: { x, z, hx, hz, c, s } in world metres
   const fpOf = (V, x, z, yaw, roll) => {
     const bb = V.bb;
     let lx0 = bb.x0, lx1 = bb.x1, lz0 = bb.z0, lz1 = bb.z1;
@@ -362,59 +400,68 @@ function trafficKit(K) {
     return { x: x + mx * c - mz * s, z: z + mx * s + mz * c, hx: (lx1 - lx0) / 2, hz: (lz1 - lz0) / 2, c, s };
   };
 
-  // ---- occupancy grid (0.25 m): 1 = taken, 2 = near a building (sidewalk cars keep off)
-  const G = 0.25, gx0 = b.x0 - 4, gz0 = b.z0 - 4, gw = Math.ceil((b.x1 - b.x0 + 8) / G), gd = Math.ceil((b.z1 - b.z0 + 8) / G);
-  const grid = new Uint8Array(gw * gd);
-  const stampRect = (cx, cz, hx, hz, c, s, val, pad) => {
-    const ex = hx + pad, ez = hz + pad, rx = Math.abs(c) * ex + Math.abs(s) * ez, rz = Math.abs(s) * ex + Math.abs(c) * ez;
-    const i0 = Math.max(0, Math.floor((cx - rx - gx0) / G)), i1 = Math.min(gw - 1, Math.floor((cx + rx - gx0) / G));
-    const j0 = Math.max(0, Math.floor((cz - rz - gz0) / G)), j1 = Math.min(gd - 1, Math.floor((cz + rz - gz0) / G));
-    let hit = 0;
-    for (let j = j0; j <= j1; ++j) for (let i = i0; i <= i1; ++i) {
-      const px = gx0 + (i + 0.5) * G - cx, pz = gz0 + (j + 0.5) * G - cz;
-      const a = px * c + pz * s, d = -px * s + pz * c;
-      if (Math.abs(a) > ex || Math.abs(d) > ez) continue;
-      if (val) grid[j * gw + i] |= val; else hit |= grid[j * gw + i];
+  // ---- obstacle index: oriented boxes in an 8 m hash. kind bits: 1 building, 2 building stoop zone,
+  // 4 street furniture (low parts), 8 street furniture (up to 4.4 m), 16 placed vehicle / prop
+  const HC = 8, hash = new Map();
+  const hk = (i, j) => i * 65536 + j;
+  const addObb = (o, k) => {
+    o.k = k;
+    const r = Math.abs(o.c) * o.hx + Math.abs(o.s) * o.hz + 0.01, q = Math.abs(o.s) * o.hx + Math.abs(o.c) * o.hz + 0.01;
+    for (let i = Math.floor((o.x - r) / HC); i <= Math.floor((o.x + r) / HC); ++i) for (let j = Math.floor((o.z - q) / HC); j <= Math.floor((o.z + q) / HC); ++j) {
+      const key = hk(i, j); let l = hash.get(key); if (!l) hash.set(key, l = []); l.push(o);
     }
-    return hit;
   };
-  // building footprints (+3 m: stoops, canopies, porches)
+  const hitObb = (fp, gap, mask) => {
+    const r = Math.abs(fp.c) * fp.hx + Math.abs(fp.s) * fp.hz + gap + 0.01, q = Math.abs(fp.s) * fp.hx + Math.abs(fp.c) * fp.hz + gap + 0.01;
+    for (let i = Math.floor((fp.x - r) / HC); i <= Math.floor((fp.x + r) / HC); ++i) for (let j = Math.floor((fp.z - q) / HC); j <= Math.floor((fp.z + q) / HC); ++j) {
+      const l = hash.get(hk(i, j)); if (!l) continue;
+      for (const o of l) if ((o.k & mask) && !obbGap(fp, o, gap)) { stats.hitK[o.k + (o.t ? ':' + o.t : '')] = (stats.hitK[o.k + (o.t ? ':' + o.t : '')] || 0) + 1; return true; }
+    }
+    return false;
+  };
+  // building footprints (+0.3 m) and their stoop / canopy zone (+3 m rows and houses, +1 m others)
   for (const J of jobs) {
     const w = J.W * 0.25, d = J.D * 0.25, cx = J.O[0] + J.e1[0] * w / 2 + J.e2[0] * d / 2, cz = J.O[1] + J.e1[1] * w / 2 + J.e2[1] * d / 2;
-    stampRect(cx, cz, w / 2, d / 2, J.e1[0], J.e1[1], 1, 0.3);
-    const stoops = J.kind === 'row' || J.kind === 'house' || J.type === 'prewar_apartment';
-    stampRect(cx, cz, w / 2, d / 2, J.e1[0], J.e1[1], 2, stoops ? 3.0 : 1.0);
+    const n = Math.hypot(J.e1[0], J.e1[1]) || 1, c = J.e1[0] / n, s = J.e1[1] / n;
+    addObb({ x: cx, z: cz, hx: w / 2 + 0.3, hz: d / 2 + 0.3, c, s }, 1);
+    const st = J.kind === 'row' || J.kind === 'house' || J.type === 'prewar_apartment' ? 3.0 : 1.0;
+    addObb({ x: cx, z: cz, hx: w / 2 + st, hz: d / 2 + st, c, s }, 2);
   }
-  // street furniture, exactly as the page will place it (final footprints, final curb cuts)
+  // driveway curb cuts: the parking lane in front of each stays clear (box from the lot line across the sidewalk
+  // and the parking lane, both normal signs: the building side is blocked anyway)
+  for (const ct of (R.cuts || [])) {
+    const mx = (ct.ax + ct.bx) / 2, mz = (ct.az + ct.bz) / 2, w = Math.hypot(ct.bx - ct.ax, ct.bz - ct.az) / 2 + 0.6;
+    const nl = Math.hypot(ct.nx, ct.nz) || 1, nx = ct.nx / nl, nz = ct.nz / nl, ext = (ct.depth || 4) + 2.0;
+    for (const sg of [1, -1]) addObb({ x: mx + sg * nx * ext / 2, z: mz + sg * nz * ext / 2, hx: ext / 2, hz: w, c: sg * nx, s: sg * nz }, 1);
+    stats.cuts = (stats.cuts || 0) + 1;
+  }
+  // street furniture, exactly as the page will place it (final footprints, final curb cuts), from the prop meshes
   const tp = Date.now();
   let props = [];
   try {
     const footprints = jobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind, type: J.type }));
     props = C.placeProps({ net, F, R, voxel, footprints });
   } catch (e) { props = []; }
-  stats.propMs = Date.now() - tp;
-  const PR = { lamp: 0.5, lamp2: 0.6, hydrant: 0.45, signal: 0.6, signalLong: 0.6, signalL: 0.6, signalLongL: 0.6, stop: 0.4, tree: 1.6, bench: 1.1,
-    hotdog: 1.2, newsstand: 1.6, cafe: 1.5, busstop: 2.3, busSign: 0.35, bikerack: 1.3, bikerackBike: 1.3, news3: 1.0, news4: 1.2, cabinet: 0.8 };
+  const PFP = propFootprints(C);
   const lampsAndHydrants = [];
   for (const p of props) {
-    if (/^(van|truck|rolloff)/.test(p.type)) {
-      const half = p.type.startsWith('truck') ? 3.9 : p.type.startsWith('van') ? 2.95 : 3.1;
-      stampRect(p.x, p.z, half + 0.2, 1.3, Math.cos(p.yaw), -Math.sin(p.yaw), 1, 0);
-      continue;
-    }
-    const r = PR[p.type] || 0.6;
-    stampRect(p.x, p.z, r, r, 1, 0, 1, 0);
+    const fpp = PFP[p.type]; if (!fpp) continue;
+    const c = Math.cos(p.yaw), s = -Math.sin(p.yaw);     // prop model +x -> world (cos yaw, -sin yaw)
+    const box = (B) => { const cu = (B[0] + B[1]) / 2, cv = (B[2] + B[3]) / 2; return { x: p.x + cu * c - cv * s, z: p.z + cu * s + cv * c, hx: (B[1] - B[0]) / 2, hz: (B[3] - B[2]) / 2, c, s }; };
+    if (fpp.lo) addObb(Object.assign(box(fpp.lo), { t: p.type }), 4);
+    if (fpp.hi) addObb(Object.assign(box(fpp.hi), { t: p.type }), 8);
     if (p.type === 'lamp' || p.type === 'hydrant') lampsAndHydrants.push(p);
   }
+  stats.propMs = Date.now() - tp;
 
   // ---- surface tests
   const o = {}, cls = [0, 0];
-  const ROADM = new Set([MAT.ASPHALT, MAT.ASPHALT_B, MAT.ASPHALT_C, MAT.PAINT_WHITE, MAT.PAINT_YELLOW, MAT.PARKING, MAT.CROSSWALK]);
+  const ROADM = new Set([MAT.ASPHALT, MAT.ASPHALT_B, MAT.ASPHALT_C, MAT.PAINT_WHITE, MAT.PAINT_YELLOW, MAT.PARKING, MAT.CROSSWALK, MAT.GUTTER]);
   const WALKM = new Set([MAT.SIDEWALK, MAT.SIDEWALK_JOINT]);
-  const surfOK = (fp, pad, walk) => { const ts = Date.now(); const r = surfOK0(fp, pad, walk); stats.surfMs = (stats.surfMs || 0) + Date.now() - ts; return r; };
-  const surfOK0 = (fp, pad, walk) => {
-    const ex = fp.hx + pad, ez = fp.hz + pad, nu = Math.max(2, Math.ceil(ex / 0.6)), nv = Math.max(2, Math.ceil(ez / 0.6));
+  const surfOK = (fp, pad, walk) => {
+    const ex = fp.hx + pad, ez = fp.hz + pad, nu = Math.max(2, Math.ceil(ex / 0.8)), nv = Math.max(2, Math.ceil(ez / 0.7));
     for (let a = -nu; a <= nu; ++a) for (let d = -nv; d <= nv; ++d) {
+      if (a > -nu && a < nu && d > -nv && d < nv && ((a + d) & 1)) continue;      // interior: checkerboard
       const u = a / nu * ex, v = d / nv * ez;
       const x = fp.x + u * fp.c - v * fp.s, z = fp.z + u * fp.s + v * fp.c;
       R.classify(x, z, o, cls);
@@ -426,9 +473,7 @@ function trafficKit(K) {
     }
     return true;
   };
-  // place a vehicle / prop if it fits; returns the footprint or null
-  let budgetHit = false;
-  // every corner of a footprint inside the world bounds minus m metres (roads run on past the map edge)
+  // every corner of a footprint inside the world bounds minus m metres
   const inside = (fp, m) => {
     for (const [a, d] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
       const x = fp.x + a * fp.hx * fp.c - d * fp.hz * fp.s, z = fp.z + a * fp.hx * fp.s + d * fp.hz * fp.c;
@@ -436,44 +481,26 @@ function trafficKit(K) {
     }
     return true;
   };
+  // place a vehicle / prop if it fits; returns the footprint or null. Every vehicle keeps >= 0.15 m (gap) from
+  // every other vehicle / prop, from the street furniture and from building footprints (+0.3 m)
   const tryPlace = (V, x, z, yaw, roll, opt) => {
     opt = opt || {};
     const fp = fpOf(V, x, z, yaw, roll || 0);
-    const gap = opt.gap === undefined ? 0.25 : opt.gap;
-    if (!inside(fp, opt.edge || 1)) return null;
-    if (stampRect(fp.x, fp.z, fp.hx, fp.hz, fp.c, fp.s, 0, gap) & (opt.walk ? 3 : 1)) return null;
-    if (!surfOK(fp, opt.walk ? 0.2 : 0.15, !!opt.walk)) return null;
+    const gap = Math.max(0.15, opt.gap === undefined ? 0.2 : opt.gap);
+    if (!inside(fp, Math.max(3, opt.edge || 3))) { stats.fail.out = (stats.fail.out || 0) + 1; return null; }
+    const h = roll === 1 ? V.bb.z1 - V.bb.z0 : V.bb.y1;
+    if (hitObb(fp, gap, 16 | 1 | (h > 1.95 ? 8 : 4) | (opt.walk ? 2 : 0))) { stats.fail.obb = (stats.fail.obb || 0) + 1; return null; }
+    if (!surfOK(fp, opt.walk ? 0.2 : 0.15, !!opt.walk)) { stats.fail.surf = (stats.fail.surf || 0) + 1; return null; }
     if (opt.dry) return fp;
-    stampRect(fp.x, fp.z, fp.hx, fp.hz, fp.c, fp.s, 1, 0.05);
-    put(V, x, opt.walk ? hs : (opt.y || 0), z, yaw, roll || 0);
+    addObb(Object.assign({}, fp), 16);
+    put(V, x, opt.walk ? hs : 0, z, yaw, roll || 0, fp);
     return fp;
   };
-  // decal: rotated rectangle at height y (m above road)
-  const decal = (x, z, yaw, hu, hv, y, m) => {
-    const c = Math.cos(yaw), s = Math.sin(yaw);
-    const W = (u, v) => [x + u * c - v * s, z + u * s + v * c];
-    // keep decals on road-level surface: every corner and the centre must be carriageway
-    for (const [u, v] of [[-hu, -hv], [hu, -hv], [hu, hv], [-hu, hv], [0, 0]]) { const [px, pz] = W(u, v); if (px < b.x0 + 1 || px > b.x1 - 1 || pz < b.z0 + 1 || pz > b.z1 - 1) return false; R.classify(px, pz, o, cls); if (cls[0] !== 0 || o.road < 0) return false; }
-    const p = [W(-hu, -hv), W(hu, -hv), W(hu, hv), W(-hu, hv)];
-    quadW(p[0][0], y, p[0][1], p[1][0], y, p[1][1], p[2][0], y, p[2][1], p[3][0], y, p[3][1], m, 0, 1, 0);
-    ++stats.decals;
-    return true;
-  };
-  const decalBlob = (Rr, x, z, rad, m, n) => {     // irregular stain: n rectangles at distinct heights 15..40 mm
-    let k = 0;
-    for (let i = 0; i < n; ++i) {
-      const a = Rr() * 6.283, r = Rr() * rad * 0.6;
-      if (decal(x + Math.cos(a) * r, z + Math.sin(a) * r, Rr() * 3.14, rad * (0.35 + Rr() * 0.5), rad * (0.25 + Rr() * 0.4), 0.015 + 0.003 * k, m)) ++k;
-      if (k >= 8) break;
-    }
-    return k;
-  };
-  const propAt = (name, vr, x, z, yaw) => { const V = prop(name, vr); const f = tryPlace(V, x, z, yaw, 0, { gap: 0.1 }); if (f) ++stats.props; return f; };
+  const propAt = (name, vr, x, z, yaw) => { const V = prop(name, vr); const f = tryPlace(V, x, z, yaw, 0, { gap: 0.15 }); if (f) ++stats.props; return f; };
 
   // ---- road frames
   const roads = net.roads.filter(r => r.len && r.P && r.P.id !== 'alley');
   const frame = (r, s, u) => { const [px, pz, tx, tz] = C.pointAt(r, s); return [px + tz * u, pz - tx * u, tx, tz]; };
-  // heading along a lane over a vehicle length (chord of the curve)
   const laneHeading = (r, s, u, half, d) => {
     const [ax, az] = frame(r, clamp(s - half, 0, r.len), u), [bx, bz] = frame(r, clamp(s + half, 0, r.len), u);
     return Math.atan2(d * (bz - az), d * (bx - ax));
@@ -482,59 +509,89 @@ function trafficKit(K) {
   const inJ = (r, s, pad) => (r.junctions || []).some(j => s > j.a - pad && s < j.b + pad);
   const Rg = C.mulberry32(seed * 7919 + 17);
   const pickPaint = (Rr) => Math.floor(Rr() * 64);
-  const CAR_MIX = { sedan: 26, suv: 18, hatchback: 10, pickup: 12, minivan: 10, coupe: 5, taxi: 3, panel_van: 5, box_truck: 2.5, delivery_van: 2.5, semi: 1.2, city_bus: 0.6, school_bus: 0.6 };
-  const vehKind = (Rr) => pickW(Rr, CAR_MIX);
+  const CAR_MIX = { sedan: 26, suv: 18, hatchback: 10, pickup: 12, minivan: 10, coupe: 5, taxi: 3, panel_van: 5, box_truck: 2.5, delivery_van: 2.5, semi: 1.2, city_bus: 0.5, school_bus: 0.5 };
+  const PARK_MIX = { sedan: 28, suv: 18, hatchback: 14, pickup: 10, minivan: 10, coupe: 6, taxi: 2, panel_van: 4 };
+  const vehKind = (Rr, mix) => pickW(Rr, mix || CAR_MIX);
   const INC_MIX = { sedan: 30, suv: 22, pickup: 16, hatchback: 12, minivan: 10 };
-  const incKind = (Rr) => pickW(Rr, INC_MIX);         // incident cars: few kinds, so few meshed variants
+  const incKind = (Rr) => pickW(Rr, INC_MIX);
   const laneEdges = (r) => r.P.edges.filter(e => e.type === 'lane');
-
-  // ================================================================== set pieces
   const through = roads.filter(r => r.P.cls === 'arterial' || r.P.cls === 'collector');
   const radial = (r, s) => { const [x, z, tx, tz] = frame(r, s, 0); const dx = x - core[0], dz = z - core[1], dl = Math.hypot(dx, dz) || 1; return { x, z, dist: dl, cos: (tx * dx + tz * dz) / dl }; };
-  // candidate mid-block spots on through roads: [road, s]
-  const midSpots = (filter, pad) => {
+  const midSpots = (filter, pad, pool) => {
     const out = [];
-    for (const r of through) for (let s = 15; s < r.len - 15; s += 9) { if (inJ(r, s, pad)) continue; if (filter && !filter(r, s)) continue; out.push([r, s]); }
+    for (const r of pool || through) for (let s = 15; s < r.len - 15; s += 9) { if (inJ(r, s, pad)) continue; if (filter && !filter(r, s)) continue; out.push([r, s]); }
     return out;
   };
   const shuffle = (a, Rr) => { for (let i = a.length - 1; i > 0; --i) { const j = Math.floor(Rr() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const usedSpots = [];
   const farFromUsed = (x, z, d) => usedSpots.every(([a, c]) => Math.hypot(a - x, c - z) > d);
+  const downtown = (r) => r.district === 'downtown';
+  // +1 / -1: the road leaves the map at its end / start (only one end); 0 otherwise
+  const exitDir = (r) => {
+    if (r._exit !== undefined) return r._exit;
+    const near = (p) => Math.min(p[0] - b.x0, b.x1 - p[0], p[1] - b.z0, b.z1 - p[1]) < 20;
+    const a = near(r.pts[0]), e = near(r.pts[r.pts.length - 1]);
+    return (r._exit = a === e ? 0 : e ? 1 : -1);
+  };
+  const outDensity = (r, s, d) => {           // outbound pressure of travel direction d (0..1)
+    const q = radial(r, s), out = d * q.cos;
+    const ex = exitDir(r);
+    if (ex) return ex === d ? 1 : 0.3;
+    return sstep(-0.2, 0.6, out);
+  };
 
-  // tanker rollover: tanker on its side across one carriageway (diagonal), fuel spill, burnt car, debris
+  // ================================================================== set pieces (6-10)
   const tanker = (r, s) => {
     const Rr = C.mulberry32(hashS('tank' + r.id + ':' + Math.round(s)) ^ seed);
     const lanes = laneEdges(r); if (!lanes.length) return false;
-    const e = lanes[Math.floor(Rr() * lanes.length)], d = e.dir || 1;
-    const u = (e.left + e.right) / 2;
-    const [x, z] = frame(r, s, u);
-    const base = laneHeading(r, s, u, 5, d);
+    const e = lanes[Math.floor(Rr() * lanes.length)], d = e.dir || 1, u = (e.left + e.right) / 2;
+    const [x, z] = frame(r, s, u), base = laneHeading(r, s, u, 5, d);
     const lib = VEH && VEH.INFO && VEH.INFO.tanker_trailer;
-    const V = vehicle(lib ? 'tanker_trailer' : 'fuel_tanker', { ps: 0, seed: 1, state: 'damaged' });
+    const V = vehicle(lib ? 'tanker_trailer' : 'fuel_tanker', { ps: 0, seed: 1, state: 'damaged', roll: 1 });
     const Vcab = lib ? vehicle('tanker_cab', { ps: 0, seed: 1, state: 'crashed', doors: true }) : null;
-    for (const dy of [0.42, -0.42, 0.3, -0.3, 0.55, -0.55, 0.2, -0.2]) {
-      for (const du of [0, 1.2, -1.2, 2.2, -2.2]) {
-        const xx = x + Math.cos(base + Math.PI / 2) * du, zz = z + Math.sin(base + Math.PI / 2) * du;
-        const f = tryPlace(V, xx, zz, base + dy, 1);
-        if (!f) continue;
-        if (Vcab) {     // the tractor, torn off the fifth wheel and jackknifed in front of the trailer
-          const hx = Math.cos(base + dy), hz = Math.sin(base + dy), cl = (Vcab.bb.x1 - Vcab.bb.x0) / 2;
-          for (const [dd, a] of [[1.0, -0.9], [1.0, 0.9], [1.5, -1.3], [1.5, 1.3], [2.5, -0.5], [2.5, 0.5]]) {
-            const cy = base + dy + a, ex = f.x + hx * (f.hx + dd), ez = f.z + hz * (f.hx + dd);
-            if (tryPlace(Vcab, ex + Math.cos(cy) * (cl + 0.2), ez + Math.sin(cy) * (cl + 0.2), cy, 0, { gap: 0.15 })) break;
-          }
+    for (const dy of [0.42, -0.42, 0.3, -0.3, 0.55, -0.55, 0.2, -0.2]) for (const du of [0, 1.2, -1.2, 2.2, -2.2]) {
+      const xx = x + Math.cos(base + Math.PI / 2) * du, zz = z + Math.sin(base + Math.PI / 2) * du;
+      const f = tryPlace(V, xx, zz, base + dy, 1, { gap: 0.15 });
+      if (!f) continue;
+      if (Vcab) {
+        const hx = Math.cos(base + dy), hz = Math.sin(base + dy), cl = (Vcab.bb.x1 - Vcab.bb.x0) / 2;
+        for (const [dd, a] of [[1.0, -0.9], [1.0, 0.9], [1.5, -1.3], [1.5, 1.3], [2.5, -0.5], [2.5, 0.5]]) {
+          const cy = base + dy + a, ex = f.x + hx * (f.hx + dd), ez = f.z + hz * (f.hx + dd);
+          if (tryPlace(Vcab, ex + Math.cos(cy) * (cl + 0.2), ez + Math.sin(cy) * (cl + 0.2), cy, 0, { gap: 0.15 })) break;
         }
-        decalBlob(Rr, f.x - Math.sin(base + dy) * 3, f.z + Math.cos(base + dy) * 3, 5.5, M.SPILL, 7);
-        const Vb = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 2, state: 'burnt' });
-        for (let k = 0; k < 12; ++k) {
-          const a = Rr() * 6.283, rr = 6 + Rr() * 5;
-          const g = tryPlace(Vb, f.x + Math.cos(a) * rr, f.z + Math.sin(a) * rr, base + (Rr() - 0.5) * 1.6, 0);
-          if (g) { decalBlob(Rr, g.x, g.z, 3.2, M.SCORCH, 3); break; }
-        }
-        for (let k = 0; k < 4; ++k) propAt('debris', k, f.x + (Rr() - 0.5) * 14, f.z + (Rr() - 0.5) * 14, Rr() * 6);
-        usedSpots.push([f.x, f.z]); stats.sets.push({ type: 'tanker', x: Math.round(f.x), z: Math.round(f.z) });
-        return true;
       }
+      for (let n = 0, k = 0; k < 16 && n < 2; ++k) {
+        const Vb = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 2, state: 'burnt' });
+        const a = Rr() * 6.283, rr = 6 + Rr() * 5;
+        if (tryPlace(Vb, f.x + Math.cos(a) * rr, f.z + Math.sin(a) * rr, base + (Rr() - 0.5) * 1.6, 0, { gap: 0.15 })) ++n;
+      }
+      for (let k = 0; k < 4; ++k) propAt('debris', k, f.x + (Rr() - 0.5) * 14, f.z + (Rr() - 0.5) * 14, Rr() * 6);
+      usedSpots.push([f.x, f.z]); stats.sets.push({ type: 'tanker', x: Math.round(f.x), z: Math.round(f.z) });
+      return true;
+    }
+    return false;
+  };
+  // jackknifed semi: cab straight in its lane, the trailer swung across the neighbouring lanes
+  const jackknife = (r, s) => {
+    const Rr = C.mulberry32(hashS('jk' + r.id + ':' + Math.round(s)) ^ seed);
+    const lanes = laneEdges(r); if (lanes.length < 2 || !(VEH && VEH.INFO && VEH.INFO.semi_cab)) return false;
+    const e = lanes[Math.floor(Rr() * lanes.length)], d = e.dir || 1, u = (e.left + e.right) / 2;
+    const Vc = vehicle('semi_cab', { ps: Math.floor(Rr() * 8), seed: 1, state: 'crashed', doors: true });
+    const Vt = vehicle('semi_trailer', { ps: Math.floor(Rr() * 8), seed: 1, state: 'damaged' });
+    const cl = Vc.bb.x1 - Vc.bb.x0, tl = Vt.bb.x1 - Vt.bb.x0;
+    for (const sg of [1, -1]) for (const ang of [0.7, 0.9, 0.55, 1.1]) {
+      const [x, z] = frame(r, s, u), yaw = laneHeading(r, s, u, 3, d) + sg * 0.15;
+      const hx = Math.cos(yaw), hz = Math.sin(yaw);
+      // the trailer's kingpin end sits just behind the cab's rear, rotated about it
+      const kx = x - hx * (cl / 2 + 0.3), kz = z - hz * (cl / 2 + 0.3), ty = yaw - sg * ang;
+      const tx = kx - Math.cos(ty) * (tl / 2), tz = kz - Math.sin(ty) * (tl / 2);
+      const fc = tryPlace(Vc, x, z, yaw, 0, { gap: 0.15, dry: true }), ft = tryPlace(Vt, tx, tz, ty, 0, { gap: 0.15, dry: true });
+      if (!fc || !ft || !obbGap(fc, ft, 0.15)) continue;
+      tryPlace(Vc, x, z, yaw, 0, { gap: 0.15 }); tryPlace(Vt, tx, tz, ty, 0, { gap: 0.15 });
+      for (let k = 0; k < 3; ++k) propAt('boxes', k, tx + (Rr() - 0.5) * 12, tz + (Rr() - 0.5) * 12, Rr() * 6);
+      propAt('debris', 3, x + hx * 6, z + hz * 6, Rr() * 6);
+      usedSpots.push([x, z]); stats.sets.push({ type: 'jackknife', x: Math.round(x), z: Math.round(z) });
+      return true;
     }
     return false;
   };
@@ -543,13 +600,12 @@ function trafficKit(K) {
     const lanes = laneEdges(r); if (!lanes.length) return false;
     const e = lanes[Math.floor(Rr() * lanes.length)], d = e.dir || 1, u = (e.left + e.right) / 2;
     const [x, z] = frame(r, s, u), base = laneHeading(r, s, u, 4, d);
-    const V = vehicle('garbage_truck', { ps: 0, seed: 1, state: 'damaged' });
     for (const dy of [0.35, -0.35, 0.6, -0.6, 0.2, -0.2]) for (const roll of [1, 2]) {
-      const f = tryPlace(V, x, z, base + dy, roll);
+      const V = vehicle('garbage_truck', { ps: 0, seed: 1, state: 'damaged', roll: 1 });
+      const f = tryPlace(V, x, z, base + dy, roll, { gap: 0.15 });
       if (!f) continue;
       let nb = 0;
       for (let k = 0; k < 18 && nb < 6; ++k) { const a = Rr() * 6.283, rr = 5 + Rr() * 4; if (propAt('bags', k % 4, f.x + Math.cos(a) * rr, f.z + Math.sin(a) * rr, Rr() * 6)) ++nb; }
-      decalBlob(Rr, f.x - Math.cos(base + dy) * 5.5, f.z - Math.sin(base + dy) * 5.5, 3, M.SCORCH, 3);
       usedSpots.push([f.x, f.z]); stats.sets.push({ type: 'garbage', x: Math.round(f.x), z: Math.round(f.z) });
       return true;
     }
@@ -561,14 +617,13 @@ function trafficKit(K) {
     const e = lanes[Rr() < 0.5 ? 0 : lanes.length - 1], d = e.dir || 1, u = (e.left + e.right) / 2;
     const [x, z] = frame(r, s, u), base = laneHeading(r, s, u, 6, d);
     const kind = Rr() < 0.5 ? 'school_bus' : 'city_bus';
-    const V = vehicle(kind, { ps: Math.floor(Rr() * 3), seed: 1, state: 'crashed', doors: 'side' });
+    const V = vehicle(kind, { ps: 0, seed: 1, state: 'crashed', doors: 'side' });
     for (const dy of [0.25, -0.25, 0.4, -0.4, 0.15, -0.15]) {
-      const f = tryPlace(V, x, z, base + dy, 0);
+      const f = tryPlace(V, x, z, base + dy, 0, { gap: 0.15 });
       if (!f) continue;
-      // the car it hit, crumpled, in front
       const Vc = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 3, state: 'crashed' });
       const fx = Math.cos(base + dy), fz = Math.sin(base + dy);
-      for (const dd of [8.2, 9, 10]) if (tryPlace(Vc, f.x + fx * dd, f.z + fz * dd, base + dy + 1.2 + Rr() * 0.6, 0, { gap: 0.15 })) break;
+      for (const dd of [8.2, 9, 10, 11]) if (tryPlace(Vc, f.x + fx * dd, f.z + fz * dd, base + dy + 1.2 + Rr() * 0.6, 0, { gap: 0.15 })) break;
       for (let k = 0; k < 3; ++k) propAt('luggage', k, f.x + (Rr() - 0.5) * 10, f.z + (Rr() - 0.5) * 10, Rr() * 6);
       propAt('debris', 7, f.x + fx * 6, f.z + fz * 6, Rr() * 6);
       usedSpots.push([f.x, f.z]); stats.sets.push({ type: kind, x: Math.round(f.x), z: Math.round(f.z) });
@@ -576,131 +631,131 @@ function trafficKit(K) {
     }
     return false;
   };
-  // police roadblock across the outbound carriageway at the head of a jam, a 3 m gap left at the kerb side
+  // ambulance cluster: 2-3 ambulances and a cruiser around a crash, stretchers, cones
+  const ambCluster = (r, s) => {
+    const Rr = C.mulberry32(hashS('amb' + r.id + ':' + Math.round(s)) ^ seed);
+    const lanes = laneEdges(r); if (!lanes.length) return false;
+    const [x, z, tx, tz] = frame(r, s, 0), base = Math.atan2(tz, tx);
+    const Vw = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 1, state: 'crashed' });
+    const e0 = lanes[Math.floor(Rr() * lanes.length)], u0 = (e0.left + e0.right) / 2;
+    const [wx, wz] = frame(r, s, u0);
+    if (!tryPlace(Vw, wx, wz, base + 0.9 + Rr() * 0.6, 0, { gap: 0.15 })) return false;
+    let n = 0;
+    for (let k = 0; k < 10 && n < 3; ++k) {
+      const e = lanes[k % lanes.length], u = (e.left + e.right) / 2 + (Rr() - 0.5) * 0.6, ss = s + (k % 2 ? 1 : -1) * (7 + Rr() * 6);
+      const kind = n < 2 ? 'ambulance' : 'police';
+      const V = vehicle(kind, { ps: 0, seed: 0, state: 'ok', lights: true, doors: kind === 'ambulance' ? 'rear' : 'side' });
+      const [px, pz] = frame(r, ss, u), yaw = laneHeading(r, ss, u, 3, e.dir || 1) + (Rr() - 0.5) * 0.4;
+      const f = tryPlace(V, px, pz, yaw, 0, { gap: 0.15 });
+      if (!f) continue;
+      ++n;
+      if (kind === 'ambulance') propAt('stretcher', 0, f.x - f.c * (f.hx + 1.6), f.z - f.s * (f.hx + 1.6), Math.atan2(f.s, f.c) + 0.4);
+    }
+    for (let k = 0; k < 6; ++k) propAt('cone', 0, x + (Rr() - 0.5) * 16, z + (Rr() - 0.5) * 16, 0);
+    usedSpots.push([x, z]); stats.sets.push({ type: 'ambulances', x: Math.round(x), z: Math.round(z), n });
+    return n >= 1;
+  };
+  // police roadblock across the outbound carriageway, a gap left at the kerb side
   const roadblock = (r, s, d) => {
     const Rr = C.mulberry32(hashS('rb' + r.id + ':' + Math.round(s)) ^ seed);
     const lanes = laneEdges(r).filter(e => e.dir === d);
-    if (!lanes.length) return false;
+    if (!lanes.length || r.P.cls !== 'arterial') return false;
     const uA = Math.max(...lanes.map(e => e.left)), uB = Math.min(...lanes.map(e => e.right));
     const [x, z, tx, tz] = frame(r, s, 0);
-    const placed = [];
     const Vp = vehicle('police', { ps: 0, seed: 0, state: 'ok', lights: true, doors: 'side' });
-    if (r.P.cls !== 'arterial') return false;
-    const n = Math.max(2, lanes.length);
-    const spots = [];
+    const n = Math.max(2, lanes.length), spots = [];
     for (let k = 0; k < n; ++k) {
       const u = uB + (uA - uB) * (k + 0.5) / n;
       const [px, pz] = frame(r, s + (k % 2) * 2.2, u);
-      const yaw = Math.atan2(tz, tx) + (k % 2 ? 0.75 : -0.75) + (Rr() - 0.5) * 0.2;
-      spots.push([px, pz, yaw]);
+      spots.push([px, pz, Math.atan2(tz, tx) + (k % 2 ? 0.75 : -0.75) + (Rr() - 0.5) * 0.2]);
     }
-    // all cruisers must fit (tested before anything is emitted), else this spot is refused
     const tmp = [];
     for (const [px, pz, yaw] of spots) {
       const f = tryPlace(Vp, px, pz, yaw, 0, { gap: 0.15, dry: true });
-      if (!f || tmp.some(g => Math.hypot(g.x - f.x, g.z - f.z) < g.hx + f.hx + 0.3 && Math.abs((g.x - f.x) * f.s - (g.z - f.z) * f.c) < 3.5)) return false;
+      if (!f || tmp.some(g => !obbGap(g, f, 0.3))) return false;
       tmp.push(f);
     }
-    for (const [px, pz, yaw] of spots) { const f = tryPlace(Vp, px, pz, yaw, 0, { gap: 0.15 }); if (f) placed.push(f); }
-    if (placed.length < 2) return false;
-    // barriers and cones a few metres further out
+    let placed = 0;
+    for (const [px, pz, yaw] of spots) if (tryPlace(Vp, px, pz, yaw, 0, { gap: 0.15 })) ++placed;
     const sb = s + d * 6;
     for (let k = 0; k <= n * 2; ++k) {
       const u = uB + 0.8 + (uA - uB - 1.6) * k / Math.max(1, n * 2);
       const [px, pz] = frame(r, sb + (Rr() - 0.5), u);
       if (k % 2 === 0) propAt('barrier', 0, px, pz, Math.atan2(tz, tx) + Math.PI / 2 + (Rr() - 0.5) * 0.3); else propAt('cone', 0, px, pz, Rr() * 6);
     }
-    for (let k = 0; k < 5; ++k) { const [px, pz] = frame(r, s - d * (3 + k * 1.6), uB + 0.6 + Rr() * (uA - uB - 1.2)); propAt('cone', 0, px, pz, Rr() * 6); }
     usedSpots.push([x, z]); stats.sets.push({ type: 'roadblock', x: Math.round(x), z: Math.round(z) });
-    return true;
+    r._roadblock = { s, d };
+    return placed >= 2;
   };
-
-  // jam roads: per (road, direction) the stretch where the outbound flow is strong
-  const jamInfo = [];
-  const downtown = (r) => r.district === 'downtown';
-  const DMAX = Math.max(...[[b.x0, b.z0], [b.x1, b.z0], [b.x0, b.z1], [b.x1, b.z1]].map(([x, z]) => Math.hypot(x - core[0], z - core[1])));
-  // +1 / -1: the road leaves the map at its end / start (only one end); 0 otherwise
-  const exitDir = (r) => {
-    if (r._exit !== undefined) return r._exit;
-    const near = (p) => Math.min(p[0] - b.x0, b.x1 - p[0], p[1] - b.z0, b.z1 - p[1]) < 20;
-    const a = near(r.pts[0]), e = near(r.pts[r.pts.length - 1]);
-    return (r._exit = a === e ? 0 : e ? 1 : -1);
-  };
-  const jamDensity = (r, s, d) => {
-    const q = radial(r, s);
-    const out = d * q.cos;                                         // > 0: this direction leaves the city
-    if (out < 0.25 && exitDir(r) !== d) return 0;
-    const edge = Math.min(q.x - b.x0, b.x1 - q.x, q.z - b.z0, b.z1 - q.z);
-    let rho = (0.6 + 0.4 * sstep(40, 170, q.dist)) * sstep(0.25, 0.6, out);
-    rho = Math.max(rho, sstep(200, 40, edge) * sstep(0.25, 0.6, out));
-    // roads that run off the map: the whole outbound side is one queue towards that exit
-    const ex = exitDir(r);
-    if (ex) rho = ex === d ? Math.max(rho, 0.95) : 0;
-    if (downtown(r)) rho *= sstep(110, 170, q.dist);              // the downtown grid stays passable
-    if (r.P.cls === 'collector') rho *= 0.85;
-    return rho;
-  };
-
-  // order of the set pieces (2-4): tanker, roadblock, garbage, bus
   {
-    const spots = shuffle(midSpots((r, s) => r.P.cls === 'arterial' || r.P.id === 'street', 14), Rg);
+    const want = 6 + Math.floor(Rg() * 5);
+    const plan = shuffle(['tanker', 'tanker', 'garbage', 'garbage', 'bus', 'bus', 'roadblock', 'roadblock', 'ambulances', 'ambulances', 'jackknife'], Rg);
+    // the first of each type is guaranteed a try first
+    plan.sort((a, c) => plan.indexOf(a) - plan.indexOf(c));
+    const order = []; for (const t of plan) if (!order.includes(t)) order.push(t); for (const t of plan) if (order.filter(x => x === t).length < plan.filter(x => x === t).length) order.push(t);
+    const spotsArt = shuffle(midSpots((r, s) => !downtown(r) || radial(r, s).dist > 120, 14), Rg);
     let done = 0;
-    for (const [r, s] of spots) { const q = radial(r, s); if (q.dist < 80 || !farFromUsed(q.x, q.z, 120)) continue; if (tanker(r, s)) { ++done; break; } }
-    // roadblock on the strongest outbound road, 40-80 m in from the map edge end
-    const cands = [];
-    for (const r of through) for (const d of [1, -1]) {
-      if (!laneEdges(r).some(e => e.dir === d)) continue;
-      for (let s = 20; s < r.len - 20; s += 10) {
-        if (inJ(r, s, 12)) continue;
-        const q = radial(r, s), edge = Math.min(q.x - b.x0, b.x1 - q.x, q.z - b.z0, b.z1 - q.z);
-        if (r.P.cls !== 'arterial' || edge < 25 || edge > 110 || jamDensity(r, s, d) < 0.6) continue;
-        cands.push([r, s, d, Rg()]);
+    for (const type of order) {
+      if (done >= want) break;
+      if (type === 'roadblock') {
+        const cands = [];
+        for (const r of through) for (const d of [1, -1]) {
+          if (r.P.cls !== 'arterial' || !laneEdges(r).some(e => e.dir === d)) continue;
+          for (let s = 20; s < r.len - 20; s += 10) {
+            if (inJ(r, s, 12)) continue;
+            const q = radial(r, s), edge = Math.min(q.x - b.x0, b.x1 - q.x, q.z - b.z0, b.z1 - q.z);
+            if (edge < 25 || edge > 160 || outDensity(r, s, d) < 0.6) continue;
+            cands.push([r, s, d, Rg()]);
+          }
+        }
+        cands.sort((a, c) => a[3] - c[3]);
+        for (const [r, s, d] of cands) { const q = radial(r, s); if (!farFromUsed(q.x, q.z, 90)) continue; if (roadblock(r, s, d)) { ++done; break; } }
+        continue;
+      }
+      const fn = { tanker, garbage, bus: busCrash, ambulances: ambCluster, jackknife }[type];
+      for (const [r, s] of spotsArt) {
+        const q = radial(r, s); if (q.dist < 60 || !farFromUsed(q.x, q.z, 90)) continue;
+        if (type === 'garbage' && r.P.cls === 'arterial' && Rg() < 0.5) continue;
+        if (fn(r, s)) { ++done; break; }
       }
     }
-    cands.sort((a, c) => a[3] - c[3]);
-    for (const [r, s, d] of cands) { const q = radial(r, s); if (!farFromUsed(q.x, q.z, 100)) continue; if (roadblock(r, s, d)) { ++done; break; } }
-    for (const [r, s] of shuffle(midSpots((r) => r.P.cls === 'collector' || r.district === 'downtown' || r.district === 'oldtown', 14), Rg)) { const q = radial(r, s); if (!farFromUsed(q.x, q.z, 110)) continue; if (garbage(r, s)) { ++done; break; } }
-    if (Rg() < 0.75 || done < 3) for (const [r, s] of shuffle(midSpots(null, 16), Rg)) { const q = radial(r, s); if (!farFromUsed(q.x, q.z, 110)) continue; if (busCrash(r, s)) { ++done; break; } }
   }
 
-  // ================================================================== small incidents
-  const smallBudget = 40 + Math.floor(Rg() * 15);
-  const incidentKinds = { pileup: 6, lamp: 5, burnt: 6, ambulance: 2, sidewalk: 6, delivery: 3, abandoned: 6, police: 2 };
-  // pile-up at a junction approach: 2-4 crashed cars bunched up, the first nosing into the junction box edge
+  // ================================================================== small incidents (x3)
+  const smallBudget = 120 + Math.floor(Rg() * 45);
+  const incidentKinds = { pileup: 7, lamp: 5, burnt: 6, ambulance: 2, sidewalk: 5, delivery: 3, abandoned: 6, police: 2 };
   const pileup = (r, j, d, Rr) => {
     const lanes = laneEdges(r).filter(e => e.dir === d); if (!lanes.length) return false;
     const sEdge = d > 0 ? j.a : j.b;
     const e = lanes[Math.floor(Rr() * lanes.length)], u = (e.left + e.right) / 2;
-    let s = sEdge + d * 1.0, n = 0, prevHalf = 0;
-    const N = 2 + Math.floor(Rr() * 3);
+    let s = sEdge - d * 0.5, n = 0, prevHalf = 0;
+    const N = 2 + Math.floor(Rr() * 4);
     for (let k = 0; k < N; ++k) {
       const V = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 0, state: 'crashed' });
       const half = (V.bb.x1 - V.bb.x0) / 2;
       s -= d * (prevHalf + half + 0.35 + Rr() * 0.4);
       prevHalf = half;
       if (s < 3 || s > r.len - 3) break;
-      const uu = u + (Rr() - 0.5) * 1.4;
-      const [x, z] = frame(r, s, uu), yaw = laneHeading(r, s, uu, half, d) + (Rr() - 0.5) * (k === 0 ? 1.2 : 0.7);
+      const uu = u + (Rr() - 0.5) * 1.2;
+      const [x, z] = frame(r, s, uu), yaw = laneHeading(r, s, uu, half, d) + (Rr() - 0.5) * (k === 0 ? 1.0 : 0.6);
       if (tryPlace(V, x, z, yaw, 0, { gap: 0.15 })) ++n; else if (k === 0) return false;
     }
     if (n >= 2) { const [x, z] = frame(r, sEdge - d * 4, u); propAt('debris', n, x, z, Rr() * 6); usedSpots.push([x, z]); }
     return n >= 2;
   };
-  const intoPost = (p, Rr) => {    // car nosed into a lamp / hydrant at the curb
+  const intoPost = (p, Rr) => {
     const r = net.roads[p.road]; if (!r || r.P.id === 'alley') return false;
-    // nearest point of the road and side
     let bs = 0, bd = 1e9; for (let s = 0; s < r.len; s += 1) { const [x, z] = frame(r, s, 0); const dd = Math.hypot(x - p.x, z - p.z); if (dd < bd) { bd = dd; bs = s; } }
     if (inJ(r, bs, 1)) return false;
     const [cx, cz, tx, tz] = frame(r, bs, 0);
-    const side = ((p.x - cx) * tz - (p.z - cz) * tx) > 0 ? 1 : -1;     // + = u > 0
+    const side = ((p.x - cx) * tz - (p.z - cz) * tx) > 0 ? 1 : -1;
     const V = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 1, state: 'crashed' });
     const half = (V.bb.x1 - V.bb.x0) / 2;
     const ang = 0.3 + Rr() * 0.45, dirS = Rr() < 0.5 ? 1 : -1;
-    // nose towards the post; centre back from the curb
     const hx = dirS * tx * Math.cos(ang) + side * tz * Math.sin(ang), hz = dirS * tz * Math.cos(ang) - side * tx * Math.sin(ang);
     for (const back of [0.9, 1.3, 1.7, 2.2, 2.8, 3.4]) {
       const x = p.x - hx * (half + back), z = p.z - hz * (half + back);
-      if (tryPlace(V, x, z, Math.atan2(hz, hx), 0, { gap: 0.1 })) { decalBlob(Rr, x, z, 1.6, M.SPILL, 2); return true; }
+      if (tryPlace(V, x, z, Math.atan2(hz, hx), 0, { gap: 0.15 })) return true;
     }
     return false;
   };
@@ -709,8 +764,8 @@ function trafficKit(K) {
     const e = lanes[Math.floor(Rr() * lanes.length)], d = e.dir || 1;
     let u = (e.left + e.right) / 2 + (Rr() - 0.5) * 1.0;
     let kind, st = 'ok', doors = null, jit = 0.25, after = null;
-    if (type === 'burnt') { kind = incKind(Rr); st = 'burnt'; jit = 0.8; after = (f) => { decalBlob(Rr, f.x, f.z, 3.2, M.SCORCH, 4); }; }
-    else if (type === 'ambulance') { kind = 'ambulance'; doors = 'rear'; jit = 0.35; after = (f) => { const bx = f.x - f.c * (f.hx + 1.6), bz = f.z - f.s * (f.hx + 1.6); propAt('stretcher', 0, bx, bz, Math.atan2(f.s, f.c) + 0.4); for (let k = 0; k < 3; ++k) propAt('cone', 0, f.x + f.c * (f.hx + 1.5 + k * 1.2) - f.s * 1.6, f.z + f.s * (f.hx + 1.5 + k * 1.2) + f.c * 1.6, 0); }; }
+    if (type === 'burnt') { kind = incKind(Rr); st = 'burnt'; jit = 0.8; }
+    else if (type === 'ambulance') { kind = 'ambulance'; doors = 'rear'; jit = 0.35; after = (f) => { propAt('stretcher', 0, f.x - f.c * (f.hx + 1.6), f.z - f.s * (f.hx + 1.6), Math.atan2(f.s, f.c) + 0.4); for (let k = 0; k < 3; ++k) propAt('cone', 0, f.x + f.c * (f.hx + 1.5 + k * 1.2) - f.s * 1.6, f.z + f.s * (f.hx + 1.5 + k * 1.2) + f.c * 1.6, 0); }; }
     else if (type === 'delivery') { kind = Rr() < 0.5 ? 'delivery_van' : 'panel_van'; doors = 'rear'; jit = 0.2; after = (f) => { for (let k = 0; k < 2; ++k) propAt('boxes', k, f.x - f.c * (f.hx + 1.2 + k * 1.6), f.z - f.s * (f.hx + 1.2 + k * 1.6), Rr() * 6); }; }
     else if (type === 'police') { kind = 'police'; doors = 'both'; jit = 0.9; after = (f) => { for (let k = 0; k < 3; ++k) propAt('cone', 0, f.x + (Rr() - 0.5) * 8, f.z + (Rr() - 0.5) * 8, 0); }; }
     else { kind = incKind(Rr); doors = Rr() < 0.7 ? (Rr() < 0.3 ? 'both' : 'side') : null; jit = 0.6; after = (f) => { if (Rr() < 0.7) propAt('luggage', Math.floor(Rr() * 4), f.x + f.s * (f.hz + 1.2) * (Rr() < 0.5 ? 1 : -1), f.z - f.c * (f.hz + 1.2), Rr() * 6); }; }
@@ -736,9 +791,9 @@ function trafficKit(K) {
     return false;
   };
   {
-    const kinds = Object.keys(incidentKinds);
     let placed = 0, tries = 0;
     const lh = lampsAndHydrants.slice();
+    const poolWalk = roads.filter(r => r.P.sidewalk >= 3.3);
     while (placed < smallBudget && tries++ < smallBudget * 12) {
       const type = pickW(Rg, incidentKinds);
       const Rr = C.mulberry32((seed * 131 + tries * 7919) >>> 0);
@@ -748,91 +803,129 @@ function trafficKit(K) {
         if (!J.length) continue;
         const j = J[Math.floor(Rr() * J.length)], d = Rr() < 0.5 ? 1 : -1;
         const [x, z] = frame(r, d > 0 ? j.a : j.b, 0);
-        if (!farFromUsed(x, z, 35)) continue;
+        if (!farFromUsed(x, z, 22)) continue;
         ok = pileup(r, j, d, Rr);
       } else if (type === 'lamp') {
         if (!lh.length) continue;
         const p = lh[Math.floor(Rr() * lh.length)];
-        if (!farFromUsed(p.x, p.z, 35)) continue;
+        if (!farFromUsed(p.x, p.z, 22)) continue;
         ok = intoPost(p, Rr); if (ok) usedSpots.push([p.x, p.z]);
       } else {
-        const pool = type === 'sidewalk' ? roads.filter(r => r.P.sidewalk >= 3.3) : roads.filter(r => r.P.cls !== 'alley');
+        const pool = type === 'sidewalk' ? poolWalk : roads;
         if (!pool.length) continue;
         const r = pool[Math.floor(Rr() * pool.length)], s = 8 + Rr() * Math.max(1, r.len - 16);
         if (inJ(r, s, 4)) continue;
         const [x, z] = frame(r, s, 0);
-        if (!farFromUsed(x, z, 30)) continue;
+        if (!farFromUsed(x, z, 18)) continue;
         ok = type === 'sidewalk' ? sidewalkCar(r, s, Rr) : single(type, r, s, Rr);
         if (ok) usedSpots.push([x, z]);
       }
       if (ok) { ++placed; inc(type); }
     }
-    void kinds;
   }
 
-  // ================================================================== the evacuation jam
-  // per lane: walk outward (in the travel direction), cars bumper to bumper where the density is high
-  const lanesJ = [];
-  for (const r of through) for (const e of laneEdges(r)) {
-    const d = e.dir || 1;
-    let peak = 0; for (let s = 5; s < r.len; s += 20) peak = Math.max(peak, jamDensity(r, s, d));
-    if (peak < 0.2) continue;
-    stats.jamLanes = (stats.jamLanes || 0) + 1; stats.jamLaneLen = (stats.jamLaneLen || 0) + Math.round(r.len);
-    lanesJ.push({ r, e, d, peak, R: C.mulberry32(hashS('jam' + r.id + ':' + e.left) ^ seed) });
-  }
-  lanesJ.sort((a, c) => c.peak - a.peak || a.r.id - c.r.id || a.e.left - c.e.left);
-  const jamCar = (L, s) => {
-    const Rr = L.R, r = L.r, e = L.e, d = L.d;
-    const kind = vehKind(Rr);
-    const abandoned = Rr() < 0.03;
-    const doors = Rr() < 0.12 ? (Rr() < 0.25 ? 'both' : 'side') : null;
-    const st = 'ok';
-    const V = vehicle(kind, { ps: Math.floor(Rr() * 64), seed: 0, state: st, doors: doors && INC_MIX[kind] ? doors : null });
-    const half = (V.bb.x1 - V.bb.x0) / 2;
-    let u = (e.left + e.right) / 2 + (Rr() - 0.5) * 0.7;
-    if (Rr() < 0.08) u += (Rr() < 0.5 ? 1 : -1) * (1.2 + Rr() * 0.8);    // onto the shoulder / parking lane
-    const yaw0 = laneHeading(r, s, u, half, d), jit = abandoned ? (Rr() < 0.5 ? 1 : -1) * (0.35 + Rr() * 0.5) : (Rr() - 0.5) * 0.14;
-    return { V, half, u, yaw: yaw0 + jit };
-  };
-  let jamQuadsStart = mb.quads;
-  for (const L of lanesJ) {
-    if (mb.quads - q0 > QUAD_BUDGET) { stats.capped = true; break; }
-    const r = L.r, d = L.d, Rr = L.R;
-    // travel direction d: walk s from the entry end to the exit end
-    let s = d > 0 ? 4 : r.len - 4;                 // s: the free edge (behind the next car's rear bumper)
-    const end = (q) => d > 0 ? q > r.len - 4 : q < 4;
+  // ================================================================== the evacuation: lanes, parking lanes, stalls
+  // a lane walker: cars bumper to bumper in travel direction d (facing d), density rho(s) in 0..1
+  const fillLane = (r, uC, d, rho, opt) => {
+    const Rr = opt.R;
+    let s = d > 0 ? 3 : r.len - 3, count = 0, run = 0;
+    if (opt.tag) { const T = stats.lane[opt.tag] = stats.lane[opt.tag] || { len: 0, ok: 0, obb: 0, surf: 0 }; T.len += Math.round(r.len); }
+    const end = (q) => d > 0 ? q > r.len - 3 : q < 3;
     while (!end(s)) {
-      if (mb.quads - q0 > QUAD_BUDGET) { stats.capped = true; break; }
-      const rho = jamDensity(r, s, d);
-      if (rho < 0.08) { s += d * 12; continue; }
-      if (inJ(r, s, 0.3)) { s += d * 1; continue; }
-      if (Rr() > rho) { s += d * (3 + Rr() * 6); stats.jamThin = (stats.jamThin || 0) + 1; continue; }       // thinner towards the core: gaps
-      const c = jamCar(L, s);
-      const sc = s + d * c.half;
-      if (end(sc + d * c.half) || inJ(r, sc, c.half + 0.3)) { s = sc + d * 1; continue; }
-      const [x, z] = frame(r, sc, c.u);
-      if (tryPlace(c.V, x, z, c.yaw, 0, { gap: 0.3, edge: 3 })) { ++stats.jam; s = sc + d * (c.half + 1 + Rr() * 1.5); }
-      else { s = sc + d * 1.5; stats.jamMiss = (stats.jamMiss || 0) + 1; }
+      const p = rho(s);
+      if (p < 0.05) { s += d * 8; continue; }
+      if (inJ(r, s, 0.4)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
+      if (Rr() > p) { s += d * (2 + Rr() * 6); continue; }
+      if (opt.gapEvery && run >= opt.gapEvery) { run = 0; s += d * (6 + Rr() * 4); continue; }       // passable gap
+      const kind = vehKind(Rr, opt.mix);
+      const abandoned = Rr() < (opt.abandon || 0);
+      const doorsP = opt.doors || 0;
+      const doors = INC_MIX[kind] && Rr() < doorsP ? (Rr() < 0.25 ? 'both' : 'side') : null;
+      const st = opt.state ? opt.state(Rr) : 'ok';
+      const vs = 0;
+      const V = vehicle(kind, { ps: Math.floor(Rr() * 64), seed: vs, state: st, doors });
+      const half = (V.bb.x1 - V.bb.x0) / 2;
+      const sc = s + d * half;
+      if (end(sc + d * half) || inJ(r, sc, half + 0.4)) { s = sc + d * 1; continue; }
+      let u = uC + (Rr() - 0.5) * (opt.jitU || 0);
+      if (opt.curb) u = opt.curb.u - opt.curb.sg * ((V.bb.z1 - V.bb.z0) / 2 + 0.22 + Rr() * 0.12);
+      const yaw = laneHeading(r, sc, u, half, d) + (abandoned ? (Rr() < 0.5 ? 1 : -1) * (0.3 + Rr() * 0.4) : (Rr() - 0.5) * (opt.jitYaw || 0));
+      const [x, z] = frame(r, sc, u);
+      const f0 = Object.assign({}, stats.fail);
+      const okP = tryPlace(V, x, z, yaw, 0, { gap: opt.gap || 0.2 });
+      if (opt.tag) { const T = stats.lane[opt.tag] = stats.lane[opt.tag] || { len: 0, ok: 0, obb: 0, surf: 0 }; if (okP) T.ok++; else if ((stats.fail.obb || 0) > (f0.obb || 0)) T.obb++; else T.surf++; }
+      if (okP) { ++count; ++run; s = sc + d * (half + (opt.g0 || 0.9) + Rr() * (opt.g1 || 1.2)); }
+      else s = sc + d * 0.6;
+    }
+    return count;
+  };
+  // 1. roads that leave the map: every lane is an outbound queue, facing the exit
+  const filled = new Set();
+  for (const r of roads) {
+    const ex = exitDir(r); if (!ex) continue;
+    filled.add(r.id);
+    for (const e of laneEdges(r)) {
+      const Rr = C.mulberry32(hashS('exit' + r.id + ':' + e.left) ^ seed);
+      const rb = r._roadblock;
+      stats.exit += fillLane(r, (e.left + e.right) / 2, ex, (s) => rb && (ex > 0 ? s > rb.s - 4 : s < rb.s + 4) ? 0.15 : 0.97,
+        { tag: 'exit', R: Rr, jitU: 0.4, jitYaw: 0.08, doors: 0.12, abandon: 0.03, gap: 0.2, g0: 0.45, g1: 0.7 });
     }
   }
-  stats.jamQuads = mb.quads - jamQuadsStart;
-
-  // emergency vehicles driving in against the flow (inbound lanes of jammed roads)
+  // 2. arterials and collectors: congested both ways, heavier outbound; the downtown core lighter with a lane and
+  //    gaps kept free
+  for (const r of through) {
+    if (filled.has(r.id)) continue;
+    const lanes = laneEdges(r);
+    const dt = downtown(r);
+    // downtown: the lane nearest the centre line of direction +1 stays empty (a passable lane)
+    const plus = lanes.filter(e => (e.dir || 1) > 0).sort((a, c) => Math.abs((a.left + a.right) / 2) - Math.abs((c.left + c.right) / 2));
+    const keep = dt && lanes.length >= 2 ? (plus[0] || lanes[0]) : null;
+    for (const e of lanes) {
+      if (e === keep) continue;
+      const d = e.dir || 1, Rr = C.mulberry32(hashS('art' + r.id + ':' + e.left) ^ seed);
+      const rho = (s) => {
+        const q = radial(r, s), out = outDensity(r, s, d);
+        let p = 0.72 + 0.28 * out;
+        p *= 0.72 + 0.28 * sstep(60, 220, q.dist);          // outer and middle city heavy, the core lighter
+        if (dt) p *= 0.8;
+        return p;
+      };
+      stats.arterial += fillLane(r, (e.left + e.right) / 2, d, rho, { tag: 'art', R: Rr, jitU: 0.4, jitYaw: 0.1, doors: 0.08, abandon: 0.02, gap: 0.2, g0: 0.5, g1: 0.9, gapEvery: dt ? 4 : 0 });
+    }
+  }
+  // 4. local residential streets: stalled and abandoned cars in the lanes
+  for (const r of roads) {
+    if (filled.has(r.id) || r.P.cls !== 'local') continue;
+    for (const e of laneEdges(r)) {
+      const d = e.dir || 1, Rr = C.mulberry32(hashS('loc' + r.id + ':' + e.left) ^ seed);
+      stats.stalled += fillLane(r, (e.left + e.right) / 2, d, () => 0.35, { tag: 'loc', R: Rr, mix: PARK_MIX, jitU: 0.5, jitYaw: 0.12, doors: 0.35, abandon: 0.2, gap: 0.25, g0: 2, g1: 8,
+        state: (R2) => { const t = R2(); return t < 0.08 ? 'damaged' : t < 0.12 ? 'crashed' : t < 0.15 ? 'burnt' : 'ok'; } });
+    }
+  }
+  // 3. parking lanes: bumper to bumper on every street
+  for (const r of roads) {
+    const E = r.P.edges;
+    for (let k = 0; k < E.length; ++k) {
+      const e = E[k]; if (e.type !== 'park') continue;
+      const nb = E[k === 0 ? 1 : k - 1], d = (nb && nb.dir) || ((e.left + e.right) / 2 > 0 ? -1 : 1);
+      const Rr = C.mulberry32(hashS('park' + r.id + ':' + e.left) ^ seed);
+      const curb = k === 0 ? { u: e.left, sg: 1 } : { u: e.right, sg: -1 };
+      stats.parked += fillLane(r, (e.left + e.right) / 2, d, () => downtown(r) ? 0.85 : 0.93,
+        { tag: 'park', R: Rr, curb, mix: PARK_MIX, jitU: 0.12, jitYaw: 0.03, doors: 0.03, gap: 0.2, g0: 0.45, g1: 0.7, state: (R2) => R2() < 0.04 ? 'damaged' : 'ok' });
+    }
+  }
+  // 5. emergency vehicles driving in against the flow on the through roads
   {
-    const seen = new Set();
-    for (const L of lanesJ) {
-      const r = L.r; if (seen.has(r.id)) continue; seen.add(r.id);
-      const inb = laneEdges(r).filter(e => e.dir === -L.d);
-      if (!inb.length) continue;
+    for (const r of through) {
       const Rr = C.mulberry32(hashS('em' + r.id) ^ seed);
-      const n = Math.floor(Rr() * 2.4);
-      for (let k = 0; k < n; ++k) {
-        const e = inb[Math.floor(Rr() * inb.length)], d = e.dir;
+      const n = Math.floor(Rr() * 2.2);
+      const lanes = laneEdges(r);
+      for (let k = 0; k < n && lanes.length; ++k) {
+        const e = lanes[Math.floor(Rr() * lanes.length)], d = e.dir || 1;
         const kind = pickW(Rr, { police: 5, ambulance: 3, fire_engine: 1 });
-        const V = vehicle(kind, { ps: 0, seed: 0, state: 'ok', lights: true, doors: Rr() < 0.4 ? 'side' : null });
-        for (let t = 0; t < 6; ++t) {
+        const V = vehicle(kind, { ps: 0, seed: 0, state: 'ok', lights: true, doors: Rr() < 0.4 ? (kind === 'ambulance' ? 'rear' : 'side') : null });
+        for (let t = 0; t < 8; ++t) {
           const s = 10 + Rr() * (r.len - 20); if (inJ(r, s, 6)) continue;
-          if (jamDensity(r, s, -d) < 0.3) continue;
           const u = (e.left + e.right) / 2;
           const [x, z] = frame(r, s, u);
           if (tryPlace(V, x, z, laneHeading(r, s, u, 3, d) + (Rr() - 0.5) * 0.15, 0)) { ++stats.emergency; break; }
@@ -841,10 +934,25 @@ function trafficKit(K) {
     }
   }
 
-  stats.vehicles = stats.jam + stats.emergency;
-  stats.variants = cache.size;
+  // ---- output: variants (hi / lo meshes in metres) and instance arrays
+  const n = inst.length;
+  const M = new Float32Array(n * 12), vid = new Uint16Array(n), paint = new Uint8Array(n), obb = new Float32Array(n * 8);
+  inst.forEach((I, i) => {
+    M.set(I.M, i * 12); vid[i] = I.v; paint[i] = I.paint;
+    const f = I.fp; obb.set([f.x, f.z, f.hx, f.hz, f.c, f.s, I.y, I.y + I.h], i * 8);
+  });
+  stats.vehicles = inst.length - stats.props;
+  stats.jam = stats.exit + stats.arterial;
+  stats.variants = variants.length;
   stats.lib = VEH && VEH.model ? 'Vehicles' : 'fallback';
-  stats.quads = mb.quads - q0; stats.ms = Date.now() - t0;
+  stats.trisHi = 0; stats.trisLo = 0;
+  for (let i = 0; i < n; ++i) { const v = variants[vid[i]]; stats.trisHi += v.hi.quads * 2; stats.trisLo += (v.lo ? v.lo.quads : 0) * 2; }
+  stats.ms = Date.now() - t0;
+  stats.out = {
+    paintPH: PAINT_PH,
+    variants: variants.map(v => ({ key: v.key, kind: v.kind, n: v.n, bb: v.bb, hi: v.hi, lo: v.lo })),
+    M, vid, paint, obb, count: n
+  };
   return stats;
 }
 

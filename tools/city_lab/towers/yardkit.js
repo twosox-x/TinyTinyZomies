@@ -331,7 +331,7 @@
         const [wire, post] = mats;
         for (const u of [0, b]) M.box(u, 0, 0, u + pw, h + 1, 2, post);
         if (kind === 'gate') {
-          M.box(pw + 1, 1, 0, b - 1, 2, 1, post); M.box(pw + 1, h - 2, 0, b - 1, h - 1, 1, post);
+          M.box(pw + 1, 2, 0, b - 1, 3, 1, post); M.box(pw + 1, h - 2, 0, b - 1, h - 1, 1, post);   // bottom rail clear of the lawn (its top at 12.5 cm fought it)
           M.box(pw + 1, 2, 0, pw + 2, h - 2, 1, post); M.box(b - 2, 2, 0, b - 1, h - 2, 1, post);
           for (let y = 4; y < h - 2; y += 3) M.box(pw + 2, y, 1, b - 2, y + 1, 2, wire);
         }
@@ -990,7 +990,9 @@
         const fx = Math.floor(x0 + 1 + R() * (x1 - x0 - fw - 2)), fz = Math.floor(z0 + 1 + R() * (z1 - z0 - fd - 2));
         if (!ofree(fx - 1, fz - 1, fx + fw + 1, fz + fd + 1, !isTall)) continue;
         const x = fx - f0[0] + J, z = fz - f0[1] + J;
-        put(S, M, x, -J, z, sc, k);
+        // raised 1/8 voxel (3 cm, keeps the k / 16 + 1 / 32 lattice): at -J a face 12.5 cm up (toys, low boxes) sat
+        // 4.7 mm over the lawn (11.25 cm) and fought it in the depth buffer (dev/groundfight.js --self)
+        put(S, M, x, -J + 0.125, z, sc, k);
         omark(fx - 1, fz - 1, fx + fw + 1, fz + fd + 1, 1);
         S.items.push(opt.name || '?');
         return { fx, fz, fw, fd };

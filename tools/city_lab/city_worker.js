@@ -23,6 +23,13 @@ self.onmessage = (e) => {
       const props = C.placeProps(ctx);
       self.postMessage({ job, type: 'props', props });
       const B = blocks.buildings, P = blocks.plots;
+      // road traffic (towers/traffickit.js): variant meshes once + instance arrays, drawn as InstancedMeshes
+      const T = B.traffic; B.traffic = null;
+      if (T) {
+        const tb = [T.M.buffer, T.vid.buffer, T.paint.buffer, T.obb.buffer];
+        for (const v of T.variants) for (const g of [v.hi, v.lo]) if (g) tb.push(g.pos.buffer, g.mat.buffer, g.nrm.buffer);
+        self.postMessage({ job, type: 'traffic', traffic: T }, tb);
+      }
       self.postMessage({ job, type: 'blocks', buildings: B, plots: P, plotCount: blocks.plotCount, builtArea: blocks.builtArea,
         blocksMs: performance.now() - t1, junctions: ctx.F.junctionData() },
         [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer].concat(B.nvec ? [B.nvec.buffer] : [], [P.pos.buffer, P.mat.buffer, P.nrm.buffer, P.idx.buffer]));

@@ -3287,10 +3287,13 @@ function buildAll(PL, R, voxel, C) {
   if (LIB.onCuts) LIB.onCuts(cuts);
   counts.cuts = cuts.length; counts.cutRefused = CUT_WHY;
   // abandoned traffic on the roads (towers/traffickit.js): emitted last (freely rotated parts), with the final cuts
-  if (LIB.trafficKit && blocks) { const tt = Date.now(); counts.traffic = LIB.trafficKit({ PL, C, R, jobs, mb, hs, voxel }); counts.trafficMs = Date.now() - tt; }
+  // (GPU-instanced: the kit returns variant meshes + instance arrays in .out, handed on as res.traffic, nothing in mb)
+  let TRAFFIC = null;
+  if (LIB.trafficKit && blocks) { const tt = Date.now(); counts.traffic = LIB.trafficKit({ PL, C, R, jobs, mb, hs, voxel }); counts.trafficMs = Date.now() - tt; if (counts.traffic && counts.traffic.out) { TRAFFIC = counts.traffic.out; delete counts.traffic.out; } }
   cullPass();
   const res = mb.finish(0.002);
   res.counts = counts;
+  res.traffic = TRAFFIC;
   res.towers = TOWER_LOG;
   res.mids = MID_LOG;
   res.houses = HOUSE_LOG;
