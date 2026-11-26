@@ -140,6 +140,7 @@ function generateCity(seed, opts) {
   opts = opts || {};
   // (dev hook: a page or worker without the option reads self.CITY_LAB_SCALE, e.g. injected by a test harness)
   const scale = Math.max(1, +(opts.scale || (typeof self !== 'undefined' && self.CITY_LAB_SCALE)) || 1), KS = Math.sqrt(scale), KC = scale > 1 ? 1 + (KS - 1) * 0.36 : 1;
+  if (scale > 1 || opts.gen === 'tensor') return tensorCity(seed, opts, scale);
   const R = mulberry32(seed * 7919 + 17);
   const J = (a) => (R() * 2 - 1) * a;
   const X0 = -330 * KC, X1 = 330 * KC, Z0 = -275 * KC, Z1 = 275 * KC;
@@ -300,6 +301,628 @@ function generateCity(seed, opts) {
 
   const net = { kind: 'city', seed, bounds: { x0: X0, z0: Z0, x1: X1, z1: Z1 }, roads, areas, origins: { star: plazaC, core: [central + 40, zG - 25] }, axes: { xD, zG } };
   if (scale > 1) growOutskirts(net, { KS, KC, xD, zG, add });
+  return net;
+}
+// ------------------------------------------------------------------------------------------------ tensor-field city
+// generateCity(seed, { scale > 1 }) or { gen: 'tensor' }: the whole city (core included) grown on a street tensor field,
+// after Chen et al. 2008, "Interactive procedural street modeling":
+//  1. terrain (pure functions of net.plan, evaluable anywhere): a meandering river across the map, a railway along one
+//     bank, one or two wooded ridges, a lake or two;
+//  2. a cross field (directions mod 90 degrees, blended as (cos 4t, sin 4t)) from basis fields: the downtown grid, an
+//     old-town grid on Broadway's diagonal, suburban grids at other angles, grids of absorbed villages, a radial field
+//     around the centre, boundary fields along the river banks and the hill contours, rotated by low-frequency noise
+//     (more of it outward: curvier suburbs);
+//  3. streamlines traced in both directions from seeds on the roads already placed (so every street starts on
+//     another one): arterials first (they run on as county roads to the map edges and may bridge the river), then
+//     collectors, then local streets with the block spacing of their zone; a streamline stops at water, at a steep
+//     slope, where the density field fades (ragged urban edge, fields and woods reaching in between the corridors), or
+//     near a parallel street; free ends snap forward onto the next street;
+//  4. planar clean-up: dangling ends are cut back to their last junction (suburban tails become cul-de-sacs), courts
+//     are added into large suburban blocks, roads are split at the junction where their zone changes and get the
+//     profile / district of their class and zone;
+//  5. land use (landUseAt / isRural / ruralGround) from the density field, the corridors, the terrain and an urban
+//     reach grid (distance to the urban streets, net.plan.mask): beyond it fields, pasture and woods.
+// Global decisions (the street network) are made once per seed in generateCity; everything per point is a pure
+// function of net.plan, so tiles can evaluate it in any order.
+const TAU = Math.PI * 2;
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+function tcRiver(rv, x, z) {                    // [u along the valley, signed distance to the centre line, slope]
+  const u = x * rv.cf + z * rv.sf, v = -x * rv.sf + z * rv.cf, k1 = TAU / rv.L1, k2 = TAU / rv.L2;
+  const c = rv.v0 + rv.a1 * Math.sin(k1 * u + rv.p1) + rv.a2 * Math.sin(k2 * u + rv.p2);
+  const d = rv.a1 * k1 * Math.cos(k1 * u + rv.p1) + rv.a2 * k2 * Math.cos(k2 * u + rv.p2);
+  return [u, (v - c) / Math.sqrt(1 + d * d), d];
+}
+const tcRiverHW = (rv, u) => rv.w * 0.5 * (1 + 0.16 * Math.sin(u / 170 + rv.p1));
+function tcRail(P, x, z) {                      // signed distance to the railway centre line (a smoothed river offset)
+  const rv = P.river, u = x * rv.cf + z * rv.sf, v = -x * rv.sf + z * rv.cf, k1 = TAU / rv.L1;
+  const c = rv.v0 + P.rail.off + rv.a1 * Math.sin(k1 * u + rv.p1), d = rv.a1 * k1 * Math.cos(k1 * u + rv.p1);
+  return (v - c) / Math.sqrt(1 + d * d);
+}
+function tcElev(P, x, z) {
+  let e = 0;
+  for (const h of P.hills) {
+    const dx = x - h.c[0], dz = z - h.c[1], a = dx * h.ca + dz * h.sa, b = -dx * h.sa + dz * h.ca;
+    e = Math.max(e, Math.exp(-(a * a / (2 * h.sl * h.sl) + b * b / (2 * h.ss * h.ss))));
+  }
+  return e > 0.05 ? e * (0.82 + 0.36 * vnoise(P.seed + 711, x / 90, z / 90)) : e;
+}
+// 0 dry, 1 river, 2 lake (m: margin in metres)
+function tcWater(P, x, z, m) {
+  const f = tcRiver(P.river, x, z);
+  if (Math.abs(f[1]) < tcRiverHW(P.river, f[0]) + m) return 1;
+  for (const l of P.lakes) if (Math.hypot(x - l.c[0], z - l.c[1]) < lakeR(l, x, z) + m) return 2;
+  return 0;
+}
+function gridAt(G, x, z) {                      // bilinear sample of a Float32Array grid { x0, z0, cell, nx, nz, a }
+  const fx = (x - G.x0) / G.cell, fz = (z - G.z0) / G.cell;
+  const ix = clamp(Math.floor(fx), 0, G.nx - 2), iz = clamp(Math.floor(fz), 0, G.nz - 2), tx = clamp(fx - ix, 0, 1), tz = clamp(fz - iz, 0, 1), a = G.a, k = iz * G.nx + ix;
+  return (a[k] * (1 - tx) + a[k + 1] * tx) * (1 - tz) + (a[k + G.nx] * (1 - tx) + a[k + G.nx + 1] * tx) * tz;
+}
+// urban density 0..1: falls off from the centre (ragged by noise), raised along the arterial corridors and around
+// absorbed villages, lowered on the slopes
+function tcDens(P, x, z) {
+  const D = P.dn, c = P.core, rv = P.river, ex = x - c[0], ez = z - c[1], eu = ex * rv.cf + ez * rv.sf, ev = -ex * rv.sf + ez * rv.cf;
+  const d = Math.hypot(eu / 1.3, ev);                    // stretched along the valley
+  const n1 = vnoise(P.seed + 501, x / 280, z / 280) * 2 - 1, n2 = vnoise(P.seed + 503, x / 95, z / 95) * 2 - 1;
+  let v = 1 - sstep(D.Rin, D.Rout, d * (1 - 0.26 * n1));
+  for (const s of D.sub) { const q = (x - s.c[0]) ** 2 + (z - s.c[1]) ** 2; v = Math.max(v, s.a * Math.exp(-q / (2 * s.r * s.r))); }
+  if (P.cor) v = Math.max(v, D.ca * gridAt(P.cor, x, z) * (1 - sstep(D.Rout * 0.55, D.Rout * 1.1, d * (1 - 0.25 * n1))));
+  v += 0.08 * n2 + 0.06 * n1;
+  const fr = tcRiver(rv, x, z)[1] * D.far;               // the far bank grew later: thinner
+  if (fr > 0) v -= 0.16 * sstep(0, 80, fr);
+  return clamp(v - 0.5 * Math.max(0, tcElev(P, x, z) - 0.35), 0, 1);
+}
+// zone from the density: core (towers), downtown, inner (old town, rows), suburban, exurban, rural
+function tcZone(P, x, z, dn) {
+  const d = dn === undefined ? tcDens(P, x, z) : dn, c = P.core;
+  if (d > 0.88 && Math.hypot(x - c[0], z - c[1]) < P.dn.Rcore) return 'core';
+  return d > 0.86 ? 'downtown' : d > 0.7 ? 'inner' : d > 0.34 ? 'suburban' : d > 0.24 ? 'exurban' : 'rural';
+}
+const TC_ZRANK = { core: 5, downtown: 4, inner: 3, suburban: 2, exurban: 1, rural: 0 };
+function tcIsRural(net, x, z) {
+  const P = net.plan;
+  if (tcWater(P, x, z, 0)) return true;
+  if (P.rail && Math.abs(tcRail(P, x, z)) < 7) return true;
+  if (tcElev(P, x, z) > 0.62) return true;
+  return gridAt(P.mask, x, z) > 0;
+}
+function tcGround(net, x, z, verge) {
+  const P = net.plan, rv = P.river, f = tcRiver(rv, x, z), hw = tcRiverHW(rv, f[0]);
+  if (Math.abs(f[1]) < hw + 5) return { kind: Math.abs(f[1]) < hw ? 'water' : 'shore', mat: Math.abs(f[1]) < hw ? GROUND.WATER : GROUND.VERGE };
+  for (const l of P.lakes) { const d = Math.hypot(x - l.c[0], z - l.c[1]), r = lakeR(l, x, z); if (d < r + 4) return { kind: d < r ? 'water' : 'shore', mat: d < r ? GROUND.WATER : GROUND.VERGE }; }
+  if (P.rail) {
+    const sr = Math.abs(tcRail(P, x, z));
+    if (sr < 7) return { kind: 'rail', mat: (Math.abs(sr - 0.75) < 0.12 || Math.abs(sr - 2.2) < 0.12) ? MAT.CURB : sr < 4.2 ? GROUND.GRAVEL : GROUND.VERGE };
+  }
+  for (const fm of P.farms) if (inFarm(fm, x, z, 0)) return { kind: 'farmyard', mat: GROUND.GRAVEL };
+  if (verge < 4) return { kind: 'verge', mat: GROUND.VERGE };
+  if (Math.abs(f[1]) < hw + 22) return { kind: 'forest', mat: GROUND.FOREST };          // riparian woods
+  const e = tcElev(P, x, z), dn = tcDens(P, x, z), fn = forestNoise(net.seed, x, z);
+  if (e > 0.5 || fn > 0.68 - 0.25 * dn - 0.1 * e) return { kind: 'forest', mat: GROUND.FOREST };
+  if (dn > 0.3) return { kind: 'pasture', mat: GROUND.PASTURE };                      // in-town meadow
+  const p = ruralParcel(net, x, z);
+  if (p.kind === 'woodlot') return { kind: 'forest', mat: GROUND.FOREST, p };
+  if (p.edge < 1.6) return { kind: 'headland', mat: GROUND.VERGE, p };
+  const w = p.alongX ? z - p.z0 : x - p.x0, ph = (per) => ((w % per) + per) % per;
+  let mat;
+  if (p.kind === 'corn') mat = ph(2.4) < 1.6 ? GROUND.CROP : GROUND.FURROW;
+  else if (p.kind === 'soy') mat = ph(2.0) < 1.3 ? GROUND.SOY : GROUND.FURROW;
+  else if (p.kind === 'wheat') mat = ph(12) < 0.4 ? GROUND.FURROW : GROUND.WHEAT;
+  else if (p.kind === 'ploughed') mat = ph(1.2) < 0.6 ? GROUND.SOIL : GROUND.FURROW;
+  else mat = GROUND.PASTURE;
+  return { kind: p.kind === 'pasture' ? 'pasture' : 'field', mat, p };
+}
+function tcLandUse(net, x, z) {
+  const P = net.plan;
+  if (tcIsRural(net, x, z)) {
+    const g = tcGround(net, x, z, 99);
+    return g.kind === 'shore' ? 'water' : g.kind === 'headland' || g.kind === 'verge' ? 'field' : g.kind;
+  }
+  for (const h of P.hubs) if (Math.hypot(h[0] - x, h[1] - z) < 70) return 'commercial';
+  if (P.rail && P.ind && Math.abs(tcRail(P, x, z)) < P.ind.w) { const u = x * P.river.cf + z * P.river.sf; if (u > P.ind.u0 && u < P.ind.u1) return 'industrial'; }
+  const zn = tcZone(P, x, z);
+  if (zn === 'inner') return 'oldtown';
+  if (zn === 'suburban' && P.art && gridAt(P.art, x, z) < 45) return 'transition';
+  return zn === 'rural' ? 'exurban' : zn;
+}
+
+// binary heap of seeds (min key)
+function tcHeap() {
+  const a = [];
+  return {
+    get size() { return a.length; },
+    push(v) { a.push(v); let i = a.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (a[p].k <= a[i].k) break; [a[p], a[i]] = [a[i], a[p]]; i = p; } },
+    pop() { const top = a[0], last = a.pop(); if (a.length) { a[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < a.length && a[l].k < a[m].k) m = l; if (r < a.length && a[r].k < a[m].k) m = r; if (m === i) break; [a[m], a[i]] = [a[i], a[m]]; i = m; } } return top; }
+  };
+}
+function cutPts(pts, s0, s1) {                  // the part of a polyline between arc lengths s0 < s1
+  const out = []; let acc = 0;
+  for (let i = 0; i + 1 < pts.length; ++i) {
+    const a = pts[i], b = pts[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (acc + l >= s0 && acc <= s1) {
+      if (!out.length) { const t = l ? clamp((s0 - acc) / l, 0, 1) : 0; out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); }
+      if (acc + l <= s1) out.push(b); else { const t = l ? clamp((s1 - acc) / l, 0, 1) : 0; out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]); break; }
+    }
+    acc += l;
+  }
+  return dedupe(out);
+}
+function rdp(pts, eps) {                        // Douglas-Peucker
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+  const st = [[0, pts.length - 1]];
+  while (st.length) {
+    const [i0, i1] = st.pop(); let dm = 0, im = -1;
+    for (let i = i0 + 1; i < i1; ++i) { const d = segDist(pts[i][0], pts[i][1], pts[i0][0], pts[i0][1], pts[i1][0], pts[i1][1]); if (d > dm) { dm = d; im = i; } }
+    if (dm > eps) { keep[im] = 1; st.push([i0, im], [im, i1]); }
+  }
+  return pts.filter((p, i) => keep[i]);
+}
+
+function generateTensorCity(seed, opts, scale) {
+  const KS = Math.sqrt(scale), OX = 330 * KS, OZ = 275 * KS, M = Math.min(OX, OZ), EDGE = 12;
+  const R = mulberry32(seed * 48271 + 1013), J = (a) => (R() * 2 - 1) * a;
+  const core = [J(0.07 * OX), J(0.07 * OZ)];
+  const P = { kind: 'tensor', seed, scale, OX, OZ, core, hills: [], lakes: [], farms: [], hubs: [], bridges: [], radials: [] };
+  // ---- terrain
+  const phi = R() * Math.PI, rv = P.river = { cf: Math.cos(phi), sf: Math.sin(phi), phi, a1: 50 + 40 * R(), L1: 1100 + 600 * R(), p1: R() * TAU,
+    a2: 14 + 14 * R(), L2: 380 + 220 * R(), p2: R() * TAU, w: 34 + 12 * R(), v0: 0 };
+  const rside = R() < 0.5 ? 1 : -1;
+  {
+    const uc = core[0] * rv.cf + core[1] * rv.sf, vc = -core[0] * rv.sf + core[1] * rv.cf, k1 = TAU / rv.L1, k2 = TAU / rv.L2;
+    rv.v0 = vc + rside * (0.27 * M + 30 * R()) - (rv.a1 * Math.sin(k1 * uc + rv.p1) + rv.a2 * Math.sin(k2 * uc + rv.p2));
+  }
+  // the railway follows the valley on the city side of the river (industry between it and the water)
+  P.rail = { off: -rside * (rv.w * 0.6 + 40 + rv.a2) };
+  const nH = 1 + (R() < 0.6 ? 1 : 0);
+  for (let t = 0; t < 80 && P.hills.length < nH; ++t) {
+    const a = R() * TAU, d = (0.72 + 0.4 * R()) * M, c = [core[0] + Math.cos(a) * d, core[1] + Math.sin(a) * d * OZ / OX];
+    const rvf = tcRiver(rv, c[0], c[1]);
+    if (Math.abs(rvf[1]) < 210 || Math.abs(tcRail(P, c[0], c[1])) < 170) continue;
+    if (P.hills.some(h => Math.hypot(h.c[0] - c[0], h.c[1] - c[1]) < 500)) continue;
+    const b = R() * Math.PI;
+    P.hills.push({ c, ca: Math.cos(b), sa: Math.sin(b), sl: (0.2 + 0.1 * R()) * M, ss: (0.085 + 0.035 * R()) * M });
+  }
+  const nL = 1 + (R() < 0.5 ? 1 : 0);
+  for (let t = 0; t < 120 && P.lakes.length < nL; ++t) {
+    const c = [J(OX - 80), J(OZ - 80)], r = 30 + 26 * R();
+    if (Math.hypot(c[0] - core[0], c[1] - core[1]) < 0.55 * M || Math.abs(tcRiver(rv, c[0], c[1])[1]) < r + 120 || Math.abs(tcRail(P, c[0], c[1])) < r + 60) continue;
+    if (P.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < 400) || tcElev(P, c[0], c[1]) > 0.4) continue;
+    P.lakes.push({ c, r, ph: R() * TAU });
+  }
+  P.dn = { Rin: 0.15 * M, Rout: 1.25 * M, Rcore: 0.4 * M, ca: 0.7, sub: [], far: rside };
+  // absorbed villages: secondary centres out along the valley or on the far side
+  const nV = 1 + (R() < 0.6 ? 1 : 0);
+  for (let t = 0; t < 60 && P.dn.sub.length < nV; ++t) {
+    const a = R() * TAU, d = (0.7 + 0.25 * R()) * M, c = [core[0] + Math.cos(a) * d, core[1] + Math.sin(a) * d];
+    if (Math.abs(c[0]) > OX - 120 || Math.abs(c[1]) > OZ - 120 || tcWater(P, c[0], c[1], 60) || tcElev(P, c[0], c[1]) > 0.25) continue;
+    if (P.dn.sub.some(s => Math.hypot(s.c[0] - c[0], s.c[1] - c[1]) < 0.8 * M)) continue;
+    P.dn.sub.push({ c, r: 0.17 * M, a: 0.72, th: R() * Math.PI / 2 });
+  }
+  // ---- cross field
+  const thD = J(0.22), thB = thD + (R() < 0.5 ? 1 : -1) * (0.62 + 0.18 * R());     // downtown grid, Broadway diagonal
+  const bdir = [Math.cos(thB), Math.sin(thB)];
+  const oc = [core[0] + bdir[0] * 0.42 * M * (R() < 0.5 ? 1 : -1), core[1] + bdir[1] * 0.42 * M];
+  const basis = [{ c: core, th: thD, w: 3.2, s: 0.4 * M }, { c: oc, th: thB, w: 2.2, s: 0.26 * M }];
+  for (const s of P.dn.sub) basis.push({ c: s.c, th: s.th, w: 2.0, s: 0.2 * M });
+  const nS = 4 + Math.floor(R() * 2), a0 = R() * TAU;
+  for (let k = 0; k < nS; ++k) {
+    const a = a0 + TAU * (k + 0.3 * R()) / nS, d = (0.62 + 0.3 * R()) * M;
+    basis.push({ c: [core[0] + Math.cos(a) * d, core[1] + Math.sin(a) * d], th: R() * Math.PI / 2, w: 1.3, s: 0.3 * M });
+  }
+  const FC = 8, fx0 = -OX - 40, fz0 = -OZ - 40, fnx = Math.ceil((2 * OX + 80) / FC) + 1, fnz = Math.ceil((2 * OZ + 80) / FC) + 1;
+  const C4 = new Float32Array(fnx * fnz), S4 = new Float32Array(fnx * fnz);
+  for (let j = 0; j < fnz; ++j) for (let i = 0; i < fnx; ++i) {
+    const x = fx0 + i * FC, z = fz0 + j * FC;
+    let cs = 0.15 * Math.cos(4 * thD), sn = 0.15 * Math.sin(4 * thD);
+    const acc = (th, w) => { cs += w * Math.cos(4 * th); sn += w * Math.sin(4 * th); };
+    for (const b of basis) { const q = (x - b.c[0]) ** 2 + (z - b.c[1]) ** 2; acc(b.th, b.w * Math.exp(-q / (2 * b.s * b.s))); }
+    const dc = Math.hypot(x - core[0], z - core[1]);
+    acc(Math.atan2(z - core[1], x - core[0]), 1.4 * sstep(0.4 * M, 1.1 * M, dc));
+    const f = tcRiver(rv, x, z);
+    acc(phi + Math.atan(f[2]), 2.6 * Math.exp(-f[1] * f[1] / (2 * (0.16 * M) ** 2)));
+    const e = tcElev(P, x, z);
+    if (e > 0.04) { const gx = tcElev(P, x + 3, z) - tcElev(P, x - 3, z), gz = tcElev(P, x, z + 3) - tcElev(P, x, z - 3); acc(Math.atan2(gz, gx), 3.5 * sstep(0.12, 0.5, e)); }
+    const dn0 = 1 - sstep(P.dn.Rin, P.dn.Rout, dc);
+    const rot = (vnoise(seed + 601, x / 260, z / 260) * 2 - 1) * (0.1 + 0.32 * (1 - dn0)) + (vnoise(seed + 607, x / 120, z / 120) * 2 - 1) * 0.28 * (1 - dn0);
+    const th = Math.atan2(sn, cs) / 4 + rot;
+    C4[j * fnx + i] = Math.cos(4 * th); S4[j * fnx + i] = Math.sin(4 * th);
+  }
+  const dirAt = (x, z, d) => {
+    const fx = (x - fx0) / FC, fz = (z - fz0) / FC, ix = clamp(Math.floor(fx), 0, fnx - 2), iz = clamp(Math.floor(fz), 0, fnz - 2), tx = clamp(fx - ix, 0, 1), tz = clamp(fz - iz, 0, 1), k = iz * fnx + ix;
+    const c = (C4[k] * (1 - tx) + C4[k + 1] * tx) * (1 - tz) + (C4[k + fnx] * (1 - tx) + C4[k + fnx + 1] * tx) * tz;
+    const s = (S4[k] * (1 - tx) + S4[k + 1] * tx) * (1 - tz) + (S4[k + fnx] * (1 - tx) + S4[k + fnx + 1] * tx) * tz;
+    const th = Math.atan2(s, c) / 4;
+    let bx = 0, bz = 0, bd = -2;
+    for (let q = 0; q < 4; ++q) { const a = th + q * Math.PI / 2, ux = Math.cos(a), uz = Math.sin(a), dd = ux * d[0] + uz * d[1]; if (dd > bd) { bd = dd; bx = ux; bz = uz; } }
+    return [bx, bz];
+  };
+
+  // ---- spatial indices: separation samples (point + tangent) and road segments
+  const SC = 25, sep = new Map(), SG = 30, segs = new Map();
+  const sepAdd = (x, z, tx, tz, id) => { const k = Math.floor(x / SC) * 65536 + Math.floor(z / SC); let a = sep.get(k); if (!a) sep.set(k, a = []); a.push(x, z, tx, tz, id); };
+  // nearest sample within r of (x, z) that runs parallel to d (|cos| > cmin) and is not road `skip`
+  const sepNear = (x, z, d, r, cmin, skip) => {
+    const i0 = Math.floor((x - r) / SC), i1 = Math.floor((x + r) / SC), j0 = Math.floor((z - r) / SC), j1 = Math.floor((z + r) / SC), r2 = r * r;
+    for (let i = i0; i <= i1; ++i) for (let j = j0; j <= j1; ++j) {
+      const a = sep.get(i * 65536 + j); if (!a) continue;
+      for (let q = 0; q < a.length; q += 5) {
+        if (a[q + 4] === skip) continue;
+        const dx = a[q] - x, dz = a[q + 1] - z;
+        if (dx * dx + dz * dz < r2 && Math.abs(a[q + 2] * d[0] + a[q + 3] * d[1]) > cmin) return a[q + 4];
+      }
+    }
+    return -1;
+  };
+  const segAdd = (ri, a, b) => {
+    const i0 = Math.floor(Math.min(a[0], b[0]) / SG), i1 = Math.floor(Math.max(a[0], b[0]) / SG), j0 = Math.floor(Math.min(a[1], b[1]) / SG), j1 = Math.floor(Math.max(a[1], b[1]) / SG);
+    for (let i = i0; i <= i1; ++i) for (let j = j0; j <= j1; ++j) { const k = i * 65536 + j; let L = segs.get(k); if (!L) segs.set(k, L = []); L.push([ri, a, b]); }
+  };
+  // first road hit by the ray p + d * t, 0 < t <= L: [t, road, segment direction]
+  const rayHit = (p, d, L, skip) => {
+    const q = [p[0] + d[0] * L, p[1] + d[1] * L];
+    const i0 = Math.floor(Math.min(p[0], q[0]) / SG), i1 = Math.floor(Math.max(p[0], q[0]) / SG), j0 = Math.floor(Math.min(p[1], q[1]) / SG), j1 = Math.floor(Math.max(p[1], q[1]) / SG);
+    let best = null;
+    for (let i = i0; i <= i1; ++i) for (let j = j0; j <= j1; ++j) for (const [ri, a, b] of segs.get(i * 65536 + j) || []) {
+      if (ri === skip) continue;
+      const h = segIntersect(p, q, a, b);
+      if (!h) continue;
+      const t = Math.hypot(h[0] - p[0], h[1] - p[1]);
+      if (t > 0.5 && (!best || t < best[0])) { const l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; best = [t, ri, [(b[0] - a[0]) / l, (b[1] - a[1]) / l], h]; }
+    }
+    return best;
+  };
+  const roads = [];                           // { lv, pts, ends: [kindStart, kindEnd], route? }
+  const accept = (pts, lv, ends, extra) => {
+    const ri = roads.length, r = Object.assign({ lv, pts, ends }, extra || {});
+    roads.push(r);
+    let acc = 0;
+    for (let i = 0; i + 1 < pts.length; ++i) {
+      const a = pts[i], b = pts[i + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (!l) continue;
+      segAdd(ri, a, b);
+      for (let t = (4 - acc % 4) % 4; t < l; t += 4) sepAdd(a[0] + (b[0] - a[0]) * t / l, a[1] + (b[1] - a[1]) * t / l, (b[0] - a[0]) / l, (b[1] - a[1]) / l, ri);
+      acc += l;
+    }
+    return ri;
+  };
+  const dcore = (p) => Math.hypot(p[0] - core[0], p[1] - core[1]);
+  const inMap = (p, m) => Math.abs(p[0]) < OX + m && Math.abs(p[1]) < OZ + m;
+  const clipEdge = (p, q) => {                // point on p-q where it leaves the map + EDGE
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 30; ++i) { const m = (lo + hi) / 2; if (inMap([p[0] + (q[0] - p[0]) * m, p[1] + (q[1] - p[1]) * m], EDGE)) lo = m; else hi = m; }
+    return [p[0] + (q[0] - p[0]) * lo, p[1] + (q[1] - p[1]) * lo];
+  };
+  // ---- levels
+  const baseD = (p) => 1 - sstep(P.dn.Rin, P.dn.Rout, dcore(p));
+  // field family of a direction (0 / 1: which of the two streamline families of the cross field it belongs to)
+  const famOf = (p, d) => {
+    const fx = (p[0] - fx0) / FC, fz = (p[1] - fz0) / FC, k = clamp(Math.round(fz), 0, fnz - 1) * fnx + clamp(Math.round(fx), 0, fnx - 1);
+    const th = Math.atan2(S4[k], C4[k]) / 4, a = Math.atan2(d[1], d[0]) - th;
+    return ((Math.round(a / (Math.PI / 2)) % 2) + 2) % 2;
+  };
+  // block spacing: downtown ~84 x 72 m, inner ~96 x 112 m, suburbs long blocks ~88 x 230 m (two lot rows deep)
+  const localSep = (p, d) => {
+    const dn = tcDens(P, p[0], p[1]), f = d ? famOf(p, d) : 0, a = sstep(0.86, 0.72, dn), b = sstep(0.72, 0.5, dn);
+    const s0 = 84 + 12 * a - 6 * b, s1 = 72 + 40 * a + 110 * b;
+    return f === (P.fam || 0) ? s0 : s1;
+  };
+  const LV = [
+    { name: 'major', h: 6, maxLen: 5000, minLen: 160, dens: -1, hill: 2, rail: true, bridge: true, ccos: 0.8, rej: 0.75,
+      dsep: (p) => 300 + 60 * sstep(0.3 * M, 0.9 * M, dcore(p)) + 80 * sstep(0.35, 0.1, baseD(p)) },
+    { name: 'collector', h: 5, maxLen: 2200, minLen: 90, dens: 0.42, hill: 0.55, rail: true, bridge: false, ccos: 0.8, rej: 0.9,
+      dsep: (p, d) => { const l = localSep(p, d); return l > 150 ? 1.02 * l * 2 : l * (2.05 + sstep(0.84, 0.6, tcDens(P, p[0], p[1]))); } },
+    { name: 'local', h: 4, maxLen: 1200, minLen: 34, dens: 0.34, hill: 0.48, rail: false, bridge: false, ccos: 0.82, rej: 0.72,
+      dsep: localSep }
+  ];
+  // one half streamline from p0 along d0 (p0 excluded); returns { pts, end }
+  const half = (p0, d0, lv, li, skip) => {
+    const pts = [], h = lv.h; let p = p0, d = d0, len = 0, end = 'len';
+    for (let it = 0; it < lv.maxLen / h; ++it) {
+      const d1 = dirAt(p[0], p[1], d), pm = [p[0] + d1[0] * h / 2, p[1] + d1[1] * h / 2], d2 = dirAt(pm[0], pm[1], d1);
+      let q = [p[0] + d2[0] * h, p[1] + d2[1] * h];
+      if (!inMap(q, EDGE)) { pts.push(clipEdge(p, q)); end = 'edge'; break; }
+      const wk = tcWater(P, q[0], q[1], 5);
+      if (wk) {
+        if (lv.bridge && wk === 1) {
+          const f = tcRiver(rv, p[0], p[1]), ta = phi + Math.atan(f[2]), cr = Math.abs(Math.sin(Math.atan2(d2[1], d2[0]) - ta));
+          let far = null;
+          for (let t = 2; t < 150; t += 2) { const b = [p[0] + d2[0] * t, p[1] + d2[1] * t]; if (!tcWater(P, b[0], b[1], 5)) { far = [p[0] + d2[0] * (t + 4), p[1] + d2[1] * (t + 4)]; break; } }
+          if (far && cr > 0.75 && inMap(far, 0) && P.bridges.length < 4 && P.bridges.every(b => Math.hypot(b.c[0] - p[0], b.c[1] - p[1]) > 260)) {
+            P.bridges.push({ a: p, b: far, c: [(p[0] + far[0]) / 2, (p[1] + far[1]) / 2] });
+            pts.push(far); p = far; d = d2; len += Math.hypot(far[0] - p0[0], far[1] - p0[1]); continue;
+          }
+        }
+        end = 'water'; break;
+      }
+      if (P.rail && !lv.rail && Math.abs(tcRail(P, q[0], q[1])) < 12) { end = 'rail'; break; }
+      if (tcElev(P, q[0], q[1]) > lv.hill) { end = 'hill'; break; }
+      if (lv.dens > 0 && tcDens(P, q[0], q[1]) < lv.dens) { end = 'fade'; break; }
+      const dt = 0.42 * lv.dsep(q, d2);
+      const sk = len < 30 ? skip : -1;           // the seed road is ignored only near the seed
+      if (sepNear(q[0], q[1], d2, dt, lv.ccos, sk) >= 0 && len > 6) { end = 'near'; break; }
+      if (sepNear(q[0], q[1], d2, Math.min(dt, 14), 0.5, sk) >= 0 && len > 6) { end = 'near'; break; }   // shallow crossing
+      // self loop
+      if (it % 4 === 3 && pts.length > 30) { const back = Math.ceil(2 * dt / h); for (let k = 0; k < pts.length - back; k += 2) if (Math.hypot(pts[k][0] - q[0], pts[k][1] - q[1]) < dt) { end = 'loop'; it = 1e9; break; } if (end === 'loop') break; }
+      // no knots: the heading may not turn by more than ~70 degrees within 40 m (circling a field singularity)
+      const back = Math.ceil(40 / h);
+      if (pts.length > back) { const a = pts[pts.length - back], b = pts[pts.length - back + 1], l = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1; if (((b[0] - a[0]) * d2[0] + (b[1] - a[1]) * d2[1]) / l < 0.34) { end = 'loop'; pts.length -= Math.ceil(back / 2); break; } }
+      pts.push(q); p = q; d = d2; len += h;
+    }
+    return { pts, end, d };
+  };
+  // snap a free end forward onto the next road (a T junction), if it is close and not too oblique
+  const snap = (pts, d, lv, L) => {
+    const p = pts[pts.length - 1], hit = rayHit(p, d, L, -1);
+    if (!hit || Math.abs(hit[2][0] * d[0] + hit[2][1] * d[1]) > 0.72) return false;
+    for (let t = 4; t < hit[0]; t += 4) { const q = [p[0] + d[0] * t, p[1] + d[1] * t]; if (tcWater(P, q[0], q[1], 4) || (!lv.rail && P.rail && Math.abs(tcRail(P, q[0], q[1])) < 9)) return false; }
+    pts.push(hit[3]);
+    return true;
+  };
+  const traceFrom = (p, n, lv, li, skip) => {
+    const A = half(p, n, lv, li, skip), B = half(p, [-n[0], -n[1]], lv, li, skip);
+    const lenOf = (H) => H.pts.length ? Math.hypot(H.pts[0][0] - p[0], H.pts[0][1] - p[1]) + plen(H.pts) : 0;
+    const snapL = li === 0 ? 220 : li === 1 ? 120 : Math.min(110, 0.75 * lv.dsep(p, n));
+    for (const H of [A, B]) if (H.pts.length && H.end !== 'edge' && H.end !== 'loop') { if (snap(H.pts, H.d, lv, snapL)) H.end = 'snap'; }
+    const la = lenOf(A), lb = lenOf(B);
+    if (la + lb < lv.minLen) return -1;
+    let okA = la >= Math.min(lv.minLen, 30) || A.end === 'snap', okB = lb >= Math.min(lv.minLen, 30) || B.end === 'snap';
+    if (okA && okB) {                           // both halves curling round to the same side (a U): keep the longer
+      const ea = A.pts[A.pts.length - 1], eb = B.pts[B.pts.length - 1], va = [ea[0] - p[0], ea[1] - p[1]], vb = [eb[0] - p[0], eb[1] - p[1]];
+      if (va[0] * vb[0] + va[1] * vb[1] > -0.3 * Math.hypot(va[0], va[1]) * Math.hypot(vb[0], vb[1])) { if (la >= lb) okB = false; else okA = false; }
+    }
+    if (!okA && !okB) return -1;
+    let pts, ends;
+    if (okA && okB) { pts = B.pts.slice().reverse().concat([p], A.pts); ends = [B.end, A.end]; }
+    else if (okA) { pts = [p].concat(A.pts); ends = [skip >= 0 ? 'snap' : 'free', A.end]; }
+    else { pts = [p].concat(B.pts); ends = [skip >= 0 ? 'snap' : 'free', B.end]; }
+    pts = dedupe(pts);
+    if (pts.length < 2) return -1;
+    return accept(pts, li, ends);
+  };
+  const seedRoad = (heap, ri, lv, li) => {
+    const pts = roads[ri].pts, L = plen(pts);
+    for (let s = 8 * hash2(ri, li, seed + 71); s < L - 6; s += 8) {
+      const [x, z, tx, tz] = pointAtPts(pts, s), p = [x, z];
+      heap.push({ k: dcore(p) + 12 * hash2(Math.round(x), Math.round(z), seed + 73), p, n: [-tz, tx], ri });
+    }
+  };
+  // arterials: Main Street and Broadway through the centre, then the arterial net from seeds on them
+  {
+    const lv = LV[0];
+    const d0 = dirAt(core[0], core[1], [1, 0]);
+    traceFrom(core, d0, lv, 0, -1);
+    roads[roads.length - 1].named = 'Main Street';
+    const d1 = [-d0[1], d0[0]];
+    traceFrom(core, d1, lv, 0, 0);
+    if (roads.length > 1) roads[roads.length - 1].named = 'Division Street';
+    // Broadway: a straight diagonal through the centre (ignores the field inside the core), then on the field
+    const bl = 0.5 * M, a = [core[0] - bdir[0] * bl, core[1] - bdir[1] * bl], b = [core[0] + bdir[0] * bl, core[1] + bdir[1] * bl];
+    const fw = [], bw = [];
+    for (let t = 0; t <= bl; t += 6) { const q = [core[0] + bdir[0] * t, core[1] + bdir[1] * t]; if (tcWater(P, q[0], q[1], 5) || !inMap(q, 0)) break; fw.push(q); }
+    for (let t = 6; t <= bl; t += 6) { const q = [core[0] - bdir[0] * t, core[1] - bdir[1] * t]; if (tcWater(P, q[0], q[1], 5) || !inMap(q, 0)) break; bw.push(q); }
+    const pts = bw.reverse().concat(fw);
+    if (pts.length > 10) {
+      const A = half(pts[pts.length - 1], bdir, lv, 0, -1), B = half(pts[0], [-bdir[0], -bdir[1]], lv, 0, -1);
+      const all = dedupe(B.pts.slice().reverse().concat(pts, A.pts));
+      const ri = accept(all, 0, [B.end, A.end], { named: 'Broadway' });
+      void a; void b; void ri;
+    }
+  }
+  for (let li = 0; li < 3; ++li) {
+    const lv = LV[li], heap = tcHeap(), n0 = roads.length;
+    for (let ri = 0; ri < roads.length; ++ri) seedRoad(heap, ri, lv, li);
+    let guard = 0;
+    while (heap.size && guard++ < 20000) {
+      const S = heap.pop(), p = S.p;
+      if (tcWater(P, p[0], p[1], 8) || (lv.dens > 0 && tcDens(P, p[0], p[1]) < lv.dens)) continue;
+      if (li > 0 && tcElev(P, p[0], p[1]) > lv.hill) continue;
+      if (!lv.rail && P.rail && Math.abs(tcRail(P, p[0], p[1])) < 14) continue;
+      const n = dirAt(p[0], p[1], S.n);
+      if (Math.abs(n[0] * S.n[0] + n[1] * S.n[1]) < 0.75) continue;          // field not across the road here
+      if (sepNear(p[0], p[1], n, lv.rej * lv.dsep(p, n), lv.ccos, S.ri) >= 0) continue;   // a parallel street within the spacing
+      const ri = traceFrom(p, n, lv, li, S.ri);
+      if (ri >= 0) seedRoad(heap, ri, lv, li);
+    }
+    if (li === 0) {
+      // corridors: density is raised within ~120 m of the arterials (the city spreads out along them)
+      const cell = 16, nx = Math.ceil((2 * OX + 64) / cell) + 1, nz = Math.ceil((2 * OZ + 64) / cell) + 1, a = new Float32Array(nx * nz).fill(1e9);
+      const G = { x0: -OX - 32, z0: -OZ - 32, cell, nx, nz, a };
+      for (let ri = n0 > 0 ? 0 : 0; ri < roads.length; ++ri) stampDist(G, roads[ri].pts, 260);
+      for (let k = 0; k < a.length; ++k) a[k] = Math.exp(-a[k] * a[k] / (2 * 115 * 115));
+      P.cor = G;
+    }
+  }
+  // ---- clean-up: junctions per road, dangling ends cut back to the last junction (suburban tails: cul-de-sacs)
+  let alive = roads.map(() => true);
+  const junctions = () => {
+    const js = roads.map(() => []), grid = new Map();
+    roads.forEach((r, ri) => { if (!alive[ri]) return; let acc = 0; for (let i = 0; i + 1 < r.pts.length; ++i) { const a = r.pts[i], b = r.pts[i + 1]; const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const i0 = Math.floor(Math.min(a[0], b[0]) / SG), i1 = Math.floor(Math.max(a[0], b[0]) / SG), j0 = Math.floor(Math.min(a[1], b[1]) / SG), j1 = Math.floor(Math.max(a[1], b[1]) / SG);
+      for (let x = i0; x <= i1; ++x) for (let z = j0; z <= j1; ++z) { const k = x * 65536 + z; let L = grid.get(k); if (!L) grid.set(k, L = []); L.push([ri, a, b, acc, l]); }
+      acc += l; } });
+    for (const L of grid.values()) for (let p = 0; p < L.length; ++p) for (let q = p + 1; q < L.length; ++q) {
+      const A = L[p], B = L[q]; if (A[0] === B[0]) continue;
+      // extend each segment by 0.3 m so ends lying on a centre line count
+      const ea = [A[2][0] - A[1][0], A[2][1] - A[1][1]], eb = [B[2][0] - B[1][0], B[2][1] - B[1][1]], la = A[4] || 1, lb = B[4] || 1, k = 0.3;
+      const a0 = [A[1][0] - ea[0] / la * k, A[1][1] - ea[1] / la * k], a1 = [A[2][0] + ea[0] / la * k, A[2][1] + ea[1] / la * k];
+      const b0 = [B[1][0] - eb[0] / lb * k, B[1][1] - eb[1] / lb * k], b1 = [B[2][0] + eb[0] / lb * k, B[2][1] + eb[1] / lb * k];
+      const h = segIntersect(a0, a1, b0, b1); if (!h) continue;
+      js[A[0]].push([A[3] + clamp(Math.hypot(h[0] - A[1][0], h[1] - A[1][1]), 0, A[4]), B[0]]);
+      js[B[0]].push([B[3] + clamp(Math.hypot(h[0] - B[1][0], h[1] - B[1][1]), 0, B[4]), A[0]]);
+    }
+    for (const j of js) { j.sort((a, b) => a[0] - b[0]); for (let i = j.length - 1; i > 0; --i) if (j[i][1] === j[i - 1][1] && j[i][0] - j[i - 1][0] < 1) j.splice(i, 1); }
+    return js;
+  };
+  for (let pass = 0; pass < 5; ++pass) {
+    const js = junctions(); let changed = false;
+    roads.forEach((r, ri) => {
+      if (!alive[ri]) return;
+      const j = js[ri], L = plen(r.pts);
+      const freeA = r.ends[0] !== 'edge' && !(j.length && j[0][0] < 1.5), freeB = r.ends[1] !== 'edge' && !(j.length && j[j.length - 1][0] > L - 1.5);
+      if (!freeA && !freeB) return;
+      if (!j.length || (j.length < 2 && freeA && freeB)) { alive[ri] = false; changed = true; return; }
+      let s0 = freeA ? j[0][0] : 0, s1 = freeB ? j[j.length - 1][0] : L;
+      // a suburban local tail of 35..110 m stays as a cul-de-sac (at most one per road)
+      if (r.lv === 2 && !r.bulbEnd) {
+        const tailB = L - s1, tailA = s0;
+        const zB = tcZone(P, r.pts[r.pts.length - 1][0], r.pts[r.pts.length - 1][1]), zA = tcZone(P, r.pts[0][0], r.pts[0][1]);
+        if (freeB && tailB > 35 && tailB < 110 && (zB === 'suburban' || zB === 'exurban')) { s1 = L; r.bulbEnd = 10.5; }
+        else if (freeA && tailA > 35 && tailA < 110 && (zA === 'suburban' || zA === 'exurban')) { s0 = 0; r.bulbEnd = 10.5; r.flip = true; }
+      }
+      if (s1 - s0 < 20) { alive[ri] = false; changed = true; return; }
+      if (s0 > 0.01 || s1 < L - 0.01) {
+        r.pts = cutPts(r.pts, s0, s1); changed = true;
+        if (freeA && s0 > 0.01) r.ends[0] = 'cut'; if (freeB && s1 < L - 0.01) r.ends[1] = 'cut';
+      }
+      if (r.flip) { r.pts.reverse(); r.ends.reverse(); r.flip = false; }
+    });
+    if (!changed) break;
+  }
+  // courts: dead-end lanes from suburban streets into the back land of large blocks
+  const nR = roads.length;
+  for (let ri = 0; ri < nR; ++ri) {
+    const r = roads[ri]; if (!alive[ri] || r.lv === 0 || r.bulbEnd) continue;
+    const L = plen(r.pts);
+    for (let s = 30 + 20 * hash2(ri, 1, seed + 301); s < L - 30; s += 46) {
+      const [x, z, tx, tz] = pointAtPts(r.pts, s), side = hash2(ri, Math.round(s), seed + 303) < 0.5 ? 1 : -1;
+      const p = [x, z], z0 = tcZone(P, x, z);
+      if (z0 !== 'suburban' && z0 !== 'exurban') continue;
+      const want = 58 + 30 * hash2(ri, Math.round(s), seed + 307);
+      let d = [-tz * side, tx * side], q = p; const pts = [p]; let ok = true;
+      for (let t = 0; t < want; t += 4) {
+        d = dirAt(q[0], q[1], d); q = [q[0] + d[0] * 4, q[1] + d[1] * 4];
+        if (!inMap(q, -40) || tcWater(P, q[0], q[1], 14) || tcElev(P, q[0], q[1]) > 0.5 || tcDens(P, q[0], q[1]) < 0.28 || (P.rail && Math.abs(tcRail(P, q[0], q[1])) < 20)) { ok = false; break; }
+        if (t > 8 && sepNear(q[0], q[1], d, t > want - 8 ? 40 : 30, -1, ri) >= 0) { ok = false; break; }
+        pts.push(q);
+      }
+      if (!ok) continue;
+      const k = accept(pts, 2, ['snap', 'bulb'], { bulbEnd: 10.5, court: true });
+      alive[k] = true; s += 60;
+    }
+  }
+  return { P, roads, alive, LV, dirAt, sepNear, accept, junctions, rayHit, bdir, thD };
+}
+// min distance from each grid node to a polyline (within reach r), in place
+function stampDist(G, pts, r, off) {
+  off = off || 0;
+  for (let i = 0; i + 1 < pts.length; ++i) {
+    const a = pts[i], b = pts[i + 1];
+    const i0 = Math.max(0, Math.floor((Math.min(a[0], b[0]) - r - G.x0) / G.cell)), i1 = Math.min(G.nx - 1, Math.ceil((Math.max(a[0], b[0]) + r - G.x0) / G.cell));
+    const j0 = Math.max(0, Math.floor((Math.min(a[1], b[1]) - r - G.z0) / G.cell)), j1 = Math.min(G.nz - 1, Math.ceil((Math.max(a[1], b[1]) + r - G.z0) / G.cell));
+    for (let j = j0; j <= j1; ++j) for (let k = i0; k <= i1; ++k) {
+      const d = segDist(G.x0 + k * G.cell, G.z0 + j * G.cell, a[0], a[1], b[0], b[1]), q = j * G.nx + k;
+      if (d - off < G.a[q]) G.a[q] = d - off;
+    }
+  }
+}
+// emit the traced network into ordinary roads (profiles / districts / zones), open spaces and the land-use plan
+function tensorCity(seed, opts, scale) {
+  const T = generateTensorCity(seed, opts, scale), { P, alive } = T, core = P.core, M = Math.min(P.OX, P.OZ);
+  const src = T.roads.filter((r, i) => alive[i]);
+  // final junctions on the kept roads
+  T.roads.length = 0; T.alive.length = 0;
+  src.forEach(r => { T.roads.push(r); T.alive.push(true); });
+  const js = T.junctions();
+  const ZC = { core: 'U', downtown: 'U', inner: 'U', suburban: 'S', exurban: 'X', rural: 'R' };
+  // routes: the two or three longest arterials that run edge to edge
+  const routes = src.map((r, i) => ({ i, L: plen(r.pts), e: r.lv === 0 && r.ends[0] === 'edge' && r.ends[1] === 'edge' })).filter(o => o.e).sort((a, b) => b.L - a.L).slice(0, 2 + (seed % 2));
+  routes.forEach(o => { src[o.i].route = true; });
+  const pieces = [];
+  src.forEach((r, ri) => {
+    const L = plen(r.pts), cuts = [0].concat(js[ri].map(j => j[0]).filter(s => s > 0.5 && s < L - 0.5), [L]);
+    const cls = [];
+    for (let k = 0; k + 1 < cuts.length; ++k) {
+      const [x, z] = pointAtPts(r.pts, (cuts[k] + cuts[k + 1]) / 2);
+      let c = ZC[tcZone(P, x, z)];
+      if (c === 'X') c = r.lv === 0 ? 'R' : 'S';
+      if (tcWater(P, x, z, 2)) c = cls.length ? cls[cls.length - 1] : null;      // bridges keep their approach's class
+      cls.push(c);
+    }
+    for (let k = 0; k < cls.length; ++k) if (cls[k] === null) cls[k] = cls.slice(k).find(c => c) || 'R';
+    // runs, short runs folded into the previous one
+    const runs = [];
+    for (let k = 0; k < cls.length; ++k) {
+      const last = runs[runs.length - 1];
+      if (last && last.c === cls[k]) last.s1 = cuts[k + 1]; else runs.push({ c: cls[k], s0: cuts[k], s1: cuts[k + 1] });
+    }
+    for (let k = runs.length - 1; k > 0; --k) if (runs[k].s1 - runs[k].s0 < 70 && runs.length > 1) { runs[k - 1].s1 = runs[k].s1; runs.splice(k, 1); }
+    for (let k = runs.length - 1; k > 0; --k) if (runs[k].c === runs[k - 1].c) { runs[k - 1].s1 = runs[k].s1; runs.splice(k, 1); }
+    runs.forEach((u, k) => {
+      const pts = runs.length === 1 ? r.pts : cutPts(r.pts, u.s0, u.s1);
+      const [mx, mz] = pointAtPts(pts, plen(pts) / 2);
+      pieces.push({ src: r, ri, c: u.c, pts, zone: tcZone(P, mx, mz), bulb: k === runs.length - 1 ? r.bulbEnd : 0, mid: [mx, mz] });
+    });
+  });
+  // profiles, districts, names
+  const NM = {
+    major: ['Washington', 'Lincoln', 'Jefferson', 'Franklin', 'Madison', 'Grand', 'Central', 'Park', 'Market', 'State', 'Union', 'Liberty', 'Prospect', 'Monroe', 'Jackson', 'Hamilton', 'Commerce', 'Western', 'Lakeview', 'Chestnut'],
+    old: ['Water', 'Mill', 'Front', 'Church', 'Bridge', 'Ferry', 'Dock', 'Canal', 'Wharf', 'Court', 'Spring', 'High', 'Pearl', 'Locust', 'Walnut', 'Cherry', 'Vine', 'Elm', 'Pine', 'Cedar'],
+    sub: ['Meadow', 'Fox Run', 'Briar', 'Cedar Hill', 'Orchard', 'Brookside', 'Heather', 'Quail', 'Aspen', 'Stonegate', 'Sunset', 'Clover', 'Deer Path', 'Hollow', 'Ivy', 'Kingsley', 'Willow Bend', 'Maple Glen', 'Prairie', 'Sutton', 'Ashford', 'Linden', 'Wexford', 'Bramble', 'Hawthorn', 'Juniper', 'Laurel', 'Magnolia', 'Partridge', 'Ridgeview']
+  };
+  const roads = [];
+  let nSt = 0, cr = 0;
+  const hname = (k, list) => list[Math.floor(hash2(k, 7, seed + 91) * list.length)];
+  for (const pc of pieces) {
+    const r = pc.src, lv = r.lv, h = hash2(Math.round(pc.mid[0]), Math.round(pc.mid[1]), seed + 93);
+    const zl = pc.zone === 'inner' ? 'oldtown' : pc.zone;
+    let profile, district;
+    if (pc.c === 'R') { profile = r.route ? 'boulevard' : 'county'; district = 'residential'; }
+    else if (lv === 0) { profile = r.route && pc.c === 'S' ? 'boulevard' : 'avenue'; district = pc.c === 'U' ? 'arterial' : 'residential'; }
+    else if (pc.c === 'S') { profile = lv === 1 ? 'street' : pc.bulb ? 'lane' : 'residential'; district = 'residential'; }
+    else if (pc.zone === 'inner') { profile = lv === 1 ? 'street' : 'residential'; district = 'oldtown'; }
+    else { profile = lv === 1 ? (h < 0.5 ? 'oneway' : 'street') : h < 0.3 ? 'oneway' : 'street'; district = 'downtown'; }
+    let name;
+    if (r.named) name = r.named;
+    else if (pc.c === 'R') name = r.route ? `Route ${9 + 3 * (routes.findIndex(o => src[o.i] === r) + 1)}` : `County Road ${10 + 2 * (r.cr || (r.cr = ++cr))}`;
+    else if (lv === 0) name = (r.nm || (r.nm = hname(pc.ri, NM.major))) + (r.route ? ' Highway' : ' Avenue');
+    else if (district === 'downtown') name = `${ordinal(++nSt)} Street`;
+    else if (district === 'oldtown') name = hname(pc.ri, NM.old) + (lv === 1 ? ' Street' : ' Lane');
+    else name = hname(pc.ri, NM.sub) + (pc.bulb ? ' Court' : lv === 1 ? ' Road' : [' Drive', ' Street', ' Way', ' Lane'][Math.floor(h * 4)]);
+    const pts = rdp(pc.pts, 0.12);
+    const rd = { id: roads.length, profile, pts, name, district, zone: pc.c === 'R' ? 'rural' : zl, cls: ['major', 'collector', 'local'][lv] };
+    if (pc.bulb) rd.bulbEnd = pc.bulb;
+    roads.push(rd);
+  }
+  // open spaces: the downtown square (the block nearest the centre), parks in a few residential blocks
+  const areas = [];
+  areas.push({ kind: 'square', shape: 'circle', c: [core[0] + 35, core[1] + 35], r: 30, name: 'Court Square' });
+  // land-use grids: urban reach (distance to urban streets minus the lot depth of their zone), arterial distance
+  const mk = (cell) => { const nx = Math.ceil((2 * P.OX + 64) / cell) + 1, nz = Math.ceil((2 * P.OZ + 64) / cell) + 1; return { x0: -P.OX - 32, z0: -P.OZ - 32, cell, nx, nz, a: new Float32Array(nx * nz).fill(1e4) }; };
+  const mask = mk(4), art = mk(16);
+  const REACH = { core: 80, downtown: 80, oldtown: 70, suburban: 50, exurban: 55 };
+  for (const r of roads) {
+    if (r.zone === 'rural') continue;
+    const reach = REACH[r.zone] || 50;
+    stampDist(mask, r.pts, reach + 8, reach);
+    if (r.cls === 'major') stampDist(art, r.pts, 80, 0);
+  }
+  P.mask = mask; P.art = art;
+  P.ind = { u0: core[0] * P.river.cf + core[1] * P.river.sf - 0.7 * M, u1: core[0] * P.river.cf + core[1] * P.river.sf + 0.5 * M, w: 70 };
+  // commercial nodes: arterial x arterial junctions outside the core
+  const majors = roads.filter(r => r.cls === 'major' && r.zone !== 'rural');
+  for (let a = 0; a < majors.length; ++a) for (let b = a + 1; b < majors.length; ++b) {
+    const A = majors[a].pts, B = majors[b].pts;
+    for (let i = 0; i + 1 < A.length; ++i) for (let k = 0; k + 1 < B.length; ++k) {
+      const h = segIntersect(A[i], A[i + 1], B[k], B[k + 1]);
+      if (h && Math.hypot(h[0] - core[0], h[1] - core[1]) > P.dn.Rcore * 1.1 && !P.hubs.some(q => Math.hypot(q[0] - h[0], q[1] - h[1]) < 150)) P.hubs.push(h);
+    }
+  }
+  // farmsteads along the county roads
+  const net = { kind: 'city', seed, bounds: { x0: -P.OX, z0: -P.OZ, x1: P.OX, z1: P.OZ }, roads, areas, origins: { star: core, core }, axes: { xD: core[0], zG: core[1] }, plan: P, zoneScale: P.dn.Rcore / 172 };
+  for (const r of roads) {
+    if (r.zone !== 'rural') continue;
+    const P0 = PROFILES[r.profile], L = plen(r.pts);
+    for (let s = 50, k = 0; s < L - 40; s += 115, ++k) {
+      if (hash2(r.id, k, seed + 51) > 0.55) continue;
+      const [x, z, tx, tz] = pointAtPts(r.pts, s), side = hash2(r.id, k, seed + 53) < 0.5 ? 1 : -1;
+      const nx = -tz * side, nz = tx * side, off = P0.half + P0.sidewalk + 26, c = [x + nx * off, z + nz * off];
+      if (!tcIsRural(net, c[0], c[1]) || tcWater(P, c[0], c[1], 40) || tcDens(P, c[0], c[1]) > 0.3 || tcElev(P, c[0], c[1]) > 0.4) continue;
+      if (P.farms.some(f => Math.hypot(f.c[0] - c[0], f.c[1] - c[1]) < 130)) continue;
+      let ok = true; for (const o of roads) if (o !== r && distToPolyline(c, o.pts) < 40) { ok = false; break; }
+      if (!ok || forestNoise(seed, c[0], c[1]) > 0.5) continue;
+      P.farms.push({ c, n: [-nx, -nz], hw: 22, hd: 18, road: r.id, seed: (hash2(r.id, k, seed + 57) * 4294967296) >>> 0 });
+    }
+  }
   return net;
 }
 // ------------------------------------------------------------------------------------------------ outskirts (scale > 1)
@@ -655,6 +1278,7 @@ function podAt(pl, x, z) {
 }
 function isRural(net, x, z) {
   const pl = net.plan; if (!pl) return false;
+  if (pl.kind === 'tensor') return tcIsRural(net, x, z);
   if (!pl.pods) { const G = ringGeom(pl); return G.D(x, z) > G.d2(Math.atan2(z, x)); }
   return ringGeom(pl).D(x, z) > 4 && !podAt(pl, x, z);
 }
@@ -663,6 +1287,7 @@ function lakeR(l, x, z) { const th = Math.atan2(z - l.c[1], x - l.c[0]); return 
 // rural ground at (x, z): { kind, mat } or null when (x, z) is not rural; verge = distance from the sidewalk edge (m)
 function ruralGround(net, x, z, verge) {
   if (!isRural(net, x, z)) return null;
+  if (net.plan.kind === 'tensor') return tcGround(net, x, z, verge);
   const pl = net.plan;
   for (const l of pl.lakes) { const d = Math.hypot(x - l.c[0], z - l.c[1]), r = lakeR(l, x, z); if (d < r + 4) return { kind: d < r ? 'water' : 'shore', mat: d < r ? GROUND.WATER : GROUND.VERGE }; }
   for (const f of pl.farms) if (inFarm(f, x, z, 0)) return { kind: 'farmyard', mat: GROUND.GRAVEL };
@@ -686,10 +1311,11 @@ function ruralGround(net, x, z, verge) {
 function landUseAt(net, x, z) {
   const core = net.origins.core, ks = net.zoneScale || 1, dc = Math.hypot(x - core[0], z - core[1]) / ks;
   for (const a of net.areas) {
-    if (a.shape === 'circle' && Math.hypot(x - a.c[0], z - a.c[1]) < a.r) return a.kind === 'lot' ? 'lot' : 'plaza';
+    if (a.shape === 'circle' && Math.hypot(x - a.c[0], z - a.c[1]) < a.r) return a.kind === 'lot' ? 'lot' : a.kind === 'park' ? 'park' : 'plaza';
     if (a.shape === 'rect' && x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) return 'park';
   }
   const pl = net.plan;
+  if (pl && pl.kind === 'tensor') return tcLandUse(net, x, z);
   if (pl) {
     const G = ringGeom(pl), Dv = G.D(x, z), th = Math.atan2(z, x);
     if (pl.pods && Dv > 4) {
