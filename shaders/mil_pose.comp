@@ -1,0 +1,83 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Military Asset Lab (src/lab): pose the lab's infantry with the SAME joint hierarchy and clips as the zombies
+// (zombie_pose.glsl: animTargets + evaluatePose), driven by explicit animation inputs (clip, time, gait phase) instead
+// of a simulation agent, so the lab can scrub / loop / slow down. One thread per lab character writes
+//   - 10 body SegInsts (char_common.glsl layout, drawn by CharacterRenderer::drawExternalSegments), and
+//   - one city instance (shaders/city.vert Inst) per attachment parented to a body slot (helmet -> head,
+//     vest / backpack -> torso, weapon -> forearmR, ...), drawn with the city material / lighting path.
+#include "common.glsl"
+#include "zombie_parts.glsl"
+#include "zombie_pose.glsl"
+#include "char_common.glsl"
+layout(local_size_x = 16) in;
+#define MIL_MAX_CHARS 16
+#define MIL_MAX_ATTS 224
+#define ANIM_REST 8u
+struct MilChar {
+    vec4  posYaw;    // xyz feet position (m), w heading (rad)
+    vec4  anim;      // x clip (ANIM_*, 8 = rest pose), y clip time (s), z gait phase (rad), w speed (m/s)
+    uvec4 look;      // x, y: 56-bit appearance (body meshes), z flags (1 hidden body), w vary bits
+};
+struct MilAtt {
+    uvec4 info;      // x character, y slot (0..9), z flags (1 hidden)
+    vec4  offset;    // xyz offset from the slot pivot, in body voxels (character space before the pose)
+    vec4  quat;      // local rotation of the attachment in slot space
+};
+// characters + attachments in a storage buffer (uniform pushes are limited to 4 KB on some backends)
+layout(std430, set = 0, binding = 0) readonly buffer MilPose {
+    uvec4 cfg;       // x characters, y attachments
+    vec4  params;    // x metres per voxel
+    MilChar chars[MIL_MAX_CHARS];
+    MilAtt atts[MIL_MAX_ATTS];
+};
+struct Inst { vec4 pos; vec4 quat; vec4 paint; };
+layout(std430, set = 1, binding = 0) buffer Segs  { SegInst segs[]; };
+layout(std430, set = 1, binding = 1) buffer Insts { Inst insts[]; };
+void main() {
+    uint c = gl_GlobalInvocationID.x;
+    if (c >= cfg.x) return;
+    MilChar C = chars[c];
+    vec4 q[10]; vec3 t[10];
+    float scale = params.x;
+    uint clip = uint(C.anim.x + 0.5);
+    if (clip == ANIM_REST) {
+        vec3 E[10];
+        for (int i = 0; i < 10; ++i) E[i] = vec3(0.0);
+        evaluatePose(E, 0.0, 0.0, 0.0, 0.0, 0.0, scale, q, t);
+    } else {
+        PoseInput p;
+        p.anim = clip; p.state = ST_WALK; p.speed = C.anim.w; p.phase = C.anim.z;
+        p.prone = 0.0; p.blocked = 0.0; p.timer = C.anim.y; p.vary = float(C.look.w & 1023u) / 1023.0; p.time = C.anim.y;
+        p.roll = 0.0; p.flail = 0.0;
+        applyForcedPosture(p);
+        if (clip == ANIM_DYING) p.timer = min(C.anim.y, 2.49);
+        vec3 E[10]; float bob, tilt, roll;
+        animTargets(p, E, bob, tilt, roll);
+        evaluatePose(E, bob, tilt, roll, p.prone, 0.0, scale, q, t);
+    }
+    vec4 qy = qaxis(vec3(0.0, 1.0, 0.0), C.posYaw.w);
+    vec3 pos = C.posYaw.xyz;
+    bool hidden = (C.look.z & 1u) != 0u;
+    uint look = appearanceWordGore(C.look.x, C.look.y, 0u, false);
+    for (uint s = 0u; s < 10u; ++s) {
+        SegInst o;
+        vec4 qw = qmul(qy, q[s]);
+        vec3 tw = pos + qrot(qy, t[s]) - (hidden ? vec3(0.0, 1000.0, 0.0) : vec3(0.0));
+        o.a = uvec4(packHalf2x16(qw.xy), packHalf2x16(qw.zw), meshIdFor(C.look.x, C.look.y, s) | (s << 12), look);
+        o.b = vec4(tw, uintBitsToFloat(REF_GIB));   // REF_GIB: transform taken as is, no eye glow (not a zombie)
+        segs[c * 10u + s] = o;
+    }
+    for (uint a = 0u; a < cfg.y; ++a) {
+        MilAtt A = atts[a];
+        if (A.info.x != c) continue;
+        uint s = min(A.info.y, 9u);
+        vec4 qw = qmul(qy, q[s]);
+        vec3 tw = pos + qrot(qy, t[s]);
+        Inst I;
+        I.pos = vec4(tw + qrot(qw, A.offset.xyz * scale) - ((A.info.z & 1u) != 0u ? vec3(0.0, 1000.0, 0.0) : vec3(0.0)), 1.0);
+        I.quat = normalize(qmul(qw, A.quat));
+        I.paint = vec4(0.0);
+        insts[a] = I;
+    }
+}

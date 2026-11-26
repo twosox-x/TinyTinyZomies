@@ -6,6 +6,7 @@
 //               [--bench-configs placeholder,naive,culled,greedy,classes,final,final-posevs] [--bench-csv file]
 //   ttz --selftest               (same as the ttz_selftest executable)
 //   ttz --save-config path       write all simulation parameters with their defaults
+//   ttz --lab military [--headless --shots F1,F2 --lab-views closeup,rts110,.. --shot-dir DIR]   Military Asset Lab
 #include "app/App.h"
 #include "city/CityWorld.h"
 
@@ -89,6 +90,8 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--city-verify")) o.cityVerify = std::atoi(next());
         else if (!std::strcmp(a, "--shots")) { for (int v : parseInts(next())) o.shotFrames.push_back(v); }
         else if (!std::strcmp(a, "--shot-dir")) o.shotDir = next();
+        else if (!std::strcmp(a, "--lab")) o.lab = next();
+        else if (!std::strcmp(a, "--lab-views")) o.labViews = parseStrs(next());
         else if (!std::strcmp(a, "--shots-on-move")) o.shotsOnMove = std::atoi(next());
         else if (!std::strcmp(a, "--city-pan-spawn")) o.panSpawnEvery = std::atoi(next());
         else if (!std::strcmp(a, "--bench")) bench = true;
@@ -114,6 +117,7 @@ int main(int argc, char** argv) {
         int rc = ttz::App().run(o);
         if (rc || b.scenarios.empty()) return rc;
     }
+    if (!o.lab.empty() && o.lab != "military") { SDL_Log("unknown lab %s (available: military)", o.lab.c_str()); return 2; }
     if (bench) return ttz::runBenchmarks(b);
     if (selftest) {
         if (!SDL_Init(SDL_INIT_VIDEO)) { SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen"); SDL_Init(SDL_INIT_VIDEO); }

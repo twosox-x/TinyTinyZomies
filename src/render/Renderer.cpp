@@ -340,6 +340,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     ensureTargets(w, h);
     const bool modular = chars && rs.characterModel == 1;
     if (modular && !skipCharacterPrepare_) prepareCharacters(cmd, w, h, cam, sim, time, rs, chars);
+    if (extPrepare) extPrepare(cmd);
     FrameUniforms fu{};
     M4 vp = mul(cam.proj((float)w / (float)h), cam.view());
     std::memcpy(fu.viewProj, vp.m, sizeof(fu.viewProj));
@@ -457,6 +458,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_GPUBufferBinding zib{zombieIB_, 0};
     SDL_GPUTextureSamplerBinding pal{palette_, nearest_};
     if (modular) { chars->setShadowField(shadow()); chars->draw(cmd, pass, sim, time, rs.chars); }
+    if (extDraw) extDraw(pass, cmd, sim.decals(), shadow(), sim.corpseHeight());
     if (!modular && rs.drawCorpses) {
         SDL_BindGPUGraphicsPipeline(pass, pCorpse_);
         SDL_BindGPUVertexBuffers(pass, 0, &zvb, 1);

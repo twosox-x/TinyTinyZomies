@@ -689,4 +689,44 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
     }
 }
 
+// ---- external instanced models (Military Asset Lab) ----
+void CityRenderer::releaseMesh(GpuMesh& m) {
+    if (!gpu_) return;
+    gpu_->releaseBuffer(m.vb);
+    gpu_->releaseBuffer(m.ib);
+    m = GpuMesh{};
+}
+
+SDL_GPUBuffer* CityRenderer::createMaterialBuffer(const std::vector<CityMaterial>& list) const {
+    std::vector<GpuMat> mats(256);
+    for (auto& m : mats) m = {{0.5f, 0.5f, 0.5f, 0.f}, {0, 0, 0.8f, 0}, {0, 0, 0, 0}};
+    for (size_t i = 0; i < list.size() && i < 256; ++i) {
+        const CityMaterial& m = list[i];
+        mats[i] = {{m.r, m.g, m.b, m.gloss}, {m.emissiveNight, (float)m.emissiveMode, m.roughness, 0}, {m.flags, 0, 0, 0}};
+    }
+    SDL_GPUBuffer* b = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(mats.size() * sizeof(GpuMat)), "extMaterials");
+    gpu_->uploadNow(b, mats.data(), (uint32_t)(mats.size() * sizeof(GpuMat)));
+    return b;
+}
+
+void CityRenderer::drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* materials, SDL_GPUBuffer* insts,
+                                SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH, SDL_GPUBuffer* corpseH, const std::vector<ExtDraw>& draws) {
+    if (draws.empty() || !insts || !pipe_) return;
+    SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);
+    SDL_GPUBuffer* fb[4] = {materials ? materials : materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 4);
+    SDL_BindGPUVertexStorageBuffers(pass, 0, &insts, 1);
+    for (const ExtDraw& d : draws) {
+        if (!d.mesh || !d.mesh->vb || !d.count) continue;
+        const GpuMesh& m = *d.mesh;
+        DrawU u{{m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0}, 1, d.first, 0, 0};
+        SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
+        SDL_GPUBufferBinding vb{m.vb, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_GPUBufferBinding ib{m.ib, 0};
+        SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(pass, m.idxCount, d.count, 0, 0, 0);
+    }
+}
+
 } // namespace ttz

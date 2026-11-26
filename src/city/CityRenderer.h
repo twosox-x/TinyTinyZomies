@@ -83,6 +83,28 @@ public:
     // Blocks until every wanted tile is resident (benchmarks / headless screenshots).
     void flush(const Camera& cam, float aspect);
 
+    // Instanced model on the GPU (explicitly indexed CityMesh).
+    struct GpuMesh {
+        SDL_GPUBuffer *vb = nullptr, *ib = nullptr;
+        uint32_t idxCount = 0;
+        float origin[4], scale[4];
+        float top = 0, radius = 1.f;
+    };
+    // --- external instanced models (Military Asset Lab): same pipeline, material / lighting / shadow path as the city
+    GpuMesh uploadExternalMesh(const CityMesh& m, const char* name) { return uploadMesh(m, name); }
+    void releaseMesh(GpuMesh& m);
+    // A 256-entry material palette in the city.frag layout (ids beyond the list fall back to grey).
+    SDL_GPUBuffer* createMaterialBuffer(const std::vector<CityMaterial>& mats) const;
+    SDL_GPUBuffer* materials() const { return materials_; }
+    const GpuMesh* vehicleModel(size_t variant) const {
+        return variant < models_[0].size() && variant < asset_->variants.size() && models_[0][variant].vb ? &models_[0][variant] : nullptr;
+    }
+    size_t vehicleVariantCount() const { return asset_ ? asset_->variants.size() : 0; }
+    struct ExtDraw { const GpuMesh* mesh; uint32_t first, count; };
+    // Inside the scene pass: instances (GpuInstance layout, `insts`) drawn with the given palette.
+    void drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* materials, SDL_GPUBuffer* insts,
+                      SDL_GPUBuffer* decals, SDL_GPUBuffer* shadowH, SDL_GPUBuffer* corpseH, const std::vector<ExtDraw>& draws);
+
     CitySettings settings;
     CityWater water;          // smooth water surfaces (WATR)
     CityFoliage foliage;      // instanced crops / grass / reeds (FOLI)
@@ -108,12 +130,6 @@ private:
         uint64_t lastUsed = 0, bytes = 0;
         int lod = 0;
         bool visible = false;
-    };
-    struct GpuMesh {
-        SDL_GPUBuffer *vb = nullptr, *ib = nullptr;
-        uint32_t idxCount = 0;
-        float origin[4], scale[4];
-        float top = 0, radius = 1.f;
     };
     void upload(SDL_GPUCopyPass* cp, TileCPU& t);
     GpuMesh uploadMesh(const CityMesh& m, const char* name);

@@ -10,6 +10,7 @@
 #include "sim/GpuTypes.h"
 #include "sim/Sandbox.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -131,6 +132,10 @@ private:
     std::vector<FireVolume> fires_;
     uint32_t fxSeed_ = 1;
 public:
+    // Optional extensions (Military Asset Lab): compute work recorded before the scene pass, and draws inside the scene
+    // pass after the characters (frame uniforms in slot 0; buffers: gore decals, moon-shadow field, corpse heights).
+    std::function<void(SDL_GPUCommandBuffer*)> extPrepare;
+    std::function<void(SDL_GPURenderPass*, SDL_GPUCommandBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer*)> extDraw;
     bool skipCharacterPrepare_ = false;   // benchmark: prepare recorded separately for timing
 };
 

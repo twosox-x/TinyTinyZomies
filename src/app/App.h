@@ -53,6 +53,8 @@ struct AppOptions {
     int shotsOnMove = -1;          // >= 0: screenshot the frame before each window move and K frames after it
     int panSpawnEvery = 0;         // scripted pan: every N frames spawn 300 zombies and blast near the pivot
     int cityVerify = 0;            // > 0: every N frames a synchronous check of the horde against the window (test only)
+    std::string lab;               // --lab military: Military Asset Lab (src/lab/MilitaryLab.h)
+    std::vector<std::string> labViews;   // --lab-views v1,v2,..: lab camera preset per --shots frame (headless review captures)
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };
@@ -90,6 +92,7 @@ struct AppState {
     Tool tool = Tool::Explosion;
     bool resetRequested = false, paramsDirty = false;
     int showcaseRequested = -1;
+    class MilitaryLab* lab = nullptr;   // --lab military
 
     // profiling
     RunningStat cpuFrame, cpuSim, cpuRender, cpuUI, frameTotal;

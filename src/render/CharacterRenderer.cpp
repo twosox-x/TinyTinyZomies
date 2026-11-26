@@ -268,7 +268,7 @@ void CharacterRenderer::shutdown() {
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
     for (auto& lv : classes_) for (auto& md : lv) for (auto& cs : md) { gpu_->releaseBuffer(cs.meshInfo); gpu_->releaseBuffer(cs.classInfo); }
-    for (auto b : {&occluders_, &meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_, &quadVerts_, &quadIndex_}) gpu_->releaseBuffer(*b);
+    for (auto b : {&occluders_, &meshVoxBuf_, &tagBuf_, &verts_, &counters_, &args_, &visList_, &segLocal_, &segInsts_, &poseLib_, &quadVerts_, &quadIndex_, &extCounters_}) gpu_->releaseBuffer(*b);
     for (auto p : {pCull_, pPrefix_, pPose_, pLib_}) if (p) SDL_ReleaseGPUComputePipeline(d, p);
     if (pDraw_) SDL_ReleaseGPUGraphicsPipeline(d, pDraw_);
     if (zeros_) SDL_ReleaseGPUTransferBuffer(d, zeros_);
@@ -335,6 +335,29 @@ void CharacterRenderer::draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
         if (quads) SDL_DrawGPUIndexedPrimitivesIndirect(pass, args_, c * kArgStride * 4, 1);
         else SDL_DrawGPUPrimitivesIndirect(pass, args_, c * kArgStride * 4, 1);
     }
+}
+
+void CharacterRenderer::drawExternal(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, SDL_GPUBuffer* segs,
+                                     uint32_t count) {
+    if (!count || !segs) return;
+    if (!extCounters_) {
+        extCounters_ = gpu_->createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, kCounterWords * 4, "charExtCounters");
+        std::vector<uint32_t> z(kCounterWords, 0);
+        gpu_->uploadNow(extCounters_, z.data(), kCounterWords * 4);
+    }
+    const ClassSet& set = classes_[3][1][0];
+    uint32_t maxV = 0;
+    for (uint32_t v : set.maxVerts) maxV = std::max(maxV, v);
+    SDL_BindGPUGraphicsPipeline(pass, pDraw_);
+    SDL_GPUBuffer* vsb[7] = {segs, verts_, set.meshInfo, extCounters_, sim.agents(), sim.corpses(), poseLib_};
+    SDL_BindGPUVertexStorageBuffers(pass, 0, vsb, 7);
+    SDL_GPUBuffer* fsb[3] = {meshVoxBuf_, tagBuf_, shadowField_ ? shadowField_ : tagBuf_};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fsb, 3);
+    CharDraw d{};
+    d.draw = {0, 0, 0, 0};
+    d.dparams = {scale_, 0, 0, 0};
+    SDL_PushGPUVertexUniformData(cmd, 1, &d, sizeof(d));
+    SDL_DrawGPUPrimitives(pass, maxV, count, 0, 0);
 }
 
 CharacterStats CharacterRenderer::parseCounters(const uint32_t* cc) {

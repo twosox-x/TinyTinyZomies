@@ -2,6 +2,7 @@
 
 #include "city/CityWorld.h"
 #include "debug/DebugUI.h"
+#include "lab/MilitaryLab.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
@@ -53,6 +54,7 @@ bool App::init() {
     std::string cfg = dataPath(o.config);
     s_.opt.config = cfg;
     s_.params.load(cfg);
+    if (o.lab == "military") { o.cityMap = true; o.cityFollow = false; }   // the lab diorama is a fixed patch of the city
     s_.sandbox.build(s_.params.cellSize, s_.params.gridW, s_.params.gridH);
     if (o.cityMap && !initCity()) return false;
     if (!s_.zombieModel.load(dataPath("assets/models/zombie.glb"), s_.params.standHeight)) return false;
@@ -102,6 +104,10 @@ bool App::init() {
     else loadScenario(s_.scenario, o.count);
     if (o.camSet) s_.camera.setImmediate({o.camX, o.camY, o.camZ}, o.camYaw, o.camPitch, o.camDist);
     // scripted headless captures: stream the visible tiles in before the first frame (benchmarks measure streaming)
+    if (o.lab == "military") {
+        s_.lab = new MilitaryLab();
+        if (!s_.lab->init(s_)) { SDL_Log("military lab: init failed"); return false; }
+    }
     if (s_.cityMode && o.headless && o.frames > 0 && o.cityBench == 0) s_.cityRenderer.flush(s_.camera, (float)o.width / (float)o.height);
     return true;
 }
@@ -110,7 +116,13 @@ bool App::init() {
 bool App::initCity() {
     AppOptions& o = s_.opt;
     std::string dir = dataPath(o.cityDir);
-    if (!s_.city.load(dir)) {
+    if (!s_.city.load(dir) && !o.lab.empty()) {   // lab fallback: a small synthetic street block in the baked format
+        const char* pref = SDL_GetPrefPath("ttz", "military_lab");
+        std::string syn = std::string(pref ? pref : "./") + "synthetic_city";
+        SDL_Log("city: no baked package at %s; the lab uses a synthetic street block (%s)", dir.c_str(), syn.c_str());
+        if (writeSyntheticCity(syn)) dir = syn;
+    }
+    if (!s_.city.loaded() && !s_.city.load(dir)) {
         SDL_Log("city: no baked package at %s (bake it: see tools/city_lab/bake/FORMAT.md, or run with --city-synth)", dir.c_str());
         return false;
     }
@@ -252,7 +264,7 @@ void App::handleEvent(const SDL_Event& e) {
         if (e.button.button == SDL_BUTTON_MIDDLE) mmbDown_ = true;
         if (e.button.button == SDL_BUTTON_RIGHT) rmbDown_ = true;
         if (e.button.button == SDL_BUTTON_LEFT && (SDL_GetModState() & SDL_KMOD_ALT)) altDrag_ = true;
-        else if (e.button.button == SDL_BUTTON_LEFT) {
+        else if (e.button.button == SDL_BUTTON_LEFT && !s_.lab) {   // the lab has no gameplay tools
             int w, h;
             SDL_GetWindowSize(s_.window, &w, &h);
             V3 hit;
@@ -288,6 +300,7 @@ void App::handleEvent(const SDL_Event& e) {
 void App::frame(double dt) {
     double t0 = nowMs();
     AppState& s = s_;
+    if (s.resetRequested && s.lab) { s.lab->setupScene(s); s.resetRequested = false; }
     if (s.resetRequested) {
         SDL_WaitForGPUIdle(s.gpu.device());
         loadScenario(s.scenario, s.spawnCount);
@@ -421,6 +434,7 @@ void App::frame(double dt) {
 
     double t2 = nowMs();
     s.renderer.update((float)dt);
+    if (s.lab) s.lab->update(s, (float)dt);
     SDL_GPUTexture* swap = nullptr;
     uint32_t w = (uint32_t)s.opt.width, h = (uint32_t)s.opt.height;
     if (s.window && !SDL_WaitAndAcquireGPUSwapchainTexture(cmd, s.window, &swap, &w, &h)) swap = nullptr;
@@ -435,6 +449,7 @@ void App::frame(double dt) {
             lamps.resize(std::min(lamps.size(), (size_t)kMaxLights - fires.size()));
             lamps.insert(lamps.begin(), fires.begin(), fires.end());
         }
+        if (s.lab) s.lab->injectLights(lamps);
         s.renderer.setLights(lamps);
         std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns
         s.vehicles.fireVolumes(p.x, p.z, 10, fireVols);
@@ -452,6 +467,7 @@ void App::frame(double dt) {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         if (s.showUI) drawDebugUI(s);
+        if (s.showUI && s.lab) s.lab->drawUI(s);
         ImGui::Render();
         ImDrawData* dd = ImGui::GetDrawData();
         if (swap && dd->DisplaySize.x > 0) {
@@ -625,6 +641,13 @@ void App::shutdown() {
         ImGui_ImplSDLGPU3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
+    }
+    if (s_.lab) {
+        s_.renderer.extPrepare = nullptr;
+        s_.renderer.extDraw = nullptr;
+        s_.lab->shutdown();
+        delete s_.lab;
+        s_.lab = nullptr;
     }
     s_.simWindow.shutdown();
     s_.cityRenderer.shutdown();

@@ -47,6 +47,11 @@ public:
     // Records the draws inside the scene render pass (frame uniforms already pushed to slot 0).
     void draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, double time, const CharacterSettings& cs);
 
+    // Military Asset Lab: draw `count` externally posed body segments (SegInst layout, e.g. from shaders/mil_pose.comp)
+    // with the approved segment meshes / material shader (geometry level 3, triangle lists, one draw padded to the
+    // largest mesh). Separate from the zombie path: no culling, no counters, nothing shared is written.
+    void drawExternal(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass, const CrowdSim& sim, SDL_GPUBuffer* segs, uint32_t count);
+
     uint32_t drawCalls(const CharacterSettings& cs) const { return (uint32_t)classSet(cs).maxVerts.size(); }
     bool quadIndexingAvailable(int level) const { return quadOK_[level]; }
     SDL_GPUBuffer* counters() const { return counters_; }
@@ -90,6 +95,7 @@ private:
                   *segInsts_ = nullptr, *poseLib_ = nullptr;
     SDL_GPUBuffer *meshVoxBuf_ = nullptr, *tagBuf_ = nullptr, *occluders_ = nullptr, *quadVerts_ = nullptr, *quadIndex_ = nullptr;
     uint32_t occluderCount_ = 0;
+    SDL_GPUBuffer* extCounters_ = nullptr;   // all zero: class base 0 for drawExternal
     SDL_GPUTransferBuffer* zeros_ = nullptr;
 };
 
