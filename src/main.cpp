@@ -7,6 +7,7 @@
 //   ttz --selftest               (same as the ttz_selftest executable)
 //   ttz --save-config path       write all simulation parameters with their defaults
 //   ttz --lab military [--headless --shots F1,F2 --lab-views closeup,rts110,.. --shot-dir DIR]   Military Asset Lab
+//   ttz --lab military --headless --lab-stress 10,50,100,250,500,1000 [--bench-frames 600] [--lab-zombies 2000]   lab stress bench
 #include "app/App.h"
 #include "city/CityWorld.h"
 
@@ -92,6 +93,8 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--shot-dir")) o.shotDir = next();
         else if (!std::strcmp(a, "--lab")) o.lab = next();
         else if (!std::strcmp(a, "--lab-views")) o.labViews = parseStrs(next());
+        else if (!std::strcmp(a, "--lab-stress")) o.labStress = parseInts(next());
+        else if (!std::strcmp(a, "--lab-zombies")) o.labZombies = std::atoi(next());
         else if (!std::strcmp(a, "--shots-on-move")) o.shotsOnMove = std::atoi(next());
         else if (!std::strcmp(a, "--city-pan-spawn")) o.panSpawnEvery = std::atoi(next());
         else if (!std::strcmp(a, "--bench")) bench = true;
@@ -99,7 +102,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--bench-scenarios")) b.scenarios = parseStrs(next());
         else if (!std::strcmp(a, "--bench-csv")) b.csv = next();
         else if (!std::strcmp(a, "--bench-configs")) b.configs = parseStrs(next());
-        else if (!std::strcmp(a, "--bench-frames")) b.measureFrames = std::atoi(next());
+        else if (!std::strcmp(a, "--bench-frames")) o.labBenchFrames = b.measureFrames = std::atoi(next());
         else if (!std::strcmp(a, "--bench-warmup")) b.warmupSiege = std::atoi(next());
         else if (!std::strcmp(a, "--selftest")) selftest = true;
         else if (!std::strcmp(a, "--save-config")) { ttz::SimParams p; return p.save(next()) ? 0 : 1; }

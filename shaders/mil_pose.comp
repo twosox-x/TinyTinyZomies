@@ -1,43 +1,33 @@
 #version 450
 #extension GL_GOOGLE_include_directive : require
-// Military Asset Lab (src/lab): pose the lab's infantry with the SAME joint hierarchy and clips as the zombies
-// (zombie_pose.glsl: animTargets + evaluatePose), driven by explicit animation inputs (clip, time, gait phase) instead
-// of a simulation agent, so the lab can scrub / loop / slow down. One thread per lab character writes
-//   - 10 body SegInsts (char_common.glsl layout, drawn by CharacterRenderer::drawExternalSegments), and
-//   - one city instance (shaders/city.vert Inst) per attachment parented to a body slot (helmet -> head,
-//     vest / backpack -> torso, weapon -> forearmR, ...), drawn with the city material / lighting path.
+// Military Asset Lab (src/lab): pass 1 of 2. One thread per visible soldier evaluates the 10 joint transforms with the
+// SAME hierarchy as the zombies (zombie_pose.glsl evaluatePose) from explicit per-slot Euler rotations (authored clips,
+// docs/MILITARY_ANIMS.md, sampled on the CPU) or from the zombie clips (placeholder bodies), applies the clip root
+// (rootRot about the feet, then rootPos), heading and position, and writes world joint transforms. Placeholder bodies
+// (zombie module combos) also get their 10 SegInsts (drawn by CharacterRenderer::drawExternal).
+// Pass 2 (mil_attach.comp) places every part / attachment instance from these joints.
 #include "common.glsl"
 #include "zombie_parts.glsl"
 #include "zombie_pose.glsl"
 #include "char_common.glsl"
-layout(local_size_x = 16) in;
-#define MIL_MAX_CHARS 16
-#define MIL_MAX_ATTS 224
+layout(local_size_x = 64) in;
 #define ANIM_REST 8u
-#define ANIM_EXPLICIT 9u   // authored clip: per-slot Euler XYZ sampled on the CPU (src/lab/MilitaryAnims)
+#define ANIM_EXPLICIT 9u
 struct MilChar {
     vec4  posYaw;    // xyz feet position (m), w heading (rad)
-    vec4  anim;      // x clip (ANIM_*, 8 = rest pose), y clip time (s), z gait phase (rad), w speed (m/s)
-    uvec4 look;      // x, y: 56-bit appearance (body meshes), z flags (1 hidden body), w vary bits
-    vec4  rot[10];   // ANIM_EXPLICIT: Euler XYZ per slot (rad, zombie slot order)
-    vec4  root;      // ANIM_EXPLICIT: x torso bob (voxels), y tilt, z roll (rad), w root offset y (m)
-    vec4  rootXZ;    // ANIM_EXPLICIT: xz root offset (m, character space), w prone 0..1
+    vec4  anim;      // x clip (ANIM_*, 8 rest, 9 explicit), y clip time (s), z gait phase (rad), w speed (m/s)
+    uvec4 look;      // x, y: 56-bit appearance (placeholder body meshes), z flags (1 no zombie-mesh body), w vary bits
+    vec4  rot[10];   // ANIM_EXPLICIT: Euler XYZ per slot (rad)
+    vec4  rootQ;     // clip root rotation (quaternion, about the feet origin)
+    vec4  rootPos;   // clip root translation (m, clip space)
 };
-struct MilAtt {
-    uvec4 info;      // x character, y slot (0..9), z flags (1 hidden)
-    vec4  offset;    // xyz offset from the slot pivot, in body voxels (character space before the pose)
-    vec4  quat;      // local rotation of the attachment in slot space
+layout(std430, set = 0, binding = 0) readonly buffer Chars { MilChar chars[]; };
+layout(std140, set = 2, binding = 0) uniform MilPoseU {
+    uvec4 cfg;       // x characters, y characters with a placeholder body (first ones)
+    vec4  params;    // x metres per body voxel
 };
-// characters + attachments in a storage buffer (uniform pushes are limited to 4 KB on some backends)
-layout(std430, set = 0, binding = 0) readonly buffer MilPose {
-    uvec4 cfg;       // x characters, y attachments
-    vec4  params;    // x metres per voxel
-    MilChar chars[MIL_MAX_CHARS];
-    MilAtt atts[MIL_MAX_ATTS];
-};
-struct Inst { vec4 pos; vec4 quat; vec4 paint; };
-layout(std430, set = 1, binding = 0) buffer Segs  { SegInst segs[]; };
-layout(std430, set = 1, binding = 1) buffer Insts { Inst insts[]; };
+layout(std430, set = 1, binding = 0) buffer Joints { vec4 joints[]; };   // [c*20 + s*2] = world q, [+1] = world t
+layout(std430, set = 1, binding = 1) buffer Segs   { SegInst segs[]; };
 void main() {
     uint c = gl_GlobalInvocationID.x;
     if (c >= cfg.x) return;
@@ -45,14 +35,9 @@ void main() {
     vec4 q[10]; vec3 t[10];
     float scale = params.x;
     uint clip = uint(C.anim.x + 0.5);
-    if (clip == ANIM_EXPLICIT) {
-        vec3 E[10];
-        for (int i = 0; i < 10; ++i) E[i] = C.rot[i].xyz;
-        evaluatePose(E, C.root.x, C.root.y, C.root.z, C.rootXZ.w, C.root.w, scale, q, t);
-        for (int i = 0; i < 10; ++i) t[i] += vec3(C.rootXZ.x, 0.0, C.rootXZ.z);
-    } else if (clip == ANIM_REST) {
-        vec3 E[10];
-        for (int i = 0; i < 10; ++i) E[i] = vec3(0.0);
+    vec3 E[10];
+    if (clip == ANIM_EXPLICIT || clip == ANIM_REST) {
+        for (int i = 0; i < 10; ++i) E[i] = clip == ANIM_EXPLICIT ? C.rot[i].xyz : vec3(0.0);
         evaluatePose(E, 0.0, 0.0, 0.0, 0.0, 0.0, scale, q, t);
     } else {
         PoseInput p;
@@ -61,32 +46,25 @@ void main() {
         p.roll = 0.0; p.flail = 0.0;
         applyForcedPosture(p);
         if (clip == ANIM_DYING) p.timer = min(C.anim.y, 2.49);
-        vec3 E[10]; float bob, tilt, roll;
+        float bob, tilt, roll;
         animTargets(p, E, bob, tilt, roll);
         evaluatePose(E, bob, tilt, roll, p.prone, 0.0, scale, q, t);
     }
     vec4 qy = qaxis(vec3(0.0, 1.0, 0.0), C.posYaw.w);
-    vec3 pos = C.posYaw.xyz;
-    bool hidden = (C.look.z & 1u) != 0u;
-    uint look = appearanceWordGore(C.look.x, C.look.y, 0u, false);
+    vec4 qr = normalize(C.rootQ);
     for (uint s = 0u; s < 10u; ++s) {
-        SegInst o;
-        vec4 qw = qmul(qy, q[s]);
-        vec3 tw = pos + qrot(qy, t[s]) - (hidden ? vec3(0.0, 1000.0, 0.0) : vec3(0.0));
-        o.a = uvec4(packHalf2x16(qw.xy), packHalf2x16(qw.zw), meshIdFor(C.look.x, C.look.y, s) | (s << 12), look);
-        o.b = vec4(tw, uintBitsToFloat(REF_GIB));   // REF_GIB: transform taken as is, no eye glow (not a zombie)
-        segs[c * 10u + s] = o;
-    }
-    for (uint a = 0u; a < cfg.y; ++a) {
-        MilAtt A = atts[a];
-        if (A.info.x != c) continue;
-        uint s = min(A.info.y, 9u);
-        vec4 qw = qmul(qy, q[s]);
-        vec3 tw = pos + qrot(qy, t[s]);
-        Inst I;
-        I.pos = vec4(tw + qrot(qw, A.offset.xyz * scale) - ((A.info.z & 1u) != 0u ? vec3(0.0, 1000.0, 0.0) : vec3(0.0)), 1.0);
-        I.quat = normalize(qmul(qw, A.quat));
-        I.paint = vec4(0.0);
-        insts[a] = I;
+        vec4 qm = qmul(qr, q[s]);
+        vec3 tm = C.rootPos.xyz + qrot(qr, t[s]);
+        joints[c * 20u + s * 2u] = qmul(qy, qm);
+        joints[c * 20u + s * 2u + 1u] = vec4(C.posYaw.xyz + qrot(qy, tm), 0.0);
+        if (c < cfg.y) {
+            SegInst o;
+            vec4 qw = qmul(qy, qm);
+            vec3 tw = C.posYaw.xyz + qrot(qy, tm) - ((C.look.z & 1u) != 0u ? vec3(0.0, 1000.0, 0.0) : vec3(0.0));
+            o.a = uvec4(packHalf2x16(qw.xy), packHalf2x16(qw.zw), meshIdFor(C.look.x, C.look.y, s) | (s << 12),
+                        appearanceWordGore(C.look.x, C.look.y, 0u, false));
+            o.b = vec4(tw, uintBitsToFloat(REF_GIB));   // REF_GIB: transform taken as is, no eye glow (not a zombie)
+            segs[c * 10u + s] = o;
+        }
     }
 }

@@ -27,9 +27,14 @@ void main() {
     vPhase = 0.0;
     if (mode.x == 1u) {
         Inst I = inst[mode.y + uint(gl_InstanceIndex)];
-        p = I.pos.xyz + qrot(I.quat, p);
+        if (I.pos.w > 1.5) {   // deformed prop (parachute canopy, docs/MILITARY_ANIMS.md 2.3): xz radial / y height scale
+            p = I.pos.xyz + qrot(I.quat, p * vec3(I.paint.x, I.paint.y, I.paint.x));
+            float x = (p.y - I.paint.w) / 0.08;   // soft ground clamp (paint.w = surface height, < -1000 off)
+            if (I.paint.w > -1000.0 && x < 20.0) p.y = I.paint.w + 0.08 * log(1.0 + exp(x));
+        } else p = I.pos.xyz + qrot(I.quat, p);
         n = qrot(I.quat, n);
-        if (I.pos.w < 0.5) { if ((inPos.w & 1) != 0 && I.paint.w > 0.5) vPaint = vec4(I.paint.rgb, 1.0); }
+        if (I.pos.w > 1.5) {}
+        else if (I.pos.w < 0.5) { if ((inPos.w & 1) != 0 && I.paint.w > 0.5) vPaint = vec4(I.paint.rgb, 1.0); }
         else vPhase = I.paint.w;
     }
     vWorld = p;

@@ -68,26 +68,32 @@ void eulerXYZToQuat(const float e[3], float q[4]) {
     q[2] = cx * cy * sz + sx * sy * cz; q[3] = cx * cy * cz - sx * sy * sz;
 }
 
-void MilKeyClip::sample(float t, MilPoseKey& out) const {
-    if (keys.empty()) { out = MilPoseKey{}; return; }
-    if (keys.size() == 1 || t <= keys.front().t) { out = keys.front(); return; }
-    if (t >= keys.back().t) {
-        if (!loop || length <= keys.back().t) { out = keys.back(); return; }
+bool MilKeyClip::sample(const std::vector<float>& track, int stride, float t, float* out) const {
+    if (track.empty() || frames <= 0) return false;
+    const int n = (int)(track.size() / (size_t)stride);
+    float f = t * 30.f;
+    int i0, i1;
+    float w;
+    if (loop) {
+        float len = (float)n;
+        f = std::fmod(f, len);
+        if (f < 0) f += len;
+        i0 = (int)f; w = f - (float)i0; i0 %= n; i1 = (i0 + 1) % n;
+    } else {
+        f = std::clamp(f, 0.f, (float)(n - 1));
+        i0 = (int)f; i1 = std::min(i0 + 1, n - 1); w = f - (float)i0;
     }
-    size_t i = 0;
-    while (i + 1 < keys.size() && keys[i + 1].t <= t) ++i;
-    const MilPoseKey& a = keys[i];
-    const MilPoseKey& b = i + 1 < keys.size() ? keys[i + 1] : keys.front();   // looping: last -> first
-    float tb = i + 1 < keys.size() ? b.t : length + b.t;
-    float f = tb > a.t ? (t - a.t) / (tb - a.t) : 0.f;
-    f = std::clamp(f, 0.f, 1.f);
-    auto L = [f](float x, float y) { return x + (y - x) * f; };
-    out = a;
-    out.t = t;
-    for (int s = 0; s < 10; ++s) for (int k = 0; k < 3; ++k) out.rot[s][k] = L(a.rot[s][k], b.rot[s][k]);
-    out.bob = L(a.bob, b.bob); out.tilt = L(a.tilt, b.tilt); out.roll = L(a.roll, b.roll); out.prone = L(a.prone, b.prone);
-    for (int k = 0; k < 3; ++k) { out.root[k] = L(a.root[k], b.root[k]); out.weaponMount[k] = L(a.weaponMount[k], b.weaponMount[k]); }
-    out.hasMount = a.hasMount || b.hasMount;
+    const float* a = &track[(size_t)i0 * stride];
+    const float* b = &track[(size_t)i1 * stride];
+    for (int k = 0; k < stride; ++k) out[k] = a[k] + (b[k] - a[k]) * w;
+    if (stride == MB_STRIDE) out[MB_FLAGS] = w < 0.5f ? a[MB_FLAGS] : b[MB_FLAGS];
+    return true;
+}
+
+int MilitaryLibrary::findClip(const std::string& cls, const std::string& action) const {
+    for (size_t i = 0; i < keyClips.size(); ++i)
+        if (keyClips[i].cls == cls && keyClips[i].action == action) return (int)i;
+    return -1;
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -95,7 +101,8 @@ void MilKeyClip::sample(float t, MilPoseKey& out) const {
 namespace {
 enum PalId : uint8_t {
     P_OLIVE = 0, P_OLIVE_DARK, P_KHAKI, P_GUNMETAL, P_WOOD, P_WOOD_DARK, P_CONCRETE, P_CONCRETE_DARK, P_SANDBAG, P_CANOPY,
-    P_CANOPY_DARK, P_RED, P_WHITE, P_STEEL, P_FLASH, P_TRACER, P_RULER_W, P_RULER_R, P_GRID, P_CORD, P_BLACK, P_COUNT
+    P_CANOPY_DARK, P_RED, P_WHITE, P_STEEL, P_FLASH, P_TRACER, P_RULER_W, P_RULER_R, P_GRID, P_CORD, P_BLACK, P_FLASH_TIP, P_TRACER_TAIL,
+    P_BRASS, P_PUFF, P_DUST, P_COUNT
 };
 
 struct Builder {
@@ -146,6 +153,14 @@ void MilitaryLibrary::basePalette() {
     palette[P_GRID] = mat(0.62f, 0.66f, 0.48f, 0.8f, 0, MAT_EMISSIVE, EM_STEADY, 0.12f, "grid_line");
     palette[P_CORD] = mat(0.75f, 0.73f, 0.66f, 0.9f, 0, 0, 0, 0, "cord");
     palette[P_BLACK] = mat(0.06f, 0.06f, 0.06f, 0.7f, 0, 0, 0, 0, "black");
+    // FX colours (docs/MILITARY_ANIMS.md 6), emissive: unaffected by the night lighting
+    palette[P_FLASH] = mat(1.0f, 0.949f, 0.69f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 3.0f, "flash_core");
+    palette[P_FLASH_TIP] = mat(1.0f, 0.702f, 0.278f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 2.5f, "flash_tip");
+    palette[P_TRACER] = mat(1.0f, 0.824f, 0.478f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 3.0f, "tracer_core");
+    palette[P_TRACER_TAIL] = mat(1.0f, 0.541f, 0.227f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 2.0f, "tracer_tail");
+    palette[P_BRASS] = mat(0.784f, 0.631f, 0.29f, 0.4f, 0.35f, 0, 0, 0, "brass");
+    palette[P_PUFF] = mat(0.788f, 0.776f, 0.741f, 0.95f, 0, 0, 0, 0, "suppressor_puff");
+    palette[P_DUST] = mat(0.45f, 0.43f, 0.40f, 0.95f, 0, 0, 0, 0, "dust");
 }
 
 void MilitaryLibrary::buildPlaceholders(float bodyVoxel) {
@@ -321,6 +336,30 @@ void MilitaryLibrary::buildPlaceholders(float bodyVoxel) {
 
 void MilitaryLibrary::buildLabHelpers() {
     auto add = [&](Builder& b) { models.push_back(b.m); return (int)models.size() - 1; };
+    {   // voxel FX (pivot = muzzle / bullet head / particle centre; +Z = firing direction)
+        auto star = [&](const char* name, float v, int spike) {
+            Builder b(name, 3, 3, 1 + spike, v);
+            b.box(1, 1, 0, 2, 2, 1, P_FLASH);
+            for (int k = 1; k <= spike; ++k) b.box(1, 1, k, 2, 2, k + 1, P_FLASH_TIP);
+            b.box(0, 1, 0, 1, 2, 1, P_FLASH_TIP); b.box(2, 1, 0, 3, 2, 1, P_FLASH_TIP);
+            b.box(1, 0, 0, 2, 1, 1, P_FLASH_TIP); b.box(1, 2, 0, 2, 3, 1, P_FLASH_TIP);
+            b.centred(1.5f, 1.5f, 0.f);
+            return add(b);
+        };
+        fxModels[FX_FLASH_RIFLE] = star("fx_flash_rifle", 0.05f, 1);
+        fxModels[FX_FLASH_RIFLE_HALF] = star("fx_flash_rifle_half", 0.025f, 1);
+        fxModels[FX_FLASH_MG] = star("fx_flash_mg", 0.07f, 3);
+        fxModels[FX_FLASH_MG_SMALL] = star("fx_flash_mg_small", 0.056f, 3);
+        { Builder b("fx_tracer", 1, 1, 15, 0.04f);
+          b.box(0, 0, 14, 1, 1, 15, P_TRACER);
+          for (int z : {11, 8, 4, 0}) b.box(0, 0, z, 1, 1, z + 1, P_TRACER_TAIL);
+          b.centred(0.5f, 0.5f, 15.f); fxModels[FX_TRACER] = add(b); }
+        { Builder b("fx_casing", 3, 3, 5, 0.01f); b.box(0, 0, 0, 3, 3, 5, P_BRASS); b.centred(1.5f, 1.5f, 2.5f); fxModels[FX_CASING] = add(b); }
+        const float puff[3] = {0.04f, 0.055f, 0.07f};
+        for (int k = 0; k < 3; ++k) { Builder b("fx_puff", 1, 1, 1, puff[k]); b.box(0, 0, 0, 1, 1, 1, P_PUFF); b.centred(0.5f, 0.5f, 0.5f); fxModels[FX_PUFF_S + k] = add(b); }
+        { Builder b("fx_dust", 1, 1, 1, 0.06f); b.box(0, 0, 0, 1, 1, 1, P_DUST); b.centred(0.5f, 0.f, 0.5f); fxModels[FX_DUST] = add(b); }
+        { Builder b("fx_dust_l", 1, 1, 1, 0.08f); b.box(0, 0, 0, 1, 1, 1, P_DUST); b.centred(0.5f, 0.f, 0.5f); fxModels[FX_DUST_L] = add(b); }
+    }
     { const float av = 1.7f / 36.f;   // muzzle flash, half body voxels, centred
       Builder b("muzzle_flash", 5, 5, 6, av);
       b.box(1, 1, 0, 4, 4, 6, P_FLASH); b.box(0, 2, 1, 5, 3, 4, P_FLASH); b.box(2, 0, 1, 3, 5, 4, P_FLASH);
@@ -454,6 +493,8 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
                     eulerXYZToQuat(eu, A.quat);
                     const json::Value& mz = mj["weapon"]["muzzle"];
                     for (int k = 0; k < 3; ++k) I.muzzleW[k] = (float)mz[k].n();
+                    for (int k = 0; k < 3; ++k) I.support[k] = (float)mj["weapon"]["support"][(size_t)k].n();
+                    I.weaponKind = mj["weapon"]["kind"].str;
                     I.weaponAtt = (int)I.atts.size();
                     I.muzzle[0] = (float)mz[0].n() / bodyVoxel; I.muzzle[1] = -3.5f + (float)mz[1].n() / bodyVoxel; I.muzzle[2] = (float)mz[2].n() / bodyVoxel;
                 }
@@ -467,21 +508,21 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
                 I.muzzleAtt = (int)I.atts.size() - 1;
             }
             I.model = mj["name"].str;
+            for (const json::Value& so : mj["sockets"].arr)
+                if (so["name"].str == "parachute") for (int k = 0; k < 3; ++k) I.paraSocket[k] = (float)so["pos"][(size_t)k].n();
             I.clips.clear();
-            for (const char* pn : {"rest", "carry"}) {   // reference poses of infantry.json as one-key clips
+            for (const char* pn : {"rest", "carry"}) {   // reference poses of infantry.json as one-frame clips
                 const json::Value& pj = mj["poses"][pn];
                 if (pj.type != json::Value::Object) continue;
                 MilKeyClip kc;
-                kc.name = std::string(pn) + " pose";
-                kc.loop = true;
-                MilPoseKey k;
-                for (int s = 0; s < 10; ++s) for (int a = 0; a < 3; ++a) k.rot[s][a] = (float)pj["rot"][kSlots[s]][(size_t)a].n();
-                for (int a = 0; a < 3; ++a) k.weaponMount[a] = (float)pj["weaponMount"][(size_t)a].n();
-                k.hasMount = true;
-                kc.keys.push_back(k);
+                kc.name = std::string(I.model) + "/" + pn + " pose"; kc.cls = "@" + I.model; kc.action = pn;
+                kc.loop = true; kc.frames = 1; kc.duration = 1.f / 30.f;
+                kc.body.assign(MB_STRIDE, 0.f);
+                for (int s = 0; s < 10; ++s) for (int a = 0; a < 3; ++a) kc.body[(size_t)(MB_ROT + s * 3 + a)] = (float)pj["rot"][kSlots[s]][(size_t)a].n();
+                for (int a = 0; a < 3; ++a) kc.body[(size_t)(MB_MOUNT + a)] = (float)pj["weaponMount"][(size_t)a].n();
                 keyClips.push_back(kc);
                 MilClip c;
-                c.name = kc.name; c.keyClip = (int)keyClips.size() - 1; c.anim = 9; c.length = 1.f;
+                c.name = std::string(pn) + " pose"; c.keyClip = (int)keyClips.size() - 1; c.anim = 9; c.length = 1.f;
                 I.clips.push_back(c);
             }
             I.clips.push_back({"idle (zombie clip)", -1, 1, 4.f, 0.f, true, true});
@@ -505,6 +546,63 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
     return true;
 }
 
+bool MilitaryLibrary::loadAnims(const std::string& dir) {
+    std::vector<uint8_t> jt, bin;
+    if (!readAll(dir + "/anims.json", jt) || !readAll(dir + "/anims.bin", bin)) { animSource = "no anims.json / anims.bin"; return false; }
+    json::Value j;
+    if (!json::parse(std::string(jt.begin(), jt.end()), j)) { animSource = "anims.json: parse error"; return false; }
+    const size_t dataOff = (size_t)j["dataOffsetBytes"].n(0);   // header before the float data
+    if (dataOff >= bin.size()) { animSource = "anims.bin: bad data offset"; return false; }
+    const float* F = (const float*)(bin.data() + dataOff);
+    const size_t nF = (bin.size() - dataOff) / 4;
+    std::vector<const json::Value*> list;
+    const json::Value& cj = j["clips"];
+    if (cj.type == json::Value::Array) for (const json::Value& c : cj.arr) list.push_back(&c);
+    else if (cj.type == json::Value::Object) for (auto& [k, c] : cj.obj) list.push_back(&c);
+    int loaded = 0;
+    for (const json::Value* cp : list) {
+        const json::Value& c = *cp;
+        MilKeyClip k;
+        k.name = c["name"].str;
+        size_t sl = k.name.find('/');
+        k.cls = c.has("class") ? c["class"].str : k.name.substr(0, sl);
+        k.action = c.has("action") ? c["action"].str : (sl == std::string::npos ? k.name : k.name.substr(sl + 1));
+        k.duration = (float)c["duration"].n(c["length"].n(1.0));
+        k.loop = c["loop"].type == json::Value::Bool ? c["loop"].b : c["loop"].n(0) != 0;
+        k.rootMotion = c["rootMotion"].type == json::Value::Bool ? c["rootMotion"].b : false;
+        k.speed = (float)c["speed"].n(0);
+        k.descentSpeed = (float)c["descentSpeed"].n(0);
+        for (int a = 0; a < 4; ++a) k.delta[a] = (float)c["delta"][(size_t)a].n(0);
+        for (const json::Value& tr : c["tracks"].arr) {
+            size_t off = (size_t)tr["offset"].n(0), stride = (size_t)tr["stride"].n(0), fr = (size_t)tr["frames"].n(0);
+            if (!stride || off + stride * fr > nF) { SDL_Log("anims: clip %s track %s out of range", k.name.c_str(), tr["type"].str.c_str()); continue; }
+            std::vector<float> data(F + off, F + off + stride * fr);
+            const std::string& ty = tr["type"].str;
+            if (ty == "body" && stride == MB_STRIDE) k.body = std::move(data);
+            else if (ty == "canopy" && stride == MC_STRIDE) k.canopy = std::move(data);
+            else if (ty == "crate" && stride == 6) k.crate = std::move(data);
+            k.frames = std::max(k.frames, (int)fr);
+        }
+        for (const json::Value& e : c["events"].arr) k.events.push_back({(float)e["t"].n(), e["type"].str, e["fx"].str});
+        keyClips.push_back(std::move(k));
+        ++loaded;
+    }
+    // every infantry variant plays its class's clips
+    for (MilInfantry& I : infantry) {
+        I.clips.erase(std::remove_if(I.clips.begin(), I.clips.end(), [](const MilClip& c) { return c.keyClip < 0; }), I.clips.end());
+        for (size_t i = 0; i < keyClips.size(); ++i) {
+            const MilKeyClip& k = keyClips[i];
+            if (k.cls != I.cls || k.body.empty()) continue;
+            MilClip c;
+            c.name = k.action; c.keyClip = (int)i; c.anim = 9; c.length = k.duration; c.speed = k.speed; c.loop = k.loop;
+            I.clips.push_back(c);
+        }
+    }
+    animSource = "anims: " + std::to_string(loaded) + " clips";
+    SDL_Log("military lab: %s", animSource.c_str());
+    return loaded > 0;
+}
+
 bool MilitaryLibrary::load(const std::string& dir, float bodyVoxel) {
     SDL_PathInfo info;
     if (!SDL_GetPathInfo((dir + "/infantry.json").c_str(), &info) && !SDL_GetPathInfo((dir + "/props.json").c_str(), &info)) return false;
@@ -516,6 +614,7 @@ bool MilitaryLibrary::load(const std::string& dir, float bodyVoxel) {
     bool b = loadTtzm(dir + "/props.json", dir + "/props.ttzm", false, bodyVoxel);
     if (!a && !b) return false;
     premeshed.resize(models.size());
+    loadAnims(dir);
     placeholder = false;
     source = dir + " (" + std::to_string(infantry.size()) + " infantry, " + std::to_string(props.size()) + " props)";
     SDL_Log("military lab: loaded %s", source.c_str());

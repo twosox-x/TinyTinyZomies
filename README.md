@@ -280,16 +280,31 @@ cmake --build build-city -j
 ```
 
 Panel "Military Asset Lab": asset browser (infantry variants, props) -> turntable spot; camera presets (close-up,
-front / rear / side / top, lineup, RTS 45 / 110 / 300 m, props row, parachute); MMB or Alt+LMB orbit, RMB pan, wheel
-zoom, F2 = RTS rig limits; lighting (in-game night / neutral studio), tilt-shift, shadows, fog, comparison lineup
-(zombies, vehicles), props row, 1 m grid, 2 m scale ruler; animation scaffold (clip list, play / pause, loop, speed,
-scrub; the infantry animation set fills the greyed slots), supply-drop timeline (descent -> landing -> collapse),
-muzzle flash / tracer / suppressed-shot stubs. F1 hides the UI.
+front / rear / side / top / muzzle, lineup, RTS 45 / 110 / 300 m, props row, street drop, rooftop drop); MMB or
+Alt+LMB orbit, RMB pan, wheel zoom, F2 = RTS rig limits; lighting (in-game night / neutral studio), tilt-shift,
+shadows (lab props and soldiers cast moon shadows), fog, comparison lineup (zombies, vehicles), props rows, 1 m grid,
+2 m ruler; animation player for the authored clips (`assets/military/anims.*`, docs/MILITARY_ANIMS.md: clip list,
+play / pause, loop, speed, scrub; clip events drive the FX); parachute drops (soldier on the street, soldier on a real
+rooftop, cargo crate: descent -> landing -> recover); weapon FX (muzzle flash per weapon, tracers, casings, suppressor
+puff, dust); stress presets 10 / 50 / 100 / 250 / 500 / 1000 soldiers with the zombie horde; stats overlay. F1 hides
+the UI.
 
-Headless review captures (one view per `--shots` frame; options: `+studio`, `+notilt`, `+flash`, `+inf=N`,
-`+prop=N`, `+clip=N`, `+chute=SECONDS`):
+Headless review captures (one view per `--shots` frame). Views: `closeup front rear side top muzzle lineup rts45
+rts110 rts300 props parachute landing roof roofhigh`; options: `+studio +notilt +inf=N +prop=N +clip=NAME +t=SECONDS
++stress=N +drop=SECONDS +fire +hold`:
 
 ```bash
 ./build-city/ttz --lab military --headless --width 1600 --height 900 --frames 125 --shots 20,40,60,80,100,120 \
-  --lab-views closeup+inf=0,lineup,rts110,props,front+inf=7+studio,closeup+inf=2+flash --shot-dir /tmp/milab
+  --lab-views closeup+inf=0,lineup,rts110+stress=500,props,parachute+drop=3,muzzle+inf=5+clip=fire+t=0.02+hold+fire \
+  --shot-dir /tmp/milab
 ```
+
+Stress bench (headless; for each preset: warm-up, then measured frames at RTS 110 m; prints a markdown table of frame
+ms avg / p95, lab CPU ms, posed soldiers, instances, draws, triangles, FX, upload, GPU memory, then exits):
+
+```bash
+./build-city/ttz --lab military --headless --width 1920 --height 1080 \
+  --lab-stress 10,50,100,250,500,1000 --bench-frames 600 --lab-zombies 2000
+```
+
+Interactive stress: `./build-city/ttz --lab military --lab-stress 500` (or the Stress test buttons in the panel).

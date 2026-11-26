@@ -51,6 +51,7 @@ public:
     void resetTo(const Sandbox& sb, Renderer& renderer);
 
     float originX() const { return ox_; }
+    const std::vector<float>* shadowCpu() const { return shadow_.get(); }   // current window's moon-shadow field (3gw x 3gh)
     float originZ() const { return oz_; }
     const SimWindowStats& stats() const { return stats_; }
 

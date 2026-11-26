@@ -55,6 +55,9 @@ struct AppOptions {
     int cityVerify = 0;            // > 0: every N frames a synchronous check of the horde against the window (test only)
     std::string lab;               // --lab military: Military Asset Lab (src/lab/MilitaryLab.h)
     std::vector<std::string> labViews;   // --lab-views v1,v2,..: lab camera preset per --shots frame (headless review captures)
+    std::vector<int> labStress;    // --lab-stress 10,50,..: soldier presets (headless: benchmark table, then exit)
+    int labBenchFrames = 300;      // --bench-frames with --lab-stress: measured frames per preset
+    int labZombies = 2000;         // --lab-zombies: zombie horde alongside the stress soldiers
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };

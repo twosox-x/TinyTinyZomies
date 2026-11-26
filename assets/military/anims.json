@@ -1,0 +1,3404 @@
+{
+ "format": "TTZA",
+ "version": 1,
+ "source": "tools/military_lab/military_lab_v1.html",
+ "doc": "docs/MILITARY_ANIMS.md",
+ "sampleRate": 30,
+ "strides": {
+  "body": 44,
+  "canopy": 12,
+  "crate": 6
+ },
+ "dataOffsetBytes": 32,
+ "floatCount": 177384,
+ "slots": [
+  "head",
+  "torso",
+  "upperArmL",
+  "forearmL",
+  "upperArmR",
+  "forearmR",
+  "thighL",
+  "shinL",
+  "thighR",
+  "shinR"
+ ],
+ "handItems": {
+  "none": 0,
+  "rifleMag": 1,
+  "mgBox": 2,
+  "sniperMag": 3,
+  "ammoCan": 4,
+  "belt": 5
+ },
+ "classes": [
+  "rifleman",
+  "mg",
+  "sniper"
+ ],
+ "classModels": {
+  "rifleman": [
+   "rifleman_a",
+   "rifleman_b",
+   "rifleman_c",
+   "rifleman_d",
+   "rifleman_e"
+  ],
+  "mg": [
+   "mg_a",
+   "mg_b",
+   "mg_c"
+  ],
+  "sniper": [
+   "sniper_a",
+   "sniper_b"
+  ],
+  "crate": [
+   "crate_ammo_drop",
+   "para_cargo"
+  ]
+ },
+ "slungMount": {
+  "rifleman": {
+   "part": "torso",
+   "gripFromTorsoPivot": [
+    0.056667,
+    0.396667,
+    0.34
+   ],
+   "rot": [
+    1.570796,
+    -0.585217,
+    1.570796
+   ]
+  },
+  "mg": {
+   "part": "torso",
+   "gripFromTorsoPivot": [
+    0.056667,
+    0.396667,
+    0.387222
+   ],
+   "rot": [
+    1.570796,
+    -0.585217,
+    1.570796
+   ]
+  },
+  "sniper": {
+   "part": "torso",
+   "gripFromTorsoPivot": [
+    0.056667,
+    0.396667,
+    0.321111
+   ],
+   "rot": [
+    1.570796,
+    -0.585217,
+    1.570796
+   ]
+  }
+ },
+ "weaponPoints": {
+  "rifleman": {
+   "support": [
+    0,
+    -0.009444,
+    0.377778
+   ],
+   "muzzle": [
+    0,
+    0.094444,
+    0.779167
+   ],
+   "sling": [
+    0,
+    0.047222,
+    -0.283333
+   ],
+   "butt": [
+    0,
+    0.070833,
+    -0.330556
+   ],
+   "magwell": [
+    0,
+    -0.113333,
+    0.141667
+   ],
+   "charge": [
+    0,
+    0.151111,
+    -0.075556
+   ]
+  },
+  "mg": {
+   "support": [
+    0,
+    0.236111,
+    0.236111
+   ],
+   "muzzle": [
+    0,
+    0.094444,
+    1.0625
+   ],
+   "sling": [
+    0,
+    0.047222,
+    -0.236111
+   ],
+   "butt": [
+    0,
+    0.070833,
+    -0.330556
+   ],
+   "magwell": [
+    0.070833,
+    -0.141667,
+    0.118056
+   ],
+   "cover": [
+    0,
+    0.245556,
+    0.094444
+   ],
+   "tray": [
+    0.085,
+    0.075556,
+    0.141667
+   ]
+  },
+  "sniper": {
+   "support": [
+    0,
+    -0.018889,
+    0.330556
+   ],
+   "muzzle": [
+    0,
+    0.094444,
+    1.0625
+   ],
+   "sling": [
+    0,
+    0,
+    -0.330556
+   ],
+   "butt": [
+    0,
+    0.023611,
+    -0.377778
+   ],
+   "magwell": [
+    0,
+    -0.075556,
+    0.118056
+   ],
+   "bolt": [
+    -0.066111,
+    0.094444,
+    0.047222
+   ],
+   "boltBack": [
+    -0.066111,
+    0.094444,
+    -0.085
+   ]
+  }
+ },
+ "transitions": [
+  {
+   "from": "idle",
+   "to": "walk",
+   "s": 0.25,
+   "sync": "phase"
+  },
+  {
+   "from": "walk",
+   "to": "idle",
+   "s": 0.25,
+   "sync": "phase"
+  },
+  {
+   "from": "walk",
+   "to": "run",
+   "s": 0.25,
+   "sync": "phase"
+  },
+  {
+   "from": "run",
+   "to": "walk",
+   "s": 0.25,
+   "sync": "phase"
+  },
+  {
+   "from": "idle",
+   "to": "aim",
+   "s": 0.2
+  },
+  {
+   "from": "walk",
+   "to": "aim",
+   "s": 0.2
+  },
+  {
+   "from": "run",
+   "to": "aim",
+   "s": 0.25
+  },
+  {
+   "from": "aim",
+   "to": "idle",
+   "s": 0.25
+  },
+  {
+   "from": "aim",
+   "to": "walk",
+   "s": 0.25
+  },
+  {
+   "from": "aim",
+   "to": "fire",
+   "s": 0.06
+  },
+  {
+   "from": "fire",
+   "to": "aim",
+   "s": 0.06
+  },
+  {
+   "from": "aim",
+   "to": "crouch_aim",
+   "s": 0.3
+  },
+  {
+   "from": "crouch_aim",
+   "to": "aim",
+   "s": 0.3
+  },
+  {
+   "from": "crouch_aim",
+   "to": "crouch_fire",
+   "s": 0.06
+  },
+  {
+   "from": "crouch_fire",
+   "to": "crouch_aim",
+   "s": 0.06
+  },
+  {
+   "from": "*",
+   "to": "reload",
+   "s": 0.15
+  },
+  {
+   "from": "reload",
+   "to": "aim",
+   "s": 0.1
+  },
+  {
+   "from": "*",
+   "to": "hit",
+   "s": 0.08,
+   "back": 0.2
+  },
+  {
+   "from": "*",
+   "to": "death_*",
+   "s": 0.1
+  },
+  {
+   "from": "*",
+   "to": "turn_*",
+   "s": 0.15
+  },
+  {
+   "from": "para_descent",
+   "to": "para_land",
+   "s": 0.1
+  },
+  {
+   "from": "para_land",
+   "to": "para_recover",
+   "s": 0
+  },
+  {
+   "from": "para_recover",
+   "to": "idle",
+   "s": 0.2
+  },
+  {
+   "from": "collect_ammo",
+   "to": "idle",
+   "s": 0.2
+  },
+  {
+   "from": "enter_building",
+   "to": "aim",
+   "s": 0.15
+  },
+  {
+   "from": "exit_building",
+   "to": "walk",
+   "s": 0.2
+  },
+  {
+   "from": "*",
+   "to": "*",
+   "s": 0.2
+  }
+ ],
+ "fx": {
+  "voxel": "axis-aligned emissive cubes, no smoke columns; sizes m, colours sRGB, life s",
+  "muzzle_flash": {
+   "rifle": {
+    "frames": 2,
+    "core": {
+     "size": 0.05,
+     "color": "#fff2b0"
+    },
+    "tips": {
+     "size": 0.05,
+     "color": "#ffb347",
+     "pos": [
+      [
+       0,
+       0,
+       0.06
+      ],
+      [
+       0.05,
+       0,
+       0
+      ],
+      [
+       -0.05,
+       0,
+       0
+      ],
+      [
+       0,
+       0.05,
+       0
+      ],
+      [
+       0,
+       -0.05,
+       0
+      ]
+     ]
+    },
+    "light": {
+     "radius": 2,
+     "color": "#ffc070",
+     "frames": 1
+    }
+   },
+   "mg": {
+    "frames": 2,
+    "flicker": "odd rounds rotate 45 deg about Z, scale 0.8",
+    "core": {
+     "size": 0.07,
+     "color": "#fff2b0"
+    },
+    "tips": {
+     "size": 0.07,
+     "color": "#ff9a3a",
+     "pos": [
+      [
+       0,
+       0,
+       0.07
+      ],
+      [
+       0,
+       0,
+       0.13
+      ],
+      [
+       0,
+       0,
+       0.19
+      ],
+      [
+       0.07,
+       0,
+       0
+      ],
+      [
+       -0.07,
+       0,
+       0
+      ],
+      [
+       0,
+       0.07,
+       0
+      ],
+      [
+       0,
+       -0.07,
+       0
+      ]
+     ]
+    },
+    "light": {
+     "radius": 3,
+     "color": "#ffb060",
+     "frames": 1
+    }
+   },
+   "sniper": {
+    "frames": 0,
+    "note": "suppressed: no flash, see suppressed puff"
+   }
+  },
+  "suppressed": {
+   "count": 4,
+   "size": [
+    0.04,
+    0.07
+   ],
+   "color": "#c9c6bd",
+   "alpha": 0.6,
+   "vel": [
+    0,
+    0.2,
+    0.5
+   ],
+   "spread": 0.03,
+   "life": 0.35
+  },
+  "tracer": {
+   "voxels": 5,
+   "size": 0.04,
+   "length": 0.6,
+   "core": "#ffd27a",
+   "tail": "#ff8a3a",
+   "speed": 600,
+   "life": 0.5,
+   "every": {
+    "rifle": 0,
+    "mg": 4,
+    "sniper": 0
+   }
+  },
+  "shell_eject": {
+   "size": [
+    0.03,
+    0.03,
+    0.05
+   ],
+   "color": "#c8a14a",
+   "life": 0.6,
+   "vel": [
+    -2,
+    1.2,
+    -0.3
+   ],
+   "jitter": 0.2,
+   "gravity": 9.8,
+   "bounce": 0.3,
+   "port": {
+    "rifle": [
+     -0.05,
+     0.08,
+     0.1
+    ],
+    "mg": [
+     -0.07,
+     0.1,
+     0.12
+    ],
+    "sniper": [
+     -0.05,
+     0.1,
+     0.03
+    ]
+   }
+  },
+  "footstep": {
+   "count": 2,
+   "size": 0.05,
+   "color": "ground",
+   "life": 0.25
+  },
+  "body_fall": {
+   "count": 6,
+   "size": 0.06,
+   "color": "ground",
+   "life": 0.4
+  },
+  "canopy_ground": {
+   "count": 8,
+   "size": 0.08,
+   "color": "ground",
+   "life": 0.5
+  }
+ },
+ "clips": [
+  {
+   "name": "rifleman/idle",
+   "class": "rifleman",
+   "action": "idle",
+   "duration": 3,
+   "frames": 90,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 0,
+     "stride": 44,
+     "frames": 90
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.023,
+    "footSlide": 0.0008
+   }
+  },
+  {
+   "name": "rifleman/walk",
+   "class": "rifleman",
+   "action": "walk",
+   "duration": 0.92,
+   "frames": 28,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.3,
+   "stride": 1.196,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.46,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 3960,
+     "stride": 44,
+     "frames": 28
+    }
+   ],
+   "check": {
+    "supportError": 0.0209,
+    "minY": -0.022,
+    "footSlide": 0.0173
+   }
+  },
+  {
+   "name": "rifleman/run",
+   "class": "rifleman",
+   "action": "run",
+   "duration": 0.64,
+   "frames": 19,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 3.6,
+   "stride": 2.304,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.32,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 5192,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.019,
+    "footSlide": 0.005
+   }
+  },
+  {
+   "name": "rifleman/turn_l",
+   "class": "rifleman",
+   "action": "turn_l",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 6028,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.019,
+    "footSlide": 0.0038
+   }
+  },
+  {
+   "name": "rifleman/turn_r",
+   "class": "rifleman",
+   "action": "turn_r",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    -1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "L"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 7128,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.026,
+    "footSlide": 0.0079
+   }
+  },
+  {
+   "name": "rifleman/aim",
+   "class": "rifleman",
+   "action": "aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 8228,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.031,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/fire",
+   "class": "rifleman",
+   "action": "fire",
+   "duration": 0.9,
+   "frames": 27,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 3.33,
+   "events": [
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0,
+     "type": "recoil",
+     "kick": 0.12
+    },
+    {
+     "t": 0.3,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "recoil",
+     "kick": 0.12
+    },
+    {
+     "t": 0.6,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "recoil",
+     "kick": 0.12
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 10868,
+     "stride": 44,
+     "frames": 27
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.031,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/crouch_aim",
+   "class": "rifleman",
+   "action": "crouch_aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 12056,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/crouch_fire",
+   "class": "rifleman",
+   "action": "crouch_fire",
+   "duration": 0.9,
+   "frames": 27,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 3.33,
+   "events": [
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "shell_eject",
+     "fx": "rifle"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 14696,
+     "stride": 44,
+     "frames": 27
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/reload",
+   "class": "rifleman",
+   "action": "reload",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.42,
+     "type": "mag_out"
+    },
+    {
+     "t": 1.5,
+     "type": "mag_in"
+    },
+    {
+     "t": 1.88,
+     "type": "bolt"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 15884,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.031,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/hit",
+   "class": "rifleman",
+   "action": "hit",
+   "duration": 0.6,
+   "frames": 19,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.06,
+     "type": "hit"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 19096,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.019,
+    "footSlide": 0.0014
+   }
+  },
+  {
+   "name": "rifleman/death_a",
+   "class": "rifleman",
+   "action": "death_a",
+   "duration": 1.6,
+   "frames": 49,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.95,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 19932,
+     "stride": 44,
+     "frames": 49
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/death_b",
+   "class": "rifleman",
+   "action": "death_b",
+   "duration": 1.8,
+   "frames": 55,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0.15111,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.15,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 22088,
+     "stride": 44,
+     "frames": 55
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/death_c",
+   "class": "rifleman",
+   "action": "death_c",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0.14167,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.85,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 24508,
+     "stride": 44,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/collect_ammo",
+   "class": "rifleman",
+   "action": "collect_ammo",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 1.25,
+     "type": "grab"
+    },
+    {
+     "t": 2.05,
+     "type": "stow"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 26532,
+     "stride": 44,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0003,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/enter_building",
+   "class": "rifleman",
+   "action": "enter_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 1.5,
+     "type": "door",
+     "z": 1.2
+    },
+    {
+     "t": 1.8,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 30800,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "rifleman/exit_building",
+   "class": "rifleman",
+   "action": "exit_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.9,
+     "type": "door",
+     "z": 0.6
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 34012,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "rifleman/stairs_up",
+   "class": "rifleman",
+   "action": "stairs_up",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 37224,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/stairs_down",
+   "class": "rifleman",
+   "action": "stairs_down",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    -0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 38544,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/para_descent",
+   "class": "rifleman",
+   "action": "para_descent",
+   "duration": 4.8,
+   "frames": 144,
+   "loop": true,
+   "rootMotion": false,
+   "descentSpeed": 5,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 39864,
+     "stride": 44,
+     "frames": 144
+    },
+    {
+     "type": "canopy",
+     "offset": 46200,
+     "stride": 12,
+     "frames": 144
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "rifleman/para_land",
+   "class": "rifleman",
+   "action": "para_land",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    -0.28333,
+    0,
+    -0.09444,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "touchdown"
+    },
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.4,
+     "type": "canopy_ground"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 47928,
+     "stride": 44,
+     "frames": 46
+    },
+    {
+     "type": "canopy",
+     "offset": 49952,
+     "stride": 12,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0.0123
+   }
+  },
+  {
+   "name": "rifleman/para_recover",
+   "class": "rifleman",
+   "action": "para_recover",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 1.25,
+     "type": "harness_release"
+    },
+    {
+     "t": 2.15,
+     "type": "weapon_draw"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 50504,
+     "stride": 44,
+     "frames": 97
+    },
+    {
+     "type": "canopy",
+     "offset": 54772,
+     "stride": 12,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0015,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/idle",
+   "class": "mg",
+   "action": "idle",
+   "duration": 3,
+   "frames": 90,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 55936,
+     "stride": 44,
+     "frames": 90
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.023,
+    "footSlide": 0.0008
+   }
+  },
+  {
+   "name": "mg/walk",
+   "class": "mg",
+   "action": "walk",
+   "duration": 0.92,
+   "frames": 28,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.3,
+   "stride": 1.196,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.46,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 59896,
+     "stride": 44,
+     "frames": 28
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.022,
+    "footSlide": 0.0173
+   }
+  },
+  {
+   "name": "mg/run",
+   "class": "mg",
+   "action": "run",
+   "duration": 0.64,
+   "frames": 19,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 3.6,
+   "stride": 2.304,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.32,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 61128,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.019,
+    "footSlide": 0.005
+   }
+  },
+  {
+   "name": "mg/turn_l",
+   "class": "mg",
+   "action": "turn_l",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 61964,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.019,
+    "footSlide": 0.0038
+   }
+  },
+  {
+   "name": "mg/turn_r",
+   "class": "mg",
+   "action": "turn_r",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    -1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "L"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 63064,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.026,
+    "footSlide": 0.0079
+   }
+  },
+  {
+   "name": "mg/aim",
+   "class": "mg",
+   "action": "aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 64164,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.037,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/fire",
+   "class": "mg",
+   "action": "fire",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 12,
+   "events": [
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 0
+    },
+    {
+     "t": 0,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0,
+     "type": "tracer",
+     "fx": "mg"
+    },
+    {
+     "t": 0.0833,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 1
+    },
+    {
+     "t": 0.0833,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.1667,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 2
+    },
+    {
+     "t": 0.1667,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.25,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 3
+    },
+    {
+     "t": 0.25,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.3333,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 4
+    },
+    {
+     "t": 0.3333,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.3333,
+     "type": "tracer",
+     "fx": "mg"
+    },
+    {
+     "t": 0.4167,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 5
+    },
+    {
+     "t": 0.4167,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.5,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 6
+    },
+    {
+     "t": 0.5,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.5833,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 7
+    },
+    {
+     "t": 0.5833,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.6667,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 8
+    },
+    {
+     "t": 0.6667,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.6667,
+     "type": "tracer",
+     "fx": "mg"
+    },
+    {
+     "t": 0.75,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 9
+    },
+    {
+     "t": 0.75,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.8333,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 10
+    },
+    {
+     "t": 0.8333,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.9167,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 11
+    },
+    {
+     "t": 0.9167,
+     "type": "shell_eject",
+     "fx": "mg"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 66804,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.037,
+    "footSlide": 0.0004
+   }
+  },
+  {
+   "name": "mg/crouch_aim",
+   "class": "mg",
+   "action": "crouch_aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 68124,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/crouch_fire",
+   "class": "mg",
+   "action": "crouch_fire",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 12,
+   "events": [
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 0
+    },
+    {
+     "t": 0,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0,
+     "type": "tracer",
+     "fx": "mg"
+    },
+    {
+     "t": 0.0833,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 1
+    },
+    {
+     "t": 0.0833,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.1667,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 2
+    },
+    {
+     "t": 0.1667,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.25,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 3
+    },
+    {
+     "t": 0.25,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.3333,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 4
+    },
+    {
+     "t": 0.3333,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.3333,
+     "type": "tracer",
+     "fx": "mg"
+    },
+    {
+     "t": 0.4167,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 5
+    },
+    {
+     "t": 0.4167,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.5,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 6
+    },
+    {
+     "t": 0.5,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.5833,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 7
+    },
+    {
+     "t": 0.5833,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.6667,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 8
+    },
+    {
+     "t": 0.6667,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.6667,
+     "type": "tracer",
+     "fx": "mg"
+    },
+    {
+     "t": 0.75,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 9
+    },
+    {
+     "t": 0.75,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.8333,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 10
+    },
+    {
+     "t": 0.8333,
+     "type": "shell_eject",
+     "fx": "mg"
+    },
+    {
+     "t": 0.9167,
+     "type": "muzzle_flash",
+     "fx": "mg",
+     "round": 11
+    },
+    {
+     "t": 0.9167,
+     "type": "shell_eject",
+     "fx": "mg"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 70764,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/reload",
+   "class": "mg",
+   "action": "reload",
+   "duration": 4.2,
+   "frames": 127,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.5,
+     "type": "belt_open"
+    },
+    {
+     "t": 0.95,
+     "type": "mag_out"
+    },
+    {
+     "t": 2.1,
+     "type": "grab"
+    },
+    {
+     "t": 2.8,
+     "type": "mag_in"
+    },
+    {
+     "t": 3.2,
+     "type": "belt"
+    },
+    {
+     "t": 3.65,
+     "type": "belt_close"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 72084,
+     "stride": 44,
+     "frames": 127
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.037,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/hit",
+   "class": "mg",
+   "action": "hit",
+   "duration": 0.6,
+   "frames": 19,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.06,
+     "type": "hit"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 77672,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.019,
+    "footSlide": 0.0014
+   }
+  },
+  {
+   "name": "mg/death_a",
+   "class": "mg",
+   "action": "death_a",
+   "duration": 1.6,
+   "frames": 49,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.95,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 78508,
+     "stride": 44,
+     "frames": 49
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/death_b",
+   "class": "mg",
+   "action": "death_b",
+   "duration": 1.8,
+   "frames": 55,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0.15111,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.15,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 80664,
+     "stride": 44,
+     "frames": 55
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/death_c",
+   "class": "mg",
+   "action": "death_c",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0.14167,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.85,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 83084,
+     "stride": 44,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/collect_ammo",
+   "class": "mg",
+   "action": "collect_ammo",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 1.25,
+     "type": "grab"
+    },
+    {
+     "t": 2.05,
+     "type": "stow"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 85108,
+     "stride": 44,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/enter_building",
+   "class": "mg",
+   "action": "enter_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 1.5,
+     "type": "door",
+     "z": 1.2
+    },
+    {
+     "t": 1.8,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 89376,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "mg/exit_building",
+   "class": "mg",
+   "action": "exit_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.9,
+     "type": "door",
+     "z": 0.6
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 92588,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "mg/stairs_up",
+   "class": "mg",
+   "action": "stairs_up",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 95800,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/stairs_down",
+   "class": "mg",
+   "action": "stairs_down",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    -0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 97120,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/para_descent",
+   "class": "mg",
+   "action": "para_descent",
+   "duration": 4.8,
+   "frames": 144,
+   "loop": true,
+   "rootMotion": false,
+   "descentSpeed": 5,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 98440,
+     "stride": 44,
+     "frames": 144
+    },
+    {
+     "type": "canopy",
+     "offset": 104776,
+     "stride": 12,
+     "frames": 144
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "mg/para_land",
+   "class": "mg",
+   "action": "para_land",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    -0.28333,
+    0,
+    -0.09444,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "touchdown"
+    },
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.4,
+     "type": "canopy_ground"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 106504,
+     "stride": 44,
+     "frames": 46
+    },
+    {
+     "type": "canopy",
+     "offset": 108528,
+     "stride": 12,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0.0123
+   }
+  },
+  {
+   "name": "mg/para_recover",
+   "class": "mg",
+   "action": "para_recover",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 1.25,
+     "type": "harness_release"
+    },
+    {
+     "t": 2.15,
+     "type": "weapon_draw"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 109080,
+     "stride": 44,
+     "frames": 97
+    },
+    {
+     "type": "canopy",
+     "offset": 113348,
+     "stride": 12,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/idle",
+   "class": "sniper",
+   "action": "idle",
+   "duration": 3,
+   "frames": 90,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 114512,
+     "stride": 44,
+     "frames": 90
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.023,
+    "footSlide": 0.0008
+   }
+  },
+  {
+   "name": "sniper/walk",
+   "class": "sniper",
+   "action": "walk",
+   "duration": 0.92,
+   "frames": 28,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.3,
+   "stride": 1.196,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.46,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 118472,
+     "stride": 44,
+     "frames": 28
+    }
+   ],
+   "check": {
+    "supportError": 0.0193,
+    "minY": -0.022,
+    "footSlide": 0.0173
+   }
+  },
+  {
+   "name": "sniper/run",
+   "class": "sniper",
+   "action": "run",
+   "duration": 0.64,
+   "frames": 19,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 3.6,
+   "stride": 2.304,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.32,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 119704,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.019,
+    "footSlide": 0.005
+   }
+  },
+  {
+   "name": "sniper/turn_l",
+   "class": "sniper",
+   "action": "turn_l",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 120540,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.019,
+    "footSlide": 0.0038
+   }
+  },
+  {
+   "name": "sniper/turn_r",
+   "class": "sniper",
+   "action": "turn_r",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    -1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "L"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 121640,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.026,
+    "footSlide": 0.0079
+   }
+  },
+  {
+   "name": "sniper/aim",
+   "class": "sniper",
+   "action": "aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 122740,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.032,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/fire",
+   "class": "sniper",
+   "action": "fire",
+   "duration": 1.9,
+   "frames": 57,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 0.5263157894736842,
+   "events": [
+    {
+     "t": 0,
+     "type": "suppressed",
+     "fx": "sniper"
+    },
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "sniper"
+    },
+    {
+     "t": 0,
+     "type": "recoil",
+     "kick": 0.5
+    },
+    {
+     "t": 0.78,
+     "type": "bolt"
+    },
+    {
+     "t": 0.9,
+     "type": "shell_eject",
+     "fx": "sniper"
+    },
+    {
+     "t": 1.12,
+     "type": "bolt"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 125380,
+     "stride": 44,
+     "frames": 57
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.032,
+    "footSlide": 0.0012
+   }
+  },
+  {
+   "name": "sniper/crouch_aim",
+   "class": "sniper",
+   "action": "crouch_aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 127888,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/crouch_fire",
+   "class": "sniper",
+   "action": "crouch_fire",
+   "duration": 1.9,
+   "frames": 57,
+   "loop": true,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0,
+     "type": "suppressed",
+     "fx": "sniper"
+    },
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "sniper"
+    },
+    {
+     "t": 0.78,
+     "type": "bolt"
+    },
+    {
+     "t": 0.9,
+     "type": "shell_eject",
+     "fx": "sniper"
+    },
+    {
+     "t": 1.12,
+     "type": "bolt"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 130528,
+     "stride": 44,
+     "frames": 57
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/reload",
+   "class": "sniper",
+   "action": "reload",
+   "duration": 2.9,
+   "frames": 88,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.38,
+     "type": "bolt"
+    },
+    {
+     "t": 0.75,
+     "type": "mag_out"
+    },
+    {
+     "t": 1.82,
+     "type": "mag_in"
+    },
+    {
+     "t": 2.2,
+     "type": "bolt"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 133036,
+     "stride": 44,
+     "frames": 88
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.032,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/hit",
+   "class": "sniper",
+   "action": "hit",
+   "duration": 0.6,
+   "frames": 19,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.06,
+     "type": "hit"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 136908,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.019,
+    "footSlide": 0.0014
+   }
+  },
+  {
+   "name": "sniper/death_a",
+   "class": "sniper",
+   "action": "death_a",
+   "duration": 1.6,
+   "frames": 49,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.95,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 137744,
+     "stride": 44,
+     "frames": 49
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/death_b",
+   "class": "sniper",
+   "action": "death_b",
+   "duration": 1.8,
+   "frames": 55,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0.15111,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.15,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 139900,
+     "stride": 44,
+     "frames": 55
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/death_c",
+   "class": "sniper",
+   "action": "death_c",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0.14167,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.85,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 142320,
+     "stride": 44,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/collect_ammo",
+   "class": "sniper",
+   "action": "collect_ammo",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 1.25,
+     "type": "grab"
+    },
+    {
+     "t": 2.05,
+     "type": "stow"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 144344,
+     "stride": 44,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0004,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/enter_building",
+   "class": "sniper",
+   "action": "enter_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 1.5,
+     "type": "door",
+     "z": 1.2
+    },
+    {
+     "t": 1.8,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 148612,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "sniper/exit_building",
+   "class": "sniper",
+   "action": "exit_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.9,
+     "type": "door",
+     "z": 0.6
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 151824,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "sniper/stairs_up",
+   "class": "sniper",
+   "action": "stairs_up",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 155036,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/stairs_down",
+   "class": "sniper",
+   "action": "stairs_down",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    -0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 156356,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/para_descent",
+   "class": "sniper",
+   "action": "para_descent",
+   "duration": 4.8,
+   "frames": 144,
+   "loop": true,
+   "rootMotion": false,
+   "descentSpeed": 5,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 157676,
+     "stride": 44,
+     "frames": 144
+    },
+    {
+     "type": "canopy",
+     "offset": 164012,
+     "stride": 12,
+     "frames": 144
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "sniper/para_land",
+   "class": "sniper",
+   "action": "para_land",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    -0.28333,
+    0,
+    -0.09444,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "touchdown"
+    },
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.4,
+     "type": "canopy_ground"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 165740,
+     "stride": 44,
+     "frames": 46
+    },
+    {
+     "type": "canopy",
+     "offset": 167764,
+     "stride": 12,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0.0123
+   }
+  },
+  {
+   "name": "sniper/para_recover",
+   "class": "sniper",
+   "action": "para_recover",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 1.25,
+     "type": "harness_release"
+    },
+    {
+     "t": 2.15,
+     "type": "weapon_draw"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 168316,
+     "stride": 44,
+     "frames": 97
+    },
+    {
+     "type": "canopy",
+     "offset": 172584,
+     "stride": 12,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0011,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "crate/descent",
+   "class": "crate",
+   "action": "descent",
+   "duration": 3.2,
+   "frames": 96,
+   "loop": true,
+   "rootMotion": false,
+   "descentSpeed": 6,
+   "events": [],
+   "tracks": [
+    {
+     "type": "canopy",
+     "offset": 173748,
+     "stride": 12,
+     "frames": 96
+    },
+    {
+     "type": "crate",
+     "offset": 174900,
+     "stride": 6,
+     "frames": 96
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "crate/land",
+   "class": "crate",
+   "action": "land",
+   "duration": 3.5,
+   "frames": 106,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0,
+     "type": "crate_touch"
+    },
+    {
+     "t": 0.42,
+     "type": "crate_bounce"
+    },
+    {
+     "t": 2.2,
+     "type": "canopy_ground"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "canopy",
+     "offset": 175476,
+     "stride": 12,
+     "frames": 106
+    },
+    {
+     "type": "crate",
+     "offset": 176748,
+     "stride": 6,
+     "frames": 106
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  }
+ ]
+}

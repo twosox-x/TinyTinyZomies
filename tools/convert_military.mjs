@@ -18,6 +18,7 @@
  * Outputs (deterministic, byte-identical for the same input):
  *   assets/military/infantry.ttzm + infantry.json
  *   assets/military/props.ttzm    + props.json
+ *   assets/military/anims.bin     + anims.json    (clips, docs/MILITARY_ANIMS.md)
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -35,7 +36,8 @@ if (a < 0 || b < 0) throw new Error("Military Lab source layout not recognised (
 const sandbox = { console, Math };
 vm.createContext(sandbox);
 const lib = vm.runInContext(html.slice(a, b) + `
-;({ buildAll, PALETTE, PAL, partFaces, quadsCulled, quadsGreedy, rigidGroup, DIRS, CORN, V_M, PROP_M, SLOTS, PIVOT, HAND, MIL_VERSION })`, sandbox, { filename: "military_lab_v1.html" });
+;({ buildAll, buildAnims, PALETTE, PAL, partFaces, quadsCulled, quadsGreedy, rigidGroup, DIRS, CORN, V_M, PROP_M, SLOTS, PIVOT, HAND, MIL_VERSION,
+     ANIM_VERSION, ANIM_HZ, BODY_STRIDE, CANOPY_STRIDE, CRATE_STRIDE, HAND_ITEM, ANIM_CLASSES })`, sandbox, { filename: "military_lab_v1.html" });
 
 const t0 = Date.now();
 const { infantry, props } = lib.buildAll();
@@ -211,4 +213,41 @@ function bake(models, file, isInf) {
 
 bake(infantry, "infantry", true);
 bake(props, "props", false);
+bakeAnims(infantry);
+
+// ------------------------------------------------------------------ animations (docs/MILITARY_ANIMS.md)
+function bakeAnims(infantry) {
+  const A = lib.buildAnims(infantry);
+  const floats = [];
+  const f6 = x => Math.round(x * 1e6) / 1e6;
+  const clips = A.clips.map(c => {
+    const tracks = [];
+    const push = (type, stride, frames) => { if (!frames) return; tracks.push({ type, offset: floats.length, stride, frames: frames.length }); for (const fr of frames) { if (fr.length !== stride) throw new Error(`${c.name}: ${type} stride`); for (const v of fr) { if (!Number.isFinite(v)) throw new Error(`${c.name}: non-finite value`); floats.push(v); } } };
+    push("body", lib.BODY_STRIDE, c.gen ? c.body : null);
+    push("canopy", lib.CANOPY_STRIDE, c.canopy);
+    push("crate", lib.CRATE_STRIDE, c.crate);
+    const out = { name: c.name, class: c.cls, action: c.action, duration: c.duration, frames: c.frames, loop: !!c.loop, rootMotion: !!c.rootMotion };
+    for (const k of ["speed", "stride", "descentSpeed", "rate", "stairs", "phase0"]) if (c[k] !== undefined) out[k] = c[k];
+    if (c.delta) out.delta = c.delta;
+    out.events = (c.events || []).map(e => Object.assign({}, e, { t: f6(e.t) })).sort((a, b) => a.t - b.t);
+    out.tracks = tracks;
+    out.check = c.stats;
+    return out;
+  });
+  const head = new Uint32Array(8); head[0] = 0x415A5454; head[1] = lib.ANIM_VERSION; head[2] = floats.length; head[3] = clips.length; head[4] = lib.ANIM_HZ;
+  const buf = Buffer.concat([Buffer.from(head.buffer), Buffer.from(Float32Array.from(floats).buffer)]);
+  fs.writeFileSync(path.join(ROOT, "assets/military/anims.bin"), buf);
+  const vrr = v => v.map(r6);
+  const manifest = { format: "TTZA", version: lib.ANIM_VERSION, source: path.relative(ROOT, SRC), doc: "docs/MILITARY_ANIMS.md", sampleRate: lib.ANIM_HZ,
+    strides: { body: lib.BODY_STRIDE, canopy: lib.CANOPY_STRIDE, crate: lib.CRATE_STRIDE }, dataOffsetBytes: 32, floatCount: floats.length,
+    slots: lib.SLOTS, handItems: lib.HAND_ITEM, classes: lib.ANIM_CLASSES,
+    classModels: { rifleman: infantry.filter(m => m.cls === "rifleman").map(m => m.name), mg: infantry.filter(m => m.cls === "mg").map(m => m.name), sniper: infantry.filter(m => m.cls === "sniper").map(m => m.name), crate: ["crate_ammo_drop", "para_cargo"] },
+    slungMount: Object.fromEntries(Object.entries(A.slung).map(([k, p]) => [k, { part: "torso", gripFromTorsoPivot: vrr(p.gripT.map(v => v * lib.V_M)), rot: vrr(matEulerJS(p.W)) }])),
+    weaponPoints: Object.fromEntries(Object.entries(A.rigs).map(([k, r]) => [k, Object.fromEntries(Object.entries(r).filter(([n, v]) => Array.isArray(v)).map(([n, v]) => [n, vrr(v.map(x => x * lib.V_M))]))])),
+    transitions: A.transitions, fx: A.fx, clips };
+  fs.writeFileSync(path.join(ROOT, "assets/military/anims.json"), JSON.stringify(manifest, null, 1) + "\n");
+  console.log(`\nanims: ${clips.length} clips, ${floats.length} floats, ${buf.length} bytes`);
+  for (const c of clips) console.log(`  ${c.name.padEnd(28)} ${c.duration.toFixed(2).padStart(5)} s ${c.loop ? "loop" : "once"} ${String(c.frames).padStart(4)} fr  sup ${c.check.supportError} m  minY ${c.check.minY}`);
+}
+function matEulerJS(m) { const b = Math.asin(Math.max(-1, Math.min(1, m[2]))); let a, c; if (Math.abs(m[2]) < 0.9999999) { a = Math.atan2(-m[5], m[8]); c = Math.atan2(-m[1], m[0]); } else { a = Math.atan2(m[7], m[4]); c = 0; } return [a, b, c]; }
 console.log(`\ndone in ${((Date.now() - t0) / 1000).toFixed(1)} s; all greedy meshes verified lossless; rest-pose float / coplanar checks passed`);

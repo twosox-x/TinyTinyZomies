@@ -1,0 +1,34 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Military Asset Lab: pass 2 of 2. One thread per part / attachment instance (body parts, gear, weapon, hand items,
+// weapon-attached FX), sorted by mesh on the CPU so every mesh is one instanced draw: world = joint * T(offset) * R(q).
+#include "common.glsl"
+#include "zombie_parts.glsl"
+#include "zombie_pose.glsl"
+layout(local_size_x = 64) in;
+struct MilAtt {
+    uvec4 info;      // x character, y slot (0..9)
+    vec4  offset;    // xyz offset from the joint, body voxels (slot space)
+    vec4  quat;      // local rotation in slot space
+};
+layout(std430, set = 0, binding = 0) readonly buffer Atts   { MilAtt atts[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Joints { vec4 joints[]; };
+layout(std140, set = 2, binding = 0) uniform MilAttachU {
+    uvec4 cfg;       // x attachments
+    vec4  params;    // x metres per body voxel
+};
+struct Inst { vec4 pos; vec4 quat; vec4 paint; };
+layout(std430, set = 1, binding = 0) buffer Insts { Inst insts[]; };
+void main() {
+    uint a = gl_GlobalInvocationID.x;
+    if (a >= cfg.x) return;
+    MilAtt A = atts[a];
+    uint j = A.info.x * 20u + min(A.info.y, 9u) * 2u;
+    vec4 qw = joints[j];
+    vec3 tw = joints[j + 1u].xyz;
+    Inst I;
+    I.pos = vec4(tw + qrot(qw, A.offset.xyz * params.x), 1.0);
+    I.quat = normalize(qmul(qw, A.quat));
+    I.paint = vec4(0.0);
+    insts[a] = I;
+}
