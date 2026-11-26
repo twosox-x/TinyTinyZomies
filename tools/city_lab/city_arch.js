@@ -1886,6 +1886,8 @@ registerTower('twist', towerTwist, { unique: true });
 let towerDeck = [], TOWER_LOG = [], dealt = 0, usedUnique = new Set();
 // Mid-rise registry (downtown / old town 3-14 storey buildings): fn(E, C, W, D, spec, R, L) with
 // spec { seed, floors, party:{l,r}, shops, corner, zone }. opts: { minW, maxW (metres), minFloors, maxFloors, zones:['mid','row','core'] }
+// Suburban lots also pass spec.use (gas | strip | diner | store | mixed | apartments | townhouse): types registered with
+// opts.uses (or, without it, named after the use) are preferred for it.
 const MIDS = [];
 function registerMid(name, fn, opts) { MIDS.push(Object.assign({ name, fn, minW: 8, maxW: 60, minFloors: 2, maxFloors: 16, zones: ['mid', 'core', 'row'] }, opts || {})); }
 let midDecks = {}, MID_LOG = [];
@@ -2090,8 +2092,8 @@ function subdivide(net, Ra, C, occ, emitHouse) {
 //     L.yardKit in its lot frame, with the neighbour flags of the lot ownership rule (towers/AGENT_BRIEF.md).
 const SUB_FRONT = 0.4;                        // lot front line: back of sidewalk + 0.4 m (block land starts 0.3 m in)
 const SUB_USE = {        // metres: frontage range, min frontage, min / initial depth, depth cap
-  house:      { w: [15, 18.5], minW: 12, minD: 18, cap: 40 },
-  bulb:       { w: [13, 15], minW: 11, minD: 18, cap: 26 },
+  house:      { w: [15, 18.5], minW: 12, minD: 14, cap: 40 },
+  bulb:       { w: [13, 15], minW: 11, minD: 14, cap: 26 },
   townhouse:  { w: [24, 34], minW: 15, minD: 22, cap: 34 },
   apartments: { w: [30, 40], minW: 22, minD: 24, cap: 38 },
   mixed:      { w: [10, 19], minW: 8, minD: 16, cap: 28 },
@@ -2469,13 +2471,14 @@ function planSuburbs(PL, C, blocks) {
 function houseFits(Wm, Dm) { return HOUSES.some(h => Wm >= h.minW && Wm <= h.maxW && Dm >= h.minD && Dm <= h.maxD); }
 function layoutHouse(L, R, k) {
   const f = L.f, w = L.w, d = L.d, sy = 1.6, cx = 1.4;
-  const sb = Math.min(f.setback, Math.max(4.5, d - 14.5));
+  const sb = Math.min(f.setback, Math.max(4, d - 14.5));
   let side = (k % 2 === 0) ? 'r' : 'l';
   if (L.cornerL && !L.cornerR) side = 'r'; else if (L.cornerR && !L.cornerL) side = 'l';
   const xl = sy + (L.cornerL ? cx : 0), xr = w - sy - (L.cornerR ? cx : 0), avail = xr - xl;
   // footprint 10-16 m wide (garage wing included) x 9-13 m deep, a rear yard of at least 4.5 m
-  const Dh = Math.min(9.5 + R() * 3.5, d - sb - 4.5);
-  if (Dh < 7 || avail < 8) return null;
+  let Dh = Math.min(9.5 + R() * 3.5, d - sb - 4.5);
+  if (Dh < 7.5) Dh = Math.min(7.5, d - sb - 3);                 // shallow lot: smaller rear yard
+  if (Dh < 6.5 || avail < 8) return null;
   let garage = HOUSES.length > 0 && avail >= 11 && R() < 0.75;
   let Wh = garage ? Math.min(avail, 12 + R() * 4) : Math.min(avail - 3.8, 10 + R() * 2.5);
   if (!garage && Wh < 8) { if (HOUSES.length && avail >= 10) { garage = true; Wh = avail; } else Wh = Math.min(avail, 9); }
