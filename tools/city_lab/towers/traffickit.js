@@ -33,7 +33,7 @@ const QUAD_BUDGET = 280000;                     // ~560 k triangles for the whol
 const M = {
   TIRE: 59, RIM: 130, GLASS: 147, HEAD: 57, TAIL: 60, AMBER: 61, BUMPER: 55, CHROME: 99, BLACK: 58, BURNT: 156, RUST: 72,
   WHITE: 64, SILVER: 108, GREY: 99, RED: 95, BRED: 63, NAVY: 105, LBLUE: 82, BLUE: 139, GREEN: 103, BEIGE: 81, YELLOW: 132,
-  MAROON: 72, DGREEN: 126, ORANGE: 68, CREAM: 157, CONC: 109, CARD: 100, BAG: 58, BAG_G: 137, SPILL: 90, SCORCH: 59,
+  MAROON: 72, DGREEN: 126, ORANGE: 68, CREAM: 157, CONC: 109, CARD: 100, BAG: 58, BAG_G: 137, SPILL: 201, SCORCH: 59,
   LUG1: 105, LUG2: 95, LUG3: 143, DEBRIS: 156, STEEL: 130
 };
 const PAINTS = [M.WHITE, M.WHITE, M.SILVER, M.SILVER, M.GREY, M.BLACK, M.RED, M.NAVY, M.LBLUE, M.GREEN, M.BEIGE, M.MAROON, M.BLUE, M.CREAM];
@@ -382,7 +382,8 @@ function trafficKit(K) {
   for (const J of jobs) {
     const w = J.W * 0.25, d = J.D * 0.25, cx = J.O[0] + J.e1[0] * w / 2 + J.e2[0] * d / 2, cz = J.O[1] + J.e1[1] * w / 2 + J.e2[1] * d / 2;
     stampRect(cx, cz, w / 2, d / 2, J.e1[0], J.e1[1], 1, 0.3);
-    stampRect(cx, cz, w / 2, d / 2, J.e1[0], J.e1[1], 2, 3.0);
+    const stoops = J.kind === 'row' || J.kind === 'house' || J.type === 'prewar_apartment';
+    stampRect(cx, cz, w / 2, d / 2, J.e1[0], J.e1[1], 2, stoops ? 3.0 : 1.0);
   }
   // street furniture, exactly as the page will place it (final footprints, final curb cuts)
   const tp = Date.now();
@@ -432,7 +433,8 @@ function trafficKit(K) {
     const fp = fpOf(V, x, z, yaw, roll || 0);
     const gap = opt.gap === undefined ? 0.25 : opt.gap;
     if (stampRect(fp.x, fp.z, fp.hx, fp.hz, fp.c, fp.s, 0, gap) & (opt.walk ? 3 : 1)) return null;
-    if (!surfOK(fp, opt.walk ? 0.3 : 0.15, !!opt.walk)) return null;
+    if (!surfOK(fp, opt.walk ? 0.2 : 0.15, !!opt.walk)) return null;
+    if (opt.dry) return fp;
     stampRect(fp.x, fp.z, fp.hx, fp.hz, fp.c, fp.s, 1, 0.05);
     put(V, x, opt.walk ? hs : (opt.y || 0), z, yaw, roll || 0);
     return fp;
@@ -574,15 +576,24 @@ function trafficKit(K) {
     const [x, z, tx, tz] = frame(r, s, 0);
     const placed = [];
     const Vp = vehicle('police', { ps: 0, seed: 0, state: 'ok', lights: true, doors: 'side' });
-    const n = Math.max(1, lanes.length);
+    if (r.P.cls !== 'arterial') return false;
+    const n = Math.max(2, lanes.length);
+    const spots = [];
     for (let k = 0; k < n; ++k) {
-      const u = uB + (uA - uB) * (k + 0.5) / n + (k === n - 1 ? -0.4 : 0);
-      const [px, pz] = frame(r, s + (k % 2) * 1.5, u);
-      const yaw = Math.atan2(tz, tx) + (k % 2 ? 0.9 : -0.9) + (Rr() - 0.5) * 0.2;
-      const f = tryPlace(Vp, px, pz, yaw, 0, { gap: 0.15 });
-      if (f) placed.push(f);
+      const u = uB + (uA - uB) * (k + 0.5) / n;
+      const [px, pz] = frame(r, s + (k % 2) * 2.2, u);
+      const yaw = Math.atan2(tz, tx) + (k % 2 ? 0.75 : -0.75) + (Rr() - 0.5) * 0.2;
+      spots.push([px, pz, yaw]);
     }
-    if (!placed.length) return false;
+    // all cruisers must fit (tested before anything is emitted), else this spot is refused
+    const tmp = [];
+    for (const [px, pz, yaw] of spots) {
+      const f = tryPlace(Vp, px, pz, yaw, 0, { gap: 0.15, dry: true });
+      if (!f || tmp.some(g => Math.hypot(g.x - f.x, g.z - f.z) < g.hx + f.hx + 0.3 && Math.abs((g.x - f.x) * f.s - (g.z - f.z) * f.c) < 3.5)) return false;
+      tmp.push(f);
+    }
+    for (const [px, pz, yaw] of spots) { const f = tryPlace(Vp, px, pz, yaw, 0, { gap: 0.15 }); if (f) placed.push(f); }
+    if (placed.length < 2) return false;
     // barriers and cones a few metres further out
     const sb = s + d * 6;
     for (let k = 0; k <= n * 2; ++k) {
@@ -599,15 +610,25 @@ function trafficKit(K) {
   const jamInfo = [];
   const downtown = (r) => r.district === 'downtown';
   const DMAX = Math.max(...[[b.x0, b.z0], [b.x1, b.z0], [b.x0, b.z1], [b.x1, b.z1]].map(([x, z]) => Math.hypot(x - core[0], z - core[1])));
+  // +1 / -1: the road leaves the map at its end / start (only one end); 0 otherwise
+  const exitDir = (r) => {
+    if (r._exit !== undefined) return r._exit;
+    const near = (p) => Math.min(p[0] - b.x0, b.x1 - p[0], p[1] - b.z0, b.z1 - p[1]) < 20;
+    const a = near(r.pts[0]), e = near(r.pts[r.pts.length - 1]);
+    return (r._exit = a === e ? 0 : e ? 1 : -1);
+  };
   const jamDensity = (r, s, d) => {
     const q = radial(r, s);
     const out = d * q.cos;                                         // > 0: this direction leaves the city
-    if (out < 0.25) return 0;
+    if (out < 0.25 && exitDir(r) !== d) return 0;
     const edge = Math.min(q.x - b.x0, b.x1 - q.x, q.z - b.z0, b.z1 - q.z);
-    let rho = (0.5 + 0.5 * sstep(40, 170, q.dist)) * sstep(0.25, 0.6, out);
+    let rho = (0.6 + 0.4 * sstep(40, 170, q.dist)) * sstep(0.25, 0.6, out);
     rho = Math.max(rho, sstep(200, 40, edge) * sstep(0.25, 0.6, out));
-    if (downtown(r)) rho *= 0.1;
-    if (r.P.cls === 'collector') rho *= 0.8;
+    // roads that run off the map: the whole outbound side is one queue towards that exit
+    const ex = exitDir(r);
+    if (ex) rho = ex === d ? Math.max(rho, 0.95) : 0;
+    if (downtown(r)) rho *= sstep(110, 170, q.dist);              // the downtown grid stays passable
+    if (r.P.cls === 'collector') rho *= 0.85;
     return rho;
   };
 
@@ -623,7 +644,7 @@ function trafficKit(K) {
       for (let s = 20; s < r.len - 20; s += 10) {
         if (inJ(r, s, 12)) continue;
         const q = radial(r, s), edge = Math.min(q.x - b.x0, b.x1 - q.x, q.z - b.z0, b.z1 - q.z);
-        if (edge < 30 || edge > 90 || jamDensity(r, s, d) < 0.6) continue;
+        if (r.P.cls !== 'arterial' || edge < 25 || edge > 110 || jamDensity(r, s, d) < 0.6) continue;
         cands.push([r, s, d, Rg()]);
       }
     }
@@ -660,15 +681,15 @@ function trafficKit(K) {
     const r = net.roads[p.road]; if (!r || r.P.id === 'alley') return false;
     // nearest point of the road and side
     let bs = 0, bd = 1e9; for (let s = 0; s < r.len; s += 1) { const [x, z] = frame(r, s, 0); const dd = Math.hypot(x - p.x, z - p.z); if (dd < bd) { bd = dd; bs = s; } }
-    if (inJ(r, bs, 4)) return false;
+    if (inJ(r, bs, 1)) return false;
     const [cx, cz, tx, tz] = frame(r, bs, 0);
     const side = ((p.x - cx) * tz - (p.z - cz) * tx) > 0 ? 1 : -1;     // + = u > 0
     const V = vehicle(incKind(Rr), { ps: pickPaint(Rr), seed: 1, state: 'crashed' });
     const half = (V.bb.x1 - V.bb.x0) / 2;
-    const ang = 0.5 + Rr() * 0.5, dirS = Rr() < 0.5 ? 1 : -1;
+    const ang = 0.3 + Rr() * 0.45, dirS = Rr() < 0.5 ? 1 : -1;
     // nose towards the post; centre back from the curb
     const hx = dirS * tx * Math.cos(ang) + side * tz * Math.sin(ang), hz = dirS * tz * Math.cos(ang) - side * tx * Math.sin(ang);
-    for (const back of [0.6, 0.9, 1.3, 1.8]) {
+    for (const back of [0.9, 1.3, 1.7, 2.2, 2.8, 3.4]) {
       const x = p.x - hx * (half + back), z = p.z - hz * (half + back);
       if (tryPlace(V, x, z, Math.atan2(hz, hx), 0, { gap: 0.1 })) { decalBlob(Rr, x, z, 1.6, M.SPILL, 2); return true; }
     }
@@ -775,11 +796,11 @@ function trafficKit(K) {
       if (mb.quads - q0 > QUAD_BUDGET) { stats.capped = true; break; }
       const rho = jamDensity(r, s, d);
       if (rho < 0.08) { s += d * 12; continue; }
-      if (inJ(r, s, 3.5)) { s += d * 2; continue; }
-      if (Rr() > rho) { s += d * (4 + Rr() * 8); stats.jamThin = (stats.jamThin || 0) + 1; continue; }       // thinner towards the core: gaps
+      if (inJ(r, s, 0.3)) { s += d * 1; continue; }
+      if (Rr() > rho) { s += d * (3 + Rr() * 6); stats.jamThin = (stats.jamThin || 0) + 1; continue; }       // thinner towards the core: gaps
       const c = jamCar(L, s);
       const sc = s + d * c.half;
-      if (end(sc + d * c.half) || inJ(r, sc, c.half + 2)) { s = sc + d * (c.half + 2); continue; }
+      if (end(sc + d * c.half) || inJ(r, sc, c.half + 0.3)) { s = sc + d * 1; continue; }
       const [x, z] = frame(r, sc, c.u);
       if (tryPlace(c.V, x, z, c.yaw, 0, { gap: 0.3 })) { ++stats.jam; s = sc + d * (c.half + 1 + Rr() * 1.5); }
       else { s = sc + d * 1.5; stats.jamMiss = (stats.jamMiss || 0) + 1; }
