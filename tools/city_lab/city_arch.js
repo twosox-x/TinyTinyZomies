@@ -1923,7 +1923,10 @@ function buildHouseAny(E, W, D, spec, C) {
   h.fn(E, C, W, D, spec, C.mulberry32(spec.seed), LIB);
   return h.name;
 }
-function buildMidAny(E, W, D, spec, C, zone) {
+// Deck dealing is a plan-time pre-pass (assignTypes, in global job order), so a building's type never depends on
+// which other buildings a tile happens to build: chooseMid / dealTower pop the decks, buildMidAny / buildTower take
+// the pre-dealt choice from spec.pre (and only deal themselves when called without one, e.g. previews).
+function chooseMid(W, spec, C, zone) {
   const wm = W * BV;
   let fits = MIDS.filter(m => m.zones.includes(zone) && wm >= m.minW && wm <= m.maxW);
   // prefer types whose storey range contains the requested height (keeps old town low, avenues tall)
@@ -1933,7 +1936,7 @@ function buildMidAny(E, W, D, spec, C, zone) {
     const uf = fits.filter(m => m.uses ? m.uses.includes(spec.use) : m.name.includes(spec.use));
     if (uf.length) fits = uf;
   }
-  if (!fits.length) { if (zone === 'row') buildRows(E, W, D, spec, C); else buildMid(E, W, D, spec, C); return zone === 'row' ? 'classic_rows' : 'classic_mid'; }
+  if (!fits.length) return null;
   const key = zone + ':' + fits.map(m => m.name).join(',');
   let deck = midDecks[key];
   if (!deck || !deck.length) {
@@ -1941,14 +1944,18 @@ function buildMidAny(E, W, D, spec, C, zone) {
     const Rd = C.mulberry32(spec.seed ^ 0x51ed27);
     for (let i = deck.length - 1; i > 0; --i) { const j = Math.floor(Rd() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
   }
-  const m = deck.pop();
+  return deck.pop();
+}
+function buildMidAny(E, W, D, spec, C, zone) {
+  const m = spec.pre ? spec.pre.m : chooseMid(W, spec, C, zone);
+  if (!m) { if (zone === 'row') buildRows(E, W, D, spec, C); else buildMid(E, W, D, spec, C); return zone === 'row' ? 'classic_rows' : 'classic_mid'; }
   const floors = Math.max(m.minFloors, Math.min(m.maxFloors, spec.floors));
   MID_LOG.push({ type: m.name, zone, floors });
-  m.fn(E, C, W, D, Object.assign({}, spec, { floors, zone }), C.mulberry32(spec.seed), LIB);
+  const s2 = Object.assign({}, spec, { floors, zone }); delete s2.pre;
+  m.fn(E, C, W, D, s2, C.mulberry32(spec.seed), LIB);
   return m.name;
 }
-function buildTower(E, W, D, spec, C) {
-  const R = C.mulberry32(spec.seed);
+function dealTower(spec, C) {
   if (!towerDeck.length) {                                         // deal the next round of designs
     const order = TOWERS.filter(t => !(t.unique && usedUnique.has(t.name)));
     const Rd = C.mulberry32((spec.seed ^ 0x9e3779b9) + dealt++);
@@ -1957,8 +1964,14 @@ function buildTower(E, W, D, spec, C) {
   }
   const t = towerDeck.pop();
   if (t.unique) usedUnique.add(t.name);
+  return t;
+}
+function buildTower(E, W, D, spec, C) {
+  const R = C.mulberry32(spec.seed);
+  const t = spec.pre ? spec.pre.t : dealTower(spec, C);
   TOWER_LOG.push({ type: t.name, x: E.O[0] + (W / 2) * BV * E.e1[0] + (D / 2) * BV * E.e2[0], z: E.O[1] + (W / 2) * BV * E.e1[1] + (D / 2) * BV * E.e2[1], floors: spec.floors });
-  t.fn(E, C, W, D, spec, R, LIB);
+  const s2 = Object.assign({}, spec); delete s2.pre;
+  t.fn(E, C, W, D, s2, R, LIB);
   return t.name;
 }
 function facadeGlassFloor(W, fh, S, k, fin) {
@@ -2618,7 +2631,7 @@ function emitSuburbs(sub, mb, hs, voxel, C, occ, addJob) {
         const spec = { seed, floors: C.mulberry32(seed ^ 77)() < 0.6 ? 2 : 1, garage: H.garage, setback: H.reg ? BVv(H.z0) : 0,
           lot: { w: L.w, d: L.d }, side: H.side, corner: !!(L.cornerL || L.cornerR) };
         buildHouseAny(E, W, D, spec, C);
-        occ.rect(O, L.e1, L.e2, 0, H.w, 0, H.d, 2);
+        if (occ) occ.rect(O, L.e1, L.e2, 0, H.w, 0, H.d, 2);
         lot = { w: Wl, d: Dl, house: { x0: BVv(H.x0), z0: BVv(H.z0), x1: BVv(H.x0) + W, z1: BVv(H.z0) + D }, drive: H.drive ? { x0: BVv(H.drive[0]), x1: BVv(H.drive[1]) } : null, garage: H.garage };
         ++houses;
       }
@@ -2633,8 +2646,8 @@ function emitSuburbs(sub, mb, hs, voxel, C, occ, addJob) {
     const dcore = Math.hypot(cx - sub.core[0], cz - sub.core[1]);
     const floors = L.use === 'townhouse' ? (R() < 0.45 ? 3 : 2) : L.use === 'apartments' ? (dcore > 330 ? 2 : 3) :
       L.use === 'mixed' ? (dcore < 210 || R() < 0.5 ? 3 : 2) : 1;
-    occ.rect(L.O, L.e1, L.e2, 0, Wl * BV, 0, Dl * BV, 1);
-    addJob(L.O, L.e1, L.e2, Wl, Dl, { kind: zone, floors, seed, use: L.use, zone, corner: !!(L.cornerL || L.cornerR), shops: L.use === 'mixed' || zone === 'commercial',
+    if (occ) occ.rect(L.O, L.e1, L.e2, 0, Wl * BV, 0, Dl * BV, 1);
+    if (addJob) addJob(L.O, L.e1, L.e2, Wl, Dl, { kind: zone, floors, seed, use: L.use, zone, corner: !!(L.cornerL || L.cornerR), shops: L.use === 'mixed' || zone === 'commercial',
       lot: { w: L.w, d: L.d } });
   }
   return houses;
@@ -3144,7 +3157,266 @@ function placeBlocks(PL, C, occ, addJob) {
   }
   return { lab, handled, stats, regs };
 }
-function buildAll(PL, R, voxel, C) {
+// ------------------------------------------------------------------------------------------------ plan + tiles
+// The build is split in two so the page can stream a map of any size:
+//   planAll(PL, R, voxel, C)   global and geometry-free: block / suburb / lot placement -> one job per building (with
+//                              its party sides from the complete occupancy map), then assignTypes() deals the tower /
+//                              mid-rise decks in global job order. The dressing kits that work across lots (service
+//                              yards, parks; towers/servicekit.js, parkkit.js) run here too, into their own mesh, which
+//                              is binned per tile by quad centre.
+//   buildTile(plan, x0, z0, x1, z1)  the buildings whose footprint centre lies in the rectangle (metres), plus a halo
+//                              of neighbours within TILE_HALO m: everything is z-fight-resolved together (cullHidden in
+//                              global emission order, so a pair split by a tile edge is settled the same way from both
+//                              sides), then only the tile's own quads are kept. Pure function of (plan, rectangle).
+//   buildAll(PL, R, voxel, C, opts)  plan + every tile (opts.tile metres, default one tile = the whole map), concatenated.
+const TILE_HALO = 6;
+function assignTypes(jobs, C) {
+  towerDeck = []; dealt = 0; usedUnique = new Set(); midDecks = {};
+  for (const J of jobs) {
+    const spec = { seed: J.seed, floors: J.floors, use: J.use };
+    if (J.kind === 'row') J.pre = { m: chooseMid(J.W, spec, C, 'row') };
+    else if (J.kind === 'mid') J.pre = { m: chooseMid(J.W, spec, C, J.zone === 'core' ? 'core' : 'mid') };
+    else if (J.kind === 'commercial' || J.kind === 'transition') {
+      const zone = J.kind, wm = J.W * BV;
+      if (MIDS.some(m => m.zones.includes(zone) && wm >= m.minW && wm <= m.maxW)) J.pre = { m: chooseMid(J.W, spec, C, zone) };
+    } else if (J.kind === 'tower') J.pre = { t: dealTower(spec, C) };
+    if (J.pre && J.pre.m) J.type = J.pre.m.name; else if (J.pre && J.pre.t) J.type = J.pre.t.name;
+  }
+}
+function planAll(PL, R, voxel, C) {
+  C_VoxModel = C.VoxModel;
+  CUTS = []; CUT_WHY = {}; CUT_R = R && R.F ? R : null;                           // driveway curb cuts, see curbProbe()
+  if (CUT_R && CUT_R.setCuts) CUT_R.setCuts(null);
+  const hs = R.hs * voxel, counts = { house: 0 };
+  const occ = new Occupancy(PL.net.bounds);
+  const jobs = [];
+  const addJob = (O, e1, e2, W, D, p) => jobs.push(Object.assign({ O, e1, e2, W, D }, p));
+  const tb = Date.now();
+  const blocks = PL.base ? placeBlocks(PL, C, occ, addJob) : null;
+  counts.placeMs = Date.now() - tb;
+  let sub = null;
+  if (blocks) {
+    const ts = Date.now();
+    sub = planSuburbs(PL, C, blocks);
+    // suburban houses (+ their yards) become jobs too, emitted before every other job (as the monolithic build did)
+    const BVv = (m) => Math.round(m / BV);
+    for (const L of sub.lots) {
+      if (L.use !== 'house') continue;
+      const H = L.H;
+      if (H) occ.rect([L.O[0] + H.x0 * L.e1[0] + H.z0 * L.e2[0], L.O[1] + H.x0 * L.e1[1] + H.z0 * L.e2[1]], L.e1, L.e2, 0, H.w, 0, H.d, 2);
+      jobs.push({ O: L.O, e1: L.e1, e2: L.e2, W: Math.floor(L.w / BV + 1e-6), D: Math.floor(L.d / BV + 1e-6), kind: 'shouse', L, seed: L.seed, floors: 0 });
+      if (H) ++counts.house;
+    }
+    emitSuburbs(Object.assign({}, sub, { lots: sub.lots.filter(L => L.use !== 'house') }), null, hs, voxel, C, occ, addJob);
+    counts.suburbMs = Date.now() - ts;
+  }
+  const lots = lotRectangles(PL, C);
+  const place = (L, a0, a1, b0, b1, kind, floors, seed) => {
+    const W = Math.floor((a1 - a0) / BV), D = Math.floor((b1 - b0) / BV);
+    if (W < 16 || D < 16) return;
+    const Oc = [L.mx, L.mz];
+    if (occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, false) > 0.02) return;
+    occ.rect(Oc, L.e1, L.e2, a0, a1, b0, b1, kind === 'house' ? 2 : 1);
+    const O = [L.mx + a0 * L.e1[0] + b0 * L.e2[0], L.mz + a0 * L.e1[1] + b0 * L.e2[1]];
+    const zone = kind === 'mid' && zoneOf(PL.net, L.road, L.mx, L.mz) === 'tower' ? 'core' : kind === 'row' ? 'row' : 'mid';
+    addJob(O, L.e1, L.e2, W, D, { kind, floors, seed, zone, shops: L.road.P.cls !== 'local' && L.part === 0 });
+  };
+  for (const L of lots) {
+    const zone = zoneOf(PL.net, L.road, L.mx, L.mz);
+    if (blocks) {                                   // skip plots inside blocks laid out above
+      const a = (L.a0 + L.a1) / 2, b = (L.b0 + L.b1) / 2;
+      const ix = Math.floor((L.mx + a * L.e1[0] + b * L.e2[0] - PL.x0) / PL.cell), iz = Math.floor((L.mz + a * L.e1[1] + b * L.e2[1] - PL.z0) / PL.cell);
+      const rg = ix >= 0 && iz >= 0 && ix < PL.nx && iz < PL.nz ? blocks.lab[iz * PL.nx + ix] : -1;
+      if (rg >= 0 && (blocks.handled.has(rg) || (sub && sub.regions.has(rg)))) continue;
+    }
+    const seed0 = ((L.id * 2654435761) ^ (L.part * 40503)) >>> 0;
+    const Rn = C.mulberry32(seed0);
+    const lw = L.a1 - L.a0, ld = L.b1 - L.b0;
+    if (zone === 'house') {
+      let a = L.a0, k = 0;
+      while (L.a1 - a >= 10) {
+        let pw = 13 + Rn() * 4; if (L.a1 - a - pw < 10) pw = L.a1 - a;
+        const w = Math.min(pw - 3, 8.5 + Rn() * 3.5), dd = Math.min(ld - 5, 8.5 + Rn() * 3.5);
+        if (w >= 6 && dd >= 6) {
+          const ac = a + pw / 2, bb = L.b0 + Math.min(4.5, ld - dd - 0.5);
+          place(L, ac - w / 2, ac + w / 2, bb, bb + dd, 'house', Rn() < 0.6 ? 2 : 1, (seed0 + k * 7919) >>> 0);
+        }
+        a += pw; ++k;
+      }
+      continue;
+    }
+    if (zone === 'row') {
+      if (lw < 5.5) continue;
+      const rd = Math.min(ld, 26);
+      place(L, L.a0, L.a1, L.b0, L.b0 + rd, 'row', 3 + (Rn() < 0.4 ? 1 : 0), seed0);
+      continue;
+    }
+    let a = L.a0, k = 0;
+    while (L.a1 - a >= 8) {
+      const tower = zone === 'tower' && k === 0 && lw >= 18 && ld >= 18;
+      let pw = tower ? Math.min(lw, 26 + Rn() * 14) : 12 + Rn() * 14;
+      if (L.a1 - a - pw < 10) pw = L.a1 - a;
+      const seed = (seed0 + k * 104729) >>> 0;
+      const Rk = C.mulberry32(seed);
+      if (tower && pw >= 18) place(L, a, a + pw, L.b0, L.b0 + Math.min(ld, 46), 'tower', 18 + Math.floor(Rk() * Rk() * 26), seed);
+      else if (pw >= 10 && ld >= 9) place(L, a, a + pw, L.b0, L.b0 + Math.min(ld, 34), 'mid', zone === 'tower' ? 8 + Math.floor(Rk() * 7) : 4 + Math.floor(Rk() * 6), seed);
+      else place(L, a, a + pw, L.b0, Math.min(L.b1, L.b0 + 14), 'row', 4, seed);
+      a += pw; ++k;
+    }
+  }
+  // global emission order: suburban houses first, then the other jobs in placement order
+  const order = jobs.filter(J => J.kind === 'shouse').concat(jobs.filter(J => J.kind !== 'shouse'));
+  order.forEach((J, i) => {
+    J.ord = i;
+    const wm = J.W * BV, dm = J.D * BV;
+    J.cx = J.O[0] + J.e1[0] * wm / 2 + J.e2[0] * dm / 2; J.cz = J.O[1] + J.e1[1] * wm / 2 + J.e2[1] * dm / 2;
+    const xs = [0, wm].flatMap(a => [0, dm].map(b => J.O[0] + a * J.e1[0] + b * J.e2[0])), zs = [0, wm].flatMap(a => [0, dm].map(b => J.O[1] + a * J.e1[1] + b * J.e2[1]));
+    J.bb = [Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs)];
+    if (J.kind !== 'shouse') {                       // attached neighbours at either end become party walls
+      const { O, e1, e2 } = J, bi0 = Math.min(1, dm / 4), bi1 = dm - Math.min(1, dm / 4), ai0 = Math.min(1, wm / 4), ai1 = wm - Math.min(1, wm / 4);
+      J.party = { l: occ.rect(O, e1, e2, -0.75, -0.25, bi0, bi1, false) > 0.5, r: occ.rect(O, e1, e2, wm + 0.25, wm + 0.75, bi0, bi1, false) > 0.5,
+                  b: occ.rect(O, e1, e2, ai0, ai1, dm + 0.25, dm + 0.75, false) > 0.5 };
+    }
+  });
+  const tt = Date.now();
+  assignTypes(jobs.filter(J => J.kind !== 'shouse'), C);
+  counts.typesMs = Date.now() - tt;
+  const plan = { PL, R, voxel, C, hs, occ, jobs: order, blockJobs: jobs.filter(J => J.kind !== 'shouse'), blocks, sub, counts, cuts: [], kit: null };
+  // cross-lot dressing (service yards, parks) into their own mesh; quads binned per tile at build time
+  const kmb = new C.MeshBuffer();
+  if (LIB.serviceKit) { const ts = Date.now(); counts.service = LIB.serviceKit({ PL, R, C, occ, blocks, jobs: plan.blockJobs, hs, voxel, mb: kmb }); counts.serviceMs = Date.now() - ts; }
+  if (sub && LIB.parkKit) { const tp = Date.now(); sub.leftovers = LIB.parkKit({ PL, C, R, blocks, sub, mb: kmb, hs, voxel }); counts.parkMs = Date.now() - tp; }
+  plan.kit = kmb; plan.kitCuts = CUTS; CUTS = [];
+  // per-quad centre + bounds (voxel units) of the kit mesh for binning
+  const n = kmb.quads, KC = new Float32Array(n * 2), KB = new Float32Array(n * 4);
+  for (let q = 0; q < n; ++q) {
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let k = 0; k < 4; ++k) { const x = kmb.pos[q * 12 + k * 3], z = kmb.pos[q * 12 + k * 3 + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+    KC[q * 2] = (x0 + x1) / 2; KC[q * 2 + 1] = (z0 + z1) / 2; KB[q * 4] = x0; KB[q * 4 + 1] = z0; KB[q * 4 + 2] = x1; KB[q * 4 + 3] = z1;
+  }
+  plan.kitC = KC; plan.kitB = KB;
+  CUT_R = null;
+  return plan;
+}
+// one job into mb (building-local emitter); returns its type
+function emitJob(plan, J, mb) {
+  const { C, hs, voxel } = plan;
+  if (J.kind === 'shouse') {                          // suburban house + yard (emitSuburbs, one lot)
+    emitSuburbs({ lots: [J.L], core: plan.sub.core }, mb, hs, voxel, C, null, null);
+    return J.L.H ? 'house' : 'yard';
+  }
+  const { O, e1, e2, W, D, kind, floors, seed } = J;
+  const E = new Emitter(mb, O, e1, e2, hs, voxel);
+  const spec = { seed, floors, party: J.party, shops: !!J.shops };
+  if (J.corner) spec.corner = true;
+  if (J.pre) spec.pre = J.pre;
+  if (kind === 'house') return buildHouseAny(E, W, D, spec, C) || 'house';
+  if (kind === 'row') return buildMidAny(E, W, D, spec, C, 'row');
+  if (kind === 'mid') return buildMidAny(E, W, D, spec, C, J.zone === 'core' ? 'core' : 'mid');
+  if (kind === 'commercial' || kind === 'transition') { Object.assign(spec, { use: J.use, lot: J.lot }); return buildSuburbAny(E, W, D, spec, C, kind); }
+  return buildTower(E, W, D, spec, C);
+}
+function copyQuads(src, dst, q0, q1) {
+  for (let q = q0; q < q1; ++q) {
+    for (let k = 0; k < 12; ++k) dst.pos.push(src.pos[q * 12 + k]);
+    for (let k = 0; k < 4; ++k) { dst.mat.push(src.mat[q * 4 + k]); dst.nrm.push(src.nrm[q * 4 + k]); }
+    if (!dst.nvec) dst.nvec = [];
+    if (src.nvec) for (let k = 0; k < 12; ++k) dst.nvec.push(src.nvec[q * 12 + k]);
+    else { const NV = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]][src.nrm[q * 4]]; for (let k = 0; k < 4; ++k) dst.nvec.push(NV[0], NV[1], NV[2]); }
+    const b = dst.quads * 4; dst.idx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    dst.quads++;
+  }
+}
+// The tile's buildings (+ halo) emitted in global order, kit quads near the tile after them, one z-fight pass, own quads
+// kept. Returns { mb (unfinished MeshBuffer), jobs (own, with q0/q1 in mb), cuts, kitQuads, ms }
+function buildTile(plan, x0, z0, x1, z1, opts) {
+  opts = opts || {};
+  const t0 = Date.now(), { C, R, voxel, hs } = plan, v = voxel;
+  C_VoxModel = C.VoxModel;
+  const inT = (x, z) => x >= x0 && x < x1 && z >= z0 && z < z1;
+  const H = TILE_HALO;
+  // halo: every job within H of the tile or of any own building (own buildings reach past the tile edge)
+  let ex0 = x0, ez0 = z0, ex1 = x1, ez1 = z1;
+  for (const J of plan.jobs) if (inT(J.cx, J.cz)) { ex0 = Math.min(ex0, J.bb[0]); ez0 = Math.min(ez0, J.bb[1]); ex1 = Math.max(ex1, J.bb[2]); ez1 = Math.max(ez1, J.bb[3]); }
+  const sel = plan.jobs.filter(J => inT(J.cx, J.cz) || (J.bb[2] > ex0 - H && J.bb[0] < ex1 + H && J.bb[3] > ez0 - H && J.bb[1] < ez1 + H));
+  CUTS = []; CUT_WHY = {}; CUT_R = R && R.F ? R : null;
+  const cutsBefore = R.cuts; if (CUT_R && CUT_R.setCuts) CUT_R.setCuts(null);
+  const mb = new C.MeshBuffer();
+  const segs = [];
+  for (const J of sel) {
+    const q0 = mb.quads, c0 = CUTS.length;
+    J.type = emitJob(plan, J, mb) || J.type;
+    segs.push({ J, q0, q1: mb.quads, own: inT(J.cx, J.cz), c0, c1: CUTS.length });
+  }
+  const kq0 = mb.quads;
+  const K = plan.kit, KC = plan.kitC, KB = plan.kitB, kown = [];
+  if (!opts.noKit) for (let q = 0; q < K.quads; ++q) {
+    const bx0 = KB[q * 4] * v, bz0 = KB[q * 4 + 1] * v, bx1 = KB[q * 4 + 2] * v, bz1 = KB[q * 4 + 3] * v;
+    if (bx1 < ex0 - H || bx0 > ex1 + H || bz1 < ez0 - H || bz0 > ez1 + H) continue;
+    copyQuads(K, mb, q, q + 1); kown.push(inT(KC[q * 2] * v, KC[q * 2 + 1] * v));
+  }
+  const marks = []; for (const s of segs) marks.push(s.q0, s.q1); marks.push(kq0, mb.quads);
+  if (LIB.debugBeforeCull && opts.debug) LIB.debugBeforeCull(mb);
+  const cr = cullHidden(mb, hs / voxel, marks, 0, true, { flush: true, ground: true });
+  segs.forEach((s, i) => { s.q0 = cr.marks[2 * i]; s.q1 = cr.marks[2 * i + 1]; });
+  // kit quads after the cull: cullHidden keeps the order of surviving quads and appends split pieces of quad q
+  // in place of q (src maps output -> input quad), so ownership follows the source quad
+  const out = new C.MeshBuffer(), jobs = [], cuts = [];
+  for (const s of segs) if (s.own) {
+    const a = out.quads; copyQuads(mb, out, s.q0, s.q1);
+    jobs.push(Object.assign(s.J, { q0: a, q1: out.quads, tris: 2 * (s.q1 - s.q0) }));
+    for (let c = s.c0; c < s.c1; ++c) cuts.push(CUTS[c]);
+  }
+  const ka = cr.marks[2 * segs.length], kb = cr.marks[2 * segs.length + 1];
+  const kitStart = out.quads;
+  for (let q = ka; q < kb; ++q) { const sq = cr.src ? cr.src[q] - kq0 : q - ka; if (sq >= 0 && sq < kown.length ? kown[sq] : true) copyQuads(mb, out, q, q + 1); }
+  CUTS = []; CUT_R = null; if (R.setCuts) R.setCuts(cutsBefore || null);
+  return { mb: out, jobs, cuts, kitQuads: out.quads - kitStart, ms: Date.now() - t0, halo: sel.length - jobs.length };
+}
+function buildAll(PL, R, voxel, C, opts) {
+  opts = opts || {};
+  towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = []; HOUSE_LOG = [];
+  const legacy = !PL.base || PL.net.kind === 'test';
+  if (legacy) return buildAllLegacy(PL, R, voxel, C);
+  const plan = planAll(PL, R, voxel, C);
+  const counts = plan.counts, b = PL.net.bounds;
+  const T = opts.tile || Math.max(b.x1 - b.x0, b.z1 - b.z0) + 1;
+  const tiles = [];
+  for (let z = b.z0 - 20; z < b.z1 + 20; z += T) for (let x = b.x0 - 20; x < b.x1 + 20; x += T) tiles.push([x, z, x + T, z + T]);
+  if (opts.tile === undefined) tiles.splice(0, tiles.length, [-1e6, -1e6, 1e6, 1e6]);
+  const mb = new C.MeshBuffer(), jobs = [];
+  let cuts = plan.kitCuts.slice();
+  const tb = Date.now(); counts.tileMs = [];
+  for (const t of tiles) {
+    const r = buildTile(plan, t[0], t[1], t[2], t[3]);
+    const off = mb.quads; copyQuads(r.mb, mb, 0, r.mb.quads);
+    for (const J of r.jobs) { J.q0 += off; J.q1 += off; jobs.push(J); }
+    cuts = cuts.concat(r.cuts); counts.tileMs.push(r.ms);
+  }
+  counts.tilesMs = Date.now() - tb; counts.tiles = tiles.length;
+  jobs.sort((a, b) => a.ord - b.ord);
+  // segments for the checkers: suburban houses first (one range), then each job
+  const houses = jobs.filter(J => J.kind === 'shouse'), rest = jobs.filter(J => J.kind !== 'shouse');
+  counts.houseQuads = 0;
+  for (const J of rest) { counts[J.kind] = (counts[J.kind] || 0) + 1; counts[J.kind + 'Tris'] = (counts[J.kind + 'Tris'] || 0) + J.tris; }
+  if (R && R.setCuts) R.setCuts(cuts);
+  if (LIB.onCuts) LIB.onCuts(cuts);
+  counts.cuts = cuts.length;
+  let TRAFFIC = null;
+  if (LIB.trafficKit && plan.blocks) { const tt = Date.now(); counts.traffic = LIB.trafficKit({ PL, C, R, jobs: rest, mb, hs: plan.hs, voxel }); counts.trafficMs = Date.now() - tt; if (counts.traffic && counts.traffic.out) { TRAFFIC = counts.traffic.out; delete counts.traffic.out; } }
+  const res = mb.finish(0.002);
+  res.counts = counts; res.traffic = TRAFFIC;
+  // logs from own jobs only (halo copies are built again by their own tile)
+  res.towers = rest.filter(J => J.kind === 'tower').map(J => ({ type: J.type, x: J.cx, z: J.cz, floors: J.floors })); res.mids = MID_LOG; res.houses = HOUSE_LOG;
+  res.blocks = plan.blocks ? plan.blocks.stats : null; res.cuts = cuts; res.plan = opts.keepPlan ? plan : null;
+  res.footprints = rest.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * BV, d: J.D * BV, kind: J.kind, floors: J.floors, tag: J.tag, tris: J.tris, type: J.type, q0: J.q0, q1: J.q1, use: J.use }));
+  res.houseSegs = houses.map(J => [J.q0, J.q1]);
+  const sub = plan.sub;
+  res.suburbs = sub ? Object.assign({}, sub.stats, { ms: counts.suburbMs, lots: sub.lots.map(L => ({ O: L.O, e1: L.e1, e2: L.e2, w: L.w, d: L.d, use: L.use, nb: L.nb })) }) : null;
+  res.leftovers = sub && sub.leftovers ? sub.leftovers : null;
+  return res;
+}
+function buildAllLegacy(PL, R, voxel, C) {
   C_VoxModel = C.VoxModel;
   towerDeck = []; TOWER_LOG = []; dealt = 0; usedUnique = new Set(); midDecks = {}; MID_LOG = []; HOUSE_LOG = [];
   CUTS = []; CUT_WHY = {}; CUT_R = R && R.F ? R : null;                           // driveway curb cuts, see curbProbe()
@@ -3472,6 +3744,6 @@ function previewTower(name, Wm, Dm, floors, seed, C) {
   t.fn(E, C, W, D, { seed, floors, party: {} }, C.mulberry32(seed), LIB);
   return mb.finish(0.002);
 }
-const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
+const CityArch = { registerHouse, houses: HOUSES, registerMid, mids: MIDS, previewTower, BV, BM, ARCH_PALETTE, LIT: [...LIT], buildAll, planAll, buildTile, TILE_HALO, lotRectangles, registerTower, lib: LIB, towers: TOWERS };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityArch; else root.CityArch = CityArch;
 })(typeof self !== 'undefined' ? self : this);

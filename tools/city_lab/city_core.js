@@ -72,6 +72,11 @@ const PROFILES = {
     bands: [['lane', -1, 3.0], ['lane', 1, 3.0]],
     sidewalk: 2.2, radius: 4.5, centre: 'dashed', crosswalk: false, arrows: false
   },
+  county: {
+    label: 'County road (2 lanes, gravel shoulders)', cls: 'local',
+    bands: [['lane', -1, 3.2], ['lane', 1, 3.2]],
+    sidewalk: 1.4, radius: 6, centre: 'double', crosswalk: false, arrows: false
+  },
   alley: {
     label: 'Alley (service lane)', cls: 'alley',
     bands: [['alley', 0, 4.6]],
@@ -128,10 +133,15 @@ function hpFromLine(a, b, keepPoint) {    // half-plane containing keepPoint, bo
 
 // Organic district (~ 640 x 540 m) grown from its arterials: a downtown grid, a rotated old town, a curved
 // residential quarter, a diagonal avenue, a curved boulevard, a six-way star with a plaza, alleys and cul-de-sacs.
-function generateCity(seed) {
+// opts.scale: map area multiple (default 1 = the original district, unchanged). Above 1 the inner city (downtown grid,
+// old town, east quarter) grows by KC per axis inside a Beltway, and growOutskirts() adds the suburban and rural rings
+// out to sqrt(scale) x the original extent (see the comment there).
+function generateCity(seed, opts) {
+  opts = opts || {};
+  const scale = Math.max(1, +opts.scale || 1), KS = Math.sqrt(scale), KC = scale > 1 ? 1 + (KS - 1) * 0.22 : 1;
   const R = mulberry32(seed * 7919 + 17);
   const J = (a) => (R() * 2 - 1) * a;
-  const X0 = -330, X1 = 330, Z0 = -275, Z1 = 275;
+  const X0 = -330 * KC, X1 = 330 * KC, Z0 = -275 * KC, Z1 = 275 * KC;
   const roads = [];
   let nid = 0;
   const add = (profile, pts, name, district, extra) => { const r = Object.assign({ id: nid++, profile, pts, name, district }, extra || {}); roads.push(r); return r; };
@@ -208,14 +218,14 @@ function generateCity(seed) {
   const origin = [xD, zG];
   const oldNames = ['Water', 'Mill', 'Front', 'Church', 'Bridge', 'Ferry', 'Dock', 'Canal', 'Wharf'];
   let oi = 0;
-  for (let a = 52 + J(6); a < 420; a += 48 + R() * 18) {             // lines along ov (roughly north-south)
+  for (let a = 52 + J(6); a < 420 * KC; a += 48 + R() * 18) {             // lines along ov (roughly north-south)
     const p = [origin[0] + ou[0] * a, origin[1] + ou[1] * a];
     const t = clipLine(p, ov, oldHP);
     if (!t || t[1] - t[0] < 30) continue;
     add(oi % 3 === 1 ? 'residential' : 'street', line([p[0] + ov[0] * t[0], p[1] + ov[1] * t[0]], [p[0] + ov[0] * t[1], p[1] + ov[1] * t[1]]),
       `${oldNames[oi++ % oldNames.length]} Street`, 'oldtown');
   }
-  for (let b = -(46 + J(6)); b > -420; b -= 44 + R() * 16) {          // lines along ou (roughly east-west)
+  for (let b = -(46 + J(6)); b > -420 * KC; b -= 44 + R() * 16) {          // lines along ou (roughly east-west)
     const p = [origin[0] + ov[0] * b, origin[1] + ov[1] * b];
     const t = clipLine(p, ou, oldHP);
     if (!t || t[1] - t[0] < 30) continue;
@@ -243,12 +253,14 @@ function generateCity(seed) {
   // two cul-de-sacs and a curved lane along the edge
   const wedgeZ = [];
   let vine = null;
-  for (let k = 0; k < 3; ++k) {
+  const wedgeN = KC > 1 ? 12 : 3, wedgeNames = ['Kent', 'Pearl', 'Ash', 'Elm', 'Walnut', 'Hickory', 'Poplar', 'Willow', 'Laurel', 'Holly', 'Juniper', 'Sycamore'];
+  for (let k = 0; k < wedgeN; ++k) {
     const z = zG + 72 + k * (60 + J(6));
+    if (k >= 3 && z > Z1 - 70) break;
     const xe = crossZ(broadway.pts, z, xD);
     if (xe === null || xe - xD < 40) continue;
     wedgeZ.push([z, xe]);
-    add(k === 1 ? 'residential' : 'street', line([xD, z], [xe, z]), ['Kent Street', 'Pearl Street', 'Ash Street'][k], 'residential');
+    add(k === 1 || k > 3 && k % 2 ? 'residential' : 'street', line([xD, z], [xe, z]), wedgeNames[k] + ' Street', 'residential');
   }
   if (wedgeZ.length >= 2) {
     const vx = xD + 95 + J(8);
@@ -285,7 +297,292 @@ function generateCity(seed) {
   // an open lot in the old town: a whole block left empty (horde gathering space)
   areas.push({ kind: 'lot', shape: 'circle', c: [origin[0] + ou[0] * 150 + ov[0] * -95, origin[1] + ou[1] * 150 + ov[1] * -95], r: 30, name: 'Freight Yard' });
 
-  return { kind: 'city', seed, bounds: { x0: X0, z0: Z0, x1: X1, z1: Z1 }, roads, areas, origins: { star: plazaC, core: [central + 40, zG - 25] } };
+  const net = { kind: 'city', seed, bounds: { x0: X0, z0: Z0, x1: X1, z1: Z1 }, roads, areas, origins: { star: plazaC, core: [central + 40, zG - 25] }, axes: { xD, zG } };
+  if (scale > 1) growOutskirts(net, { KS, KC, xD, zG, add });
+  return net;
+}
+// ------------------------------------------------------------------------------------------------ outskirts (scale > 1)
+// The city grows in rings around the inner city, measured by the ring distance D: the signed distance to the Beltway,
+// a rounded rectangle on the inner map edge where the grid streets end (wobbled per angle for the outer rings):
+//   D < 0         inner city: downtown grid, old town, east quarter (the original generators on a larger box)
+//   0 .. d1(th)   suburbs: a crescent per sector dipping from the collector ring, connector streets from the Beltway
+//                 (continuing grid streets where one ends nearby); commercial corners where radials cross the rings
+//   d1 .. d2(th)  exurbs: cul-de-sacs off the collector, houses on the county line road, leftover land as groves
+//   > d2(th)      rural: county roads, fields (crop rows), pasture, woods (noise), farmsteads, a lake
+// Radials: Grand / Division / Broadway run on out (a highway profile past the county line); new radials fill the
+// gaps between them. Every ring is split into arcs between consecutive radials (no closed loops, clean junctions).
+// Everything rural is a pure function of (seed, x, z) or of small lists in net.plan: tile builds can evaluate it
+// anywhere in any order (landUseAt / ruralGround / ruralParcel).
+const GEOM = new WeakMap();
+function ringGeom(plan) {
+  let G = GEOM.get(plan);
+  if (G) return G;
+  const { HX, HZ, RC } = plan;
+  const D = (x, z) => { const qx = Math.abs(x) - (HX - RC), qz = Math.abs(z) - (HZ - RC); return Math.hypot(Math.max(qx, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qz), 0) - RC; };
+  const P = (th, d) => { const c = Math.cos(th), s = Math.sin(th); let lo = 0, hi = 8000; for (let i = 0; i < 44; ++i) { const m = (lo + hi) / 2; if (D(c * m, s * m) < d) lo = m; else hi = m; } return [c * lo, s * lo]; };
+  const d1 = (th) => plan.d1 + 9 * Math.sin(3 * th + plan.ph1) + 5 * Math.sin(7 * th + plan.ph2);
+  const d2 = (th) => plan.d2 + 12 * Math.sin(2 * th + plan.ph2) + 6 * Math.sin(5 * th + plan.ph1);
+  G = { D, P, d1, d2, lvl: [() => 0, d1, d2, (th) => d2(th) + plan.d3] };
+  GEOM.set(plan, G);
+  return G;
+}
+const plen = (pts) => { let l = 0; for (let i = 0; i + 1 < pts.length; ++i) l += Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); return l; };
+function growOutskirts(net, g) {
+  const { KS, KC, add } = g, seed = net.seed, roads = net.roads;
+  const R = mulberry32(seed * 104729 + 4243);
+  const b = net.bounds;
+  const plan = net.plan = { kind: 'rings', scale: KS * KS, KC, HX: b.x1 + 12, HZ: b.z1 + 12, RC: 34, d1: 112, d2: 200, d3: 95,
+    ph1: R() * 6.283, ph2: R() * 6.283, seed, radials: [], hubs: [], lakes: [], farms: [] };
+  net.zoneScale = KC;
+  const G = ringGeom(plan), { D, P } = G;
+  const OX = 330 * KS, OZ = 275 * KS;
+  net.inner = { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 };
+  net.bounds = { x0: -OX, z0: -OZ, x1: OX, z1: OZ };
+  const ang = (p) => Math.atan2(p[1], p[0]);
+  const lvlF = (k) => (p) => D(p[0], p[1]) - G.lvl[k](ang(p));
+  const cross = (a, q, f) => {                       // point on segment a-q where f changes sign
+    const fa = f(a) > 0; let lo = 0, hi = 1;
+    for (let i = 0; i < 40; ++i) { const m = (lo + hi) / 2; if ((f([a[0] + (q[0] - a[0]) * m, a[1] + (q[1] - a[1]) * m]) > 0) === fa) lo = m; else hi = m; }
+    return [a[0] + (q[0] - a[0]) * lo, a[1] + (q[1] - a[1]) * lo];
+  };
+  const along = (S, dir, f, max) => { let lo = 0, hi = max || 4000; for (let i = 0; i < 44; ++i) { const m = (lo + hi) / 2; if (f([S[0] + dir[0] * m, S[1] + dir[1] * m]) < 0) lo = m; else hi = m; } return [S[0] + dir[0] * lo, S[1] + dir[1] * lo]; };
+  const nrm = (v) => { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; };
+  const outN = (p) => nrm([D(p[0] + 0.5, p[1]) - D(p[0] - 0.5, p[1]), D(p[0], p[1] + 0.5) - D(p[0], p[1] - 0.5)]);
+
+  // 1. inner roads end on the Beltway (D <= 0); the three arterials reaching it become exits
+  const f0 = lvlF(0), drop = new Set(), exits = [];
+  for (const r of roads) {
+    const runs = []; let cur = null; const pts = r.pts;
+    for (let i = 0; i < pts.length; ++i) {
+      const inside = f0(pts[i]) <= 0.3;
+      if (inside) { if (!cur) { cur = []; if (i > 0) cur.push(cross(pts[i - 1], pts[i], f0)); } cur.push(pts[i]); }
+      else if (cur) { cur.push(cross(pts[i - 1], pts[i], f0)); runs.push(cur); cur = null; }
+    }
+    if (cur) runs.push(cur);
+    let best = null, bl = 0;
+    for (const q of runs) { const l = plen(q); if (l > bl) { bl = l; best = q; } }
+    if (!best || bl < 20) { drop.add(r.id); continue; }
+    if (best.length !== pts.length || best[best.length - 1] !== pts[pts.length - 1]) { if (best[best.length - 1] !== pts[pts.length - 1]) delete r.bulbEnd; }
+    r.pts = dedupe(best);
+  }
+  const ends = [];                                    // inner street ends on the Beltway: [point, outward tangent]
+  for (const r of roads) {
+    if (drop.has(r.id) || r.profile === 'alley' || r.bulbEnd) continue;
+    const n = r.pts.length;
+    for (const [p, q] of [[r.pts[0], r.pts[1]], [r.pts[n - 1], r.pts[n - 2]]]) {
+      if (D(p[0], p[1]) < -1.5) continue;
+      if (r.district === 'arterial') exits.push({ S: p, dir: nrm([p[0] - q[0], p[1] - q[1]]), name: r.name, main: true });
+      else ends.push({ p, dir: nrm([p[0] - q[0], p[1] - q[1]]) });
+    }
+  }
+  // Broadway may end inside the larger box: run it straight on to the Beltway
+  for (const r of roads) {
+    if (r.district !== 'arterial' || drop.has(r.id)) continue;
+    const n = r.pts.length;
+    for (const atEnd of [true, false]) {
+      const p = atEnd ? r.pts[n - 1] : r.pts[0], q = atEnd ? r.pts[n - 2] : r.pts[1];
+      if (D(p[0], p[1]) >= -1.5) continue;
+      const dir = nrm([p[0] - q[0], p[1] - q[1]]), S = along(p, dir, f0);
+      if (atEnd) r.pts.push(S); else r.pts.unshift(S);
+      exits.push({ S, dir, name: r.name, main: true });
+    }
+  }
+  // 2. new radials in the angular gaps, continuing a grid street when one ends near the spot
+  exits.forEach(e => { e.th = ang(e.S); });
+  exits.sort((a, b) => a.th - b.th);
+  const RAD_NAMES = ['Lincoln', 'Jefferson', 'Washington', 'Franklin', 'Madison', 'Monroe', 'Jackson', 'Hamilton', 'Adams', 'Clay', 'Harrison', 'Polk', 'Tyler', 'Grant'];
+  const added = [];
+  for (let i = 0; i < exits.length; ++i) {
+    const a = exits[i].th, bq = i + 1 < exits.length ? exits[i + 1].th : exits[0].th + 2 * Math.PI, gap = bq - a;
+    const n = Math.max(0, Math.round(gap / 0.5) - 1);
+    for (let k = 1; k <= n; ++k) {
+      const th = a + gap * k / (n + 1) + (R() - 0.5) * 0.06, p = P(th, 0);
+      let best = null, bd = 38;
+      for (const e of ends) { const d = Math.hypot(e.p[0] - p[0], e.p[1] - p[1]); if (d < bd) { bd = d; best = e; } }
+      const nn = outN(best ? best.p : p);
+      const S = best ? best.p : p, dir = best && best.dir[0] * nn[0] + best.dir[1] * nn[1] > 0.6 ? best.dir : nn;
+      added.push({ S, dir, name: RAD_NAMES[added.length % RAD_NAMES.length] + ' Avenue', main: false, th: ang(S) });
+    }
+  }
+  const rads = exits.concat(added).sort((a, b) => a.th - b.th);
+  const OB = [[1, 0, OX + 12], [-1, 0, OX + 12], [0, 1, OZ + 12], [0, -1, OZ + 12]];
+  let cr = 1;
+  for (const rd of rads) {
+    const t = clipLine(rd.S, rd.dir, OB);
+    rd.E = [rd.S[0] + rd.dir[0] * t[1], rd.S[1] + rd.dir[1] * t[1]];
+    rd.C = [rd.S, along(rd.S, rd.dir, lvlF(1)), along(rd.S, rd.dir, lvlF(2)), along(rd.S, rd.dir, lvlF(3))];
+    const Q = rd.C[2];
+    add('avenue', [rd.S, Q], rd.name, 'residential', { zone: 'suburban' });
+    const route = rd.main ? `${rd.name} (Route ${9 + cr++ * 3})` : `County Road ${cr++ * 2 + 10}`;
+    add(rd.main ? 'boulevard' : 'county', [Q, rd.E], route, 'residential', { zone: 'rural' });
+    plan.radials.push({ name: rd.name, S: rd.S, E: rd.E, dir: rd.dir });
+    plan.hubs.push(rd.S, rd.C[1]);
+  }
+  // 3. ring arcs between consecutive radials
+  const RING = [['boulevard', 'Beltway', 'arterial', 'transition'], ['street', 'Parkway', 'residential', 'suburban'], ['county', 'County Line Road', 'residential', 'exurban']];
+  const PARK_NAMES = ['Meadow', 'Fox Run', 'Briar', 'Cedar Hill', 'Orchard', 'Brookside', 'Heather', 'Quail', 'Aspen', 'Stonegate', 'Sunset', 'Clover', 'Deer Path', 'Hollow', 'Ivy', 'Kingsley'];
+  const arc = (A, B, lv) => {                          // ring polyline from A to B (counter-clockwise in th)
+    let ta = ang(A), tb = ang(B); while (tb <= ta) tb += 2 * Math.PI;
+    const mid = P((ta + tb) / 2, G.lvl[lv]((ta + tb) / 2)), n = Math.max(2, Math.ceil((tb - ta) * Math.hypot(mid[0], mid[1]) / 3));
+    const pts = [A];
+    for (let i = 1; i < n; ++i) { const th = ta + (tb - ta) * i / n; pts.push(P(th, G.lvl[lv](th))); }
+    pts.push(B);
+    return { pts: dedupe(pts), ta, tb };
+  };
+  let nameK = 0;
+  for (let i = 0; i < rads.length; ++i) {
+    const A = rads[i], B = rads[(i + 1) % rads.length];
+    for (let lv = 0; lv < 3; ++lv) {
+      const a = arc(A.C[lv], B.C[lv], lv), [prof, nm, dist, zone] = RING[lv];
+      add(prof, a.pts, lv === 1 ? PARK_NAMES[nameK++ % PARK_NAMES.length] + ' Parkway' : nm, dist, { zone });
+    }
+    // rural back road on some sectors, if it stays on the map
+    const a3 = arc(A.C[3], B.C[3], 3);
+    if (hash2(i, 3, seed + 41) < 0.6 && a3.pts.every(p => Math.abs(p[0]) < OX - 40 && Math.abs(p[1]) < OZ - 40) && plen(a3.pts) > 160)
+      add('county', a3.pts, `${['Mill', 'Quarry', 'Orchard', 'Hollow', 'Ridge', 'Creek'][i % 6]} Road`, 'residential', { zone: 'rural' });
+    // 4. suburb: a crescent from the collector, connectors from the Beltway; exurb: cul-de-sacs off the collector
+    const col = arc(A.C[1], B.C[1], 1), Lc = plen(col.pts);
+    const th0 = col.ta, th1 = col.tb, f = 0.5 + R() * 0.08;
+    const subName = PARK_NAMES[(nameK + 5) % PARK_NAMES.length];
+    if (Lc < 150) {
+      const th = (th0 + th1) / 2;
+      add('residential', [P(th, 0), P(th, G.d1(th))], subName + ' Street', 'residential', { zone: 'suburban' });
+    } else {
+      const dth = (th1 - th0) * 52 / Lc, ts = th0 + dth, te = th1 - dth;
+      const dd = (th) => { const u = clamp((th - ts) / (te - ts), 0, 1); return G.d1(th) * (1 - f * Math.pow(Math.sin(Math.PI * u), 0.5)); };
+      const n = Math.ceil(Lc / 3), cres = [];
+      for (let k = 0; k <= n; ++k) { const th = ts + (te - ts) * k / n; cres.push(P(th, dd(th))); }
+      add('residential', dedupe(cres), subName + ' Crescent', 'residential', { zone: 'suburban' });
+      const nc = Math.max(0, Math.floor((Lc - 120) / 150));
+      for (let k = 1; k <= nc; ++k) {
+        let th = ts + (te - ts) * (0.2 + 0.6 * k / (nc + 1));
+        let S = P(th, 0);
+        for (const e of ends) if (Math.hypot(e.p[0] - S[0], e.p[1] - S[1]) < 30) { S = e.p; th = ang(S); break; }
+        if (th < ts + (te - ts) * 0.12 || th > te - (te - ts) * 0.12) continue;
+        add('residential', [S, P(th, dd(th))], `${PARK_NAMES[(nameK + 7 + k) % PARK_NAMES.length]} Street`, 'residential', { zone: 'suburban' });
+      }
+      // cul-de-sacs into the exurban band, clear of the crescent mouths and the radials
+      const avoid = [ts, te].map(t => P(t, G.d1(t)));
+      for (let s = 62 + R() * 20; s < Lc - 62; s += 88 + R() * 30) {
+        const th = th0 + (th1 - th0) * s / Lc, p0 = P(th, G.d1(th));
+        if (avoid.some(q => Math.hypot(q[0] - p0[0], q[1] - p0[1]) < 30)) continue;
+        const room = G.d2(th) - G.d1(th) - 36;
+        if (room < 26) continue;
+        const L = Math.min(56, room), bend = (R() - 0.5) * 24 / Math.hypot(p0[0], p0[1]);
+        const p1 = P(th, G.d1(th) + L * 0.5), p2 = P(th + bend, G.d1(th + bend) + L);
+        add('lane', bezier(p0, p1, p1, p2, 3), `${PARK_NAMES[(nameK + 3 + Math.round(s)) % PARK_NAMES.length]} Court`, 'residential', { zone: 'exurban', bulbEnd: 10.5 });
+      }
+    }
+  }
+  // 5. remove dropped inner roads, renumber (areas keep their road)
+  if (drop.size) {
+    const map = new Map(); const keep = roads.filter(r => !drop.has(r.id));
+    keep.forEach((r, i) => { map.set(r.id, i); r.id = i; });
+    roads.length = 0; roads.push(...keep);
+    net.areas = net.areas.filter(a => a.shape !== 'side' || map.has(a.road));
+    for (const a of net.areas) if (a.shape === 'side') a.road = map.get(a.road);
+  }
+  // 6. rural plan: a lake, farmsteads along the rural roads (small lists, evaluated anywhere)
+  const distRoads = (p, skip) => { let d = 1e9; for (const r of roads) if (r.id !== skip) d = Math.min(d, distToPolyline(p, r.pts) - PROFILES[r.profile].half); return d; };
+  const rural = (p, m) => D(p[0], p[1]) - G.d2(ang(p)) > m && Math.abs(p[0]) < OX - m && Math.abs(p[1]) < OZ - m;
+  for (let t = 0; t < 60 && plan.lakes.length < Math.max(1, Math.round(KS * KS / 4)); ++t) {
+    const th = R() * 6.283, r = 34 + R() * 26, c = P(th, G.d2(th) + r + 20 + R() * 90);
+    if (!rural(c, r + 14) || distRoads(c) < r + 16 || plan.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < l.r + r + 150)) continue;
+    plan.lakes.push({ c, r, ph: R() * 6.283 });
+  }
+  for (const r of roads) {
+    if (r.zone !== 'rural' && r.zone !== 'exurban' || r.bulbEnd) continue;
+    const P0 = PROFILES[r.profile], L = plen(r.pts);
+    for (let s = 50, k = 0; s < L - 40; s += 115, ++k) {
+      if (hash2(r.id, k, seed + 51) > 0.6) continue;
+      const [x, z, tx, tz] = pointAtPts(r.pts, s), side = r.zone === 'exurban' ? (rural([x - tz * 40, z + tx * 40], 0) ? 1 : -1) : hash2(r.id, k, seed + 53) < 0.5 ? 1 : -1;
+      const nx = -tz * side, nz = tx * side, off = P0.half + P0.sidewalk + 26;
+      const c = [x + nx * off, z + nz * off];
+      if (!rural(c, 24) || distRoads(c, r.id) < 36 || plan.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < l.r + 40)) continue;
+      if (plan.farms.some(f => Math.hypot(f.c[0] - c[0], f.c[1] - c[1]) < 110)) continue;
+      if (forestNoise(seed, c[0], c[1]) > 0.5) continue;
+      plan.farms.push({ c, n: [-nx, -nz], hw: 22, hd: 18, road: r.id, seed: (hash2(r.id, k, seed + 57) * 4294967296) >>> 0 });
+    }
+  }
+}
+function pointAtPts(pts, s) {
+  for (let i = 0; i + 1 < pts.length; ++i) {
+    const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+    if (s <= l || i + 2 === pts.length) { const t = l ? Math.min(1, s / l) : 0, tx = (pts[i + 1][0] - pts[i][0]) / (l || 1), tz = (pts[i + 1][1] - pts[i][1]) / (l || 1); return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t, tx, tz]; }
+    s -= l;
+  }
+  return [pts[0][0], pts[0][1], 1, 0];
+}
+// value noise in [0,1): forests are where it is high (more of them farther out)
+function vnoise(seed, x, z) {
+  const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz, sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
+  const a = hash2(ix, iz, seed), b = hash2(ix + 1, iz, seed), c = hash2(ix, iz + 1, seed), d = hash2(ix + 1, iz + 1, seed);
+  return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
+}
+function forestNoise(seed, x, z) { return 0.62 * vnoise(seed + 301, x / 230, z / 230) + 0.38 * vnoise(seed + 307, x / 70, z / 70); }
+// rural parcels: columns of jittered width, each cut into fields of jittered length (axis-aligned, like section lines)
+function ruralParcel(net, x, z) {
+  const sd = net.seed, W = 130;
+  const xb = (i) => i * W + (hash2(i, 0, sd + 11) - 0.5) * 56;
+  let i = Math.floor(x / W); if (x < xb(i)) --i; else if (x >= xb(i + 1)) ++i;
+  const H = 85 + 70 * hash2(i, 999, sd + 17), zb = (j) => j * H + (hash2(i, j, sd + 13) - 0.5) * 40;
+  let j = Math.floor(z / H); if (z < zb(j)) --j; else if (z >= zb(j + 1)) ++j;
+  const x0 = xb(i), x1 = xb(i + 1), z0 = zb(j), z1 = zb(j + 1);
+  const h = hash2(i * 7 + 3, j, sd + 19);
+  const kind = h < 0.08 ? 'woodlot' : h < 0.34 ? 'corn' : h < 0.52 ? 'wheat' : h < 0.64 ? 'ploughed' : h < 0.74 ? 'soy' : 'pasture';
+  return { i, j, x0, x1, z0, z1, kind, alongX: x1 - x0 > z1 - z0, edge: Math.min(x - x0, x1 - x, z - z0, z1 - z), hedge: hash2(i, j, sd + 29) };
+}
+const GROUND = { CROP: 202, FURROW: 203, WHEAT: 204, FOREST: 205, WATER: 206, GRAVEL: 207, SOIL: 140, SOY: 133, PASTURE: 14, VERGE: 16 };
+function isRural(net, x, z) {
+  const pl = net.plan; if (!pl) return false;
+  const G = ringGeom(pl);
+  return G.D(x, z) > G.d2(Math.atan2(z, x));
+}
+function inFarm(f, x, z, m) { const dx = x - f.c[0], dz = z - f.c[1], a = dx * f.n[1] - dz * f.n[0], b = dx * f.n[0] + dz * f.n[1]; return Math.abs(a) < f.hw + m && Math.abs(b) < f.hd + m; }
+function lakeR(l, x, z) { const th = Math.atan2(z - l.c[1], x - l.c[0]); return l.r * (1 + 0.12 * Math.sin(3 * th + l.ph) + 0.07 * Math.sin(5 * th + 2 * l.ph)); }
+// rural ground at (x, z): { kind, mat } or null when (x, z) is not rural; verge = distance from the sidewalk edge (m)
+function ruralGround(net, x, z, verge) {
+  if (!isRural(net, x, z)) return null;
+  const pl = net.plan;
+  for (const l of pl.lakes) { const d = Math.hypot(x - l.c[0], z - l.c[1]), r = lakeR(l, x, z); if (d < r + 4) return { kind: d < r ? 'water' : 'shore', mat: d < r ? GROUND.WATER : GROUND.VERGE }; }
+  for (const f of pl.farms) if (inFarm(f, x, z, 0)) return { kind: 'farmyard', mat: GROUND.GRAVEL };
+  if (verge < 5) return { kind: 'verge', mat: GROUND.VERGE };
+  const fn = forestNoise(net.seed, x, z), G = ringGeom(pl), t = clamp((G.D(x, z) - G.d2(Math.atan2(z, x))) / 160, 0, 1);
+  const p = ruralParcel(net, x, z);
+  if (fn > 0.66 - 0.12 * t || p.kind === 'woodlot') return { kind: 'forest', mat: GROUND.FOREST, p };
+  if (p.edge < 1.6) return { kind: 'headland', mat: GROUND.VERGE, p };
+  const w = p.alongX ? z - p.z0 : x - p.x0;            // across the rows
+  const ph = (per) => ((w % per) + per) % per;
+  let mat;
+  if (p.kind === 'corn') mat = ph(2.4) < 1.6 ? GROUND.CROP : GROUND.FURROW;
+  else if (p.kind === 'soy') mat = ph(2.0) < 1.3 ? GROUND.SOY : GROUND.FURROW;
+  else if (p.kind === 'wheat') mat = ph(12) < 0.4 ? GROUND.FURROW : GROUND.WHEAT;
+  else if (p.kind === 'ploughed') mat = ph(1.2) < 0.6 ? GROUND.SOIL : GROUND.FURROW;
+  else mat = GROUND.PASTURE;
+  return { kind: p.kind === 'pasture' ? 'pasture' : 'field', mat, p };
+}
+// land use at a point (tile-safe): core, downtown, oldtown, transition, suburban, exurban, rural kinds
+// (field, pasture, forest, water, farmyard), plus 'park' / 'plaza' / 'lot' from the open-space areas
+function landUseAt(net, x, z) {
+  const core = net.origins.core, ks = net.zoneScale || 1, dc = Math.hypot(x - core[0], z - core[1]) / ks;
+  for (const a of net.areas) {
+    if (a.shape === 'circle' && Math.hypot(x - a.c[0], z - a.c[1]) < a.r) return a.kind === 'lot' ? 'lot' : 'plaza';
+    if (a.shape === 'rect' && x > a.x0 && x < a.x1 && z > a.z0 && z < a.z1) return 'park';
+  }
+  const pl = net.plan;
+  if (pl) {
+    const G = ringGeom(pl), Dv = G.D(x, z), th = Math.atan2(z, x);
+    if (Dv > G.d2(th)) { const g = ruralGround(net, x, z, 99); return g.kind === 'field' || g.kind === 'headland' || g.kind === 'verge' ? 'field' : g.kind === 'shore' ? 'water' : g.kind; }
+    if (Dv > 0) {
+      if (pl.hubs.some(h => Math.hypot(h[0] - x, h[1] - z) < 60)) return 'commercial';
+      return Dv < 45 ? 'transition' : Dv < G.d1(th) ? 'suburban' : 'exurban';
+    }
+  }
+  if (dc < 172) return 'core';
+  const ax = net.axes || { xD: 0, zG: 0 };
+  if (x < ax.xD) return 'downtown';
+  if (z < ax.zG) return 'oldtown';
+  return 'suburban';
 }
 // first crossing of the horizontal line z = const with a polyline, east of xMin
 function crossZ(pts, z, xMin) {
@@ -757,6 +1054,7 @@ class Rasterizer {
   }
   areaAt(x, z, road, u) {
     if (!this.blockArea) this.blockAreas();
+    if (this.net.plan && isRural(this.net, x, z)) return 'rural';
     const c = this.F.blockAt(x, z);
     if (c >= 0 && this.blockArea.has(c)) return this.blockArea.get(c);
     for (const a of this.areas) if (a.shape === 'side' && road === a.road && u * a.side > 0) return a.kind;
@@ -800,7 +1098,7 @@ class Rasterizer {
   classify(x, z, o, out) {
     const F = this.F, hs = this.hs, v = this.v;
     F.sample(x, z, o);
-    if (o.road < 0 || o.car > 900) { out[0] = hs; out[1] = MAT.PLOT; return; }
+    if (o.road < 0 || o.car > 900) { const rg = this.net.plan && ruralGround(this.net, x, z, 99); out[0] = hs; out[1] = rg ? rg.mat : MAT.PLOT; return; }
     // near the curb line the carriageway field is evaluated exactly (no interpolation wobble), and divided
     // by its gradient so that curb, gutter and sidewalk widths are true metres in the curb returns too
     let carRaw = o.car;
@@ -908,6 +1206,7 @@ class Rasterizer {
       return;
     }
     out[0] = hs;
+    if (area === 'rural') { const rg = ruralGround(this.net, x, z, car - o.sw); out[1] = rg ? rg.mat : MAT.YARD; return; }
     if (area === 'plaza' || area === 'square' || area === 'pocket') { out[1] = plazaTile(x, z, v); return; }
     if (area === 'park') { out[1] = parkSurface(x, z, v); return; }
     if (area === 'lot') { out[1] = MAT.LOT; return; }
@@ -982,7 +1281,7 @@ class Plots {
       let rg = range;
       if (core && (d === 'downtown' || d === 'arterial') && len) {           // wide lots near the core: room for towers
         const [px, pz] = pointAt(r, Math.min(s + 15, len));
-        if (Math.hypot(px - core[0], pz - core[1]) < 170) rg = [24, 40];
+        if (Math.hypot(px - core[0], pz - core[1]) < 170 * (this.net.zoneScale || 1)) rg = [24, 40];
       }
       s += rg[0] + R() * (rg[1] - rg[0]); cuts.push(s);
     }
@@ -2999,6 +3298,8 @@ function exportNetwork(net) {
 }
 
 Object.assign(PROP_PALETTE, VEH_PALETTE);
-const CityCore = { Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+// rural ground (city_core GROUND): crop green, furrow, wheat, forest floor, water, farmyard gravel
+Object.assign(PROP_PALETTE, { 202: [112, 146, 74], 203: [128, 104, 78], 204: [204, 182, 116], 205: [86, 100, 66], 206: [76, 114, 138], 207: [166, 156, 138] });
+const CityCore = { Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

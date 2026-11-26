@@ -24,7 +24,7 @@ function build(seed, opts) {
   const PL = new C.Plots(net, ctx.F, ctx.R, 0.5, net.seed || 1); PL.build();
   const t = Date.now();
   L.debugBeforeCull = opts.beforeCull || null;
-  const res = A.buildAll(PL, ctx.R, 0.1, CC);
+  const res = A.buildAll(PL, ctx.R, 0.1, CC, process.env.CITY_TILE ? { tile: +process.env.CITY_TILE } : undefined);
   L.debugBeforeCull = null;
   const ms = Date.now() - t;
   ctx.footprints = res.footprints || null;
@@ -37,8 +37,10 @@ function clone(mb) { return { pos: Array.from(mb.pos), mat: Array.from(mb.mat), 
 // Per-building segments: houses (all suburban houses as one entry), every job (block building / tower), extra
 // (anything emitted after the jobs). Returns [{ id, q0, q1, info }].
 function segments(res) {
-  const out = [{ id: 'houses', q0: 0, q1: res.counts.houseQuads, info: { kind: 'houses' } }];
-  let end = res.counts.houseQuads;
+  // tiled builds (CITY_TILE): houses are one segment per house lot (res.houseSegs), possibly spread over tiles
+  const out = res.houseSegs ? res.houseSegs.map((s, i) => ({ id: 'h' + i, q0: s[0], q1: s[1], info: { kind: 'houses' } }))
+    : [{ id: 'houses', q0: 0, q1: res.counts.houseQuads, info: { kind: 'houses' } }];
+  let end = res.houseSegs ? Math.max(0, ...res.houseSegs.map(s => s[1])) : res.counts.houseQuads;
   res.footprints.forEach((f, i) => {
     out.push({ id: 'b' + i, q0: f.q0, q1: f.q1, info: f });
     end = Math.max(end, f.q1);

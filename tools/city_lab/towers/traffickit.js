@@ -808,6 +808,13 @@ function trafficKit(K) {
     }
     return false;
   };
+  // the main arterials through the centre get a couple of incidents of their own (a pile-up, a police stop)
+  for (const r of through.filter(r => r.P.cls === 'arterial' && (() => { let m = 1e9; for (let s = 0; s < r.len; s += 10) m = Math.min(m, radial(r, s).dist); return m < 160; })())) {
+    const Rm = C.mulberry32(hashS('mainInc' + r.id) ^ seed);
+    let got = 0;
+    for (const j of shuffle(majorJ(r).slice(), Rm)) { if (got >= 1) break; const d = Rm() < 0.5 ? 1 : -1; const [x, z] = frame(r, d > 0 ? j.a : j.b, 0); if (farFromUsed(x, z, 20) && pileup(r, j, d, Rm)) { ++got; inc('pileup'); } }
+    for (let t = 0; t < 12 && got < 2; ++t) { const sm = 10 + Rm() * (r.len - 20); if (inJ(r, sm, 4)) continue; const [x, z] = frame(r, sm, 0); if (!farFromUsed(x, z, 20)) continue; if (single(Rm() < 0.5 ? 'police' : 'ambulance', r, sm, Rm)) { ++got; usedSpots.push([x, z]); inc('main'); } }
+  }
   {
     let placed = 0, tries = 0;
     const lh = lampsAndHydrants.slice();
@@ -852,7 +859,7 @@ function trafficKit(K) {
     while (!end(s)) {
       const p = rho(s);
       if (p < 0.05) { s += d * 8; continue; }
-      if (inJL(r, s - 0.5, s + 0.5, uC, 0.4)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
+      if (inJL(r, s - 0.5, s + 0.5, uC, opt.jpad === undefined ? 0.4 : opt.jpad)) { s += d * 1; if (opt.tag) stats.lane[opt.tag].jlen = (stats.lane[opt.tag].jlen || 0) + 1; continue; }
       if (Rr() > p) { s += d * (2 + Rr() * 6); continue; }
       if (opt.gapEvery && run >= opt.gapEvery) { run = 0; s += d * (6 + Rr() * 4); continue; }       // passable gap
       const kind = vehKind(Rr, opt.mix);
@@ -864,7 +871,7 @@ function trafficKit(K) {
       const V = vehicle(kind, { ps: Math.floor(Rr() * 64), seed: vs, state: st, doors });
       const half = (V.bb.x1 - V.bb.x0) / 2;
       const sc = s + d * half;
-      if (end(sc + d * half) || inJL(r, sc - half, sc + half, uC, 0.6)) { s = sc + d * 1; continue; }
+      if (end(sc + d * half) || inJL(r, sc - half, sc + half, uC, opt.jpad === undefined ? 0.6 : opt.jpad)) { s = sc + d * 1; continue; }
       let u = uC + (Rr() - 0.5) * (opt.jitU || 0);
       if (opt.curb) u = opt.curb.u - opt.curb.sg * ((V.bb.z1 - V.bb.z0) / 2 + 0.22 + Rr() * 0.12);
       const yaw = laneHeading(r, sc, u, half, d) + (abandoned ? (Rr() < 0.5 ? 1 : -1) * (0.3 + Rr() * 0.4) : (Rr() - 0.5) * (opt.jitYaw || 0));
@@ -890,7 +897,9 @@ function trafficKit(K) {
     const ex = exitDir(r), main = isMain(r), dt = downtown(r);
     for (const e of laneEdges(r)) {
       const d = e.dir || 1, Rr = C.mulberry32(hashS('flow' + r.id + ':' + e.left) ^ seed), rb = r._roadblock;
-      const outP = (s) => ex ? (ex === d ? 1 : 0) : outDensity(r, s, d);
+      // outbound: the travel direction has a component away from the centre (main roads: also right at the point
+      // nearest the centre, where both directions are leaving)
+      const outP = (s) => ex ? (ex === d ? 1 : 0) : d * radial(r, s).cos > (main ? -0.15 : 0.05) ? 1 : 0;
       const rhoOut = (s) => {
         if (outP(s) < 0.5) return 0;
         if (rb && rb.d === d && (d > 0 ? s > rb.s - 4 : s < rb.s + 4)) return 0.12;      // past the roadblock line
@@ -898,7 +907,7 @@ function trafficKit(K) {
         return main ? 0.98 : (0.9 + 0.08 * sstep(60, 220, q.dist)) * (dt ? 0.9 : 1);
       };
       const n1 = fillLane(r, (e.left + e.right) / 2, d, rhoOut, { tag: main ? 'main' : ex ? 'exit' : 'art', R: Rr, mix: main ? MAIN_MIX : null,
-        jitU: 0.35, jitYaw: 0.07, doors: 0.1, abandon: 0.02, gap: 0.2, g0: 0.45, g1: 0.7, gapEvery: dt || main ? 7 : 0 });
+        jitU: 0.35, jitYaw: 0.07, doors: 0.1, abandon: 0.02, gap: 0.2, g0: main ? 0.35 : 0.45, g1: main ? 0.5 : 0.7, gapEvery: dt && !main ? 7 : 0, jpad: main ? 0.1 : undefined });
       // inbound: sparse, still - stalled, abandoned at an angle, some wrecked
       const n2 = fillLane(r, (e.left + e.right) / 2, d, (s) => outP(s) < 0.5 ? (main ? 0.1 : 0.06) : 0, { tag: 'inbound', R: Rr, mix: PARK_MIX,
         jitU: 0.5, jitYaw: 0.12, doors: 0.4, abandon: 0.3, gap: 0.25, g0: 6, g1: 30,

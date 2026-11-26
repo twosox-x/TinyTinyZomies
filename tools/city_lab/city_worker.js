@@ -45,3 +45,31 @@ self.onmessage = (e) => {
       quads: m.quads, ms: performance.now() - t, cut: !!ctx.R.cuts }, [m.pos.buffer, m.mat.buffer, m.nrm.buffer, m.idx.buffer]);
   }
 };
+// ---- streaming (city_stream.js): every worker plans the whole map once (geometry-free), then builds 128 m tiles
+// on demand: road raster of the tile (with the curb cuts known so far) + buildTile() (buildings, yards, kit quads).
+let SP = null;
+self.addEventListener('message', (e) => {
+  const d = e.data, C = self.CityCore, A = self.CityArch;
+  if (d.cmd === 'splan') {
+    const t0 = performance.now();
+    const net = C.generateCity(d.seed);
+    const sctx = C.prepareBuild(net, d.voxel);
+    const PL = new C.Plots(net, sctx.F, sctx.R, 0.5, net.seed || 1); PL.build();
+    const plan = A.planAll(PL, sctx.R, d.voxel, C);
+    SP = { ctx: sctx, plan, voxel: d.voxel };
+    const msg = { type: 'splanned', ms: performance.now() - t0, hs: sctx.R.hs, bounds: net.bounds, kitCuts: plan.kitCuts.map(c => Object.assign({}, c)) };
+    if (d.props) { sctx.footprints = plan.blockJobs.map(J => ({ O: J.O, e1: J.e1, e2: J.e2, w: J.W * 0.25, d: J.D * 0.25, kind: J.kind })); sctx.R.setCuts(plan.kitCuts); msg.props = C.placeProps(sctx); sctx.R.setCuts(null); }
+    self.postMessage(msg);
+  } else if (d.cmd === 'stile' && SP) {
+    const t0 = performance.now(), v = SP.voxel, [x0, z0, x1, z1] = d.rect;
+    const r = A.buildTile(SP.plan, x0, z0, x1, z1);
+    const B = r.mb.finish(0.002);
+    const t1 = performance.now();
+    SP.ctx.R.setCuts(d.cuts.concat(r.cuts));
+    const ox = Math.round(x0 / v), oz = Math.round(z0 / v);
+    const m = C.buildChunk(SP.ctx, { ox, oz, w: Math.round((x1 - x0) / v), d: Math.round((z1 - z0) / v) });
+    SP.ctx.R.setCuts(null);
+    self.postMessage({ type: 'stile', key: d.key, bld: B, road: m, cuts: r.cuts.map(c => Object.assign({}, c)), ms: performance.now() - t0, roadMs: performance.now() - t1, halo: r.halo },
+      [B.pos.buffer, B.mat.buffer, B.nrm.buffer, B.idx.buffer, m.pos.buffer, m.mat.buffer, m.nrm.buffer, m.idx.buffer].concat(B.nvec ? [B.nvec.buffer] : []));
+  }
+});

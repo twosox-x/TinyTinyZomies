@@ -1042,8 +1042,9 @@ if (QP.get('vehicles')) {
 } else {
 persp.position.set(120, 90, 160);
 controls.target.set(0, 0, 0);
-setScene('city');
+if (new URLSearchParams(location.search).get('stream')) { S.scene = 'city'; } else setScene('city');   // ?stream=1: city_stream.js
 requestAnimationFrame(frame);
 }
 })();
 </script>
+<script src="city_stream.js"></script>
