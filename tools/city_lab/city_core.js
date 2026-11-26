@@ -139,7 +139,7 @@ function hpFromLine(a, b, keepPoint) {    // half-plane containing keepPoint, bo
 function generateCity(seed, opts) {
   opts = opts || {};
   // (dev hook: a page or worker without the option reads self.CITY_LAB_SCALE, e.g. injected by a test harness)
-  const scale = Math.max(1, +(opts.scale || (typeof self !== 'undefined' && self.CITY_LAB_SCALE)) || 1), KS = Math.sqrt(scale), KC = scale > 1 ? 1 + (KS - 1) * 0.22 : 1;
+  const scale = Math.max(1, +(opts.scale || (typeof self !== 'undefined' && self.CITY_LAB_SCALE)) || 1), KS = Math.sqrt(scale), KC = scale > 1 ? 1 + (KS - 1) * 0.36 : 1;
   const R = mulberry32(seed * 7919 + 17);
   const J = (a) => (R() * 2 - 1) * a;
   const X0 = -330 * KC, X1 = 330 * KC, Z0 = -275 * KC, Z1 = 275 * KC;
@@ -341,8 +341,8 @@ function growOutskirts(net, g) {
   const R = mulberry32(seed * 104729 + 4243);
   const b = net.bounds;
   const OX = 330 * KS, OZ = 275 * KS;
-  const plan = net.plan = { kind: 'rings', scale: KS * KS, KC, HX: b.x1 + 12, HZ: b.z1 + 12, RC: 120, wA: 115, d1: 105, dx: 80, d3: 95,
-    ph1: R() * 6.283, ph2: R() * 6.283, ph3: R() * 6.283, OX, OZ, seed, radials: [], hubs: [], lakes: [], farms: [] };
+  const plan = net.plan = { kind: 'rings', scale: KS * KS, KC, HX: b.x1 + 12, HZ: b.z1 + 12, RC: 140, wA: 200, d1: 105, dx: 80, d3: 95,
+    ph1: R() * 6.283, ph2: R() * 6.283, ph3: R() * 6.283, OX, OZ, seed, radials: [], hubs: [], lakes: [], farms: [], pods: [] };
   net.zoneScale = KC;
   const G = ringGeom(plan), { D, P } = G;
   net.inner = { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 };
@@ -429,13 +429,12 @@ function growOutskirts(net, g) {
   const crossPoly = (pts, f) => { for (let i = 0; i + 1 < pts.length; ++i) if (f(pts[i]) <= 0 && f(pts[i + 1]) > 0) return { p: cross(pts[i], pts[i + 1], f), i }; return null; };
   // radials bend between the Beltway and the county line (a smooth bow, tangent to the straight line at both ends),
   // then run straight on to the map edge: the Routes leave the map as long straight divided highways
-  let cr = 1;
   for (const rd of rads) {
     const t = clipLine(rd.S, rd.dir, OB), L = t[1];
     rd.E = [rd.S[0] + rd.dir[0] * L, rd.S[1] + rd.dir[1] * L];
-    const q2 = along(rd.S, rd.dir, lvlF(2)), T = Math.min(L - 30, Math.hypot(q2[0] - rd.S[0], q2[1] - rd.S[1]) + 25);
+    const T = Math.min(L - 30, L * 0.7);
     const hx = Math.round(rd.S[0] * 4), hz = Math.round(rd.S[1] * 4);
-    const bow = (hash2(hx, hz, seed + 61) - 0.5) * 2 * 30, bow2 = (hash2(hx, hz, seed + 63) - 0.5) * 2 * 12;
+    const bow = (hash2(hx, hz, seed + 61) - 0.5) * 2 * 48, bow2 = (hash2(hx, hz, seed + 63) - 0.5) * 2 * 20;
     const pr = [-rd.dir[1], rd.dir[0]], pts = [], n = Math.max(2, Math.ceil(T / 6));
     for (let k = 0; k <= n; ++k) {
       const s = T * k / n, u = s / T, sn = Math.sin(Math.PI * u), o = sn * sn * (bow + bow2 * Math.cos(Math.PI * u));
@@ -443,113 +442,124 @@ function growOutskirts(net, g) {
     }
     pts.push(rd.E);
     rd.pts = dedupe(pts);
-    const c1 = crossPoly(rd.pts, lvlF(1)), c2 = crossPoly(rd.pts, lvlF(2)), c3 = crossPoly(rd.pts, lvlF(3));
-    const fb = (s) => { const q = pointAtPts(rd.pts, s); return { p: [q[0], q[1]], i: Math.max(0, rd.pts.findIndex((p, j) => j + 1 < rd.pts.length && plen(rd.pts.slice(0, j + 2)) >= s)) }; };
-    const C2 = c2 || fb(plen(rd.pts) - 40), C1 = c1 || fb(plen(rd.pts.slice(0, C2.i + 1)) * 0.6);
-    rd.C = [rd.S, C1.p, C2.p, c3 ? c3.p : null];
-    const inner = dedupe(rd.pts.slice(0, C2.i + 1).concat([C2.p])), outer = dedupe([C2.p].concat(rd.pts.slice(C2.i + 1)));
-    add('avenue', inner, rd.name, 'residential', { zone: 'suburban' });
-    const route = rd.main ? `${rd.name} (Route ${9 + cr++ * 3})` : `County Road ${cr++ * 2 + 10}`;
-    add(rd.main ? 'boulevard' : 'county', outer, route, 'residential', { zone: 'rural' });
+    rd.L = plen(rd.pts);
     plan.radials.push({ name: rd.name, S: rd.S, E: rd.E, dir: rd.dir });
-    plan.hubs.push(rd.S, rd.C[1]);
   }
-  // 3. ring arcs between consecutive radials
-  const RING = [['boulevard', 'Beltway', 'arterial', 'transition'], ['street', 'Parkway', 'residential', 'suburban'], ['county', 'County Line Road', 'residential', 'exurban']];
-  const PARK_NAMES = ['Meadow', 'Fox Run', 'Briar', 'Cedar Hill', 'Orchard', 'Brookside', 'Heather', 'Quail', 'Aspen', 'Stonegate', 'Sunset', 'Clover', 'Deer Path', 'Hollow', 'Ivy', 'Kingsley', 'Willow Bend', 'Maple Glen', 'Prairie', 'Sutton'];
-  const arcL = (A, B, fn) => {                         // level-set polyline from A to B (counter-clockwise in th)
-    let ta = ang(A), tb = ang(B); while (tb <= ta) tb += 2 * Math.PI;
-    const mid = P((ta + tb) / 2, fn((ta + tb) / 2)), n = Math.max(2, Math.ceil((tb - ta) * Math.hypot(mid[0], mid[1]) / 3));
-    const pts = [A];
-    for (let i = 1; i < n; ++i) { const th = ta + (tb - ta) * i / n; pts.push(P(th, fn(th))); }
-    pts.push(B);
-    return { pts: dedupe(pts), ta, tb };
+  // 3. corridors: the city grows out along the radials as fingers of neighbourhoods; fields and woods reach in
+  //    between them. Each radial gets an urban length (noise), each side a depth profile limited by the room to
+  //    the neighbouring radials; the neighbourhood type follows the era (distance out): pre-war comb grids, post-war
+  //    loops, newer cul-de-sac pods, then exurban courts on large lots. A partial bypass bends round one side.
+  const NB = ['Meadow', 'Fox Run', 'Briar', 'Cedar Hill', 'Orchard', 'Brookside', 'Heather', 'Quail', 'Aspen', 'Stonegate', 'Sunset', 'Clover', 'Deer Path', 'Hollow', 'Ivy', 'Kingsley', 'Willow Bend', 'Maple Glen', 'Prairie', 'Sutton', 'Ashford', 'Linden', 'Wexford', 'Bramble'];
+  let nk = 0; const nm = () => NB[nk++ % NB.length];
+  const others = (rd) => rads.filter(o => o !== rd);
+  const pod = (q, zone) => plan.pods.push({ q, zone });
+  const OUT = (p, m) => Math.abs(p[0]) > OX - m || Math.abs(p[1]) > OZ - m;
+  // room for a street from spine point p along normal n: stop near the inner city, the map edge or halfway to
+  // another radial
+  const reach = (rd, p, n, want) => {
+    const os = others(rd);
+    let u = 0;
+    for (; u < want; u += 5) {
+      const q = [p[0] + n[0] * u, p[1] + n[1] * u];
+      if (u > 8 && (D(q[0], q[1]) < 14 || OUT(q, 30))) break;
+      let dmin = 1e9; for (const o of os) dmin = Math.min(dmin, distToPolyline(q, o.pts));
+      if (dmin < u + 28) break;
+    }
+    return u - 12;
   };
-  const arc = (A, B, lv) => arcL(A, B, G.lvl[lv]);
-  const ray = (th, f0, f1, n) => { const out = []; for (let k = 0; k <= n; ++k) { const u = k / n; out.push(P(th, f0(th) + (f1(th) - f0(th)) * u)); } return dedupe(out); };
-  const lerpF = (fa, fb, u) => (th) => fa(th) + (fb(th) - fa(th)) * u;
-  let nameK = 0, diag = 0;
-  const diagSector = Math.floor(hash2(rads.length, 9, seed + 73) * rads.length);
-  for (let i = 0; i < rads.length; ++i) {
-    const A = rads[i], B = rads[(i + 1) % rads.length];
-    for (let lv = 0; lv < 3; ++lv) {
-      const a = arc(A.C[lv], B.C[lv], lv), [prof, nm, dist, zone] = RING[lv];
-      add(prof, a.pts, lv === 1 ? PARK_NAMES[nameK++ % PARK_NAMES.length] + ' Parkway' : nm, dist, { zone });
-    }
-    // rural back road on some sectors, if it stays on the map
-    if (A.C[3] && B.C[3]) {
-      const a3 = arc(A.C[3], B.C[3], 3);
-      if (hash2(i, 3, seed + 41) < 0.6 && a3.pts.every(p => Math.abs(p[0]) < OX - 40 && Math.abs(p[1]) < OZ - 40) && plen(a3.pts) > 160)
-        add('county', a3.pts, `${['Mill', 'Quarry', 'Orchard', 'Hollow', 'Ridge', 'Creek'][i % 6]} Road`, 'residential', { zone: 'rural' });
-    }
-    // 4. suburb: every sector between the Beltway and the Parkway gets a neighbourhood network (local streets every
-    //    ~90-120 m): a short grid, a curvilinear drive with staggered T streets, or loops with connectors
-    const base = ang(A.S), unw = (a) => base + ((((a - base) % 6.2832) + 9.4248) % 6.2832) - 3.1416;
-    const radAng = (rd, f) => { const c = crossPoly(rd.pts, levelF(f)); return unw(ang(c ? c.p : rd.S)); };
-    const half = lerpF(G.lvl[0], G.d1, 0.5);
-    let thA = Math.max(radAng(A, G.lvl[0]), radAng(A, half), radAng(A, G.d1));
-    let thB = Math.min(radAng(B, G.lvl[0]), radAng(B, half), radAng(B, G.d1));
-    if (thB <= thA) thB += 2 * Math.PI;
-    const rm = Math.hypot(...P((thA + thB) / 2, half((thA + thB) / 2))), mth = 40 / rm;
-    const t0 = thA + mth, t1 = thB - mth, span = (t1 - t0) * rm;
-    const nmS = PARK_NAMES[(nameK + 5) % PARK_NAMES.length], suf = (k) => PARK_NAMES[(nameK + 7 + k) % PARK_NAMES.length];
-    const pkJ = [];                                    // parkway junction angles (keep exurb courts clear)
-    const spoke = (th, f0, f1, name) => {
-      let pts = ray(th, f0, f1, 6);
-      if (f0 === G.lvl[0]) for (const e of ends) if (Math.hypot(e.p[0] - pts[0][0], e.p[1] - pts[0][1]) < 28) { pts[0] = e.p; ends.splice(ends.indexOf(e), 1); break; }
-      if (f1 === G.d1) pkJ.push(th);
-      add('residential', dedupe(pts), name, 'residential', { zone: 'suburban' });
-    };
-    const pat = hash2(i, 5, seed + 71);
-    if (span < 70) {
-      if (span > 0) spoke((t0 + t1) / 2, G.lvl[0], G.d1, nmS + ' Street');
-    } else if (pat < 0.62 || span < 200) {
-      const curvy = pat >= 0.3 && span >= 150, w = Math.max(1, Math.round(span / 160));
-      const fm = curvy ? (th) => G.d1(th) * (0.5 + 0.11 * Math.sin(2 * Math.PI * w * (th - thA) / (thB - thA))) : half;
-      const MA = crossPoly(A.pts, levelF(fm)), MB = crossPoly(B.pts, levelF(fm));
-      if (MA && MB) add('residential', arcL(MA.p, MB.p, fm).pts, nmS + (curvy ? ' Drive' : ' Avenue'), 'residential', { zone: 'suburban' });
-      const sp = curvy ? 80 + R() * 15 : 100 + R() * 22, n = Math.max(1, Math.round(span / sp));
-      for (let k = 0; k < n; ++k) {
-        const th = t0 + (t1 - t0) * (k + 0.5) / n;
-        if (!curvy) spoke(th, G.lvl[0], G.d1, suf(k) + ' Street');
-        else if (k % 2) spoke(th, fm, G.d1, suf(k) + ' Way');
-        else spoke(th, G.lvl[0], fm, suf(k) + ' Street');
+  let cr = 1;
+  rads.forEach((rd, ri) => {
+    const h = (k, s) => hash2(ri * 131 + k, s, seed + 83);
+    const Lurb = Math.min(rd.L - 90, 360 + 480 * h(1, 0)), era = (s) => s + 160 * (h(2, Math.floor(s / 150)) - 0.5) + (h(3, 0) - 0.5) * 200;
+    let lastS = 40;
+    for (const side of [1, -1]) {
+      let s = 45 + 30 * h(4, side), prevEnd = null, prevMid = null, kind = null;
+      const mid = [], back = [];
+      const flush = () => {
+        if (back.length > 1) add('residential', dedupe(back.slice()), nm() + ' Street', 'residential', { zone: 'suburban' });
+        if (mid.length > 1) add('residential', dedupe(mid.slice()), nm() + ' Avenue', 'residential', { zone: 'suburban' });
+        back.length = 0; mid.length = 0;
+      };
+      while (s < Lurb) {
+        const e = era(s), [x, z, tx, tz] = pointAtPts(rd.pts, s), n = [-tz * side, tx * side], p = [x, z];
+        const wob = 0.65 + 0.7 * h(5 + side, Math.floor(s / 90));        // ragged depth
+        const k = e < 260 ? 'grid' : e < 500 ? 'loop' : 'cul';
+        if (k !== kind) { flush(); kind = k; }
+        if (k === 'grid') {
+          const d = reach(rd, p, n, 175 * wob);
+          if (d < 50) { flush(); s += 60; continue; }
+          const sp = 72 + 22 * h(6, Math.floor(s));
+          const spk = []; for (let j = 0; j <= 4; ++j) spk.push([p[0] + n[0] * d * j / 4, p[1] + n[1] * d * j / 4]);
+          add('residential', spk, nm() + ' Street', 'residential', { zone: 'suburban' });
+          back.push(spk[4]);
+          if (d > 92) mid.push(spk[2]); else if (mid.length) { const m = mid.slice(); mid.length = 0; if (m.length > 1) add('residential', dedupe(m), nm() + ' Avenue', 'residential', { zone: 'suburban' }); }
+          const [x2, z2, tx2, tz2] = pointAtPts(rd.pts, Math.min(rd.L, s + sp));
+          pod([p, [x2, z2], [x2 - tz2 * side * (d + 18), z2 + tx2 * side * (d + 18)], [p[0] + n[0] * (d + 18), p[1] + n[1] * (d + 18)]], 'suburban');
+          lastS = Math.max(lastS, s + sp); s += sp;
+        } else if (k === 'loop') {
+          const Ll = 100 + 40 * h(7, Math.floor(s)), dd = reach(rd, p, n, 120 * wob);
+          const [x2, z2, tx2, tz2] = pointAtPts(rd.pts, s + Ll), n2 = [-tz2 * side, tx2 * side];
+          const d = Math.min(dd, reach(rd, [x2, z2], n2, 120 * wob));
+          if (d < 55 || s + Ll > Lurb) { s += 50; continue; }
+          const pts = [], m = Math.ceil(Ll / 3) + 16;
+          for (let j = 0; j <= m; ++j) {
+            const u = j / m, [xa, za, ta, tb] = pointAtPts(rd.pts, s + Ll * u), dep = d * Math.pow(Math.sin(Math.PI * u), 0.5);
+            pts.push([xa - tb * side * dep, za + ta * side * dep]);
+          }
+          add('residential', dedupe(pts), nm() + (h(8, Math.floor(s)) < 0.5 ? ' Loop' : ' Circle'), 'residential', { zone: 'suburban' });
+          pod([p, [x2, z2], [x2 + n2[0] * (d + 18), z2 + n2[1] * (d + 18)], [p[0] + n[0] * (d + 18), p[1] + n[1] * (d + 18)]], 'suburban');
+          // a court into the loop's back land when there is room
+          if (d > 95) {
+            const [xc, zc, tcx, tcz] = pointAtPts(rd.pts, s + Ll / 2), nc = [-tcz * side, tcx * side], c0 = [xc + nc[0] * d, zc + nc[1] * d];
+            const L2 = Math.min(45, reach(rd, c0, nc, 60));
+            if (L2 > 26) { add('lane', [c0, [c0[0] + nc[0] * L2, c0[1] + nc[1] * L2]], nm() + ' Court', 'residential', { zone: 'suburban', bulbEnd: 10.5 });
+              pod([[c0[0] - tcx * 30, c0[1] - tcz * 30], [c0[0] + tcx * 30, c0[1] + tcz * 30], [c0[0] + tcx * 30 + nc[0] * (L2 + 25), c0[1] + tcz * 30 + nc[1] * (L2 + 25)], [c0[0] - tcx * 30 + nc[0] * (L2 + 25), c0[1] - tcz * 30 + nc[1] * (L2 + 25)]], 'suburban'); }
+          }
+          lastS = Math.max(lastS, s + Ll); s += Ll + 42;
+        } else {
+          const d = Math.min(85, reach(rd, p, n, 95 * wob));
+          if (d < 34) { s += 45; continue; }
+          const bend = (h(9, Math.floor(s)) - 0.5) * 24, q1 = [p[0] + n[0] * d * 0.5, p[1] + n[1] * d * 0.5], q2 = [p[0] + n[0] * d + tx * bend, p[1] + n[1] * d + tz * bend];
+          add('lane', bezier(p, q1, q1, q2, 3), nm() + ' Court', 'residential', { zone: 'suburban', bulbEnd: 10.5 });
+          pod([[p[0] - tx * 38, p[1] - tz * 38], [p[0] + tx * 38, p[1] + tz * 38], [p[0] + tx * 38 + n[0] * (d + 28), p[1] + tz * 38 + n[1] * (d + 28)], [p[0] - tx * 38 + n[0] * (d + 28), p[1] - tz * 38 + n[1] * (d + 28)]], 'suburban');
+          lastS = Math.max(lastS, s + 38); s += 76 + 14 * h(10, Math.floor(s));
+        }
       }
-    } else {
-      const nL = Math.max(1, Math.floor((span + 60) / 190)), lw = (span - (nL - 1) * 60) / nL;
-      for (let k = 0; k < nL; ++k) {
-        const a0 = t0 + (k * (lw + 60)) / rm, a1 = a0 + lw / rm, dip = 0.5 + 0.12 * hash2(i, k, seed + 79);
-        const n = Math.ceil(lw / 3) + 20, pts = [];
-        for (let j = 0; j <= n; ++j) { const u = j / n, th = a0 + (a1 - a0) * u; pts.push(P(th, G.d1(th) * (1 - dip * Math.pow(Math.sin(Math.PI * u), 0.55)))); }
-        add('residential', dedupe(pts), suf(k) + (k % 2 ? ' Circle' : ' Loop'), 'residential', { zone: 'suburban' });
-        pkJ.push(a0, a1);
-        if (k + 1 < nL) spoke(a1 + 30 / rm, G.lvl[0], G.d1, suf(k + 3) + ' Street');
-      }
-    }
-    // exurb: an old diagonal county road on one sector, cul-de-sacs (large lots) off the Parkway elsewhere
-    const thA1 = radAng(A, G.d1), thB1u = radAng(B, G.d1), thB1 = thB1u <= thA1 ? thB1u + 2 * Math.PI : thB1u;
-    const r1 = Math.hypot(...P((thA1 + thB1) / 2, G.d1((thA1 + thB1) / 2)));
-    let dseg = null;
-    if (i === diagSector && (thB1 - thA1) * r1 > 260) {
-      const ths = thA1 + (thB1 - thA1) * 0.3, S = P(ths, G.d1(ths)), nn = outN(S), ca = Math.cos(0.6), sa = Math.sin(0.6);
-      const dir = [nn[0] * ca - nn[1] * sa, nn[0] * sa + nn[1] * ca], tt = clipLine(S, dir, OB), E = [S[0] + dir[0] * tt[1], S[1] + dir[1] * tt[1]];
-      const thE = unw(ang(E)), thBE = radAng(B, (th) => 1e5);
-      if (!pkJ.some(t => Math.abs(t - ths) * r1 < 32) && thE < Math.min(thBE, thB1) - 0.05) {
-        add('county', [S, E], `Old ${['Mill', 'Ferry', 'Stage', 'Post', 'Plank'][seed % 5]} Road`, 'residential', { zone: 'rural' });
-        dseg = [S, E]; pkJ.push(ths); diag++;
+      flush();
+      // exurbs: a few courts with large lots beyond the urban end, alternating sides
+      for (let s2 = Lurb + 60 + 40 * h(11, side), k2 = 0; s2 < Math.min(rd.L - 80, Lurb + 340); s2 += 120 + 60 * h(12, k2++)) {
+        if (h(13, k2 * 2 + side) < 0.35) continue;
+        const [x, z, tx, tz] = pointAtPts(rd.pts, s2), n = [-tz * side, tx * side], p = [x, z], d = Math.min(70, reach(rd, p, n, 80));
+        if (d < 40) continue;
+        const q1 = [p[0] + n[0] * d * 0.5, p[1] + n[1] * d * 0.5], q2 = [p[0] + n[0] * d + tx * 14 * side, p[1] + n[1] * d + tz * 14 * side];
+        add('lane', bezier(p, q1, q1, q2, 3), nm() + ' Court', 'residential', { zone: 'exurban', bulbEnd: 10.5 });
+        pod([[p[0] - tx * 55, p[1] - tz * 55], [p[0] + tx * 55, p[1] + tz * 55], [p[0] + tx * 55 + n[0] * (d + 40), p[1] + tz * 55 + n[1] * (d + 40)], [p[0] - tx * 55 + n[0] * (d + 40), p[1] - tz * 55 + n[1] * (d + 40)]], 'exurban');
+        lastS = Math.max(lastS, s2 + 55);
       }
     }
-    const col = arcL(A.C[1], B.C[1], G.d1), Lc = plen(col.pts);
-    for (let s = 60 + R() * 20; s < Lc - 60; s += 84 + R() * 30) {
-      const th = col.ta + (col.tb - col.ta) * s / Lc, p0 = P(th, G.d1(th)), thu = unw(th);
-      if (thu < thA1 + 45 / r1 || thu > thB1 - 45 / r1 || pkJ.some(t => Math.abs(unw(t) - thu) * r1 < 30)) continue;
-      if (dseg && distToPolyline(p0, dseg) < 60) continue;
-      const room = G.d2(th) - G.d1(th) - 34;
-      if (room < 26) continue;
-      const L = Math.min(60, room), bend = (R() - 0.5) * 24 / Math.hypot(p0[0], p0[1]);
-      const p1 = P(th, G.d1(th) + L * 0.5), p2 = P(th + bend, G.d1(th + bend) + L);
-      if (dseg && distToPolyline(p2, dseg) < 40) continue;
-      add('lane', bezier(p0, p1, p1, p2, 3), `${PARK_NAMES[(nameK + 3 + Math.round(s)) % PARK_NAMES.length]} Court`, 'residential', { zone: 'exurban', bulbEnd: 10.5 });
+    // the radial: an avenue through its urban length, then a Route (divided boulevard) or county road to the edge
+    const cut = Math.min(rd.L - 30, Math.max(lastS + 10, 80)), [cx, cz] = pointAtPts(rd.pts, cut), C = [cx, cz];
+    const innerP = [], outerP = [C]; let acc = 0;
+    for (let i = 0; i < rd.pts.length; ++i) {
+      if (i > 0) acc += Math.hypot(rd.pts[i][0] - rd.pts[i - 1][0], rd.pts[i][1] - rd.pts[i - 1][1]);
+      if (acc < cut) innerP.push(rd.pts[i]); else outerP.push(rd.pts[i]);
+    }
+    innerP.push(C);
+    add('avenue', dedupe(innerP), rd.name, 'residential', { zone: 'suburban' });
+    add(rd.main ? 'boulevard' : 'county', dedupe(outerP), rd.main ? `${rd.name} (Route ${9 + cr++ * 3})` : `County Road ${cr++ * 2 + 10}`, 'residential', { zone: 'rural' });
+    plan.hubs.push(rd.S);
+    const sh = 120 + 200 * h(14, 0); if (sh < cut - 40) { const q = pointAtPts(rd.pts, sh); plan.hubs.push([q[0], q[1]]); }
+  });
+  // partial bypass: the Beltway on one side only (three or four sectors), bending with the inner edge
+  {
+    const i0 = Math.floor(hash2(rads.length, 1, seed + 87) * rads.length), nS = 3 + (hash2(rads.length, 2, seed + 87) < 0.5 ? 1 : 0);
+    for (let k = 0; k < nS; ++k) {
+      const A = rads[(i0 + k) % rads.length], B = rads[(i0 + k + 1) % rads.length];
+      let ta = ang(A.S), tb = ang(B.S); while (tb <= ta) tb += 2 * Math.PI;
+      const n = Math.max(2, Math.ceil((tb - ta) * Math.hypot(A.S[0], A.S[1]) / 3)), pts = [A.S];
+      for (let j = 1; j < n; ++j) pts.push(P(ta + (tb - ta) * j / n, 0));
+      pts.push(B.S);
+      add('boulevard', dedupe(pts), 'Beltway', 'arterial', { zone: 'transition' });
     }
   }
   // 5. remove dropped inner roads, renumber (areas keep their road)
@@ -562,9 +572,9 @@ function growOutskirts(net, g) {
   }
   // 6. rural plan: a lake, farmsteads along the rural roads (small lists, evaluated anywhere)
   const distRoads = (p, skip) => { let d = 1e9; for (const r of roads) if (r.id !== skip) d = Math.min(d, distToPolyline(p, r.pts) - PROFILES[r.profile].half); return d; };
-  const rural = (p, m) => D(p[0], p[1]) - G.d2(ang(p)) > m && Math.abs(p[0]) < OX - m && Math.abs(p[1]) < OZ - m;
+  const rural = (p, m) => D(p[0], p[1]) > m && Math.abs(p[0]) < OX - m && Math.abs(p[1]) < OZ - m && [[0, 0], [m, 0], [-m, 0], [0, m], [0, -m]].every(([a, c]) => !podAt(plan, p[0] + a, p[1] + c));
   for (let t = 0; t < 60 && plan.lakes.length < Math.max(1, Math.round(KS * KS / 4)); ++t) {
-    const th = R() * 6.283, r = 34 + R() * 26, c = P(th, G.d2(th) + r + 20 + R() * 90);
+    const r = 34 + R() * 26, c = [(R() * 2 - 1) * (OX - 60), (R() * 2 - 1) * (OZ - 60)];
     if (!rural(c, r + 14) || distRoads(c) < r + 16 || plan.lakes.some(l => Math.hypot(l.c[0] - c[0], l.c[1] - c[1]) < l.r + r + 150)) continue;
     plan.lakes.push({ c, r, ph: R() * 6.283 });
   }
@@ -620,10 +630,33 @@ function ruralParcel(net, x, z) {
   return { i, j, x0, x1, z0, z1, kind, alongX: x1 - x0 > z1 - z0, edge: Math.min(x - x0, x1 - x, z - z0, z1 - z), hedge: hash2(i, j, sd + 29) };
 }
 const GROUND = { CROP: 202, FURROW: 203, WHEAT: 204, FOREST: 205, WATER: 206, GRAVEL: 207, SOIL: 140, SOY: 133, PASTURE: 14, VERGE: 16 };
+// neighbourhood pods (net.plan.pods: convex quads + zone), indexed on a 64 m grid (lazily, per plan)
+const PODIX = new WeakMap();
+function podAt(pl, x, z) {
+  let ix = PODIX.get(pl);
+  if (!ix) {
+    ix = new Map();
+    for (const p of pl.pods) {
+      const xs = p.q.map(q => q[0]), zs = p.q.map(q => q[1]);
+      for (let i = Math.floor(Math.min(...xs) / 64); i <= Math.floor(Math.max(...xs) / 64); ++i)
+        for (let j = Math.floor(Math.min(...zs) / 64); j <= Math.floor(Math.max(...zs) / 64); ++j) { const k = i * 4096 + j; let a = ix.get(k); if (!a) ix.set(k, a = []); a.push(p); }
+    }
+    PODIX.set(pl, ix);
+  }
+  const a = ix.get(Math.floor(x / 64) * 4096 + Math.floor(z / 64));
+  if (!a) return null;
+  let best = null;
+  for (const p of a) {
+    const q = p.q; let sg = 0, ok = true;
+    for (let i = 0; i < 4 && ok; ++i) { const A = q[i], B = q[(i + 1) % 4], c = (B[0] - A[0]) * (z - A[1]) - (B[1] - A[1]) * (x - A[0]); if (c !== 0) { if (!sg) sg = Math.sign(c); else if (Math.sign(c) !== sg) ok = false; } }
+    if (ok) { if (p.zone === 'suburban') return p; best = p; }
+  }
+  return best;
+}
 function isRural(net, x, z) {
   const pl = net.plan; if (!pl) return false;
-  const G = ringGeom(pl);
-  return G.D(x, z) > G.d2(Math.atan2(z, x));
+  if (!pl.pods) { const G = ringGeom(pl); return G.D(x, z) > G.d2(Math.atan2(z, x)); }
+  return ringGeom(pl).D(x, z) > 4 && !podAt(pl, x, z);
 }
 function inFarm(f, x, z, m) { const dx = x - f.c[0], dz = z - f.c[1], a = dx * f.n[1] - dz * f.n[0], b = dx * f.n[0] + dz * f.n[1]; return Math.abs(a) < f.hw + m && Math.abs(b) < f.hd + m; }
 function lakeR(l, x, z) { const th = Math.atan2(z - l.c[1], x - l.c[0]); return l.r * (1 + 0.12 * Math.sin(3 * th + l.ph) + 0.07 * Math.sin(5 * th + 2 * l.ph)); }
@@ -634,7 +667,7 @@ function ruralGround(net, x, z, verge) {
   for (const l of pl.lakes) { const d = Math.hypot(x - l.c[0], z - l.c[1]), r = lakeR(l, x, z); if (d < r + 4) return { kind: d < r ? 'water' : 'shore', mat: d < r ? GROUND.WATER : GROUND.VERGE }; }
   for (const f of pl.farms) if (inFarm(f, x, z, 0)) return { kind: 'farmyard', mat: GROUND.GRAVEL };
   if (verge < 5) return { kind: 'verge', mat: GROUND.VERGE };
-  const fn = forestNoise(net.seed, x, z), G = ringGeom(pl), t = clamp((G.D(x, z) - G.d2(Math.atan2(z, x))) / 160, 0, 1);
+  const fn = forestNoise(net.seed, x, z), G = ringGeom(pl), t = clamp(pl.pods ? G.D(x, z) / 500 : (G.D(x, z) - G.d2(Math.atan2(z, x))) / 160, 0, 1);
   const p = ruralParcel(net, x, z);
   if (fn > 0.66 - 0.12 * t || p.kind === 'woodlot') return { kind: 'forest', mat: GROUND.FOREST, p };
   if (p.edge < 1.6) return { kind: 'headland', mat: GROUND.VERGE, p };
@@ -659,6 +692,12 @@ function landUseAt(net, x, z) {
   const pl = net.plan;
   if (pl) {
     const G = ringGeom(pl), Dv = G.D(x, z), th = Math.atan2(z, x);
+    if (pl.pods && Dv > 4) {
+      const pd = podAt(pl, x, z);
+      if (!pd) { const g = ruralGround(net, x, z, 99); return g.kind === 'field' || g.kind === 'headland' || g.kind === 'verge' ? 'field' : g.kind === 'shore' ? 'water' : g.kind; }
+      if (pl.hubs.some(h => Math.hypot(h[0] - x, h[1] - z) < 60)) return 'commercial';
+      return Dv < 45 && pd.zone === 'suburban' ? 'transition' : pd.zone;
+    }
     if (Dv > G.d2(th)) { const g = ruralGround(net, x, z, 99); return g.kind === 'field' || g.kind === 'headland' || g.kind === 'verge' ? 'field' : g.kind === 'shore' ? 'water' : g.kind; }
     if (Dv > 0) {
       if (pl.hubs.some(h => Math.hypot(h[0] - x, h[1] - z) < 60)) return 'commercial';
