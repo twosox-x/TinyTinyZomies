@@ -1,0 +1,1361 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Military Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Same studio look as Zombie Lab v3: full-bleed stage, floating control column. */
+:root {
+  --bg: #14170f; --panel: rgba(18, 21, 14, 0.88); --raised: #1f2518; --line: #313a27; --fg: #e7ead9; --muted: #98a184;
+  --accent: #c9b46a; --accent-ink: #1d1a0c;
+  --ui: "Archivo", "Helvetica Neue", Arial, sans-serif; --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark; box-sizing: border-box;
+}
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font: 14px var(--ui); overflow: hidden; }
+#stage { position: absolute; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+.panel { position: absolute; top: 16px; left: 16px; width: 316px; max-height: calc(100% - 32px); overflow-y: auto; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(10px); display: flex; flex-direction: column; gap: 13px; padding: 16px; scrollbar-width: thin; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.brand h1 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: 0.02em; }
+.brand h1 b { color: var(--accent); }
+.brand span { font-family: var(--mono); font-size: 10px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.sec { display: flex; flex-direction: column; gap: 7px; }
+.label { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; }
+.label em { font-style: normal; font-family: var(--mono); letter-spacing: 0; text-transform: none; color: var(--fg); }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--raised); border: 1px solid var(--line); border-radius: 7px; padding: 2px; gap: 2px; }
+.seg button, .btn { font: 500 12px/1 var(--ui); color: var(--fg); background: transparent; border: 0; border-radius: 5px; padding: 8px 4px; cursor: pointer; white-space: nowrap; }
+.seg button:hover { background: #2a3221; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn { background: var(--raised); border: 1px solid var(--line); padding: 8px 10px; }
+.btn:hover { border-color: #4a5638; }
+.row { display: flex; gap: 6px; flex-wrap: wrap; }
+.row > .btn { flex: 1 1 auto; }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.grp b { font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 4px; }
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { font: 500 11px/1 var(--ui); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 99px; padding: 5px 8px; cursor: pointer; }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.check { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 11px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); text-align: right; }
+.hint { position: absolute; right: 16px; bottom: 14px; font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; pointer-events: none; }
+#labels .tag { position: absolute; transform: translate(-50%, 0); pointer-events: none; font: 600 11px var(--ui); color: var(--fg); white-space: nowrap; background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 3px 6px; }
+@media (max-width: 720px) { .panel { top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-height: 48%; } .hint { display: none; } }
+</style></head><body>
+<div id="stage" aria-label="3D preview: drag to rotate, scroll to zoom"></div>
+<div id="labels"></div>
+<aside class="panel" aria-label="Military asset controls">
+  <div class="brand"><h1>Tiny Tiny <b>Military</b> Lab</h1><span>v1 · models</span></div>
+  <div class="sec"><div class="label">Mode</div>
+    <div class="seg" data-group="mode"><button data-v="single" aria-pressed="true">Asset</button><button data-v="lineup" aria-pressed="false">Lineup</button><button data-v="props" aria-pressed="false">Props</button><button data-v="rts" aria-pressed="false">RTS</button></div></div>
+  <div class="sec"><div class="label">Camera</div>
+    <div class="seg" data-group="view"><button data-v="persp" aria-pressed="true">3/4</button><button data-v="front" aria-pressed="false">Front</button><button data-v="side" aria-pressed="false">Side</button><button data-v="rear" aria-pressed="false">Rear</button><button data-v="top" aria-pressed="false">Top</button></div></div>
+  <div class="sec"><div class="label">Pose (infantry)</div>
+    <div class="seg" data-group="pose"><button data-v="carry" aria-pressed="true">Carry</button><button data-v="rest" aria-pressed="false">Rest (template)</button></div></div>
+  <div class="sec"><div class="label">Lighting</div>
+    <div class="seg" data-group="light"><button data-v="neutral" aria-pressed="true">Neutral</button><button data-v="night" aria-pressed="false">Night</button></div></div>
+  <div class="sec">
+    <label class="check"><input type="checkbox" id="zombie" checked> Zombie beside it (scale)</label>
+    <label class="check"><input type="checkbox" id="points"> Joints, grip / support points, sockets</label>
+    <label class="check"><input type="checkbox" id="open"> Doors / gates open</label>
+  </div>
+  <div class="sec"><div class="label">Asset <em id="cur"></em></div><div class="list" id="assets"></div></div>
+  <div class="sec"><div class="label">Info</div><dl class="kv" id="info"></dl></div>
+  <div class="row"><button class="btn" id="export">Export JSON (all models)</button></div>
+</aside>
+<div class="hint">drag rotate · scroll zoom · right-drag pan</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+(function () {
+"use strict";
+if (!window.THREE) { document.getElementById("stage").innerHTML = '<p style="padding:40px;color:#98a184">The 3D library could not be loaded.</p>'; return; }
+/* === MILITARY LIBRARY BEGIN === */
+/* Renderer-free model library (also evaluated by tools/convert_military.mjs in a Node vm sandbox).
+   Conventions: Y up, front = +Z, model's left = +X. Infantry authored in body-voxel units (V = 1.7/18 m),
+   body segments with 1 V cells (Zombie Lab layout), gear and weapons with 0.5 V cells. Props in 5 cm cells. */
+const MIL_VERSION = 1;
+const V_M = 1.7 / 18, FINE_M = V_M / 2, PROP_M = 0.05;
+
+/* ---------------- deterministic randomness (same functions as Zombie Lab) ---------------- */
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function hash3(x, y, z, s) { let h = Math.imul(Math.round(x * 2) + 1000, 73856093) ^ Math.imul(Math.round(y * 2) + 1000, 19349663) ^ Math.imul(Math.round(z * 2) + 1000, 83492791) ^ s; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
+
+/* ---------------- palette (sRGB). flags: 1 emissive, 2 metal, 4 glass ---------------- */
+const PALETTE = [];
+const PAL = {};
+function pal(name, rgb, noise, flags) { PAL[name] = PALETTE.length; PALETTE.push({ name, rgb, noise: noise === undefined ? 0.06 : noise, flags: flags || 0 }); }
+// uniforms / gear
+pal("olive", "#5b5f3a"); pal("oliveDark", "#3f4229"); pal("oliveLight", "#767a4d");
+pal("coyote", "#8a7352"); pal("coyoteDark", "#675539"); pal("coyoteLight", "#a48b66");
+pal("rangerGreen", "#4c5440"); pal("rangerDark", "#363c2e");
+pal("mcTan", "#a08c68"); pal("mcGreen", "#6b6f4a"); pal("mcBrown", "#6e5a40"); pal("mcLight", "#bba886");
+pal("webbing", "#55513a"); pal("tan", "#b59f78"); pal("khaki", "#9c8a62");
+pal("black", "#1f2021", 0.05); pal("blackSoft", "#2d2e2c", 0.05); pal("bootBrown", "#5a4630");
+pal("gunBlack", "#1a1b1d", 0.04, 2); pal("gunMetal", "#3b3d40", 0.04, 2); pal("metal", "#7d8186", 0.04, 2);
+pal("brass", "#b8913a", 0.05, 2); pal("lens", "#2c4a5e", 0.02, 4); pal("lensGlint", "#6fa0bd", 0.02, 4);
+pal("suppressor", "#4a4b47", 0.04, 2); pal("fde", "#a58f6b"); pal("eyeDark", "#17140f", 0.0); pal("lip", "#6e4a3a", 0.03);
+pal("scarfTan", "#b8a887"); pal("scarfOlive", "#6d6b4c"); pal("scarfBlack", "#2b2b2b");
+pal("ghillieA", "#6f6a45"); pal("ghillieB", "#8c7c55"); pal("ghillieC", "#4d5233");
+pal("stencil", "#d9cf9e", 0.02); pal("stencilYellow", "#c9a930", 0.02);
+// skin tones (realistic, NOT the zombie greens)
+const SKIN_TONES = ["#e0b294", "#c99a76", "#a5764f", "#7f5538", "#5e3d29", "#d6a47c"];
+SKIN_TONES.forEach((c, i) => { pal("skin" + i, c, 0.04); });
+const SKIN_DARK = SKIN_TONES.map(c => { const n = parseInt(c.slice(1), 16); const f = v => Math.round(v * 0.78).toString(16).padStart(2, "0"); return "#" + f((n >> 16) & 255) + f((n >> 8) & 255) + f(n & 255); });
+SKIN_DARK.forEach((c, i) => pal("skinDark" + i, c, 0.04));
+const HAIR = ["#2b241e", "#5a4630", "#1e1e22", "#8c7a5c"];
+HAIR.forEach((c, i) => pal("hair" + i, c, 0.04));
+// props
+pal("sand", "#b9a57a", 0.08); pal("sandDark", "#9c8961", 0.08); pal("hescoWire", "#6e6c62", 0.05, 2); pal("hescoFabric", "#c2b48c", 0.06);
+pal("sandbag", "#a99a70", 0.09); pal("sandbagDark", "#8a7c56", 0.09); pal("sandbagOlive", "#7b7650", 0.09);
+pal("wood", "#8a6a44", 0.08); pal("woodDark", "#6a4f31", 0.08); pal("woodLight", "#a88a5e", 0.08); pal("rope", "#b9a77f", 0.05);
+pal("steel", "#5d6166", 0.05, 2); pal("steelDark", "#43474b", 0.05, 2); pal("rust", "#6e4a33", 0.08);
+pal("containerOlive", "#55593a", 0.04, 2); pal("containerDark", "#3d402b", 0.04, 2);
+pal("canopyOlive", "#6a6d48", 0.04); pal("canopyDark", "#53563a", 0.04); pal("canopyTan", "#a6956d", 0.04); pal("canopyWhite", "#d2d0c2", 0.04);
+pal("line", "#cfc8ae", 0.02); pal("strap", "#4b4a36", 0.04);
+pal("canvas", "#857a58", 0.06); pal("canvasLight", "#a79b77", 0.06);
+pal("white", "#e6e4da", 0.03); pal("medGreen", "#2f8a4a", 0.03); pal("flagOlive", "#5d6440", 0.03); pal("flagWhite", "#e2e0d6", 0.03);
+pal("pole", "#6a6c6e", 0.03, 2); pal("concrete", "#9a978d", 0.06); pal("radioGreen", "#3f4630", 0.04);
+pal("cotGreen", "#5f6646", 0.05); pal("mattress", "#7a7d62", 0.05); pal("blanket", "#6b5a40", 0.05);
+
+/* ---------------- voxel set: cells of edge `size` with arbitrary centres on one lattice ---------------- */
+const vkey = (x, y, z) => Math.round(x * 4) + "," + Math.round(y * 4) + "," + Math.round(z * 4);
+function makeSet(size) {
+  const map = new Map();
+  return {
+    size, map,
+    set(x, y, z, m) { if (m === undefined || m === null) throw new Error("no material"); map.set(vkey(x, y, z), { x, y, z, m }); },
+    del(x, y, z) { map.delete(vkey(x, y, z)); },
+    has(x, y, z) { return map.has(vkey(x, y, z)); },
+    get(x, y, z) { return map.get(vkey(x, y, z)); },
+    // fill the region between EDGES [x0,x1]x[y0,y1]x[z0,z1] (set units) with cells of this set's size
+    ebox(x0, x1, y0, y1, z0, z1, m) {
+      const s = size, h = s / 2;
+      for (let x = x0 + h; x < x1 - 1e-6; x += s) for (let y = y0 + h; y < y1 - 1e-6; y += s) for (let z = z0 + h; z < z1 - 1e-6; z += s) this.set(x, y, z, m);
+    },
+    // inclusive cell-centre box (Zombie Lab style, unit cells)
+    box(x0, x1, y0, y1, z0, z1, m) { for (let x = x0; x <= x1 + 1e-6; x += size) for (let y = y0; y <= y1 + 1e-6; y += size) for (let z = z0; z <= z1 + 1e-6; z += size) this.set(x, y, z, m); },
+    paint(fn) { for (const c of map.values()) { const r = fn(c); if (r) c.m = r; } },
+  };
+}
+
+/* =====================================================================================
+   INFANTRY — body template identical to Zombie Lab v3 (18 V tall, 10 segments)
+   ===================================================================================== */
+const SLOTS = ["head", "torso", "upperArmL", "forearmL", "upperArmR", "forearmR", "thighL", "shinL", "thighR", "shinR"];
+const SIDE = { head: 0, torso: 0, upperArmL: 1, forearmL: 1, upperArmR: -1, forearmR: -1, thighL: 1, shinL: 1, thighR: -1, shinR: -1 };
+const PIVOT = { head: [0, 14, 0], torso: [0, 8, 0], upperArmL: [3, 13.5, 0], forearmL: [3, 10, 0], upperArmR: [-3, 13.5, 0], forearmR: [-3, 10, 0],
+                thighL: [1.5, 8, 0], shinL: [1.5, 4, 0], thighR: [-1.5, 8, 0], shinR: [-1.5, 4, 0] };
+const PARENT = { head: "torso", torso: null, upperArmL: "torso", forearmL: "upperArmL", upperArmR: "torso", forearmR: "upperArmR",
+                 thighL: null, shinL: "thighL", thighR: null, shinR: "thighR" };
+const FK_ORDER = ["torso", "head", "upperArmL", "forearmL", "upperArmR", "forearmR", "thighL", "shinL", "thighR", "shinR"];
+const HAND = { L: [3, 6.5, 0], R: [-3, 6.5, 0] };
+
+// Zombie Lab helpers, verbatim layout
+function armCol(v, s, yTop, tags) { tags.forEach((t, i) => { if (t) v.set(3 * s, yTop - i, 0, t); }); }
+function legRow(v, s, y, tag) { for (const x of [s, 2 * s]) for (const z of [-0.5, 0.5]) v.set(x, y, z, typeof tag === "function" ? tag(x, y, z) : tag); }
+function legRows(v, s, yTop, tags) { tags.forEach((t, i) => { if (t) legRow(v, s, yTop - i, t); }); }
+function shoe(v, s, tag) { legRow(v, s, 0.5, tag); v.set(s, 0.5, 1.5, tag); v.set(2 * s, 0.5, 1.5, tag); }
+
+// camouflage: blocky multicam-ish pattern from a hash of the (coarse) position
+const CAMO = {
+  mc: ["mcTan", "mcGreen", "mcBrown", "mcTan", "mcLight", "mcTan"],
+  rg: ["rangerGreen", "rangerGreen", "rangerDark", "rangerGreen"],
+  olive: ["olive", "olive", "oliveDark", "olive"],
+  coyote: ["coyote", "coyote", "coyoteDark", "coyote"],
+  tan: ["tan", "tan", "khaki"],
+  net: ["olive", "oliveDark", "olive", "webbing", "olive"],
+};
+function camoAt(scheme, seed, x, y, z, block) {
+  const b = block || 1;
+  const list = CAMO[scheme] || [scheme];
+  return list[Math.floor(hash3(Math.floor(x / b + 64), Math.floor(y / b + 64), Math.floor(z / b + 64), seed) * list.length)];
+}
+
+/* ---- body modules (1 V cells). L = look ---- */
+function buildBody(slot, L) {
+  const v = makeSet(1), s = SIDE[slot];
+  const cam = (x, y, z) => camoAt(L.uniform, L.seed, x, y, z);
+  const skin = "skin" + L.skin, skinD = "skinDark" + L.skin;
+  switch (slot) {
+    case "head":
+      v.set(0, 14.5, 0, skin);
+      v.box(-1, 1, 15.5, 17.5, -1, 1, skin);
+      v.box(-1, 1, 17.5, 17.5, -1, 1, "hair" + L.hair);
+      v.box(-1, 1, 16.5, 16.5, -1, -1, "hair" + L.hair);
+      v.set(-1, 16.5, 1, "eyeDark"); v.set(1, 16.5, 1, "eyeDark");
+      v.set(0, 15.5, 1, L.beard ? "hair" + L.hair : "lip");
+      if (L.beard) { v.set(-1, 15.5, 1, "hair" + L.hair); v.set(1, 15.5, 1, "hair" + L.hair); }
+      break;
+    case "torso":
+      v.box(-2, 2, 8.5, 13.5, -1, 1, "x"); v.paint(c => cam(c.x, c.y, c.z));
+      v.box(-2, 2, 8.5, 8.5, -1, 1, "webbing");          // trouser belt line
+      v.set(0, 13.5, 1, skin);                            // collar opening
+      break;
+    case "upperArmL": case "upperArmR":
+      armCol(v, s, 13.5, [1, 1, 1, 1].map((_, i) => L.rolled && i === 3 ? (L.uniform === "mc" ? "mcLight" : "tan") : cam(3 * s, 13.5 - i, 0)));
+      break;
+    case "forearmL": case "forearmR": {
+      const glove = L.gloves ? L.gloves : skin;
+      if (L.rolled) armCol(v, s, 9.5, [skin, skin, skinD, glove]);
+      else armCol(v, s, 9.5, [cam(3 * s, 9.5, 0), cam(3 * s, 8.5, 0), cam(3 * s, 7.5, 1), glove]);
+      break;
+    }
+    case "thighL": case "thighR":
+      legRows(v, s, 7.5, [cam, cam, cam, cam]);
+      break;
+    case "shinL": case "shinR":
+      legRows(v, s, 3.5, [cam, cam, L.boot]);
+      shoe(v, s, L.boot);
+      break;
+  }
+  return v;
+}
+
+/* ---- gear (0.5 V cells, authored by EDGES in body space) ---- */
+function ring(g, y0, y1, out, inn, m, opts) {   // square ring between |x|,|z| <= out and > inn (edges), corners optional
+  const cut = opts && opts.round;
+  for (let x = -out + 0.25; x < out; x += 0.5) for (let z = -out + 0.25; z < out; z += 0.5) {
+    if (Math.abs(x) < inn && Math.abs(z) < inn) continue;
+    if (cut && Math.abs(x) > out - 0.5 && Math.abs(z) > out - 0.5) continue;
+    if (opts && opts.skip && opts.skip(x, z)) continue;
+    for (let y = y0 + 0.25; y < y1; y += 0.5) g.set(x, y, z, typeof m === "function" ? m(x, y, z) : m);
+  }
+}
+function buildHeadGear(L) {
+  const g = makeSet(0.5);
+  const cov = (x, y, z) => camoAt(L.helmetCover, L.seed + 7, x, y, z, 0.5);
+  if (L.hat === "boonie") {
+    ring(g, 17, 17.5, 2.5, 1.5, cov, {});                                    // brim
+    ring(g, 17.5, 18, 2, 1.5, cov, {});                                      // band
+    g.ebox(-1.5, 1.5, 18, 18.5, -1.5, 1.5, "x"); g.paint(c => c.m === "x" ? cov(c.x, c.y, c.z) : null);   // crown
+    ring(g, 18, 18.5, 2, 1.5, cov, { round: true });
+    g.ebox(-1, 1, 18.5, 19, -1, 1, "x"); g.paint(c => c.m === "x" ? cov(c.x, c.y, c.z) : null);
+    for (let x = -1.75; x < 2; x += 0.5) { g.set(x, 17.75, 1.75, "webbing"); }   // band strip front
+  } else {
+    // helmet shell: forehead above the eyes, ears and nape covered, rounded corners
+    ring(g, 17, 18, 2, 1.5, cov, { round: true });
+    ring(g, 16, 17, 2, 1.5, cov, { round: true, skip: (x, z) => z > 1.5 });      // sides and back down to the ears
+    g.ebox(-1.5, 1.5, 18, 18.5, -1.5, 1.5, "x"); g.paint(c => c.m === "x" ? cov(c.x, c.y, c.z) : null);
+    g.ebox(-1, 1, 18.5, 19, -1, 1, "x"); g.paint(c => c.m === "x" ? cov(c.x, c.y, c.z) : null);
+    // side rails + chin strap stubs
+    for (const sx of [-1, 1]) { g.ebox(sx > 0 ? 2 : -2.5, sx > 0 ? 2.5 : -2, 17, 17.5, -0.5, 0.5, "black"); g.ebox(sx > 0 ? 1.5 : -2, sx > 0 ? 2 : -1.5, 15.5, 16, 0, 0.5, "black"); }
+    if (L.nvg) { g.ebox(-0.5, 0.5, 17.5, 18, 2, 2.5, "black"); g.ebox(-0.5, 0.5, 18, 18.5, 1.5, 2, "black"); }
+    if (L.goggles) {
+      g.ebox(-1.5, 1.5, 17, 17.5, 2, 2.5, "black");
+      g.set(-0.75, 17.25, 2.25, "lens"); g.set(0.75, 17.25, 2.25, "lens"); g.set(-1.25, 17.25, 2.25, "lensGlint");
+    }
+    if (L.helmetCover === "net" || L.ghillie) {
+      const rng = mulberry32(L.seed * 31 + 5);
+      const strips = L.ghillie ? 16 : 7;
+      for (let i = 0; i < strips; i++) {
+        const a = rng() * Math.PI * 2, x = Math.max(-2.25, Math.min(2.25, Math.round(Math.cos(a) * 2.2 * 2 - 0.5) / 2 + 0.25));
+        const z = Math.max(-2.25, Math.min(2.25, Math.round(Math.sin(a) * 2.2 * 2 - 0.5) / 2 + 0.25));
+        if (z > 1.2 && Math.abs(x) < 1.6) continue;                         // keep the face clear
+        const len = 1 + Math.floor(rng() * (L.ghillie ? 3 : 2));
+        const m = ["ghillieA", "ghillieB", "ghillieC"][Math.floor(rng() * 3)];
+        const top = 18.25;
+        const ox = Math.abs(x) >= Math.abs(z) ? Math.sign(x) * 2.25 : x, oz = Math.abs(x) >= Math.abs(z) ? z : Math.sign(z) * 2.25;
+        for (let k = 0; k < len; k++) g.set(ox, top - k * 0.5, oz, m);
+      }
+    }
+  }
+  return g;
+}
+function buildTorsoGear(L) {
+  const g = makeSet(0.5);
+  const vm = (x, y, z) => camoAt(L.vest, L.seed + 13, x, y, z, 0.5);
+  const heavy = L.cls === "mg", light = L.cls === "sniper";
+  const fz = heavy ? 2.5 : 2;                       // front plate face
+  const top = light ? 12.5 : 13;
+  // plate carrier front / back
+  g.ebox(-2, 2, 9.5, top, 1.5, fz, "x");
+  g.ebox(-2, 2, 9.5, top, light ? -2 : -2, -1.5, "x");
+  // shoulder straps over the top
+  for (const sx of [-1, 1]) {
+    const x0 = sx > 0 ? 1 : -2, x1 = sx > 0 ? 2 : -1;
+    g.ebox(x0, x1, top, 14, 1.5, 2, "x"); g.ebox(x0, x1, top, 14, -2, -1.5, "x"); g.ebox(x0, x1, 14, 14.5, -2, 2, "x");
+  }
+  // belt / cummerbund front and back
+  g.ebox(-2.5, 2.5, 8, 9.5, 1.5, 2, "x"); g.ebox(-2.5, 2.5, 8, 9.5, -2, -1.5, "x");
+  g.paint(c => c.m === "x" ? vm(c.x, c.y, c.z) : null);
+  g.ebox(-2.5, 2.5, 8.5, 9, 2, 2.5, "black");                                  // buckle line
+  g.ebox(-0.5, 0.5, 8.5, 9, 2.5, 3, "metal");
+  // pouches
+  const P = (x0, x1, y0, y1, m) => { g.ebox(x0, x1, y0, y1, fz, fz + 0.5, m); g.ebox(x0, x1, y1 - 0.5, y1, fz + 0.5, fz + 1, m === "x" ? "x" : m); };
+  if (!light) {
+    const sh = L.pouchShift || 0;
+    const mats = [L.pouch, L.pouch, L.pouch];
+    [[-2, -1], [-0.5, 0.5], [1, 2]].forEach(([a, b], i) => { if (i === 1 && L.radioFront) return; g.ebox(a + sh * 0, b, 9.5, 11 + (i === sh ? 0.5 : 0), fz, fz + 0.5, mats[i]); g.ebox(a, b, 10.5 + (i === sh ? 0.5 : 0), 11 + (i === sh ? 0.5 : 0), fz + 0.5, fz + 1, mats[i] + "Dark" in PAL ? mats[i] + "Dark" : mats[i]); });
+    g.ebox(-1.5, 1.5, 11.5, 12.5, fz, fz + 0.5, L.pouch);                       // admin pouch
+    g.set(-1.75, 12.75, fz + 0.25, "black");                                     // tourniquet
+    g.set(-1.25, 12.75, fz + 0.25, "black");
+    if (L.radioFront) { g.ebox(-0.5, 0.5, 9.5, 11, fz, fz + 1, "radioGreen"); g.ebox(0, 0.5, 11, 13, fz + 0.5, fz + 1, "black"); }
+  } else {
+    // sniper: light chest rig with binoculars / rangefinder
+    g.ebox(-1.5, 1.5, 10, 11.5, fz, fz + 0.5, L.pouch);
+    g.ebox(-1, 1, 10.5, 11.5, fz + 0.5, fz + 1.5, "black");                     // binoculars / rangefinder
+    g.set(-0.75, 11.25, fz + 1.25, "lens"); g.set(0.75, 11.25, fz + 1.25, "lens");
+    g.ebox(-1, 1, 11.5, 12, fz + 0.5, fz + 1, "blackSoft");
+  }
+  if (heavy) {
+    // ammunition belts across the chest (bandolier style), brass with black links
+    for (const [dir, z] of [[1, fz], [-1, fz + 0.5]]) {
+      for (let i = 0; i < 10; i++) {
+        const y = 13.25 - i * 0.5, x = dir * (1.75 - i * 0.42);
+        const xs = Math.round((x - 0.25) * 2) / 2 + 0.25;
+        g.set(xs, y, fz + 0.25, i % 2 ? "brass" : "black");
+      }
+    }
+    // bulky shoulder pads on the straps
+    g.ebox(1, 2.5, 14, 14.5, -1, 1, "x"); g.ebox(-2.5, -1, 14, 14.5, -1, 1, "x"); g.paint(c => c.m === "x" ? vm(c.x, c.y, c.z) : null);
+  }
+  // back: pack
+  const bz = -2;
+  if (L.pack === "assault") {
+    g.ebox(-1.5, 1.5, 9.5, 13, bz - 1.5, bz, "x"); g.paint(c => c.m === "x" ? camoAt(L.packCol, L.seed + 3, c.x, c.y, c.z, 0.5) : null);
+    g.ebox(-1, 1, 10, 11.5, bz - 2, bz - 1.5, L.packCol === "mc" ? "coyote" : L.packCol);
+    g.ebox(-1.5, 1.5, 12.5, 13, bz - 1.5, bz, "black");
+  } else if (L.pack === "hydration") {
+    g.ebox(-1, 1, 10, 13, bz - 1, bz, L.packCol === "mc" ? "coyote" : L.packCol);
+    g.ebox(-0.5, 0, 13, 14, bz - 0.5, bz, "black");
+  } else if (L.pack === "ruck") {
+    g.ebox(-2, 2, 9, 15.5, bz - 2.5, bz, "x"); g.paint(c => c.m === "x" ? camoAt(L.packCol, L.seed + 3, c.x, c.y, c.z, 0.5) : null);
+    g.ebox(-1.5, 1.5, 9.5, 12, bz - 3, bz - 2.5, L.packCol === "mc" ? "coyote" : L.packCol);       // front pocket
+    // ammo can strapped on top of the ruck
+    g.ebox(-2, 2, 15.5, 17.5, bz - 2.5, bz - 0.5, "containerOlive");                // ammo can, long side across the back (silhouette hump)
+    g.ebox(-1, 1, 16, 17, bz - 3, bz - 2.5, "stencilYellow");
+    g.ebox(-0.5, 0.5, 17.5, 18, bz - 2, bz - 1, "black");                        // handle
+    g.ebox(-2.5, 2.5, 16, 16.5, bz - 2.5, bz - 0.5, "strap");
+  } else if (L.pack === "sniper") {
+    g.ebox(-1.5, 1.5, 10, 12.5, bz - 1, bz, "x"); g.paint(c => c.m === "x" ? camoAt(L.packCol, L.seed + 3, c.x, c.y, c.z, 0.5) : null);
+  }
+  const backZ = { assault: -3.5, hydration: -3, ruck: -4.5, sniper: -3, none: -2 }[L.pack];
+  if (L.radioBack) {                                                             // radio with whip antenna on the back left
+    g.ebox(0.5, 1.5, 11, 13, backZ - 1, backZ, "radioGreen");
+    g.ebox(1, 1.5, 13, 13.5, backZ - 1, backZ - 0.5, "black");
+    if (L.antenna) for (let y = 13.75; y < 18.5; y += 0.5) g.set(1.25, y, backZ - 0.75, "black");
+  }
+  if (L.scarf) {                                                                  // scarf / shemagh round the neck base
+    ring(g, 14, 14.5, 1, 0.5, L.scarf, {});
+    if (!heavy) g.ebox(-1, 1, 14.5, 15, -1, -0.5, L.scarf);
+  }
+  if (L.ghillieShoulders) {
+    const rng = mulberry32(L.seed * 17 + 9);
+    for (let i = 0; i < 14; i++) {
+      const x = (Math.floor(rng() * 8) - 4) * 0.5 + 0.25, z = -2.25;
+      const m = ["ghillieA", "ghillieB", "ghillieC"][Math.floor(rng() * 3)];
+      const len = 4 + Math.floor(rng() * 3);
+      for (let k = 0; k < len; k++) if (!g.has(x, 14.25 - k * 0.5, z)) g.set(x, 14.25 - k * 0.5, z, m);
+      if (Math.abs(x) > 0.9 && Math.abs(x) < 2) g.set(x, 14.75, rng() < 0.5 ? -1.25 : -0.25, m);   // draped over the straps
+    }
+  }
+  return g;
+}
+function buildLegGear(slot, L) {
+  const s = SIDE[slot], g = makeSet(0.5);
+  if (slot.startsWith("shin")) {
+    if (!L.kneepads) return null;
+    const x0 = s > 0 ? 0.5 : -2.5, x1 = x0 + 2;
+    g.ebox(x0, x1, 2.5, 4, 1, 1.5, "black"); g.ebox(x0 + 0.5, x1 - 0.5, 3, 3.5, 1.5, 2, "blackSoft");
+    return g;
+  }
+  // thigh: cargo pocket on the outside (below the hanging hand), dump pouch on the left hip behind
+  const xo = s > 0 ? 2.5 : -3;
+  g.ebox(xo, xo + 0.5, 4.5, 5.5, -0.5, 0.5, camoAt(L.uniform, L.seed, s * 3, 5, 0));
+  if (s > 0 && L.cls !== "sniper") g.ebox(0.5, 2, 6, 7.5, -1.5, -1, L.pouch);
+  if (s < 0 && L.holster) { g.ebox(-3, -2.5, 4.5, 6, 0, 1, "black"); }
+  return g;
+}
+
+/* ---- weapons: 0.5 V cells on a lattice centred on the grip cell (weapon space: grip = origin, barrel +Z) ---- */
+function W(g, i0, i1, j0, j1, k0, k1, m) { if (i0 > i1) [i0, i1] = [i1, i0]; if (j0 > j1) [j0, j1] = [j1, j0]; if (k0 > k1) [k0, k1] = [k1, k0]; for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (let k = k0; k <= k1; k++) g.set(i * 0.5, j * 0.5, k * 0.5, m); }
+const WEAPONS = {
+  rifle(L) {
+    const g = makeSet(0.5), fur = L.rifleFurn || "gunBlack", mag = L.mag || "gunMetal";
+    W(g, 0, 0, 0, 0, 0, 0, fur); W(g, 0, 0, -1, -1, -1, 0, fur);               // pistol grip, raked
+    W(g, 0, 0, 0, 0, 1, 1, "gunBlack");                                         // trigger guard
+    W(g, 0, 0, 1, 2, -1, 5, "gunBlack");                                        // receiver
+    W(g, 0, 0, 0, 0, 2, 3, mag); W(g, 0, 0, -1, -1, 2, 3, mag); W(g, 0, 0, -2, -2, 3, 4, mag); W(g, 0, 0, -3, -3, 3, 4, mag);   // curved magazine
+    W(g, 0, 0, 1, 2, 6, 11, fur);                                               // handguard / rail
+    W(g, 0, 0, 2, 2, 12, 15, "gunMetal");                                       // barrel
+    W(g, 0, 0, 2, 2, 16, 16, "gunBlack");                                       // muzzle device
+    W(g, 0, 0, 3, 3, 11, 11, "gunBlack");                                       // front sight
+    W(g, 0, 0, 3, 3, 0, 4, "gunBlack"); W(g, 0, 0, 4, 4, 1, 3, "gunBlack"); g.set(0, 2, 2.5, "lens");   // optic
+    W(g, 0, 0, 1, 1, -2, -5, "gunBlack");                                       // buffer tube
+    W(g, 0, 0, 0, 2, -6, -7, fur); W(g, 0, 0, 2, 2, -5, -5, fur);               // stock
+    if (L.foregrip) W(g, 0, 0, 0, 0, 8, 8, fur);
+    return { set: g, kind: "rifle", support: [0, -0.1, 4.0], muzzle: [0, 1.0, 8.25], sling: [0, 0.5, -3.0] };
+  },
+  mg(L) {
+    const g = makeSet(0.5);
+    W(g, 0, 0, 0, 0, 0, 0, "gunBlack"); W(g, 0, 0, -1, -1, -1, 0, "gunBlack");  // pistol grip
+    W(g, 0, 0, 0, 0, 1, 1, "gunBlack");
+    W(g, -1, 1, 1, 3, -1, 7, "gunBlack");                                       // heavy receiver
+    W(g, -1, 1, 4, 4, 0, 4, "gunMetal");                                        // feed cover
+    W(g, 0, 0, 5, 5, 3, 6, "gunBlack"); W(g, 0, 0, 4, 4, 6, 6, "gunBlack");     // carry handle
+    W(g, 0, 2, -4, -1, 1, 4, "containerOlive"); W(g, 1, 2, -3, -2, 4, 4, "olive");   // ammo box (left)
+    W(g, 2, 2, 0, 0, 2, 3, "brass"); W(g, 2, 2, 1, 1, 3, 3, "brass");           // belt into the feed tray
+    W(g, 0, 0, 1, 3, 8, 12, "gunBlack");                                        // handguard
+    W(g, 0, 0, 2, 2, 13, 20, "gunMetal"); W(g, 0, 0, 1, 1, 13, 15, "gunMetal");  // barrel + gas tube
+    W(g, 0, 0, 2, 2, 21, 22, "gunBlack");                                       // flash hider
+    W(g, 0, 0, 3, 3, 19, 19, "gunBlack");                                       // front sight
+    W(g, 1, 1, 1, 1, 15, 19, "gunBlack"); W(g, -1, -1, 1, 1, 15, 19, "gunBlack");   // bipod legs folded along the barrel
+    W(g, 1, 1, 0, 0, 19, 19, "gunBlack"); W(g, -1, -1, 0, 0, 19, 19, "gunBlack");   // bipod feet
+    W(g, 0, 0, 1, 2, -2, -5, "gunBlack"); W(g, 0, 0, 0, 3, -6, -7, "gunBlack");  // stock + butt
+    return { set: g, kind: "mg", support: [0, 2.5, 2.5], muzzle: [0, 1.0, 11.25], sling: [0, 0.5, -2.5] };
+  },
+  sniper(L) {
+    const g = makeSet(0.5), st = L.stock || "fde";
+    W(g, 0, 0, 0, 0, 0, 0, st); W(g, 0, 0, -1, -1, -1, 0, st);                 // grip
+    W(g, 0, 0, 0, 0, 1, 1, "gunBlack");
+    W(g, 0, 0, 0, 1, -1, 9, st);                                                // stock body / forend
+    W(g, 0, 0, 2, 2, -1, 4, "gunMetal");                                        // action
+    W(g, -1, -1, 2, 2, 1, 1, "gunMetal");                                       // bolt handle (right side)
+    W(g, 0, 0, -1, -1, 2, 3, "gunBlack");                                       // box magazine
+    W(g, 0, 0, 2, 2, 5, 14, "gunMetal");                                        // barrel
+    // suppressor: thick "plus" section, contrasting colour
+    W(g, 0, 0, 1, 3, 15, 21, "suppressor"); W(g, -1, 1, 2, 2, 15, 21, "suppressor"); W(g, 0, 0, 2, 2, 22, 22, "gunBlack");
+    // scope: rings, tube, bells, turret, lenses
+    W(g, 0, 0, 3, 3, 0, 0, "gunBlack"); W(g, 0, 0, 3, 3, 3, 3, "gunBlack");
+    W(g, 0, 0, 4, 4, -2, 6, "gunBlack"); W(g, -1, 1, 4, 4, 6, 7, "gunBlack"); W(g, 0, 0, 5, 5, 6, 7, "gunBlack"); W(g, 0, 0, 3, 3, 6, 7, "gunBlack");
+    W(g, 0, 0, 5, 5, 2, 2, "gunBlack"); W(g, 1, 1, 4, 4, 2, 2, "gunBlack");
+    g.set(0, 2, 4, "lens");                                                     // objective lens
+    W(g, 0, 0, -1, 2, -2, -8, st); W(g, 0, 0, 2, 2, -7, -3, st);                // butt stock + cheek riser
+    W(g, 0, 0, -1, -1, -8, -8, "black");                                        // butt pad
+    W(g, 0, 0, -1, -1, 8, 8, "gunBlack");                                       // folded bipod
+    if (L.rifleWrap) { W(g, 0, 0, 2, 2, -5, -4, "ghillieA"); g.set(0, 1, 4.5, "ghillieB"); }
+    return { set: g, kind: "sniper", support: [0, -0.2, 3.5], muzzle: [0, 1.0, 11.25], sling: [0, 0, -3.5] };
+  },
+};
+
+/* ---- looks (variants) ---- */
+const LOOK_BASE = { uniform: "mc", skin: 0, hair: 0, boot: "coyoteDark", gloves: null, rolled: false, helmetCover: "mc", vest: "coyote", pouch: "coyote",
+                    pack: "assault", packCol: "coyote", nvg: false, goggles: false, scarf: null, kneepads: false, holster: false, radioBack: false, antenna: false,
+                    radioFront: false, beard: false, hat: "helmet", ghillie: false, ghillieShoulders: false, pouchShift: 0 };
+const SOLDIERS = [
+  { name: "rifleman_a", label: "Rifleman A", cls: "rifleman", weapon: "rifle", look: { seed: 11, skin: 0, hair: 1, helmetCover: "mc", vest: "coyote", pouch: "coyote", gloves: "black", kneepads: true, pack: "assault", packCol: "coyote", nvg: true } },
+  { name: "rifleman_b", label: "Rifleman B", cls: "rifleman", weapon: "rifle", look: { seed: 23, skin: 3, hair: 2, helmetCover: "rg", vest: "rangerGreen", pouch: "rangerGreen", uniform: "rg", rolled: true, scarf: "scarfTan", pack: "hydration", packCol: "rangerGreen", radioBack: true, antenna: true, boot: "bootBrown", rifleFurn: "gunBlack" } },
+  { name: "rifleman_c", label: "Rifleman C", cls: "rifleman", weapon: "rifle", look: { seed: 37, skin: 1, hair: 3, helmetCover: "net", vest: "olive", pouch: "olive", uniform: "olive", goggles: true, kneepads: true, pack: "assault", packCol: "olive", boot: "black", gloves: "coyote" } },
+  { name: "rifleman_d", label: "Rifleman D", cls: "rifleman", weapon: "rifle", look: { seed: 41, skin: 4, hair: 2, helmetCover: "coyote", vest: "mc", pouch: "coyote", scarf: "scarfOlive", gloves: "coyote", nvg: true, pouchShift: 2, mag: "coyote", rifleFurn: "fde", pack: "none", holster: true } },
+  { name: "rifleman_e", label: "Rifleman E", cls: "rifleman", weapon: "rifle", look: { seed: 53, skin: 5, hair: 0, beard: true, helmetCover: "mc", vest: "coyote", pouch: "coyoteLight", rolled: true, goggles: true, pack: "hydration", packCol: "coyote", radioFront: true, kneepads: true, foregrip: true } },
+  { name: "mg_a", label: "Machine gunner A", cls: "mg", weapon: "mg", look: { seed: 61, skin: 2, hair: 0, helmetCover: "mc", vest: "coyote", pouch: "coyote", gloves: "black", pack: "ruck", packCol: "mc", kneepads: true } },
+  { name: "mg_b", label: "Machine gunner B", cls: "mg", weapon: "mg", look: { seed: 73, skin: 4, hair: 2, helmetCover: "rg", vest: "rangerGreen", pouch: "rangerGreen", uniform: "rg", scarf: "scarfBlack", pack: "ruck", packCol: "rangerGreen", kneepads: true, gloves: "black", goggles: true } },
+  { name: "mg_c", label: "Machine gunner C", cls: "mg", weapon: "mg", look: { seed: 89, skin: 1, hair: 3, beard: true, helmetCover: "net", vest: "olive", pouch: "olive", uniform: "olive", rolled: true, pack: "ruck", packCol: "olive", boot: "black", kneepads: true } },
+  { name: "sniper_a", label: "Sniper A (boonie)", cls: "sniper", weapon: "sniper", look: { seed: 97, skin: 0, hair: 1, hat: "boonie", helmetCover: "mc", vest: "coyote", pouch: "coyote", pack: "sniper", packCol: "mc", ghillieShoulders: true, gloves: "coyote", rifleWrap: true, stock: "fde" } },
+  { name: "sniper_b", label: "Sniper B (helmet)", cls: "sniper", weapon: "sniper", look: { seed: 103, skin: 3, hair: 2, helmetCover: "rg", ghillie: true, vest: "rangerGreen", pouch: "rangerGreen", uniform: "rg", scarf: "scarfOlive", pack: "sniper", packCol: "rangerGreen", gloves: "black", stock: "olive", boot: "bootBrown" } },
+];
+
+/* ---- small 3x3 rotation maths (Euler XYZ, three.js order: R = Rx * Ry * Rz) ---- */
+function eulerMat(e) {
+  const [a, b, c] = e, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cc = Math.cos(c), sc = Math.sin(c);
+  return [cb * cc, -cb * sc, sb, ca * sc + sa * sb * cc, ca * cc - sa * sb * sc, -sa * cb, sa * sc - ca * sb * cc, sa * cc + ca * sb * sc, ca * cb];
+}
+function mmul(A, B) { const R = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) R[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j]; return R; }
+function mvec(A, v) { return [A[0] * v[0] + A[1] * v[1] + A[2] * v[2], A[3] * v[0] + A[4] * v[1] + A[5] * v[2], A[6] * v[0] + A[7] * v[1] + A[8] * v[2]]; }
+function mT(A) { return [A[0], A[3], A[6], A[1], A[4], A[7], A[2], A[5], A[8]]; }
+function matEuler(m) {   // inverse of eulerMat (XYZ)
+  const b = Math.asin(Math.max(-1, Math.min(1, m[2])));
+  let a, c;
+  if (Math.abs(m[2]) < 0.9999999) { a = Math.atan2(-m[5], m[8]); c = Math.atan2(-m[1], m[0]); } else { a = Math.atan2(m[7], m[4]); c = 0; }
+  return [a, b, c];
+}
+const vadd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], vsub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+// forward kinematics: world rotation + joint position (body voxel units) of every slot for a pose
+function fk(rot) {
+  const out = {};
+  for (const slot of FK_ORDER) {
+    const p = PARENT[slot], R = eulerMat(rot[slot] || [0, 0, 0]);
+    if (!p) out[slot] = { R, pos: PIVOT[slot].slice() };
+    else { const P = out[p]; out[slot] = { R: mmul(P.R, R), pos: vadd(P.pos, mvec(P.R, vsub(PIVOT[slot], PIVOT[p]))) }; }
+  }
+  return out;
+}
+const handPos = (F, side) => { const s = side === "L" ? "forearmL" : "forearmR"; return vadd(F[s].pos, mvec(F[s].R, vsub(HAND[side], PIVOT[s]))); };
+// deterministic 2-bone IK by coordinate descent (upper arm x/y/z, elbow x bend forward only)
+function solveArm(rot, side, target) {
+  const ua = "upperArm" + side, fa = "forearm" + side, sg = side === "L" ? 1 : -1;
+  const lim = [[-3.1, 1.2], [-1.6, 1.6], side === "L" ? [-0.6, 1.6] : [-1.6, 0.6], [-2.6, 0]];
+  let x = [(rot[ua] || [0, 0, 0])[0], (rot[ua] || [0, 0, 0])[1], (rot[ua] || [0, 0, 0])[2], (rot[fa] || [0, 0, 0])[0]];
+  const err = q => { const r = Object.assign({}, rot); r[ua] = [q[0], q[1], q[2]]; r[fa] = [q[3], 0, 0]; const h = handPos(fk(r), side), d = vsub(h, target); return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] + 0.002 * (q[1] * q[1] + q[2] * q[2]); };
+  let e = err(x), step = 0.4;
+  for (let it = 0; it < 400 && step > 1e-4; it++) {
+    let improved = false;
+    for (let k = 0; k < 4; k++) for (const d of [step, -step]) {
+      const q = x.slice(); q[k] = Math.max(lim[k][0], Math.min(lim[k][1], q[k] + d));
+      const qe = err(q); if (qe < e - 1e-12) { x = q; e = qe; improved = true; }
+    }
+    if (!improved) step *= 0.5;
+  }
+  rot[ua] = [x[0], x[1], x[2]]; rot[fa] = [x[3], 0, 0];
+  const h = handPos(fk(rot), side);
+  return Math.hypot(...vsub(h, target));
+}
+// class carry postures: weapon placement in body space (grip position, yaw, pitch, roll), body lean
+const CARRY = {
+  rifle:  { grip: [-1.6, 10.4, 4.6], yaw: 0.38, pitch: 0.38, roll: -0.15, torso: [0.06, 0.12, 0], head: [0.05, 0.1, 0], legs: true },
+  mg:     { grip: [-2.4, 8.6, 3.6],  yaw: 0.22, pitch: 0.12, roll: -0.1, torso: [0.1, 0.18, 0], head: [-0.02, 0.12, 0], legs: true },
+  sniper: { grip: [-1.6, 10.4, 4.4], yaw: 0.4, pitch: 0.55, roll: -0.15, torso: [0.05, 0.1, 0], head: [0.05, 0.1, 0], legs: true },
+};
+function makePoses(kind, wpn) {
+  const rest = { rot: {}, weaponMount: [0, 0, 0], supportError: null };
+  const C = CARRY[kind];
+  const rot = { torso: C.torso.slice(), head: C.head.slice() };
+  if (C.legs) { rot.thighR = [-0.08, 0, 0]; rot.shinR = [0.12, 0, 0]; rot.thighL = [0.05, 0, 0]; }
+  // right hand to the grip, then the weapon orientation in forearm space
+  solveArm(rot, "R", C.grip);
+  const F = fk(rot);
+  const Wm = mmul(eulerMat([0, C.yaw, 0]), mmul(eulerMat([C.pitch, 0, 0]), eulerMat([0, 0, C.roll])));
+  const mountM = mmul(mT(F.forearmR.R), Wm);
+  const hand = handPos(F, "R");
+  const sup = vadd(hand, mvec(Wm, wpn.support));
+  const supErr = solveArm(rot, "L", sup);
+  return { rest, carry: { rot, weaponMount: matEuler(mountM), supportError: supErr * V_M } };
+}
+
+/* ---- assemble a soldier: parts in body space (V units) ---- */
+function buildSoldier(def) {
+  const L = Object.assign({}, LOOK_BASE, def.look, { cls: def.cls });
+  const parts = [];
+  for (const slot of SLOTS) parts.push({ name: slot, slot, parent: PARENT[slot], set: buildBody(slot, L), pivot: PIVOT[slot], unitM: V_M, rigid: true });
+  const gear = { gear_head: ["head", buildHeadGear(L)], gear_torso: ["torso", buildTorsoGear(L)] };
+  for (const sl of ["thighL", "thighR", "shinL", "shinR"]) { const gg = buildLegGear(sl, L); if (gg && gg.map.size) gear["gear_" + sl] = [sl, gg]; }
+  for (const [n, [par, set]] of Object.entries(gear)) parts.push({ name: n, slot: null, parent: par, set, pivot: PIVOT[par], unitM: V_M, rigid: true, gearOf: par });
+  const wpn = WEAPONS[def.weapon](L);
+  // weapon set is in weapon space (grip at origin); its rest-pose pivot is the right hand centre
+  parts.push({ name: "weapon", slot: null, parent: "forearmR", set: wpn.set, pivot: HAND.R, unitM: V_M, rigid: false, weaponSpace: true });
+  const poses = makePoses(def.weapon, wpn);
+  const sockets = [
+    { name: "parachute", part: "torso", pos: [0, 14.5, -0.5], dir: [0, 1, 0] },
+    { name: "eyes", part: "head", pos: [0, 16.5, 1.5], dir: [0, 0, 1] },
+    { name: "back", part: "torso", pos: [0, 11.5, -2], dir: [0, 0, -1] },
+    { name: "muzzle", part: "weapon", pos: vadd(HAND.R, wpn.muzzle), dir: [0, 0, 1] },
+  ];
+  return { name: def.name, label: def.label, cls: def.cls, kind: "infantry", unitM: V_M, parts, sockets, look: L,
+           weapon: { kind: wpn.kind, grip: [0, 0, 0], support: wpn.support, muzzle: wpn.muzzle, sling: wpn.sling }, poses };
+}
+
+/* =====================================================================================
+   PROPS (5 cm cells, integer cell indices; cell (i,j,k) spans [i,i+1] x [j,j+1] x [k,k+1] * 5 cm)
+   ===================================================================================== */
+function propSet(size) { return makeSet(size || 1); }
+function B(g, x0, x1, y0, y1, z0, z1, m) {   // inclusive integer cell ranges
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) g.set(x + 0.5, y + 0.5, z + 0.5, typeof m === "function" ? m(x, y, z) : m);
+}
+function Bdel(g, x0, x1, y0, y1, z0, z1) { for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) g.del(x + 0.5, y + 0.5, z + 0.5); }
+function cellLine(g, a, b, m) {   // 26-connected voxel line between two points (cell units)
+  const n = Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]), Math.abs(b[2] - a[2])) * 1.5) + 1;
+  for (let i = 0; i <= n; i++) { const t = i / n; g.set(Math.floor(a[0] + (b[0] - a[0]) * t) + 0.5, Math.floor(a[1] + (b[1] - a[1]) * t) + 0.5, Math.floor(a[2] + (b[2] - a[2]) * t) + 0.5, m); }
+}
+const pv = (seed, x, y, z) => hash3(x, y, z, seed);
+// sandbag course: bags of 12 x 6 x 6 cells (60 x 30 x 30 cm) laid along X, staggered per course, with seams
+function sandbagRun(g, x0, x1, y0, z0, z1, mat, seed, stagger) {
+  const L = 12;
+  let x = x0 - (stagger ? L / 2 : 0);
+  let i = 0;
+  while (x <= x1) {
+    const a = Math.max(x, x0), b = Math.min(x + L - 1, x1);
+    if (b >= a) {
+      const m = pv(seed, i, y0, z0) < 0.3 ? mat + "Dark" in PAL ? mat + "Dark" : mat : mat;
+      B(g, a, b, y0, y0 + 5, z0, z1, m);
+      // rounded bag: shave the top edges + seams
+      for (const xe of [a, b]) for (const z of [z0, z1]) g.del(xe + 0.5, y0 + 5.5, z + 0.5);
+      if (b - a >= 4) { for (let z = z0; z <= z1; z++) { g.del(b + 0.5, y0 + 5.5, z + 0.5); } }
+    }
+    x += L; i++;
+  }
+}
+function sandbagRunZ(g, z0, z1, y0, x0, x1, mat, seed, stagger) {    // same along Z
+  const L = 12;
+  let z = z0 - (stagger ? L / 2 : 0), i = 0;
+  while (z <= z1) {
+    const a = Math.max(z, z0), b = Math.min(z + L - 1, z1);
+    if (b >= a) {
+      const m = pv(seed, y0, i, x0) < 0.3 ? mat + "Dark" in PAL ? mat + "Dark" : mat : mat;
+      B(g, x0, x1, y0, y0 + 5, a, b, m);
+      for (const ze of [a, b]) for (const x of [x0, x1]) g.del(x + 0.5, y0 + 5.5, ze + 0.5);
+      if (b - a >= 4) for (let xx = x0; xx <= x1; xx++) g.del(xx + 0.5, y0 + 5.5, b + 0.5);
+    }
+    z += L; i++;
+  }
+}
+function textStencil(g, x0, y0, z, text, m, dirX) {   // 3x5 pixel font on a +Z (or -Z) face, characters advance along +X (or -X)
+  const F = { A: ["010", "101", "111", "101", "101"], M: ["101", "111", "111", "101", "101"], O: ["111", "101", "101", "101", "111"], 5: ["111", "100", "111", "001", "111"],
+              "6": ["111", "100", "111", "101", "111"], "2": ["111", "001", "111", "100", "111"], N: ["101", "111", "111", "111", "101"], T: ["111", "010", "010", "010", "010"],
+              X: ["101", "101", "010", "101", "101"], "7": ["111", "001", "010", "010", "010"], E: ["111", "100", "110", "100", "111"], D: ["110", "101", "101", "101", "110"],
+              "-": ["000", "000", "111", "000", "000"], " ": ["000", "000", "000", "000", "000"], C: ["111", "100", "100", "100", "111"], L: ["100", "100", "100", "100", "111"],
+              I: ["111", "010", "010", "010", "111"], "1": ["010", "110", "010", "010", "111"], "4": ["101", "101", "111", "001", "001"], "8": ["111", "101", "111", "101", "111"],
+              "9": ["111", "101", "111", "001", "111"], "0": ["111", "101", "101", "101", "111"], "3": ["111", "001", "111", "001", "111"], R: ["110", "101", "110", "101", "101"], S: ["111", "100", "111", "001", "111"] };
+  const d = dirX || 1;
+  let cx = x0;
+  for (const ch of text) {
+    const gl = F[ch] || F[" "];
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (gl[r][c] === "1") g.set(cx + d * c + 0.5, y0 + (4 - r) + 0.5, z + 0.5, m);
+    cx += d * 4;
+  }
+}
+
+// --- parachutes: round canopy shell with gores, apex vent and skirt; lines from the skirt to the riser point
+function parachute(spec) {
+  const { R, H, lineLen, gores, unitC, mats, name } = spec;   // metres
+  const cs = PROP_M / unitC;                                   // canopy cells per 5 cm... (unitC in m)
+  const can = propSet(1), lines = propSet(1);
+  const r = R / unitC, h = H / unitC, y0 = lineLen / unitC;    // canopy cell units
+  const vent = r * 0.12;
+  // dome profile: y = y0 + h * (1 - (d/r)^2)^0.7 ; shell 1 cell thick
+  const N = Math.ceil(r) + 1, colMin = new Map();
+  const top = (d) => y0 + h * Math.pow(Math.max(0, 1 - (d / r) * (d / r)), 0.55);
+  for (let x = -N; x < N; x++) for (let z = -N; z < N; z++) {
+    const cx = x + 0.5, cz = z + 0.5, d = Math.hypot(cx, cz);
+    if (d > r || d < vent) continue;
+    const yt = Math.floor(top(d));
+    // fill down to the neighbour minimum so the shell stays watertight
+    let ymin = yt;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const dn = Math.hypot(cx + dx, cz + dz); if (dn <= r && dn >= vent) ymin = Math.min(ymin, Math.floor(top(dn)) + 1); else if (dn > r) ymin = Math.min(ymin, Math.floor(y0 + h * 0.0)); }
+    ymin = Math.min(ymin, yt);
+    colMin.set(x + "," + z, ymin);
+    const ang = Math.atan2(cz, cx), gi = Math.floor(((ang + Math.PI) / (2 * Math.PI)) * gores) % gores;
+    const seam = Math.abs(((ang + Math.PI) / (2 * Math.PI)) * gores - Math.round(((ang + Math.PI) / (2 * Math.PI)) * gores)) * (2 * Math.PI * d / gores) < 0.55;
+    const m = seam ? mats.seam : (gi % 2 ? mats.a : mats.b);
+    for (let y = ymin; y <= yt; y++) can.set(cx, y + 0.5, cz, d > r - 1.2 ? mats.skirt : m);
+  }
+  // suspension lines: every gore seam at the skirt -> riser point at the origin (two risers +-X)
+  const ratio = unitC / PROP_M;                                // canopy cell -> line cell
+  for (let i = 0; i < gores; i++) {
+    const a = (i / gores) * Math.PI * 2 - Math.PI;
+    // attach under the canopy column at the skirt: the line's top cell touches the column's lowest cell from below
+    const cx = Math.floor(Math.cos(a) * (r - 0.7)), cz = Math.floor(Math.sin(a) * (r - 0.7));
+    const ymin = colMin.get(cx + "," + cz);
+    if (ymin === undefined) throw new Error("parachute: no canopy column for a line");
+    const top = [cx * ratio + 0.5, ymin * ratio - 0.5, cz * ratio + 0.5];
+    const riser = [top[0] > 0 ? 3.5 : -4.5, 10, 0];
+    cellLine(lines, top, riser, "line");
+  }
+  // risers (straps) down to the harness point at the origin
+  B(lines, -5, -4, 0, 10, 0, 0, "strap"); B(lines, 3, 4, 0, 10, 0, 0, "strap");
+  B(lines, -4, 3, 0, 0, 0, 0, "strap");
+  return [
+    { name: "canopy", set: can, unitM: unitC, pivot: [0, 0, 0] },
+    { name: "lines", set: lines, unitM: PROP_M, pivot: [0, 0, 0] },
+  ];
+}
+
+// --- ammo crate (wood with olive paint, rope handles, stencils), 1.0 x 0.6 x 0.55 m
+function ammoCrate(g, ox, oy, oz, seed, opts) {
+  const W = 20, D = 11, H = 12;   // cells
+  const x0 = ox - W / 2, z0 = oz - Math.floor(D / 2);
+  B(g, x0, x0 + W - 1, oy, oy + H - 1, z0, z0 + D - 1, (x, y, z) => (y - oy) % 4 === 3 ? "oliveDark" : "olive");
+  // end battens and lid rim
+  for (const xe of [x0, x0 + W - 1]) B(g, xe, xe, oy, oy + H - 1, z0 - 1, z0 + D, "woodDark");
+  B(g, x0 + 1, x0 + W - 2, oy + H, oy + H, z0, z0 + D - 1, "olive");
+  B(g, x0 + 1, x0 + W - 2, oy + H, oy + H, z0 + 4, z0 + 6, "oliveDark");
+  for (const xe of [x0 + 3, x0 + W - 4]) B(g, xe, xe, oy + H, oy + H, z0, z0 + D - 1, "metal");   // hasps
+  // rope handles at the ends
+  for (const xe of [x0 - 1, x0 + W]) { B(g, xe, xe, oy + 7, oy + 7, z0 + 3, z0 + 7, "rope"); B(g, xe, xe, oy + 8, oy + 8, z0 + 3, z0 + 3, "rope"); B(g, xe, xe, oy + 8, oy + 8, z0 + 7, z0 + 7, "rope"); }
+  // stencils on the front (+Z)
+  textStencil(g, x0 + 3, oy + 4, z0 + D, opts && opts.text || "5 56", "stencilYellow");
+  B(g, x0 + 2, x0 + W - 3, oy + 2, oy + 2, z0 + D, z0 + D, "stencilYellow");
+}
+
+// --- HESCO-style gabion cells: wire mesh frame over sand fabric
+function hescoBlock(g, x0, x1, y0, y1, z0, z1, seed) {
+  B(g, x0, x1, y0, y1, z0, z1, (x, y, z) => {
+    const onX = x === x0 || x === x1, onZ = z === z0 || z === z1, onY = y === y1;
+    const grid = ((x - x0) % 4 === 0) || ((y - y0) % 4 === 0) || ((z - z0) % 4 === 0);
+    if ((onX || onZ || onY) && grid) return "hescoWire";
+    if (onY) return pv(seed, x, y, z) < 0.5 ? "sand" : "sandDark";
+    return pv(seed, x >> 1, y >> 1, z >> 1) < 0.25 ? "sandDark" : "hescoFabric";
+  });
+  // sag: top surface a cell lower in the middle of each 1 m cell (filled sand)
+}
+const WALL = {
+  cheap: { w: 20, h: 32, cell: 20, top: null },
+  reinforced: { w: 24, h: 40, cell: 24, top: "sandbag" },
+};
+function wallBody(g, variant, x0, x1, opts) {
+  const S = WALL[variant], hz = S.w / 2;
+  for (let x = x0; x <= x1; x += S.cell) {
+    const xe = Math.min(x + S.cell - 1, x1);
+    hescoBlock(g, x, xe, 0, S.h - 1, -hz, hz - 1, 17 + x);
+  }
+  if (S.top === "sandbag") {
+    sandbagRun(g, x0, x1, S.h, -hz + 1, -1, "sandbag", 3, false);
+    sandbagRun(g, x0, x1, S.h, 0, hz - 2, "sandbag", 5, true);
+    // bolted steel plates on the outer face (+Z), with gaps
+    for (let x = x0 + 2; x + 16 <= x1; x += 20) { B(g, x, x + 15, 6, 30, hz, hz, "steel"); B(g, x + 1, x + 1, 28, 28, hz + 1, hz + 1, "steelDark"); B(g, x + 14, x + 14, 28, 28, hz + 1, hz + 1, "steelDark"); B(g, x + 1, x + 1, 8, 8, hz + 1, hz + 1, "steelDark"); B(g, x + 14, x + 14, 8, 8, hz + 1, hz + 1, "steelDark"); }
+  }
+}
+function wallPiece(variant, kind) {
+  const S = WALL[variant], hz = S.w / 2, g = propSet(1), parts = [], sockets = [];
+  if (kind === "straight") {
+    wallBody(g, variant, -40, 39);
+    sockets.push({ name: "endA", pos: [-2, 0, 0], dir: [-1, 0, 0] }, { name: "endB", pos: [2, 0, 0], dir: [1, 0, 0] });
+  } else if (kind === "gate") {
+    // two 0.8 m gabion piers + steel frame + two swing leaves (1.2 m each)
+    const frame = g;
+    wallBody(frame, variant, -40, -25); wallBody(frame, variant, 24, 39);
+    const ph = S.h + 12;
+    B(frame, -24, -23, 0, ph, -2, 1, "steelDark"); B(frame, 22, 23, 0, ph, -2, 1, "steelDark");   // gate posts
+    B(frame, -24, 23, ph + 1, ph + 2, -2, 1, "steelDark");                                       // lintel beam
+    textStencil(frame, -15, ph - 6, 2, "", "stencil");
+    const leaf = (x0, x1) => {
+      const l = propSet(1);
+      B(l, x0, x1, 1, S.h + 6, 0, 0, (x, y) => ((y % 6 === 0) || x === x0 || x === x1) ? "steel" : ((x + y) % 4 === 0 ? "steelDark" : null) || "steel");
+      // mesh look: knock out a lattice of holes between the frame bars
+      for (let x = x0 + 1; x < x1; x++) for (let y = 2; y < S.h + 6; y++) if (y % 6 !== 0 && (x + y) % 3 === 0) l.del(x + 0.5, y + 0.5, 0.5);
+      B(l, x0, x1, 1, 1, 0, 0, "steelDark"); B(l, x0 + 1, x1 - 1, S.h + 6, S.h + 6, 0, 0, "steelDark");
+      return l;
+    };
+    parts.push({ name: "leafL", set: leaf(-22, -1), unitM: PROP_M, pivot: [-22, 0, 0.5], parent: "frame" });
+    parts.push({ name: "leafR", set: leaf(0, 21), unitM: PROP_M, pivot: [22, 0, 0.5], parent: "frame" });
+    // ground rail between the piers so the leaves rest on something
+    B(frame, -22, 21, 0, 0, -2, 1, "steelDark");
+    sockets.push({ name: "endA", pos: [-2, 0, 0], dir: [-1, 0, 0] }, { name: "endB", pos: [2, 0, 0], dir: [1, 0, 0] });
+    parts.unshift({ name: "frame", set: frame, unitM: PROP_M, pivot: [0, 0, 0] });
+    return { parts, sockets };
+  } else {
+    // joint post: square, slightly taller, wall-width
+    const ph = S.h + 4;
+    hescoBlock(g, -hz, hz - 1, 0, ph - 1, -hz, hz - 1, 91);
+    if (S.top === "sandbag") { sandbagRun(g, -hz + 1, hz - 2, ph, -hz + 1, -1, "sandbag", 7, false); sandbagRun(g, -hz + 1, hz - 2, ph, 0, hz - 2, "sandbag", 8, false); }
+    const half = S.w * PROP_M / 2;
+    const all = { a: [[-half, 0, 0], [-1, 0, 0]], b: [[half, 0, 0], [1, 0, 0]], c: [[0, 0, half], [0, 0, 1]], d: [[0, 0, -half], [0, 0, -1]] };
+    const use = { corner: { a: all.a, b: all.c }, t: { a: all.a, b: all.b, c: all.c }, x: { a: all.a, b: all.b, c: all.c, d: all.d }, end: { a: all.a } }[kind];
+    for (const [n, [p, d]] of Object.entries(use)) sockets.push({ name: n, pos: p, dir: d });
+    if (kind === "end") { // end cap: chamfered top + marker stripes
+      Bdel(g, -hz, hz - 1, ph - 1, ph - 1, -hz, -hz); Bdel(g, -hz, hz - 1, ph - 1, ph - 1, hz - 1, hz - 1);
+      B(g, hz, hz, 4, 12, -hz + 2, hz - 3, (x, y, z) => ((y + z) % 4 < 2) ? "stencilYellow" : "black");
+    }
+  }
+  parts.unshift({ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] });
+  return { parts, sockets };
+}
+
+function flagProp(kind) {
+  const pole = propSet(1), flag = propSet(1);
+  B(pole, -4, 3, 0, 1, -4, 3, "concrete"); B(pole, -1, 0, 2, 119, -1, 0, "pole"); B(pole, -2, 1, 120, 121, -2, 1, "pole");
+  // flag 1.5 x 1.0 m on +X of the pole, top at 5.8 m; pivot at the hoist top for waving
+  const fx0 = 1, fx1 = 30, fy0 = 96, fy1 = 115;
+  B(flag, fx0, fx1, fy0, fy1, 0, 0, (x, y) => {
+    if (kind === "medical") {
+      const cx = 15, cy = 105, dx = Math.abs(x - cx), dy = Math.abs(y - cy);
+      return (dx <= 2 && dy <= 7) || (dy <= 2 && dx <= 7) ? "medGreen" : "flagWhite";
+    }
+    // fictional unit flag: olive field, white chevron
+    const u = x - fx0, v = y - fy0, c = Math.abs(v - 9.5);
+    return (u > 4 && u - c * 0.9 > 6 && u - c * 0.9 < 11 && u < 24) ? "flagWhite" : "flagOlive";
+  });
+  B(flag, 0, 0, fy0, fy1, 0, 0, "white");   // hoist sleeve touching the pole (x = 0 cell sits against the pole cells at -1..0? pole spans -1..0)
+  flag.del(0.5, 0, 0);
+  // the hoist column x = 0 coincides with the pole's x = 0 column: move the hoist to x = 1 (flag spans 1..30)
+  for (let y = fy0; y <= fy1; y++) flag.del(0.5, y + 0.5, 0.5);
+  return { parts: [{ name: "pole", set: pole, unitM: PROP_M, pivot: [0, 0, 0] }, { name: "flag", set: flag, unitM: PROP_M, pivot: [1, fy1 + 1, 0.5], parent: "pole" }], sockets: [{ name: "base", pos: [0, 0, 0], dir: [0, -1, 0] }] };
+}
+function bannerProp(kind) {
+  const g = propSet(1);
+  // hanging banner, origin = top centre on the facade plane (z = 0), cloth on +Z, top batten + bottom weight bar
+  B(g, -11, 10, -2, -1, 0, 1, "woodDark");
+  B(g, -10, 9, -43, -3, 0, 0, (x, y) => {
+    if (kind === "medical") { const dx = Math.abs(x + 0.5), dy = Math.abs(y + 20); return (dx <= 2.5 && dy <= 8) || (dy <= 2.5 && dx <= 8) ? "medGreen" : "flagWhite"; }
+    const v = -y - 3, c = Math.abs(x + 0.5);
+    return (v > 10 && v - c * 0.9 > 14 && v - c * 0.9 < 20) ? "flagWhite" : "flagOlive";
+  });
+  B(g, -11, 10, -44, -44, 0, 1, "woodDark");
+  return { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "hang", pos: [0, 0, 0], dir: [0, 1, 0] }], anchor: "top" };
+}
+
+function containerProp() {
+  const L = 121, H = 52, Wd = 49;      // 6.05 x 2.6 x 2.45 m
+  const x0 = -60, x1 = 60, z0 = -24, z1 = 24;
+  const body = propSet(1), doorL = propSet(1), doorR = propSet(1), apron = propSet(1);
+  const corr = (x, y, z) => "containerOlive";
+  // floor, roof, side walls with corrugation (outer ribs every 3 cells), front wall on -Z end? doors on +X end
+  B(body, x0, x1, 0, 1, z0, z1, "containerDark");                      // floor frame
+  B(body, x0, x1, H - 2, H - 1, z0, z1, "containerOlive");             // roof
+  for (const z of [z0, z1]) B(body, x0, x1, 2, H - 3, z, z, "containerOlive");
+  for (let x = x0 + 2; x < x1 - 1; x += 3) { B(body, x, x, 3, H - 4, z0 - 1, z0 - 1, "containerDark"); B(body, x, x, 3, H - 4, z1 + 1, z1 + 1, "containerDark"); }
+  B(body, x0, x0, 2, H - 3, z0, z1, "containerOlive");                 // closed end
+  for (let z = z0 + 2; z < z1 - 1; z += 3) B(body, x0 - 1, x0 - 1, 3, H - 4, z, z, "containerDark");
+  // corner posts + castings
+  for (const x of [x0, x1]) for (const z of [z0, z1]) { B(body, x, x, 0, H - 1, z, z, "containerDark"); }
+  // door frame at +X end
+  B(body, x1, x1, H - 4, H - 3, z0, z1, "containerDark"); B(body, x1, x1, 0, 1, z0, z1, "containerDark");
+  // markings on the long sides
+  for (const [z, d] of [[z1 + 1, 1], [z0 - 1, -1]]) {
+    textStencil(body, d > 0 ? -40 : 40, 30, z, "AMMO", "stencil", d);
+    B(body, -46, 46, 24, 25, z, z, "stencilYellow");
+    textStencil(body, d > 0 ? -40 : 40, 14, z, "1-5 6 2", "stencil", d);
+  }
+  // inside: ammo racks along both long walls, crates on shelves
+  for (const z of [z0 + 1, z1 - 7]) {
+    for (const y of [2, 18, 34]) B(body, x0 + 2, x1 - 6, y, y, z, z + 6, "woodDark");
+    for (let x = x0 + 2; x <= x1 - 6; x += 20) B(body, x, x, 2, 40, z, z + 6, "steelDark");
+    for (let x = x0 + 4; x < x1 - 14; x += 9) for (const y of [3, 19]) B(body, x, x + 7, y, y + 6, z + 1, z + 5, pv(5, x, y, z) < 0.5 ? "olive" : "containerOlive");
+  }
+  // doors: two leaves hinged at the corner posts; rest pose = closed
+  const dh0 = 2, dh1 = H - 5;
+  const leaf = (g, zA, zB) => { B(g, x1 + 1, x1 + 1, dh0, dh1, zA, zB, "containerOlive"); for (let z = zA + 2; z < zB; z += 3) B(g, x1 + 2, x1 + 2, dh0 + 1, dh1 - 1, z, z, "containerDark"); B(g, x1 + 2, x1 + 2, dh0 + 2, dh1 - 2, zA + 6, zA + 6, "metal"); B(g, x1 + 2, x1 + 2, dh0 + 2, dh1 - 2, zB - 6, zB - 6, "metal"); };
+  leaf(doorL, 0, z1); leaf(doorR, z0, -1);
+  // sandbag apron: one course, two bags high, around the closed end and both sides (1 m out)
+  const ax0 = x0 - 20, ax1 = x1, az0 = z0 - 20, az1 = z1 + 20;
+  for (const [y, st] of [[0, false], [6, true]]) {
+    sandbagRun(apron, ax0, ax1 - 10, y, az0, az0 + 5, "sandbag", 11 + y, st);
+    sandbagRun(apron, ax0, ax1 - 10, y, az1 - 5, az1, "sandbag", 13 + y, st);
+    sandbagRunZ(apron, az0 + 6, az1 - 6, y, ax0, ax0 + 5, "sandbag", 17 + y, st);
+  }
+  return {
+    parts: [
+      { name: "body", set: body, unitM: PROP_M, pivot: [0, 0, 0] },
+      { name: "doorL", set: doorL, unitM: PROP_M, pivot: [x1 + 1, 0, z1 + 1], parent: "body", note: "hinge; rest = closed, open = rotate Y by -90 deg" },
+      { name: "doorR", set: doorR, unitM: PROP_M, pivot: [x1 + 1, 0, z0], parent: "body", note: "hinge; rest = closed, open = rotate Y by +90 deg" },
+      { name: "apron", set: apron, unitM: PROP_M, pivot: [0, 0, 0] },
+    ],
+    sockets: [{ name: "door", pos: [(x1 + 25) * PROP_M, 0, 0], dir: [1, 0, 0] }],
+  };
+}
+
+function barricade(kind, opening) {
+  // origin = bottom centre of the opening on the facade plane (z = 0); outside = +Z; covers opening + 10 cm frame overlap
+  const g = propSet(1);
+  const ow = opening === "door" ? 26 : 24, oh = opening === "door" ? 52 : 40;   // cells: door 1.3 x 2.6 m, window 1.2 x 2.0 m
+  const hx = ow / 2;
+  if (kind === "planks") {
+    let y = 0, i = 0;
+    const rng = mulberry32(opening === "door" ? 71 : 72);
+    while (y + 3 <= oh) {
+      const tilt = Math.round((rng() - 0.5) * 6), len = hx + 2 + Math.floor(rng() * 3);
+      for (let x = -len; x < len; x++) { const yy = y + Math.round(tilt * x / len); for (let k = 0; k < 3; k++) if (yy + k >= 0) g.set(x + 0.5, yy + k + 0.5, 0.5, i % 2 ? "wood" : "woodLight"); }
+      y += 3 + (opening === "door" ? 2 : 2) + Math.floor(rng() * 2); i++;
+    }
+    // two vertical battens holding the planks
+    B(g, -hx + 2, -hx + 3, 0, oh, 1, 1, "woodDark"); B(g, hx - 4, hx - 3, 0, oh, 1, 1, "woodDark");
+    for (const xx of [-hx + 2, hx - 3]) for (let yy = 2; yy < oh; yy += 5) g.set(xx + 0.5, yy + 0.5, 2.5, "metal");
+  } else if (kind === "plate") {
+    B(g, -hx - 1, hx, 0, oh, 0, 1, (x, y) => (x + y * 3) % 11 === 0 ? "rust" : "steel");
+    Bdel(g, -6, 5, Math.round(oh * 0.62), Math.round(oh * 0.62) + 2, 0, 1);              // firing slit
+    for (const xx of [-hx, hx - 1]) for (const yy of [2, oh - 2, Math.round(oh / 2)]) g.set(xx + 0.5, yy + 0.5, 2.5, "steelDark");
+    B(g, -hx - 1, hx, Math.round(oh * 0.62) - 1, Math.round(oh * 0.62) - 1, 2, 2, "steelDark");   // slit lip
+  } else {
+    // sandbags filling the opening up to chest height, planks above with a gap
+    const rows = opening === "door" ? 4 : 3;
+    for (let r = 0; r < rows; r++) sandbagRun(g, -hx - 1, hx, r * 6, 0, 5, "sandbag", 21 + r, r % 2 === 1);
+    const yy = rows * 6;
+    B(g, -hx - 1, hx, yy + 4, yy + 6, 0, 0, "wood"); B(g, -hx - 1, hx, yy + 10, yy + 12, 0, 0, "woodLight");
+    B(g, -hx + 1, -hx + 2, yy, oh, 1, 1, "woodDark"); B(g, hx - 3, hx - 2, yy, oh, 1, 1, "woodDark");
+  }
+  return { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "opening", pos: [0, 0, 0], dir: [0, 0, 1] }], anchor: "facade" };
+}
+
+function sandbagRing(g, rOut, courses, mat, seed) {
+  // octagonal ring of sandbag runs (approximated with axis runs on 8 sides)
+  const t = 6;
+  for (let c = 0; c < courses; c++) {
+    const y = c * 6, st = c % 2 === 1;
+    const s = Math.round(rOut * 0.41);   // half side of the octagon
+    sandbagRun(g, -s, s - 1, y, rOut - t, rOut - 1, mat, seed + c, st);
+    sandbagRun(g, -s, s - 1, y, -rOut, -rOut + t - 1, mat, seed + c + 7, st);
+    sandbagRunZ(g, -s, s - 1, y, rOut - t, rOut - 1, mat, seed + c + 3, st);
+    sandbagRunZ(g, -s, s - 1, y, -rOut, -rOut + t - 1, mat, seed + c + 5, st);
+    // diagonal corners: stepped bag blocks
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      for (let k = 0; k < rOut - s - t + 2; k += 1) {
+        const x = sx > 0 ? s + k : -s - k - 1, z0 = sz > 0 ? rOut - t - k : -rOut + k, z1 = z0 + t - 1;
+        B(g, x, x, y, y + 4 + (k % 4 === 0 ? 0 : 1), Math.min(z0, z1), Math.max(z0, z1), pv(seed, k, c, sx * 3 + sz) < 0.3 ? "sandbagDark" : mat);
+      }
+    }
+  }
+}
+
+function buildProps() {
+  const P = [];
+  const add = (name, label, cat, def) => P.push(Object.assign({ name, label, cat, kind: "prop" }, def));
+  // parachutes
+  add("para_infantry", "Infantry parachute", "drop", { parts: parachute({ R: 3.5, H: 2.6, lineLen: 5.6, gores: 24, unitC: 0.10, mats: { a: "canopyOlive", b: "canopyDark", seam: "canopyDark", skirt: "canopyDark" } }),
+    sockets: [{ name: "harness", pos: [0, 0, 0], dir: [0, -1, 0] }], anchor: "harness" });
+  add("para_cargo", "Supply-crate parachute", "drop", { parts: parachute({ R: 1.5, H: 1.2, lineLen: 2.6, gores: 12, unitC: 0.05, mats: { a: "canopyTan", b: "canopyOlive", seam: "canopyDark", skirt: "canopyDark" } }),
+    sockets: [{ name: "load", pos: [0, 0, 0], dir: [0, -1, 0] }], anchor: "harness" });
+  // crates
+  { const g = propSet(1); ammoCrate(g, 0, 0, 0, 3); add("crate_ammo", "Small ammo crate", "supply", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "pickup", pos: [0, 0.6, 0], dir: [0, 1, 0] }] }); }
+  { const g = propSet(1);
+    B(g, -11, 10, 0, 1, -7, 7, "woodDark"); for (const z of [-7, -1, 5]) B(g, -11, 10, 2, 2, z, z + 1, "wood");   // skid
+    ammoCrate(g, 0, 3, 0, 4, { text: "7 62" });
+    for (const x of [-6, 5]) { B(g, x, x, 3, 15, -7, -7, "strap"); B(g, x, x, 3, 15, 6, 6, "strap"); B(g, x, x, 15, 15, -6, 5, "strap"); }   // straps
+    B(g, -1, 0, 16, 17, -1, 0, "metal");   // lift ring
+    add("crate_ammo_drop", "Airdrop ammo crate", "supply", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "parachute", pos: [-0.025, 0.9, -0.025], dir: [0, 1, 0] }] }); }
+  add("container_supply", "Central ammo supply container", "supply", containerProp());
+  // walls
+  for (const v of ["cheap", "reinforced"]) for (const k of ["straight", "corner", "t", "x", "end", "gate"]) add("wall_" + v + "_" + k, (v === "cheap" ? "Gabion wall " : "Reinforced wall ") + k, "wall", wallPiece(v, k));
+  // building reinforcements
+  { const g = propSet(1);
+    for (let r = 0; r < 3; r++) { sandbagRun(g, -18, 17, r * 6, 6, 11, "sandbag", 31 + r, r % 2 === 1); sandbagRunZ(g, -6, 5, r * 6, -18, -13, "sandbag", 41 + r, r % 2 === 0); sandbagRunZ(g, -6, 5, r * 6, 12, 17, "sandbag", 51 + r, r % 2 === 0); }
+    add("fort_window_nest", "Sandbag window nest", "fort", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "window", pos: [0, 0, 0.6], dir: [0, 0, 1] }] }); }
+  { const g = propSet(1);
+    B(g, -13, 12, 0, 39, 0, 1, (x, y) => (x * 7 + y * 3) % 17 === 0 ? "rust" : "steel");
+    Bdel(g, -7, 6, 26, 27, 0, 1);
+    B(g, -9, 8, 25, 25, 2, 3, "steelDark");
+    for (const xx of [-12, 11]) for (const yy of [2, 20, 37]) g.set(xx + 0.5, yy + 0.5, 2.5, "steelDark");
+    add("fort_steel_plate", "Steel plate with firing slit", "fort", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [], anchor: "facade" }); }
+  { const g = propSet(1); sandbagRing(g, 36, 3, "sandbag", 61);
+    add("fort_roof_ring", "Rooftop sandbag ring", "fort", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  { const g = propSet(1);
+    for (let r = 0; r < 4; r++) sandbagRun(g, -20, 19, r * 6, 0, 9, r === 3 ? "sandbagOlive" : "sandbag", 71 + r, r % 2 === 1);
+    Bdel(g, -5, 4, 13, 17, 0, 9);   // firing slit through the third course
+    B(g, -7, 6, 18, 18, 0, 9, "steel"); B(g, -7, 6, 12, 12, 0, 9, "steel");
+    add("fort_slit_wall", "Sandbag wall with firing slit", "fort", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  for (const o of ["window", "door"]) for (const k of ["planks", "plate", "sandbags"]) add("barricade_" + o + "_" + k, (o === "window" ? "Window " : "Door ") + k, "barricade", barricade(k, o));
+  // garrison
+  add("garrison_flag", "Garrison flag", "garrison", flagProp("unit"));
+  add("garrison_banner", "Garrison banner", "garrison", bannerProp("unit"));
+  { const g = propSet(1);
+    for (let r = 0; r < 3; r++) { sandbagRun(g, -26, 25, r * 6, 12, 17, "sandbag", 81 + r, r % 2 === 1); sandbagRunZ(g, -17, 11, r * 6, -26, -21, "sandbag", 85 + r, r % 2 === 0); sandbagRunZ(g, -17, 11, r * 6, 20, 25, "sandbag", 89 + r, r % 2 === 0); }
+    for (const [x, z] of [[-14, -6], [-8, -6]]) { B(g, x, x + 4, 0, 3, z, z + 1, "containerOlive"); B(g, x + 1, x + 3, 4, 4, z, z, "black"); }
+    add("garrison_roof_position", "Rooftop firing position", "garrison", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "gunner", pos: [0, 0, 0.3], dir: [0, 0, 1] }] }); }
+  { const g = propSet(1);
+    const can = (x, y, z, m) => { B(g, x, x + 5, y, y + 3, z, z + 2, m || "containerOlive"); B(g, x + 1, x + 4, y + 4, y + 4, z + 1, z + 1, "black"); B(g, x + 1, x + 2, y + 1, y + 2, z + 3, z + 3, "stencilYellow"); };
+    for (let i = 0; i < 4; i++) can(-12 + i * 6, 0, 2);
+    for (let i = 0; i < 3; i++) can(-9 + i * 6, 5, 2);
+    ammoCrate(g, 0, 0, -6, 9, { text: "5 56" });
+    add("garrison_ammo_stack", "Ammo stack", "garrison", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  { const g = propSet(1);
+    B(g, -5, 4, 0, 7, -3, 2, "radioGreen"); B(g, -4, 3, 8, 8, -2, 1, "black"); B(g, -4, -1, 4, 6, 3, 3, "black"); B(g, 1, 3, 5, 6, 3, 3, "lens");
+    B(g, 0, 0, 9, 99, 0, 0, "black"); B(g, -1, 1, 9, 10, -1, 1, "metal");
+    for (const [dx, dz] of [[10, 0], [-5, 9], [-5, -9]]) cellLine(g, [0.5, 70, 0.5], [dx + 0.5, 0.5, dz + 0.5], "line");
+    for (const [dx, dz] of [[10, 0], [-5, 9], [-5, -9]]) B(g, dx - 1, dx + 1, 0, 0, dz - 1, dz + 1, "metal");
+    add("garrison_antenna", "Radio antenna", "garrison", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  // hospital
+  add("hospital_flag", "Medical flag", "hospital", flagProp("medical"));
+  add("hospital_banner", "Medical banner", "hospital", bannerProp("medical"));
+  { const g = propSet(1);
+    for (const z of [-5, 4]) B(g, -21, 20, 3, 3, z, z, "pole");                      // poles
+    B(g, -18, 17, 3, 3, -4, 3, "canvas");                                          // bed
+    for (const x of [-16, 15]) for (const z of [-5, 4]) B(g, x, x, 0, 2, z, z, "pole");   // feet
+    for (const x of [-21, -20, 19, 20]) for (const z of [-5, 4]) g.set(x + 0.5, 3.5, z + 0.5, "black");   // handles
+    add("hospital_stretcher", "Stretcher", "hospital", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  { const g = propSet(1);
+    B(g, -19, 18, 6, 7, -7, 6, "cotGreen"); B(g, -17, 16, 8, 8, -6, 5, "mattress"); B(g, -4, 14, 9, 9, -6, 5, "blanket"); B(g, -17, -14, 9, 9, -5, 4, "white");
+    for (const x of [-18, -1, 17]) { B(g, x, x, 0, 5, -7, -7, "pole"); B(g, x, x, 0, 5, 6, 6, "pole"); B(g, x, x, 0, 0, -6, 5, "pole"); }
+    add("hospital_cot", "Field cot", "hospital", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [{ name: "patient", pos: [0, 0.5, 0], dir: [0, 1, 0] }] }); }
+  { const g = propSet(1);
+    B(g, -8, 7, 0, 9, -5, 4, "olive"); B(g, -8, 7, 10, 10, -5, 4, "oliveDark");
+    B(g, -5, 4, 2, 8, 5, 5, "flagWhite");
+    for (let x = -5; x <= 4; x++) for (let y = 2; y <= 8; y++) { const dx = Math.abs(x + 0.5), dy = Math.abs(y - 5); if ((dx <= 1 && dy <= 3) || (dy <= 1 && dx <= 3.5)) g.set(x + 0.5, y + 0.5, 5.5, "medGreen"); }
+    for (const xe of [-9, 8]) B(g, xe, xe, 6, 6, -2, 1, "black");
+    add("hospital_crate", "Medical crate", "hospital", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  { const g = propSet(1);
+    // 4 x 3 m tarp, front edge 2.2 m, back edge 2.6 m, on 6 poles, with guy lines
+    for (let x = -40; x < 40; x++) for (let z = -30; z < 30; z++) { const y = Math.round(52 - (z + 30) * (8 / 60)); g.set(x + 0.5, y + 0.5, z + 0.5, (Math.floor((x + 40) / 10) % 2) ? "canvas" : "canvasLight"); }
+    for (const x of [-40, -1, 39]) for (const z of [-30, 29]) { const top = Math.round(52 - (z + 30) * (8 / 60)); B(g, x, x, 0, top - 1, z, z, "pole"); }
+    for (const x of [-40, 39]) for (const z of [-30, 29]) cellLine(g, [x + 0.5, Math.round(52 - (z + 30) * (8 / 60)) - 0.5, z + 0.5], [x + (x > 0 ? 14 : -14) + 0.5, 0.5, z + (z > 0 ? 10 : -10) + 0.5], "rope");
+    for (const x of [-40, 39]) for (const z of [-30, 29]) B(g, x + (x > 0 ? 14 : -14), x + (x > 0 ? 14 : -14), 0, 0, z + (z > 0 ? 10 : -10), z + (z > 0 ? 10 : -10), "metal");
+    // medical marker on the front valance
+    B(g, -40, 39, 41, 43, 29, 29, "flagWhite");
+    for (let x = -3; x <= 2; x++) g.set(x + 0.5, 42.5, 29.5, "medGreen");
+    g.set(-0.5, 41.5, 29.5, "medGreen"); g.set(-0.5, 43.5 - 0, 29.5, "canvas");
+    add("hospital_awning", "Medical awning", "hospital", { parts: [{ name: "body", set: g, unitM: PROP_M, pivot: [0, 0, 0] }], sockets: [] }); }
+  return P;
+}
+
+function buildAll() {
+  return { infantry: SOLDIERS.map(buildSoldier), props: buildProps() };
+}
+
+/* =====================================================================================
+   MESHER (shared by the Lab preview and the converter)
+   Culled faces with Zombie Lab AO; a part's faces are also culled against its rigid group
+   (a segment and its gear never move relative to each other). Greedy merge by (material, uniform AO).
+   ===================================================================================== */
+const DIRS = [
+  { n: [1, 0, 0], u: [0, 1, 0], v: [0, 0, 1] }, { n: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
+  { n: [0, 1, 0], u: [0, 0, 1], v: [1, 0, 0] }, { n: [0, -1, 0], u: [1, 0, 0], v: [0, 0, 1] },
+  { n: [0, 0, 1], u: [1, 0, 0], v: [0, 1, 0] }, { n: [0, 0, -1], u: [0, 1, 0], v: [1, 0, 0] },
+];
+const CORN = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+function setLattice(set) { const c = set.map.values().next().value; if (!c) return [0, 0, 0]; const s = set.size; return [c.x, c.y, c.z].map(v => ((v % s) + s) % s); }
+function occFn(sets) {   // point-in-solid test over sets sharing one coordinate space
+  const L = sets.map(s => ({ s, off: setLattice(s) }));
+  return (x, y, z) => {
+    for (const { s, off } of L) {
+      const k = s.size, cx = Math.floor((x - off[0]) / k + 0.5) * k + off[0], cy = Math.floor((y - off[1]) / k + 0.5) * k + off[1], cz = Math.floor((z - off[2]) / k + 0.5) * k + off[2];
+      if (s.has(cx, cy, cz)) return true;
+    }
+    return false;
+  };
+}
+function partFaces(set, group) {
+  const occ = occFn([set].concat(group || []));
+  const s = set.size, h = s / 2, q = s / 4, e = 0.01 * s;
+  const faces = [];
+  for (const c of set.map.values()) {
+    for (let di = 0; di < 6; di++) {
+      const d = DIRS[di];
+      // hidden when the 4 quarter points just outside the face are solid
+      let hidden = true;
+      for (const [a, b] of CORN) {
+        const p = [0, 1, 2].map(k => [c.x, c.y, c.z][k] + d.n[k] * (h + e) + d.u[k] * a * q + d.v[k] * b * q);
+        if (!occ(p[0], p[1], p[2])) { hidden = false; break; }
+      }
+      if (hidden) continue;
+      const nx = c.x + d.n[0] * s, ny = c.y + d.n[1] * s, nz = c.z + d.n[2] * s;
+      const ao = [];
+      for (const [su, sv] of CORN) {
+        const s1 = occ(nx + su * d.u[0] * s, ny + su * d.u[1] * s, nz + su * d.u[2] * s) ? 1 : 0;
+        const s2 = occ(nx + sv * d.v[0] * s, ny + sv * d.v[1] * s, nz + sv * d.v[2] * s) ? 1 : 0;
+        const cr = occ(nx + (su * d.u[0] + sv * d.v[0]) * s, ny + (su * d.u[1] + sv * d.v[1]) * s, nz + (su * d.u[2] + sv * d.v[2]) * s) ? 1 : 0;
+        ao.push(s1 && s2 ? 0 : 3 - (s1 + s2 + cr));
+      }
+      faces.push({ c, di, m: PAL[c.m], ao });
+    }
+  }
+  return faces;
+}
+// quads: { corners: 4 x [x,y,z] in set units (CORN order, CCW from outside), di, ao[4], m, cells: [centres] }
+function quadsCulled(set, faces) {
+  const s = set.size;
+  return faces.map(f => { const d = DIRS[f.di]; return { di: f.di, ao: f.ao, m: f.m, w: 1, h: 1, corners: CORN.map(([su, sv]) => [0, 1, 2].map(k => [f.c.x, f.c.y, f.c.z][k] + 0.5 * s * (d.n[k] + su * d.u[k] + sv * d.v[k]))) }; });
+}
+function quadsGreedy(set, faces) {
+  const s = set.size, out = [], groups = new Map(), loose = [];
+  for (const f of faces) {
+    if (!(f.ao[0] === f.ao[1] && f.ao[1] === f.ao[2] && f.ao[2] === f.ao[3])) { loose.push(f); continue; }
+    const d = DIRS[f.di], c = [f.c.x, f.c.y, f.c.z];
+    const key = f.di + "|" + Math.round((d.n[0] * c[0] + d.n[1] * c[1] + d.n[2] * c[2]) * 4);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ f, u: Math.round((d.u[0] * c[0] + d.u[1] * c[1] + d.u[2] * c[2]) / s * 2), v: Math.round((d.v[0] * c[0] + d.v[1] * c[1] + d.v[2] * c[2]) / s * 2) });
+  }
+  for (const list of groups.values()) {
+    const cell = new Map(), used = new Set();
+    const K = (u, v) => u + "," + v;
+    for (const e of list) cell.set(K(e.u, e.v), e);
+    list.sort((p, q) => p.v - q.v || p.u - q.u);
+    for (const e of list) {
+      if (used.has(K(e.u, e.v))) continue;
+      const k = e.f.m * 8 + e.f.ao[0];
+      const at = (u, v) => { const x = cell.get(K(u, v)); return x && !used.has(K(u, v)) && x.f.m * 8 + x.f.ao[0] === k; };
+      let w = 1; while (at(e.u + 2 * w, e.v)) w++;
+      let h = 1;
+      outer: for (;;) { for (let i = 0; i < w; i++) if (!at(e.u + 2 * i, e.v + 2 * h)) break outer; h++; }
+      for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) used.add(K(e.u + 2 * i, e.v + 2 * j));
+      const d = DIRS[e.f.di], base = [e.f.c.x, e.f.c.y, e.f.c.z];
+      out.push({ di: e.f.di, ao: e.f.ao.slice(), m: e.f.m, w, h, corners: CORN.map(([su, sv]) => [0, 1, 2].map(kk => base[kk] + 0.5 * s * d.n[kk] + (su < 0 ? -0.5 : w - 0.5) * s * d.u[kk] + (sv < 0 ? -0.5 : h - 0.5) * s * d.v[kk])) });
+    }
+  }
+  for (const f of loose) out.push(quadsCulled(set, [f])[0]);
+  return out;
+}
+// rigid groups: a part is culled against the parts that never move relative to it
+function rigidGroup(model, part) {
+  if (model.kind === "infantry") {
+    if (!part.rigid) return [];
+    const seg = part.gearOf || part.slot;
+    return model.parts.filter(p => p !== part && p.rigid && (p.slot === seg || p.gearOf === seg)).map(p => p.set);
+  }
+  return [];   // props: parts may move (doors, leaves, flags); each part is meshed on its own
+}
+/* === MILITARY LIBRARY END === */
+
+/* =====================================================================================
+   LAB (preview only; not used by the converter)
+   ===================================================================================== */
+// ---- reference zombies: Zombie Lab v3 modules (Low detail) for the two first designs, same body template
+const ZPAL = { drone: { skin: "#a3a86b", top: "#4c5560", top2: "#b9b6a0", pants: "#2f3136", hair: "#2b241e", tie: "#6b1f26", shoe: "#1f1d1d" },
+               walker: { skin: "#8a9b4c", top: "#556b3a", top2: "#a7a99a", pants: "#3b4656", hair: "#5a4630", hat: "#6b2a2a", shoe: "#2a2420" } };
+function zombieSets(design) {
+  const p = ZPAL[design], Z = {};
+  const mul = (hex, f) => { const n = parseInt(hex.slice(1), 16); const c = v => Math.min(255, Math.round(v * f)).toString(16).padStart(2, "0"); return "#" + c((n >> 16) & 255) + c((n >> 8) & 255) + c(n & 255); };
+  const reg = (k, hex) => { const n = "z_" + design + "_" + k; if (!(n in PAL)) pal(n, hex, 0); return n; };
+  const t = { skin: reg("skin", p.skin), skinDark: reg("skinDark", mul(p.skin, 0.74)), cloth: reg("cloth", p.top), clothDark: reg("clothDark", mul(p.top, 0.7)),
+              top2: reg("top2", p.top2), top2Dark: reg("top2Dark", mul(p.top2, 0.75)), pants: reg("pants", p.pants), pantsDark: reg("pantsDark", mul(p.pants, 0.72)),
+              hair: reg("hair", p.hair), tie: reg("tie", p.tie || "#6b1f26"), hat: reg("hat", p.hat || "#384a5a"), hatDark: reg("hatDark", mul(p.hat || "#384a5a", 0.72)),
+              shoe: reg("shoe", p.shoe), belt: reg("belt", "#2b241f"), mouth: reg("mouth", "#1a0c0e"), eye: reg("eye", "#9dff7a") };
+  for (const slot of SLOTS) {
+    const v = makeSet(1), s = SIDE[slot];
+    const sleeve = design === "drone" ? t.top2 : t.cloth, sleeveD = design === "drone" ? t.top2Dark : t.clothDark;
+    if (slot === "head") { v.set(0, 14.5, 0, t.skin); v.box(-1, 1, 15.5, 17.5, -1, 1, t.skin); v.set(-1, 16.5, 1, t.eye); v.set(1, 16.5, 1, t.eye); v.set(0, 15.5, 1, t.mouth);
+      if (design === "drone") { v.box(-1, 1, 17.5, 17.5, -1, 1, t.hair); v.box(-1, 1, 16.5, 16.5, -1, -1, t.hair); } else { v.box(-1, 1, 17.5, 17.5, -1, 1, t.hatDark); v.box(-1, 1, 18.5, 18.5, -1, 1, t.hat); } }
+    else if (slot === "torso") { if (design === "drone") { v.box(-2, 2, 8.5, 13.5, -1, 1, t.top2); v.box(0, 0, 9.5, 12.5, 1, 1, t.tie); v.set(-1, 13.5, 1, t.top2Dark); v.set(1, 13.5, 1, t.top2Dark); v.set(0, 13.5, 1, t.tie); v.box(-2, 2, 8.5, 8.5, -1, 1, t.belt); }
+      else { v.box(-2, 2, 8.5, 13.5, -1, 1, t.cloth); v.box(-1, 1, 9.5, 10.5, 1, 1, t.clothDark); v.box(-1, 1, 12.5, 13.5, -2, -2, t.cloth); v.set(0, 11.5, -2, t.clothDark); v.box(-1, 1, 13.5, 13.5, 1, 1, t.clothDark); } }
+    else if (slot.startsWith("upperArm")) armCol(v, s, 13.5, [sleeve, sleeve, sleeve, sleeve]);
+    else if (slot.startsWith("forearm")) armCol(v, s, 9.5, [sleeve, sleeve, sleeveD, t.skin]);
+    else if (slot.startsWith("thigh")) legRows(v, s, 7.5, [t.pants, t.pants, t.pants, t.pants]);
+    else { legRows(v, s, 3.5, [t.pants, t.pants, t.pantsDark]); shoe(v, s, t.shoe); }
+    Z[slot] = v;
+  }
+  return { name: "zombie_" + design, label: design === "drone" ? "Zombie: Office Drone" : "Zombie: Street Walker", kind: "infantry", cls: "zombie", unitM: V_M,
+           parts: SLOTS.map(s => ({ name: s, slot: s, parent: PARENT[s], set: Z[s], pivot: PIVOT[s], unitM: V_M, rigid: true })), sockets: [], poses: { rest: { rot: {} }, carry: { rot: {} } } };
+}
+
+// ---- colours
+const colorCache = new Map();
+function lin(idx) { if (!colorCache.has(idx)) colorCache.set(idx, new THREE.Color(PALETTE[idx].rgb).convertSRGBToLinear()); return colorCache.get(idx); }
+const AOV = [0.5, 0.67, 0.84, 1.0];
+function partGeometry(part, quads, scale, origin) {
+  const pos = [], nor = [], col = [], epos = [], enor = [], ecol = [];
+  const tmp = new THREE.Color();
+  for (const q of quads) {
+    const pe = PALETTE[q.m], emiss = (pe.flags & 1) || PALETTE[q.m].name.endsWith("_eye");
+    const P = emiss ? epos : pos, N = emiss ? enor : nor, C = emiss ? ecol : col;
+    const base = lin(q.m), d = DIRS[q.di];
+    // per-voxel tonal noise (culled quads are single voxels)
+    const ctr = [0, 1, 2].map(k => (q.corners[0][k] + q.corners[2][k]) / 2 - d.n[k] * 0.25);
+    const f = 1 + (hash3(ctr[0] * 2, ctr[1] * 2, ctr[2] * 2, 1234) - 0.5) * 2 * pe.noise;
+    const order = (q.ao[0] + q.ao[2] < q.ao[1] + q.ao[3]) ? [1, 2, 3, 1, 3, 0] : [0, 1, 2, 0, 2, 3];
+    for (const i of order) {
+      const c = q.corners[i];
+      P.push((c[0] - origin[0]) * scale, (c[1] - origin[1]) * scale, (c[2] - origin[2]) * scale); N.push(d.n[0], d.n[1], d.n[2]);
+      const a = emiss ? 1 : AOV[q.ao[i]] * f; tmp.setRGB(base.r * a, base.g * a, base.b * a); C.push(tmp.r, tmp.g, tmp.b);
+    }
+  }
+  const mk = (p, n, c) => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); g.setAttribute("normal", new THREE.Float32BufferAttribute(n, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(c, 3)); g.computeBoundingSphere(); return g; };
+  return { body: mk(pos, nor, col), emiss: epos.length ? mk(epos, enor, ecol) : null, tris: (pos.length + epos.length) / 9 };
+}
+
+// ---- scene
+const stageEl = document.getElementById("stage");
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+stageEl.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 0.05, 2000);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.dampingFactor = 0.1; controls.maxPolarAngle = Math.PI * 0.499;
+const groundMat = new THREE.MeshStandardMaterial({ color: 0x6c7652, roughness: 1 });
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), groundMat);
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const grid = new THREE.GridHelper(40, 40, 0x56603f, 0x5f6947); grid.position.y = 0.002; scene.add(grid);
+const hemi = new THREE.HemisphereLight(0xe8f0d8, 0x4d5638, 0.95);
+const key = new THREE.DirectionalLight(0xfff2dc, 1.1); key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = 0.02;
+const fill = new THREE.DirectionalLight(0xc7d8ff, 0.3);
+const lamp = new THREE.PointLight(0xffa860, 0, 30, 1.6);
+scene.add(hemi, key, key.target, fill, lamp);
+const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0, flatShading: true });
+const emissMat = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
+const pointMats = { joint: new THREE.MeshBasicMaterial({ color: 0x8dff6e, depthTest: false, transparent: true }), grip: new THREE.MeshBasicMaterial({ color: 0xff5a4a, depthTest: false, transparent: true }),
+                    support: new THREE.MeshBasicMaterial({ color: 0x4ab0ff, depthTest: false, transparent: true }), socket: new THREE.MeshBasicMaterial({ color: 0xffd166, depthTest: false, transparent: true }) };
+const pointGeo = new THREE.OctahedronGeometry(1, 0);
+const LIGHTING = {
+  neutral: { bg: "#6c7652", fog: [60, 260], hemi: ["#e8f0d8", "#4d5638", 0.95], key: ["#fff2dc", 1.1], fill: 0.3, lamp: 0 },
+  night: { bg: "#1d1830", fog: [40, 200], hemi: ["#6a5aa0", "#160f22", 0.42], key: ["#9fb2ff", 0.75], fill: 0.1, lamp: 2.2 },   // Zombie Lab night values
+};
+function setLight(name) {
+  const L = LIGHTING[name]; state.light = name;
+  const C = h => new THREE.Color(h).convertSRGBToLinear();
+  scene.background = C(L.bg); scene.fog = new THREE.Fog(C(L.bg), L.fog[0], L.fog[1]);
+  groundMat.color.copy(C(name === "night" ? "#221c33" : "#6c7652"));
+  hemi.color.copy(C(L.hemi[0])); hemi.groundColor.copy(C(L.hemi[1])); hemi.intensity = L.hemi[2];
+  key.color.copy(C(L.key[0])); key.intensity = L.key[1]; fill.intensity = L.fill; lamp.intensity = L.lamp;
+}
+
+// ---- build all models once
+const t0 = performance.now();
+const LIB = buildAll();
+const ZOMBIES = { drone: zombieSets("drone"), walker: zombieSets("walker") };
+const ALL = {};
+for (const m of LIB.infantry) ALL[m.name] = m;
+for (const m of LIB.props) ALL[m.name] = m;
+const buildMs = performance.now() - t0;
+
+// ---- instantiate a model as a THREE hierarchy (metres)
+function instantiate(model, opts) {
+  const root = new THREE.Group(); root.userData.model = model;
+  const groups = {}, info = { tris: 0, voxels: 0 };
+  const parentPivotM = p => { if (!p.parent) return [0, 0, 0]; const pp = model.parts.find(q => q.name === p.parent); return pp.pivot.map(v => v * pp.unitM * (pp.weaponSpace ? 1 : 1)); };
+  for (const p of model.parts) {
+    const g = new THREE.Group(); groups[p.name] = g;
+    const quads = model.kind === "infantry" ? quadsCulled(p.set, partFaces(p.set, rigidGroup(model, p))) : quadsGreedy(p.set, partFaces(p.set, []));
+    const origin = p.weaponSpace ? [0, 0, 0] : p.pivot;
+    const geo = partGeometry(p, quads, p.unitM, origin);
+    const mesh = new THREE.Mesh(geo.body, bodyMat); mesh.castShadow = true; mesh.receiveShadow = true; g.add(mesh);
+    if (geo.emiss) g.add(new THREE.Mesh(geo.emiss, emissMat));
+    info.tris += geo.tris; info.voxels += p.set.map.size;
+    g.userData.part = p;
+  }
+  for (const p of model.parts) {
+    const g = groups[p.name];
+    const piv = p.pivot.map(v => v * p.unitM);
+    if (p.parent) { groups[p.parent].add(g); const pp = model.parts.find(q => q.name === p.parent); const ppv = pp.pivot.map(v => v * pp.unitM); g.position.set(piv[0] - ppv[0], piv[1] - ppv[1], piv[2] - ppv[2]); }
+    else { root.add(g); g.position.set(piv[0], piv[1], piv[2]); }
+  }
+  // marker points
+  const marks = new THREE.Group(); marks.visible = !!state.points;
+  const mk = (parentG, pos, mat, size) => { const m = new THREE.Mesh(pointGeo, mat); m.scale.setScalar(size || 0.025); m.position.set(pos[0], pos[1], pos[2]); m.renderOrder = 20; parentG.add(m); marks.add(m.clone()); return m; };
+  const markers = [];
+  if (model.kind === "infantry") {
+    for (const p of model.parts) if (p.slot) markers.push(mk(groups[p.name], [0, 0, 0], pointMats.joint, 0.022));
+    if (groups.weapon) {
+      const w = model.weapon;
+      markers.push(mk(groups.weapon, [0, 0, 0], pointMats.grip, 0.03));
+      markers.push(mk(groups.weapon, w.support.map(v => v * V_M), pointMats.support, 0.03));
+      markers.push(mk(groups.weapon, w.muzzle.map(v => v * V_M), pointMats.socket, 0.025));
+    }
+  } else {
+    for (const s of model.sockets || []) markers.push(mk(root, s.pos, pointMats.socket, 0.06));
+    for (const p of model.parts) if (p.parent) markers.push(mk(groups[p.name], [0, 0, 0], pointMats.joint, 0.05));
+  }
+  root.userData.markers = markers; root.userData.groups = groups; root.userData.info = info;
+  return root;
+}
+function applyPose(root, poseName) {
+  const model = root.userData.model, G = root.userData.groups;
+  if (model.kind !== "infantry") {
+    const open = state.open;
+    if (G.doorL) G.doorL.rotation.y = open ? -Math.PI / 2 : 0;
+    if (G.doorR) G.doorR.rotation.y = open ? Math.PI / 2 : 0;
+    if (G.leafL) G.leafL.rotation.y = open ? -Math.PI / 2 * 0.9 : 0;
+    if (G.leafR) G.leafR.rotation.y = open ? Math.PI / 2 * 0.9 : 0;
+    return;
+  }
+  const pose = (model.poses && model.poses[poseName]) || { rot: {} };
+  for (const s of SLOTS) { const r = (pose.rot && pose.rot[s]) || [0, 0, 0]; G[s].rotation.set(r[0], r[1], r[2], "XYZ"); }
+  if (G.weapon) { const r = pose.weaponMount || [0, 0, 0]; G.weapon.rotation.set(r[0], r[1], r[2], "XYZ"); }
+}
+const instCache = new Map();
+function inst(name) { const m = ALL[name] || ZOMBIES[name.replace("zombie_", "")]; const r = instantiate(m); return r; }
+
+// ---- state + layouts
+const state = { mode: "single", view: "persp", pose: "carry", light: "neutral", asset: "rifleman_a", zombie: true, points: false, open: false };
+let shown = [];
+const labelsEl = document.getElementById("labels");
+function clearShown() { for (const o of shown) scene.remove(o.root); shown = []; labelsEl.innerHTML = ""; }
+function place(name, x, z, label, ry) {
+  const r = inst(name); r.position.set(x, 0, z); r.rotation.y = ry || 0; applyPose(r, state.pose); scene.add(r);
+  const o = { root: r, label: label || null }; shown.push(o); return o;
+}
+function bounds(objs) { const b = new THREE.Box3(); for (const o of objs) b.expandByObject(o.root); return b; }
+function frame(b, mul) {
+  const c = new THREE.Vector3(), s = new THREE.Vector3(); b.getCenter(c); b.getSize(s);
+  const V = { persp: [0.62, 0.38, 0.85], front: [0, 0.12, 1], side: [1, 0.12, 0], rear: [0, 0.12, -1], top: [0, 1, 0.0001] }[state.view];
+  const d = new THREE.Vector3(V[0], V[1], V[2]).normalize();
+  // fit the box's projected extent (screen right / up axes) to the frustum
+  const fwd = d.clone().negate(), right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
+  if (right.lengthSq() < 1e-6) right.set(1, 0, 0); right.normalize();
+  const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+  let ex = 0, ey = 0, ez = 0;
+  for (let i = 0; i < 8; i++) { const p = new THREE.Vector3(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).sub(c); ex = Math.max(ex, Math.abs(p.dot(right))); ey = Math.max(ey, Math.abs(p.dot(up))); ez = Math.max(ez, Math.abs(p.dot(fwd))); }
+  const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)), th = tv * camera.aspect;
+  const dist = Math.max(ey / tv, ex / th) * 1.12 * (mul || 1) + ez;
+  controls.target.copy(c); camera.position.copy(c).addScaledVector(d, dist); camera.near = Math.max(0.02, dist / 200); camera.far = dist * 20; camera.updateProjectionMatrix(); controls.update();
+}
+function rebuild() {
+  clearShown();
+  const m = ALL[state.asset];
+  if (state.mode === "single") {
+    const isInf = m.kind === "infantry";
+    place(state.asset, 0, 0, null);
+    if (state.zombie) {
+      const fp = isInf ? 0.85 : Math.max(0.8, (bounds(shown).max.x) + 0.6);
+      place("zombie_drone", fp, isInf ? -0.7 : 0, null);
+    }
+    frame(bounds(shown), isInf ? 1.0 : 1.0);
+  } else if (state.mode === "lineup") {
+    const names = LIB.infantry.map(x => x.name);
+    names.forEach((n, i) => place(n, (i - names.length / 2) * 0.8, 0, ALL[n].label));
+    place("zombie_drone", (names.length / 2 + 0.2) * 0.8, 0, "Zombie");
+    place("zombie_walker", (names.length / 2 + 1.2) * 0.8, 0, "Zombie");
+    frame(bounds(shown), 1);
+  } else if (state.mode === "props") {
+    // props sheet on a grid, rows by category
+    const cats = ["drop", "supply", "wall", "fort", "barricade", "garrison", "hospital"];
+    let z = 0;
+    for (const cat of cats) {
+      const list = LIB.props.filter(p => p.cat === cat);
+      let x = 0, depth = 0;
+      for (const p of list) {
+        const r = inst(p.name); const b = new THREE.Box3().setFromObject(r); const w = b.max.x - b.min.x;
+        r.position.set(x - b.min.x, 0, z); applyPose(r, state.pose); scene.add(r); shown.push({ root: r, label: p.label });
+        x += w + 0.8; depth = Math.max(depth, b.max.z - b.min.z);
+      }
+      z -= depth + 5;
+    }
+    place("rifleman_a", -2, 0, "Rifleman");
+    frame(bounds(shown), 0.9);
+  } else if (state.mode === "rts") {
+    // squads on the ground, seen from an RTS camera (distance and pitch from the brief)
+    const sq = (names, ox, oz) => names.forEach((n, i) => place(n, ox + (i % 3) * 1.1, oz + Math.floor(i / 3) * 1.2, null, 0.4));
+    sq(["rifleman_a", "rifleman_b", "rifleman_c", "rifleman_d", "rifleman_e"], -6, -1);
+    sq(["mg_a", "mg_b", "mg_c"], -1, -1);
+    sq(["sniper_a"], 3, -1);
+    for (let i = 0; i < 6; i++) place(i % 2 ? "zombie_walker" : "zombie_drone", 6 + (i % 3) * 1.0, -1 + Math.floor(i / 3) * 1.1, null, -0.8);
+    const c = new THREE.Vector3(0, 0.8, 0);
+    const pitch = THREE.MathUtils.degToRad(state.rtsPitch || 50), dist = state.rtsDist || 100;
+    camera.fov = 32; controls.target.copy(c);
+    camera.position.set(c.x + Math.cos(pitch) * dist * 0.5, c.y + Math.sin(pitch) * dist, c.z + Math.cos(pitch) * dist * 0.866);
+    camera.near = 1; camera.far = 1000; camera.updateProjectionMatrix(); controls.update();
+  }
+  for (const o of shown) for (const mk of o.root.userData.markers) mk.visible = state.points;
+  grid.visible = state.mode !== "rts";
+  if (scene.fog) { scene.fog.near = state.mode === "rts" ? 400 : LIGHTING[state.light].fog[0]; scene.fog.far = state.mode === "rts" ? 900 : LIGHTING[state.light].fog[1]; }
+  updateInfo();
+}
+function updateInfo() {
+  const m = ALL[state.asset], el = document.getElementById("info");
+  document.getElementById("cur").textContent = m.label;
+  const o = shown.find(s => s.root.userData.model === m);
+  const b = o ? new THREE.Box3().setFromObject(o.root) : null;
+  const rows = [["parts", m.parts.length], ["voxels", o ? o.root.userData.info.voxels : "-"], ["triangles (preview)", o ? o.root.userData.info.tris : "-"]];
+  if (b) rows.push(["size (m)", [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z].map(v => v.toFixed(2)).join(" × ")]);
+  if (m.kind === "infantry") { rows.push(["weapon", m.weapon.kind]); rows.push(["support error", (m.poses.carry.supportError * 100).toFixed(1) + " cm"]); }
+  if (m.sockets) rows.push(["sockets", m.sockets.map(s => s.name).join(", ") || "-"]);
+  rows.push(["library build", buildMs.toFixed(0) + " ms"]);
+  el.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+}
+// ---- UI
+const groupsUI = [["Infantry", LIB.infantry], ["Drops & supply", LIB.props.filter(p => p.cat === "drop" || p.cat === "supply")], ["Walls", LIB.props.filter(p => p.cat === "wall")],
+  ["Fortification", LIB.props.filter(p => p.cat === "fort")], ["Barricades", LIB.props.filter(p => p.cat === "barricade")], ["Garrison", LIB.props.filter(p => p.cat === "garrison")], ["Hospital", LIB.props.filter(p => p.cat === "hospital")]];
+const listEl = document.getElementById("assets");
+listEl.innerHTML = groupsUI.map(([n, l]) => `<div class="grp"><b>${n}</b><div class="chips">${l.map(m => `<button class="chip" data-a="${m.name}" aria-pressed="${m.name === state.asset}">${m.label.replace(/^(Gabion|Reinforced) wall /, "$1 ")}</button>`).join("")}</div></div>`).join("");
+listEl.addEventListener("click", e => { const b = e.target.closest("[data-a]"); if (!b) return; state.asset = b.dataset.a; state.mode = "single"; syncUI(); rebuild(); });
+document.querySelectorAll(".seg").forEach(seg => seg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  const g = seg.dataset.group; state[g] = b.dataset.v;
+  if (g === "light") setLight(b.dataset.v); else rebuild();
+  syncUI();
+}));
+document.getElementById("zombie").addEventListener("change", e => { state.zombie = e.target.checked; rebuild(); });
+document.getElementById("points").addEventListener("change", e => { state.points = e.target.checked; rebuild(); });
+document.getElementById("open").addEventListener("change", e => { state.open = e.target.checked; rebuild(); });
+function syncUI() {
+  document.querySelectorAll(".seg").forEach(seg => seg.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(state[seg.dataset.group] === b.dataset.v))));
+  listEl.querySelectorAll("[data-a]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.a === state.asset)));
+}
+// ---- JSON export: every model's parts as voxel lists (palette indices), plus rig data
+function exportJSON() {
+  const enc = p => ({ name: p.name, parent: p.parent || null, slot: p.slot || null, unit: +(p.set.size * p.unitM).toFixed(6), pivot: p.pivot, weaponSpace: !!p.weaponSpace,
+                      cellSize: p.set.size, voxels: [...p.set.map.values()].map(c => [c.x, c.y, c.z, PAL[c.m]]) });
+  return { format: "military_lab_v1", palette: PALETTE.filter(p => !p.name.startsWith("z_")), infantry: LIB.infantry.map(m => ({ name: m.name, label: m.label, cls: m.cls, unitM: m.unitM, weapon: m.weapon, poses: m.poses, sockets: m.sockets, parts: m.parts.map(enc) })),
+           props: LIB.props.map(m => ({ name: m.name, label: m.label, cat: m.cat, sockets: m.sockets, parts: m.parts.map(enc) })) };
+}
+document.getElementById("export").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(exportJSON())], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "military_models_v1.json"; a.click();
+});
+// ---- loop
+function resize() { const w = stageEl.clientWidth, h = stageEl.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+window.addEventListener("resize", resize);
+const v3 = new THREE.Vector3();
+function loop() {
+  controls.update();
+  const c = controls.target; key.position.set(c.x + 6, c.y + 10, c.z + 5); key.target.position.copy(c); fill.position.set(c.x - 6, c.y + 3, c.z - 5); lamp.position.set(c.x + 1.5, c.y + 2.5, c.z + 1.5);
+  const span = Math.max(4, camera.position.distanceTo(c) * 0.7); const sc = key.shadow.camera; sc.left = sc.bottom = -span; sc.right = sc.top = span; sc.near = 0.1; sc.far = 80; sc.updateProjectionMatrix();
+  renderer.render(scene, camera);
+  // labels
+  if (state.mode === "lineup" || state.mode === "props") {
+    if (labelsEl.childElementCount !== shown.filter(s => s.label).length) labelsEl.innerHTML = shown.filter(s => s.label).map(() => '<div class="tag"></div>').join("");
+    let i = 0;
+    for (const o of shown) if (o.label) {
+      const b = new THREE.Box3().setFromObject(o.root); v3.set((b.min.x + b.max.x) / 2, b.min.y, b.max.z + 0.1).project(camera);
+      const el = labelsEl.children[i++]; el.textContent = o.label; el.style.left = ((v3.x + 1) / 2 * stageEl.clientWidth) + "px"; el.style.top = ((1 - v3.y) / 2 * stageEl.clientHeight + 6) + "px";
+    }
+  }
+  requestAnimationFrame(loop);
+}
+resize(); setLight("neutral"); rebuild(); loop();
+window.__mil = { state, rebuild, setLight, syncUI, exportJSON, LIB, ALL, camera, controls, scene, renderer, frame, bounds, shown: () => shown, ready: true,
+  set(o) { Object.assign(state, o); if (o.light) setLight(o.light); syncUI(); rebuild(); } };
+})();
+</script>
+</body></html>

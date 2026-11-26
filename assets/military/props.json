@@ -1,0 +1,2965 @@
+{
+ "format": "TTZM",
+ "version": 1,
+ "source": "tools/military_lab/military_lab_v1.html",
+ "labVersion": 1,
+ "note": "positions in metres, model space, rest pose; Y up, front +Z, left +X. See docs/MILITARY_ASSETS.md",
+ "palette": [
+  {
+   "name": "olive",
+   "rgb": "#5b5f3a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "oliveDark",
+   "rgb": "#3f4229",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "oliveLight",
+   "rgb": "#767a4d",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyote",
+   "rgb": "#8a7352",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyoteDark",
+   "rgb": "#675539",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyoteLight",
+   "rgb": "#a48b66",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "rangerGreen",
+   "rgb": "#4c5440",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "rangerDark",
+   "rgb": "#363c2e",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcTan",
+   "rgb": "#a08c68",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcGreen",
+   "rgb": "#6b6f4a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcBrown",
+   "rgb": "#6e5a40",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcLight",
+   "rgb": "#bba886",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "webbing",
+   "rgb": "#55513a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "tan",
+   "rgb": "#b59f78",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "khaki",
+   "rgb": "#9c8a62",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "black",
+   "rgb": "#1f2021",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "blackSoft",
+   "rgb": "#2d2e2c",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "bootBrown",
+   "rgb": "#5a4630",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "gunBlack",
+   "rgb": "#1a1b1d",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gunMetal",
+   "rgb": "#3b3d40",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "metal",
+   "rgb": "#7d8186",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "brass",
+   "rgb": "#b8913a",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "lens",
+   "rgb": "#2c4a5e",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "lensGlint",
+   "rgb": "#6fa0bd",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "suppressor",
+   "rgb": "#4a4b47",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "fde",
+   "rgb": "#a58f6b",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "eyeDark",
+   "rgb": "#17140f",
+   "flags": 0,
+   "noise": 0
+  },
+  {
+   "name": "lip",
+   "rgb": "#6e4a3a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "scarfTan",
+   "rgb": "#b8a887",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "scarfOlive",
+   "rgb": "#6d6b4c",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "scarfBlack",
+   "rgb": "#2b2b2b",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieA",
+   "rgb": "#6f6a45",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieB",
+   "rgb": "#8c7c55",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieC",
+   "rgb": "#4d5233",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "stencil",
+   "rgb": "#d9cf9e",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "stencilYellow",
+   "rgb": "#c9a930",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "skin0",
+   "rgb": "#e0b294",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin1",
+   "rgb": "#c99a76",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin2",
+   "rgb": "#a5764f",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin3",
+   "rgb": "#7f5538",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin4",
+   "rgb": "#5e3d29",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin5",
+   "rgb": "#d6a47c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark0",
+   "rgb": "#af8b73",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark1",
+   "rgb": "#9d785c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark2",
+   "rgb": "#815c3e",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark3",
+   "rgb": "#63422c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark4",
+   "rgb": "#493020",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark5",
+   "rgb": "#a78061",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair0",
+   "rgb": "#2b241e",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair1",
+   "rgb": "#5a4630",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair2",
+   "rgb": "#1e1e22",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair3",
+   "rgb": "#8c7a5c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "sand",
+   "rgb": "#b9a57a",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "sandDark",
+   "rgb": "#9c8961",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "hescoWire",
+   "rgb": "#6e6c62",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "hescoFabric",
+   "rgb": "#c2b48c",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "sandbag",
+   "rgb": "#a99a70",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "sandbagDark",
+   "rgb": "#8a7c56",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "sandbagOlive",
+   "rgb": "#7b7650",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "wood",
+   "rgb": "#8a6a44",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "woodDark",
+   "rgb": "#6a4f31",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "woodLight",
+   "rgb": "#a88a5e",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "rope",
+   "rgb": "#b9a77f",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "steel",
+   "rgb": "#5d6166",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "steelDark",
+   "rgb": "#43474b",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "rust",
+   "rgb": "#6e4a33",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "containerOlive",
+   "rgb": "#55593a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "containerDark",
+   "rgb": "#3d402b",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyOlive",
+   "rgb": "#6a6d48",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyDark",
+   "rgb": "#53563a",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyTan",
+   "rgb": "#a6956d",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyWhite",
+   "rgb": "#d2d0c2",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "line",
+   "rgb": "#cfc8ae",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "strap",
+   "rgb": "#4b4a36",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canvas",
+   "rgb": "#857a58",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "canvasLight",
+   "rgb": "#a79b77",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "white",
+   "rgb": "#e6e4da",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "medGreen",
+   "rgb": "#2f8a4a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "flagOlive",
+   "rgb": "#5d6440",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "flagWhite",
+   "rgb": "#e2e0d6",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "pole",
+   "rgb": "#6a6c6e",
+   "flags": 2,
+   "noise": 0.03
+  },
+  {
+   "name": "concrete",
+   "rgb": "#9a978d",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "radioGreen",
+   "rgb": "#3f4630",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "cotGreen",
+   "rgb": "#5f6646",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "mattress",
+   "rgb": "#7a7d62",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "blanket",
+   "rgb": "#6b5a40",
+   "flags": 0,
+   "noise": 0.05
+  }
+ ],
+ "vertexCount": 696774,
+ "models": [
+  {
+   "name": "para_infantry",
+   "label": "Infantry parachute",
+   "class": "drop",
+   "bounds": {
+    "min": [
+     -3.5,
+     0,
+     -3.5
+    ],
+    "max": [
+     3.5,
+     8.2,
+     3.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "canopy",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.1,
+     "first": 0,
+     "count": 103890,
+     "rigid": true,
+     "voxels": 5340
+    },
+    {
+     "name": "lines",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 103890,
+     "count": 74802,
+     "rigid": true,
+     "voxels": 3020
+    }
+   ],
+   "sockets": [
+    {
+     "name": "harness",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      -1,
+      0
+     ]
+    }
+   ],
+   "triangles": 59564,
+   "footprint": [
+    7,
+    7
+   ],
+   "height": 8.2,
+   "anchor": "harness"
+  },
+  {
+   "name": "para_cargo",
+   "label": "Supply-crate parachute",
+   "class": "drop",
+   "bounds": {
+    "min": [
+     -1.5,
+     0,
+     -1.5
+    ],
+    "max": [
+     1.5,
+     3.8,
+     1.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "canopy",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 178692,
+     "count": 78420,
+     "rigid": true,
+     "voxels": 3920
+    },
+    {
+     "name": "lines",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 257112,
+     "count": 15480,
+     "rigid": true,
+     "voxels": 666
+    }
+   ],
+   "sockets": [
+    {
+     "name": "load",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      -1,
+      0
+     ]
+    }
+   ],
+   "triangles": 31300,
+   "footprint": [
+    3,
+    3
+   ],
+   "height": 3.8,
+   "anchor": "harness"
+  },
+  {
+   "name": "crate_ammo",
+   "label": "Small ammo crate",
+   "class": "supply",
+   "bounds": {
+    "min": [
+     -0.55,
+     0,
+     -0.3
+    ],
+    "max": [
+     0.55,
+     0.65,
+     0.35
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 272592,
+     "count": 2856,
+     "rigid": true,
+     "voxels": 2950
+    }
+   ],
+   "sockets": [
+    {
+     "name": "pickup",
+     "part": 0,
+     "pos": [
+      0,
+      0.6,
+      0
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "triangles": 952,
+   "footprint": [
+    1.1,
+    0.65
+   ],
+   "height": 0.65,
+   "anchor": "ground"
+  },
+  {
+   "name": "crate_ammo_drop",
+   "label": "Airdrop ammo crate",
+   "class": "supply",
+   "bounds": {
+    "min": [
+     -0.55,
+     0,
+     -0.35
+    ],
+    "max": [
+     0.55,
+     0.9,
+     0.4
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 275448,
+     "count": 5502,
+     "rigid": true,
+     "voxels": 3790
+    }
+   ],
+   "sockets": [
+    {
+     "name": "parachute",
+     "part": 0,
+     "pos": [
+      -0.025,
+      0.9,
+      -0.025
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "triangles": 1834,
+   "footprint": [
+    1.1,
+    0.75
+   ],
+   "height": 0.9,
+   "anchor": "ground"
+  },
+  {
+   "name": "container_supply",
+   "label": "Central ammo supply container",
+   "class": "supply",
+   "bounds": {
+    "min": [
+     -4,
+     0,
+     -2.2
+    ],
+    "max": [
+     3.15,
+     2.6,
+     2.25
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 280950,
+     "count": 160410,
+     "rigid": true,
+     "voxels": 62981
+    },
+    {
+     "name": "doorL",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      3.05,
+      0,
+      1.25
+     ],
+     "unit": 0.05,
+     "first": 441360,
+     "count": 7980,
+     "rigid": true,
+     "voxels": 1586,
+     "note": "hinge; rest = closed, open = rotate Y by -90 deg"
+    },
+    {
+     "name": "doorR",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      3.05,
+      0,
+      -1.2
+     ],
+     "unit": 0.05,
+     "first": 449340,
+     "count": 7356,
+     "rigid": true,
+     "voxels": 1454,
+     "note": "hinge; rest = closed, open = rotate Y by +90 deg"
+    },
+    {
+     "name": "apron",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 456696,
+     "count": 9696,
+     "rigid": true,
+     "voxels": 23928
+    }
+   ],
+   "sockets": [
+    {
+     "name": "door",
+     "part": 0,
+     "pos": [
+      4.25,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 61814,
+   "footprint": [
+    7.15,
+    4.45
+   ],
+   "height": 2.6,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_cheap_straight",
+   "label": "Gabion wall straight",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -2,
+     0,
+     -0.5
+    ],
+    "max": [
+     2,
+     1.6,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 466392,
+     "count": 8868,
+     "rigid": true,
+     "voxels": 51200
+    }
+   ],
+   "sockets": [
+    {
+     "name": "endA",
+     "part": 0,
+     "pos": [
+      -2,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "endB",
+     "part": 0,
+     "pos": [
+      2,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 2956,
+   "footprint": [
+    4,
+    1
+   ],
+   "height": 1.6,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_cheap_corner",
+   "label": "Gabion wall corner",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.5,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1.8,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 475260,
+     "count": 3090,
+     "rigid": true,
+     "voxels": 14400
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.5,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "b",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.5
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1030,
+   "footprint": [
+    1,
+    1
+   ],
+   "height": 1.8,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_cheap_t",
+   "label": "Gabion wall t",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.5,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1.8,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 478350,
+     "count": 3090,
+     "rigid": true,
+     "voxels": 14400
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.5,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "b",
+     "part": 0,
+     "pos": [
+      0.5,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "c",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.5
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1030,
+   "footprint": [
+    1,
+    1
+   ],
+   "height": 1.8,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_cheap_x",
+   "label": "Gabion wall x",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.5,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.5,
+     1.8,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 481440,
+     "count": 3090,
+     "rigid": true,
+     "voxels": 14400
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.5,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "b",
+     "part": 0,
+     "pos": [
+      0.5,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "c",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.5
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "d",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      -0.5
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    }
+   ],
+   "triangles": 1030,
+   "footprint": [
+    1,
+    1
+   ],
+   "height": 1.8,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_cheap_end",
+   "label": "Gabion wall end",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.5,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.55,
+     1.8,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 484530,
+     "count": 4320,
+     "rigid": true,
+     "voxels": 14504
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.5,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 1440,
+   "footprint": [
+    1.05,
+    1
+   ],
+   "height": 1.8,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_cheap_gate",
+   "label": "Gabion wall gate",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -2,
+     0,
+     -0.5
+    ],
+    "max": [
+     2,
+     2.35,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "frame",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 488850,
+     "count": 6840,
+     "rigid": true,
+     "voxels": 21760
+    },
+    {
+     "name": "leafL",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      -1.1,
+      0,
+      0.025
+     ],
+     "unit": 0.05,
+     "first": 495690,
+     "count": 8736,
+     "rigid": true,
+     "voxels": 638
+    },
+    {
+     "name": "leafR",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      1.1,
+      0,
+      0.025
+     ],
+     "unit": 0.05,
+     "first": 504426,
+     "count": 8862,
+     "rigid": true,
+     "voxels": 632
+    }
+   ],
+   "sockets": [
+    {
+     "name": "endA",
+     "part": 0,
+     "pos": [
+      -2,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "endB",
+     "part": 0,
+     "pos": [
+      2,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 8146,
+   "footprint": [
+    4,
+    1
+   ],
+   "height": 2.35,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_reinforced_straight",
+   "label": "Reinforced wall straight",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -2,
+     0,
+     -0.6
+    ],
+    "max": [
+     2,
+     2.3,
+     0.7
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 513288,
+     "count": 14910,
+     "rigid": true,
+     "voxels": 88790
+    }
+   ],
+   "sockets": [
+    {
+     "name": "endA",
+     "part": 0,
+     "pos": [
+      -2,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "endB",
+     "part": 0,
+     "pos": [
+      2,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 4970,
+   "footprint": [
+    4,
+    1.3
+   ],
+   "height": 2.3,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_reinforced_corner",
+   "label": "Reinforced wall corner",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.6,
+     0,
+     -0.6
+    ],
+    "max": [
+     0.6,
+     2.5,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 528198,
+     "count": 5088,
+     "rigid": true,
+     "voxels": 28196
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.6,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "b",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.6
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1696,
+   "footprint": [
+    1.2,
+    1.2
+   ],
+   "height": 2.5,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_reinforced_t",
+   "label": "Reinforced wall t",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.6,
+     0,
+     -0.6
+    ],
+    "max": [
+     0.6,
+     2.5,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 533286,
+     "count": 5088,
+     "rigid": true,
+     "voxels": 28196
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.6,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "b",
+     "part": 0,
+     "pos": [
+      0.6,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "c",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.6
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1696,
+   "footprint": [
+    1.2,
+    1.2
+   ],
+   "height": 2.5,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_reinforced_x",
+   "label": "Reinforced wall x",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.6,
+     0,
+     -0.6
+    ],
+    "max": [
+     0.6,
+     2.5,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 538374,
+     "count": 5088,
+     "rigid": true,
+     "voxels": 28196
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.6,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "b",
+     "part": 0,
+     "pos": [
+      0.6,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "c",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.6
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "d",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      -0.6
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    }
+   ],
+   "triangles": 1696,
+   "footprint": [
+    1.2,
+    1.2
+   ],
+   "height": 2.5,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_reinforced_end",
+   "label": "Reinforced wall end",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -0.6,
+     0,
+     -0.6
+    ],
+    "max": [
+     0.65,
+     2.5,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 543462,
+     "count": 6030,
+     "rigid": true,
+     "voxels": 28328
+    }
+   ],
+   "sockets": [
+    {
+     "name": "a",
+     "part": 0,
+     "pos": [
+      -0.6,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 2010,
+   "footprint": [
+    1.25,
+    1.2
+   ],
+   "height": 2.5,
+   "anchor": "ground"
+  },
+  {
+   "name": "wall_reinforced_gate",
+   "label": "Reinforced wall gate",
+   "class": "wall",
+   "bounds": {
+    "min": [
+     -2,
+     0,
+     -0.6
+    ],
+    "max": [
+     2,
+     2.75,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "frame",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 549492,
+     "count": 9486,
+     "rigid": true,
+     "voxels": 36266
+    },
+    {
+     "name": "leafL",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      -1.1,
+      0,
+      0.025
+     ],
+     "unit": 0.05,
+     "first": 558978,
+     "count": 10734,
+     "rigid": true,
+     "voxels": 767
+    },
+    {
+     "name": "leafR",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      1.1,
+      0,
+      0.025
+     ],
+     "unit": 0.05,
+     "first": 569712,
+     "count": 10866,
+     "rigid": true,
+     "voxels": 761
+    }
+   ],
+   "sockets": [
+    {
+     "name": "endA",
+     "part": 0,
+     "pos": [
+      -2,
+      0,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "endB",
+     "part": 0,
+     "pos": [
+      2,
+      0,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 10362,
+   "footprint": [
+    4,
+    1.2
+   ],
+   "height": 2.75,
+   "anchor": "ground"
+  },
+  {
+   "name": "fort_window_nest",
+   "label": "Sandbag window nest",
+   "class": "fort",
+   "bounds": {
+    "min": [
+     -0.9,
+     0,
+     -0.3
+    ],
+    "max": [
+     0.9,
+     0.9,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 580578,
+     "count": 3582,
+     "rigid": true,
+     "voxels": 6320
+    }
+   ],
+   "sockets": [
+    {
+     "name": "window",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.6
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1194,
+   "footprint": [
+    1.8,
+    0.9
+   ],
+   "height": 0.9,
+   "anchor": "ground"
+  },
+  {
+   "name": "fort_steel_plate",
+   "label": "Steel plate with firing slit",
+   "class": "fort",
+   "bounds": {
+    "min": [
+     -0.65,
+     0,
+     0
+    ],
+    "max": [
+     0.65,
+     2,
+     0.2
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 584160,
+     "count": 2772,
+     "rigid": true,
+     "voxels": 2066
+    }
+   ],
+   "sockets": [],
+   "triangles": 924,
+   "footprint": [
+    1.3,
+    0.2
+   ],
+   "height": 2,
+   "anchor": "facade"
+  },
+  {
+   "name": "fort_roof_ring",
+   "label": "Rooftop sandbag ring",
+   "class": "fort",
+   "bounds": {
+    "min": [
+     -1.8,
+     0,
+     -1.8
+    ],
+    "max": [
+     1.8,
+     0.9,
+     1.8
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 586932,
+     "count": 38040,
+     "rigid": true,
+     "voxels": 19596
+    }
+   ],
+   "sockets": [],
+   "triangles": 12680,
+   "footprint": [
+    3.6,
+    3.6
+   ],
+   "height": 0.9,
+   "anchor": "ground"
+  },
+  {
+   "name": "fort_slit_wall",
+   "label": "Sandbag wall with firing slit",
+   "class": "fort",
+   "bounds": {
+    "min": [
+     -1,
+     0,
+     0
+    ],
+    "max": [
+     1,
+     1.2,
+     0.5
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 624972,
+     "count": 3132,
+     "rigid": true,
+     "voxels": 8936
+    }
+   ],
+   "sockets": [],
+   "triangles": 1044,
+   "footprint": [
+    2,
+    0.5
+   ],
+   "height": 1.2,
+   "anchor": "ground"
+  },
+  {
+   "name": "barricade_window_planks",
+   "label": "Window planks",
+   "class": "barricade",
+   "bounds": {
+    "min": [
+     -0.8,
+     0,
+     0
+    ],
+    "max": [
+     0.8,
+     2.05,
+     0.15
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 628104,
+     "count": 4938,
+     "rigid": true,
+     "voxels": 873
+    }
+   ],
+   "sockets": [
+    {
+     "name": "opening",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1646,
+   "footprint": [
+    1.6,
+    0.15
+   ],
+   "height": 2.05,
+   "anchor": "facade"
+  },
+  {
+   "name": "barricade_window_plate",
+   "label": "Window plate",
+   "class": "barricade",
+   "bounds": {
+    "min": [
+     -0.65,
+     0,
+     0
+    ],
+    "max": [
+     0.65,
+     2.05,
+     0.15
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 633042,
+     "count": 3906,
+     "rigid": true,
+     "voxels": 2092
+    }
+   ],
+   "sockets": [
+    {
+     "name": "opening",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1302,
+   "footprint": [
+    1.3,
+    0.15
+   ],
+   "height": 2.05,
+   "anchor": "facade"
+  },
+  {
+   "name": "barricade_window_sandbags",
+   "label": "Window sandbags",
+   "class": "barricade",
+   "bounds": {
+    "min": [
+     -0.65,
+     0,
+     0
+    ],
+    "max": [
+     0.65,
+     2.05,
+     0.3
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 636948,
+     "count": 2454,
+     "rigid": true,
+     "voxels": 2992
+    }
+   ],
+   "sockets": [
+    {
+     "name": "opening",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 818,
+   "footprint": [
+    1.3,
+    0.3
+   ],
+   "height": 2.05,
+   "anchor": "facade"
+  },
+  {
+   "name": "barricade_door_planks",
+   "label": "Door planks",
+   "class": "barricade",
+   "bounds": {
+    "min": [
+     -0.85,
+     0,
+     0
+    ],
+    "max": [
+     0.85,
+     2.65,
+     0.15
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 639402,
+     "count": 5742,
+     "rigid": true,
+     "voxels": 1083
+    }
+   ],
+   "sockets": [
+    {
+     "name": "opening",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1914,
+   "footprint": [
+    1.7,
+    0.15
+   ],
+   "height": 2.65,
+   "anchor": "facade"
+  },
+  {
+   "name": "barricade_door_plate",
+   "label": "Door plate",
+   "class": "barricade",
+   "bounds": {
+    "min": [
+     -0.7,
+     0,
+     0
+    ],
+    "max": [
+     0.7,
+     2.65,
+     0.15
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 645144,
+     "count": 4998,
+     "rigid": true,
+     "voxels": 2930
+    }
+   ],
+   "sockets": [
+    {
+     "name": "opening",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1666,
+   "footprint": [
+    1.4,
+    0.15
+   ],
+   "height": 2.65,
+   "anchor": "facade"
+  },
+  {
+   "name": "barricade_door_sandbags",
+   "label": "Door sandbags",
+   "class": "barricade",
+   "bounds": {
+    "min": [
+     -0.7,
+     0,
+     0
+    ],
+    "max": [
+     0.7,
+     2.65,
+     0.3
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 650142,
+     "count": 3030,
+     "rigid": true,
+     "voxels": 4228
+    }
+   ],
+   "sockets": [
+    {
+     "name": "opening",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1010,
+   "footprint": [
+    1.4,
+    0.3
+   ],
+   "height": 2.65,
+   "anchor": "facade"
+  },
+  {
+   "name": "garrison_flag",
+   "label": "Garrison flag",
+   "class": "garrison",
+   "bounds": {
+    "min": [
+     -0.2,
+     0,
+     -0.2
+    ],
+    "max": [
+     1.55,
+     6.1,
+     0.2
+    ]
+   },
+   "parts": [
+    {
+     "name": "pole",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 653172,
+     "count": 348,
+     "rigid": true,
+     "voxels": 632
+    },
+    {
+     "name": "flag",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0.05,
+      5.8,
+      0.025
+     ],
+     "unit": 0.05,
+     "first": 653520,
+     "count": 612,
+     "rigid": true,
+     "voxels": 600
+    }
+   ],
+   "sockets": [
+    {
+     "name": "base",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      -1,
+      0
+     ]
+    }
+   ],
+   "triangles": 320,
+   "footprint": [
+    1.75,
+    0.4
+   ],
+   "height": 6.1,
+   "anchor": "ground"
+  },
+  {
+   "name": "garrison_banner",
+   "label": "Garrison banner",
+   "class": "garrison",
+   "bounds": {
+    "min": [
+     -0.55,
+     -2.2,
+     0
+    ],
+    "max": [
+     0.55,
+     0,
+     0.1
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 654132,
+     "count": 1164,
+     "rigid": true,
+     "voxels": 952
+    }
+   ],
+   "sockets": [
+    {
+     "name": "hang",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "triangles": 388,
+   "footprint": [
+    1.1,
+    0.1
+   ],
+   "height": 2.2,
+   "anchor": "top"
+  },
+  {
+   "name": "garrison_roof_position",
+   "label": "Rooftop firing position",
+   "class": "garrison",
+   "bounds": {
+    "min": [
+     -1.3,
+     0,
+     -0.85
+    ],
+    "max": [
+     1.3,
+     0.9,
+     0.9
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 655296,
+     "count": 5802,
+     "rigid": true,
+     "voxels": 11710
+    }
+   ],
+   "sockets": [
+    {
+     "name": "gunner",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.3
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 1934,
+   "footprint": [
+    2.6,
+    1.75
+   ],
+   "height": 0.9,
+   "anchor": "ground"
+  },
+  {
+   "name": "garrison_ammo_stack",
+   "label": "Ammo stack",
+   "class": "garrison",
+   "bounds": {
+    "min": [
+     -0.6,
+     0,
+     -0.6
+    ],
+    "max": [
+     0.6,
+     0.65,
+     0.3
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 661098,
+     "count": 5088,
+     "rigid": true,
+     "voxels": 3510
+    }
+   ],
+   "sockets": [],
+   "triangles": 1696,
+   "footprint": [
+    1.2,
+    0.9
+   ],
+   "height": 0.65,
+   "anchor": "ground"
+  },
+  {
+   "name": "garrison_antenna",
+   "label": "Radio antenna",
+   "class": "garrison",
+   "bounds": {
+    "min": [
+     -0.3,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.6,
+     5,
+     0.55
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 666186,
+     "count": 3282,
+     "rigid": true,
+     "voxels": 875
+    }
+   ],
+   "sockets": [],
+   "triangles": 1094,
+   "footprint": [
+    0.9,
+    1.05
+   ],
+   "height": 5,
+   "anchor": "ground"
+  },
+  {
+   "name": "hospital_flag",
+   "label": "Medical flag",
+   "class": "hospital",
+   "bounds": {
+    "min": [
+     -0.2,
+     0,
+     -0.2
+    ],
+    "max": [
+     1.55,
+     6.1,
+     0.2
+    ]
+   },
+   "parts": [
+    {
+     "name": "pole",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 669468,
+     "count": 348,
+     "rigid": true,
+     "voxels": 632
+    },
+    {
+     "name": "flag",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0.05,
+      5.8,
+      0.025
+     ],
+     "unit": 0.05,
+     "first": 669816,
+     "count": 156,
+     "rigid": true,
+     "voxels": 600
+    }
+   ],
+   "sockets": [
+    {
+     "name": "base",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      -1,
+      0
+     ]
+    }
+   ],
+   "triangles": 168,
+   "footprint": [
+    1.75,
+    0.4
+   ],
+   "height": 6.1,
+   "anchor": "ground"
+  },
+  {
+   "name": "hospital_banner",
+   "label": "Medical banner",
+   "class": "hospital",
+   "bounds": {
+    "min": [
+     -0.55,
+     -2.2,
+     0
+    ],
+    "max": [
+     0.55,
+     0,
+     0.1
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 669972,
+     "count": 756,
+     "rigid": true,
+     "voxels": 952
+    }
+   ],
+   "sockets": [
+    {
+     "name": "hang",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "triangles": 252,
+   "footprint": [
+    1.1,
+    0.1
+   ],
+   "height": 2.2,
+   "anchor": "top"
+  },
+  {
+   "name": "hospital_stretcher",
+   "label": "Stretcher",
+   "class": "hospital",
+   "bounds": {
+    "min": [
+     -1.05,
+     0,
+     -0.25
+    ],
+    "max": [
+     1.05,
+     0.2,
+     0.25
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 670728,
+     "count": 600,
+     "rigid": true,
+     "voxels": 384
+    }
+   ],
+   "sockets": [],
+   "triangles": 200,
+   "footprint": [
+    2.1,
+    0.5
+   ],
+   "height": 0.2,
+   "anchor": "ground"
+  },
+  {
+   "name": "hospital_cot",
+   "label": "Field cot",
+   "class": "hospital",
+   "bounds": {
+    "min": [
+     -0.95,
+     0,
+     -0.35
+    ],
+    "max": [
+     0.95,
+     0.5,
+     0.35
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 671328,
+     "count": 2328,
+     "rigid": true,
+     "voxels": 1812
+    }
+   ],
+   "sockets": [
+    {
+     "name": "patient",
+     "part": 0,
+     "pos": [
+      0,
+      0.5,
+      0
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "triangles": 776,
+   "footprint": [
+    1.9,
+    0.7
+   ],
+   "height": 0.5,
+   "anchor": "ground"
+  },
+  {
+   "name": "hospital_crate",
+   "label": "Medical crate",
+   "class": "hospital",
+   "bounds": {
+    "min": [
+     -0.45,
+     0,
+     -0.25
+    ],
+    "max": [
+     0.45,
+     0.55,
+     0.3
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 673656,
+     "count": 894,
+     "rigid": true,
+     "voxels": 1838
+    }
+   ],
+   "sockets": [],
+   "triangles": 298,
+   "footprint": [
+    0.9,
+    0.55
+   ],
+   "height": 0.55,
+   "anchor": "ground"
+  },
+  {
+   "name": "hospital_awning",
+   "label": "Medical awning",
+   "class": "hospital",
+   "bounds": {
+    "min": [
+     -2.7,
+     0,
+     -2
+    ],
+    "max": [
+     2.7,
+     2.65,
+     2
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 674550,
+     "count": 22224,
+     "rigid": true,
+     "voxels": 5529
+    }
+   ],
+   "sockets": [],
+   "triangles": 7408,
+   "footprint": [
+    5.4,
+    4
+   ],
+   "height": 2.65,
+   "anchor": "ground"
+  }
+ ]
+}
