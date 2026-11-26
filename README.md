@@ -284,14 +284,16 @@ front / rear / side / top / muzzle, lineup, RTS 45 / 110 / 300 m, props row, str
 Alt+LMB orbit, RMB pan, wheel zoom, F2 = RTS rig limits; lighting (in-game night / neutral studio), tilt-shift,
 shadows (lab props and soldiers cast moon shadows), fog, comparison lineup (zombies, vehicles), props rows, 1 m grid,
 2 m ruler; animation player for the authored clips (`assets/military/anims.*`, docs/MILITARY_ANIMS.md: clip list,
-play / pause, loop, speed, scrub; clip events drive the FX); parachute drops (soldier on the street, soldier on a real
+play / pause, loop, speed, scrub; clip changes cross-fade per the anims.json transition table with phase-matched
+locomotion and the left arm re-solved to the support point; hand items at the left hand; root motion carried across
+clip ends; "transition demo" button; clip events drive the FX); parachute drops (soldier on the street, soldier on a real
 rooftop, cargo crate: descent -> landing -> recover); weapon FX (muzzle flash per weapon, tracers, casings, suppressor
 puff, dust); stress presets 10 / 50 / 100 / 250 / 500 / 1000 soldiers with the zombie horde; stats overlay. F1 hides
 the UI.
 
 Headless review captures (one view per `--shots` frame). Views: `closeup front rear side top muzzle lineup rts45
 rts110 rts300 props parachute landing roof roofhigh`; options: `+studio +notilt +inf=N +prop=N +clip=NAME +t=SECONDS
-+stress=N +drop=SECONDS +fire +hold`:
++stress=N +drop=SECONDS +fire +hold +seq` (`+seq`: transition demo idle-walk-run-aim-fire-reload-walk):
 
 ```bash
 ./build-city/ttz --lab military --headless --width 1600 --height 900 --frames 125 --shots 20,40,60,80,100,120 \

@@ -126,6 +126,10 @@ private:
     std::vector<CityRenderer::GpuInstance> vehInst_, canopyInst_;
     std::vector<CityRenderer::ExtDraw> canopyDraws_;
     bool dropsPlaced_ = false;
+    Soldier sel_;                    // the turntable soldier (persistent: cross-fades between clips)
+    bool seq_ = false;               // transition demo sequence
+    float seqT_ = 0.f;
+    int seqIdx_ = 0;
     float frustum_[6][4];
     V3 eye_{};
 

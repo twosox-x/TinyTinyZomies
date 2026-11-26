@@ -298,6 +298,8 @@ void MilitaryLab::setupStress(AppState& s, int n) {
             so.stateLeft = hashf((uint32_t)k * 31u) * 4.f;
             so.t = hashf((uint32_t)k * 17u) * 3.f;
             so.clip = std::max(0, clipByAction(lib_.infantry[(size_t)so.inf], "idle"));
+            so.home = so.pos;
+            so.mover = k % 3 == 0;   // a third walk / run along the street (turning back at obstacles / 14 m from home)
             stress_.push_back(so);
         }
     }
@@ -649,6 +651,78 @@ void MilitaryLab::pushSoldier(const Soldier& so, int lod, CharU* out) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Landing spots: street drops on a clear patch (height raster) away from parked / wrecked vehicles (their footprints
+// from CityVehicles) and the lab rows; the rooftop drop's clamp gets the roof footprint (flood fill of the flat roof),
+// street height outside, so a canopy toppling over the edge drapes down the facade.
+void MilitaryLab::placeDrops(AppState& s) {
+    dropsPlaced_ = true;
+    std::vector<std::array<float, 4>> cars;   // xz AABB of every vehicle near the lab
+    float cr[8][3];
+    for (const Vehicle& v : s.vehicles.vehicles()) {
+        if (std::fabs(v.p[0] - ox_) > 80.f || std::fabs(v.p[2] - oz_) > 80.f) continue;
+        s.vehicles.worldCorners(v, cr);
+        std::array<float, 4> b{1e9f, 1e9f, -1e9f, -1e9f};
+        for (auto& c : cr) { b[0] = std::min(b[0], c[0]); b[1] = std::min(b[1], c[2]); b[2] = std::max(b[2], c[0]); b[3] = std::max(b[3], c[2]); }
+        cars.push_back(b);
+    }
+    auto clear = [&](V3 p, float r) {
+        for (float dz = -r; dz <= r; dz += 0.7f)
+            for (float dx = -r; dx <= r; dx += 0.7f)
+                if (dx * dx + dz * dz <= r * r && rasterHeight(s, p.x + dx, p.z + dz) > 0.3f) return false;
+        for (auto& b : cars) if (p.x + r > b[0] && p.x - r < b[2] && p.z + r > b[1] && p.z - r < b[3]) return false;
+        // not on the lab rows (lineup, props) or the turntable
+        float c = std::cos(frameYaw_), sn = std::sin(frameYaw_), lx = (p.x - ox_) * c - (p.z - oz_) * sn, lz = (p.x - ox_) * sn + (p.z - oz_) * c;
+        if (lx < 9.f + r && lz < 3.f + r && lz > -18.f - r && lx > -14.f - r) return false;
+        return true;
+    };
+    std::vector<V3> taken;
+    auto find = [&](V3 near, float r0) {
+        V3 best = near;
+        float bd = 1e30f;
+        for (float r : {r0, r0 * 0.75f, r0 * 0.5f}) {   // relax the clearance radius if nothing fits
+        if (bd < 1e29f) break;
+        for (float dz = -40.f; dz <= 40.f; dz += 1.f)
+            for (float dx = -40.f; dx <= 40.f; dx += 1.f) {
+                float d2 = dx * dx + dz * dz;
+                if (d2 >= bd) continue;
+                V3 p{near.x + dx, 0.f, near.z + dz};
+                bool far = true;
+                for (const V3& t : taken) if (length(p - t) < 9.f) far = false;
+                if (far && clear(p, r)) { bd = d2; best = p; }
+            }
+        }
+        SDL_Log("military lab: drop spot (%.1f, %.1f) %s", best.x, best.z, bd < 1e29f ? "clear of vehicles / props" : "NOT clear (fallback)");
+        taken.push_back(best);
+        return best;
+    };
+    for (Drop& d : drops_) {
+        if (d.xz.y > 1.f) {   // rooftop: flood-fill the flat roof for the clamp footprint
+            const Sandbox& sb = s.sandbox;
+            int i0 = (int)((d.xz.x - sb.originX) / sb.cellSize), j0 = (int)((d.xz.z - sb.originZ) / sb.cellSize);
+            int x0 = i0, x1 = i0, z0 = j0, z1 = j0;
+            std::vector<uint8_t> seen((size_t)sb.gridW * sb.gridH, 0);
+            std::vector<std::pair<int, int>> st{{i0, j0}};
+            while (!st.empty()) {
+                auto [i, j] = st.back();
+                st.pop_back();
+                if (i < 0 || j < 0 || i >= sb.gridW || j >= sb.gridH || std::abs(i - i0) > 80 || std::abs(j - j0) > 80) continue;
+                size_t id = (size_t)j * sb.gridW + i;
+                if (seen[id] || std::fabs(s.staticHeights[id] - d.xz.y) > 0.6f) continue;
+                seen[id] = 1;
+                x0 = std::min(x0, i); x1 = std::max(x1, i); z0 = std::min(z0, j); z1 = std::max(z1, j);
+                st.push_back({i + 1, j}); st.push_back({i - 1, j}); st.push_back({i, j + 1}); st.push_back({i, j - 1});
+            }
+            float r[8] = {sb.originX + x0 * sb.cellSize, sb.originZ + z0 * sb.cellSize, sb.originX + (x1 + 1) * sb.cellSize,
+                          sb.originZ + (z1 + 1) * sb.cellSize, d.xz.y, 0.f, 0.f, 1.f};
+            std::memcpy(d.clamp, r, sizeof(r));
+            SDL_Log("military lab: rooftop drop clamp footprint %.1f x %.1f m at %.1f m", r[2] - r[0], r[3] - r[1], d.xz.y);
+            continue;
+        }
+        d.xz = find(d.xz, d.cargo ? 3.5f : 5.f);
+    }
+    SDL_Log("military lab: drop spots placed (%zu vehicles near the lab avoided)", cars.size());
+}
+
 // parachute drops (docs/MILITARY_ANIMS.md 2.3): descent (descentSpeed) -> touchdown -> land -> recover -> settled
 void MilitaryLab::updateDrops(AppState& s, float dt) {
     for (Drop& d : drops_) {
@@ -747,7 +821,17 @@ void MilitaryLab::drawDrop(const Drop& d) {
     float shf;
     std::memcpy(&shf, &sh, 4);
     float paint[4] = {Cn[MC_RADIAL], Cn[MC_HEIGHT], shf, Cn[MC_CLAMP] > 0.5f ? d.xz.y : -1e4f};
-    if (para) for (const auto& [m, pv] : para->parts) putInst(m, pivot, q, nullptr, 2, paint);
+    if (para)
+        for (const auto& [m, pv] : para->parts) {   // own draws: per-drop clamp (roof footprint, street outside)
+            Inst gi{};
+            gi.pos[0] = pivot.x; gi.pos[1] = pivot.y; gi.pos[2] = pivot.z; gi.pos[3] = 2.f;
+            std::memcpy(gi.quat, q, sizeof(gi.quat));
+            std::memcpy(gi.paint, paint, sizeof(gi.paint));
+            CityRenderer::ExtDraw ed{&meshes_[(size_t)m], (uint32_t)canopyInst_.size(), 1};
+            std::memcpy(ed.clamp, d.clamp, sizeof(ed.clamp));
+            canopyDraws_.push_back(ed);
+            canopyInst_.push_back(gi);
+        }
     else putInst(lib_.chuteOpenModel, pivot, q);
 }
 
@@ -818,7 +902,7 @@ void MilitaryLab::rebuildShadows(AppState& s) {
         }
         auto soldierBox = [&](const Soldier& so) { box(so.pos.x - 0.22f, so.pos.z - 0.18f, so.pos.x + 0.22f, so.pos.z + 0.18f, so.pos.y, so.pos.y + 1.72f); };
         if (showLineup_) for (const Soldier& so : lineup_) soldierBox(so);
-        for (const Soldier& so : stress_) soldierBox(so);
+        for (const Soldier& so : stress_) if (!so.mover) soldierBox(so);
         if (selKind_ == 0) { Soldier so; so.pos = world(0, 0); soldierBox(so); }
     }
     gpu_->uploadNow(shadowBuf_, f.data(), (uint32_t)(f.size() * 4));
@@ -894,11 +978,12 @@ void MilitaryLab::update(AppState& s, float dt) {
                 if (const char* p = opt("+t=")) animTime_ = (float)std::atof(p);
                 if (const char* p = opt("+drop=")) {   // every drop to a sequence time (30 Hz steps, events included)
                     float T = (float)std::atof(p);
-                    for (Drop& d : drops_) d = Drop{d.cargo, d.inf, d.xz, d.yaw, d.startH};
+                    for (Drop& d : drops_) { d.phase = 0; d.t = 0.f; d.alt = 0.f; d.released = false; };
                     for (float tt = 0.f; tt < T; tt += 1.f / 30.f) updateDrops(s, std::min(1.f / 30.f, T - tt));
                     fx_.clear();
                 }
                 holdFx_ = v.find("+hold") != std::string::npos;
+                if (v.find("+seq") != std::string::npos) { seq_ = true; seqT_ = 0.f; seqIdx_ = 0; playing_ = true; loop_ = true; }
                 if (v.find("+fire") != std::string::npos) { fx_.clear(); flashes_.clear(); triggerFx("shot"); }
                 applyView(s, name);
                 SDL_Log("military lab: shot %zu at frame %d: view %s", k, s.opt.shotFrames[k], v.c_str());
@@ -935,8 +1020,9 @@ void MilitaryLab::update(AppState& s, float dt) {
     charsU_.clear();
     for (auto& b : attBuckets_) b.clear();
     for (auto& b : instBuckets_) b.clear();
-    vehDraws_.clear(); vehInst_.clear();
+    vehDraws_.clear(); vehInst_.clear(); canopyDraws_.clear(); canopyInst_.clear();
     st_ = Stats{};
+    if (!dropsPlaced_ && (int)s.frameIndex >= (s.opt.headless ? 1 : 30)) placeDrops(s);
 
     // clip playback with events (fired when the playhead crosses t, also on loop wrap)
     auto advance = [&](Soldier& so, float step, bool events, int lod) {
@@ -947,8 +1033,25 @@ void MilitaryLab::update(AppState& s, float dt) {
         so.t += step * so.rate;
         bool wrapped = false;
         if (so.t > len) { if (c.loop) { so.t = std::fmod(so.t, len); wrapped = true; } else so.t = len; }
-        if (!events || step <= 0.f || c.keyClip < 0 || lod >= 2) return;   // no FX beyond LOD1 (a few pixels)
+        if (so.prevClip >= 0) {   // cross-fade: the previous clip keeps playing underneath
+            so.blend += step * so.rate;
+            const MilClip& pc = inf.clips[(size_t)so.prevClip];
+            so.prevT += step * so.rate;
+            if (so.prevT > pc.length) so.prevT = pc.loop ? std::fmod(so.prevT, std::max(1.f / 30.f, pc.length)) : pc.length;
+            if (so.blend >= so.blendDur) { so.prevClip = -1; so.blendDur = 0.f; }
+        }
+        if (c.keyClip < 0) return;
         const MilKeyClip& k = lib_.keyClips[(size_t)c.keyClip];
+        if (k.rootMotion && wrapped) commitRootMotion(so, k);   // looping root motion: displacement per cycle
+        if (so.mover && !k.rootMotion && k.speed > 0.f && step > 0.f) {   // in-place locomotion: the agent moves at the clip speed
+            V3 f{std::sin(so.yaw), 0.f, std::cos(so.yaw)};
+            V3 np = so.pos + f * (k.speed * step * so.rate);
+            V3 look = np + f * 0.9f;
+            if (rasterHeight(s, look.x, look.z) > 0.3f || length(np - so.home) > 14.f)
+                so.yaw = std::atan2(so.home.x - so.pos.x, so.home.z - so.pos.z) + 0.4f * (hashf((uint32_t)(so.pos.x * 31.f)) - 0.5f);   // turn back
+            else so.pos = np;
+        }
+        if (!events || step <= 0.f || lod >= 2) return;   // no FX beyond LOD1 (a few pixels)
         auto crossed = [&](float et) { return wrapped ? (et > prev || et <= so.t) : (et > prev && et <= so.t); };
         bool any = false;
         for (const MilFxEvent& e : k.events) if (crossed(e.t)) { any = true; break; }
@@ -963,15 +1066,27 @@ void MilitaryLab::update(AppState& s, float dt) {
     if (selKind_ == 0 && selIndex_ < (int)lib_.infantry.size()) {
         const MilInfantry& inf = lib_.infantry[(size_t)selIndex_];
         if (clip_ >= (int)inf.clips.size()) clip_ = 0;
-        Soldier so;
-        so.inf = selIndex_; so.pos = world(0, 0); so.yaw = worldYaw(turntable_ ? turnAngle_ : 0.f);
-        so.clip = clip_; so.t = animTime_;
+        if (seq_) {   // transition demo: idle -> walk -> run -> aim -> fire -> reload -> walk
+            static const char* kSeq[] = {"idle", "walk", "run", "aim", "fire", "reload", "walk"};
+            static const float kSeqDur[] = {1.0f, 1.6f, 1.6f, 0.8f, 1.2f, 0.f, 2.f};
+            seqT_ += fdt;
+            int c = clipByAction(inf, kSeq[seqIdx_]);
+            float dur = kSeqDur[seqIdx_] > 0.f ? kSeqDur[seqIdx_] : (c >= 0 ? inf.clips[(size_t)c].length : 1.f);
+            if (seqT_ >= dur && seqIdx_ < 6) { seqT_ -= dur; ++seqIdx_; c = clipByAction(inf, kSeq[seqIdx_]); }
+            if (c >= 0) clip_ = c;
+        }
+        Soldier& so = sel_;
+        if (so.inf != selIndex_) { so = Soldier{}; so.inf = selIndex_; so.clip = clip_; so.t = animTime_; }
+        so.pos = world(0, 0); so.yaw = worldYaw(turntable_ ? turnAngle_ : 0.f);
+        if (std::fabs(animTime_ - so.t) > 1e-4f) so.t = animTime_;   // scrubbed in the UI
+        switchClip(so, clip_);                                       // cross-fade on clip changes
         const MilClip& c = inf.clips[(size_t)clip_];
         if (playing_ && c.available) {
             advance(so, fdt * animSpeed_, true, 0);
-            if (!c.loop && so.t >= c.length) { if (loop_) so.t = 0.f; else playing_ = false; }
-            animTime_ = so.t;
+            if (!c.loop && so.t >= c.length) { if (loop_) so.t = 0.f; else if (!seq_) playing_ = false; }
         }
+        so.pos = world(0, 0); so.yaw = worldYaw(turntable_ ? turnAngle_ : 0.f);   // the turntable spot stays put
+        animTime_ = so.t;
         pushSoldier(so, 0);
     }
     if (showLineup_)
@@ -992,7 +1107,7 @@ void MilitaryLab::update(AppState& s, float dt) {
             if (so.script == 6 && hashf((uint32_t)i * 97u + (uint32_t)(s.renderTime * 3.0)) > 0.25f) so.script = 0;   // 25 % die
             int c = clipByAction(inf, kScript[so.script]);
             if (c < 0) c = std::max(0, clipByAction(inf, "idle"));
-            so.clip = c; so.t = 0.f;
+            switchClip(so, c);
             float len = inf.clips[(size_t)c].length;
             so.stateLeft = kDur[so.script] > 0.f ? kDur[so.script] : len + (so.script == 6 ? 3.f : 0.f);
         }
@@ -1099,6 +1214,8 @@ void MilitaryLab::update(AppState& s, float dt) {
         st_.tris += (uint64_t)meshTris_[m] * n;
         cpuInst_.insert(cpuInst_.end(), b.begin(), b.begin() + (long)n);
     }
+    for (auto d : canopyDraws_) { d.first += base + (uint32_t)cpuInst_.size(); draws_.push_back(d); }
+    cpuInst_.insert(cpuInst_.end(), canopyInst_.begin(), canopyInst_.end());
     for (auto& d : vehDraws_) d.first += base + (uint32_t)cpuInst_.size();
     cpuInst_.insert(cpuInst_.end(), vehInst_.begin(), vehInst_.end());
     placeholderChars_ = lib_.placeholder ? std::min<uint32_t>((uint32_t)charsU_.size(), kMaxPlaceholderChars) : 0u;
@@ -1241,7 +1358,7 @@ void MilitaryLab::drawUI(AppState& s) {
                 char label[160];
                 std::snprintf(label, sizeof(label), "%s  (%.2f s%s%s)##clip%zu", c.name.c_str(), c.length, c.loop ? ", loop" : "",
                               c.keyClip >= 0 && lib_.keyClips[(size_t)c.keyClip].rootMotion ? ", root motion" : "", i);
-                if (ImGui::Selectable(label, clip_ == (int)i)) { clip_ = (int)i; animTime_ = 0; playing_ = true; loop_ = c.loop; }
+                if (ImGui::Selectable(label, clip_ == (int)i)) { clip_ = (int)i; playing_ = true; loop_ = c.loop; seq_ = false; }   // cross-fades
                 ImGui::EndDisabled();
             }
             ImGui::EndChild();
@@ -1250,7 +1367,8 @@ void MilitaryLab::drawUI(AppState& s) {
             ImGui::SameLine(); ImGui::Checkbox("loop", &loop_);
             ImGui::SameLine(); ImGui::Checkbox("lineup plays it", &lineupAnimated_);
             ImGui::SliderFloat("speed", &animSpeed_, 0.05f, 2.f, "%.2fx");
-            if (ImGui::SliderFloat("time", &animTime_, 0.f, c.length, "%.2f s")) playing_ = false;
+            if (ImGui::SliderFloat("time", &animTime_, 0.f, c.length, "%.2f s")) { playing_ = false; seq_ = false; }
+            if (ImGui::Button(seq_ ? "stop transition demo" : "transition demo (idle-walk-run-aim-fire-reload-walk)")) { seq_ = !seq_; seqT_ = 0.f; seqIdx_ = 0; playing_ = true; }
             if (c.keyClip >= 0) {
                 const MilKeyClip& k = lib_.keyClips[(size_t)c.keyClip];
                 ImGui::TextDisabled("%d frames @30 Hz, speed %.2f m/s, %zu events", k.frames, k.speed, k.events.size());
@@ -1259,7 +1377,7 @@ void MilitaryLab::drawUI(AppState& s) {
         ImGui::SeparatorText("parachute drops (street, rooftop, cargo)");
         ImGui::Checkbox("show drops", &showDrops_);
         ImGui::SameLine();
-        if (ImGui::Button("restart drops")) for (Drop& d : drops_) d = Drop{d.cargo, d.inf, d.xz, d.yaw, d.startH};
+        if (ImGui::Button("restart drops")) for (Drop& d : drops_) { d.phase = 0; d.t = 0.f; d.alt = 0.f; d.released = false; };
         for (const Drop& d : drops_)
             ImGui::TextDisabled("%s: %s %.1f s%s", d.cargo ? "cargo" : (d.xz.y > 1.f ? "soldier (roof)" : "soldier (street)"),
                                 d.phase == 0 ? "descent" : d.phase == 1 ? "land" : d.phase == 2 ? "recover" : "settled", d.t, d.released ? ", harness released" : "");
