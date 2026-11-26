@@ -6,21 +6,23 @@ Only the owner can approve. Status values: **pending review**, **changes request
 
 | Asset | Models | Animations | Notes |
 |---|---|---|---|
-| Rifleman (5 variants) | pending review | not started | |
-| Machine gunner | pending review | not started | |
-| Suppressed sniper | pending review | not started | |
-| Infantry parachute | pending review | not started | |
-| Supply-crate parachute | pending review | not started | |
-| Small ammo crate | pending review | n/a | |
-| Central ammo supply container | pending review | n/a | |
-| Wall segment / corner / T / end / gate | pending review | n/a | |
-| Building reinforcements | pending review | n/a | |
-| Window and entrance barricades | pending review | n/a | |
-| Garrison indicators and props | pending review | n/a | |
-| Hospital indicators and props | pending review | n/a | |
+| Rifleman (5 variants) | approved 2026-11-26 | not started | |
+| Machine gunner | approved 2026-11-26 | not started | |
+| Suppressed sniper | approved 2026-11-26 | not started | |
+| Infantry parachute | approved 2026-11-26 | not started | |
+| Supply-crate parachute | approved 2026-11-26 | not started | |
+| Small ammo crate | approved 2026-11-26 | n/a | |
+| Central ammo supply container | approved 2026-11-26 | n/a | |
+| Wall segment / corner / T / end / gate | approved 2026-11-26 | n/a | |
+| Building reinforcements | approved 2026-11-26 | n/a | |
+| Window and entrance barricades | approved 2026-11-26 | n/a | |
+| Garrison indicators and props | approved 2026-11-26 | n/a | |
+| Hospital indicators and props | approved 2026-11-26 | n/a | |
 | Weapon FX (muzzle flash, tracer, suppressed shot) | n/a | not started | |
 
 **Stage B gate: CLOSED.** It opens only after the owner gives explicit final approval of all rows above.
+
+Model approval 2026-11-26, owner: "Yes, amazing, amazing stuff." (reply to the model review sheets: lineup, class sheets, props, RTS crops). Defaults kept for the open questions: gabion walls at 1.6 / 2.4 m, olive chevron garrison flag, green-cross hospital flag, 10 cm canopy voxels, carry pose as default. Machine-gunner readability at 100–150 m is to be handled by a class or squad marker in the Stage B UI, not by changing the model.
 
 ## Earlier approvals (for reference)
 - Zombie Lab v3 characters: approved (phase 3).
