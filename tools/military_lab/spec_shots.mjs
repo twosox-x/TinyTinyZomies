@@ -64,15 +64,19 @@ await page.waitForFunction(() => window.__mil && window.__mil.ready, null, { tim
 await page.addStyleTag({ content: ".panel,.hint{display:none!important}" });
 for (const [name, st, w, h] of MODEL) {
   if (ONLY && !name.includes(ONLY)) continue;
+  if (process.env.SKIP_MODELS) continue;
   await page.setViewportSize({ width: w, height: h });
   await page.evaluate(s => { const d = { mode: "single", view: "persp", pose: "carry", light: "neutral", zombie: true, points: false, open: false, rtsDist: 100, rtsPitch: 50, spec: false, tools: true }; window.__mil.set(Object.assign(d, s)); window.dispatchEvent(new Event("resize")); window.__mil.set({}); }, st);
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(OUT, name + ".png") });
   console.log("wrote", name);
 }
-const index = [];
+// resumable: index.json is merged and written after every job; jobs whose frames all exist are skipped (re-run after a crash)
+const IDX = path.join(OUT, "frames", "index.json");
+const index = fs.existsSync(IDX) ? JSON.parse(fs.readFileSync(IDX, "utf8")) : [];
 for (const [name, st, an, times, w, h] of JOBS) {
   if (ONLY && !name.includes(ONLY)) continue;
+  if (index.find(j => j.name === name) && times.every((_, i) => fs.existsSync(path.join(OUT, "frames", `${name}_${String(i).padStart(2, "0")}.png`)))) continue;
   await page.setViewportSize({ width: w, height: h });
   await page.evaluate(([s, a]) => { window.__mil.anim.t = 0; Object.assign(window.__mil.anim, a); window.__mil.set(Object.assign({ mode: "anim", view: "persp", light: "neutral" }, s)); window.dispatchEvent(new Event("resize")); window.__mil.set({}); }, [st, an]);
   const files = [];
@@ -81,8 +85,8 @@ for (const [name, st, an, times, w, h] of JOBS) {
     await page.waitForTimeout(30);
     const f = `${name}_${String(i).padStart(2, "0")}.png`; await page.screenshot({ path: path.join(OUT, "frames", f) }); files.push(f);
   }
-  index.push({ name, times, files });
+  const k = index.findIndex(j => j.name === name); if (k >= 0) index.splice(k, 1);
+  index.push({ name, times, files }); fs.writeFileSync(IDX, JSON.stringify(index, null, 1));
   console.log("wrote", name, files.length);
 }
-fs.writeFileSync(path.join(OUT, "frames", "index.json"), JSON.stringify(index, null, 1));
 await browser.close();

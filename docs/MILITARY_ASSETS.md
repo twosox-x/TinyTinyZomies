@@ -230,3 +230,65 @@ Soldiers 1.9–2.9 k triangles each (zombie: ~0.2–0.5 k). Props: most 0.2–3 
 infantry parachute (~60 k, the stepped dome keeps per-voxel AO), cargo parachute (~31 k), supply container
 (~62 k, corrugation + interior racks), rooftop ring (~13 k). These need an LOD / flat-AO canopy before
 dozens are on screen.
+
+## Specialists (Phase 7b): engineers, flamethrower, tools — pending review
+
+**Status:** models for owner review (see [ASSET_APPROVALS.md](ASSET_APPROVALS.md)). Same source of truth (the Military Lab
+library, block `SPECIALISTS`), same converter, same `.ttzm` format, but **separate files**, so the approved v1 files are
+untouched (the converter writes `infantry.*` / `props.*` / `anims.*` with the v1 palette only, `PAL_V1_COUNT` entries;
+their md5 is unchanged):
+
+```
+assets/military/specialists.ttzm / .json        engineers, flamethrowers, hand tools, site props (full palette: v1 + 7b entries)
+assets/military/specialist_anims.bin / .json    their clips (docs/MILITARY_ANIMS.md §7)
+```
+
+The file mixes soldiers and props: an entry with `weapon` / `poses` is a soldier (infantry layout above), the others
+are props / tools (`footprint`, `height`, `anchor`). Converter checks are the same (lossless greedy, lattice, no
+floating parts, no coplanar overlaps); tools are checked as one connected piece (`anchor: "self"`, sub-grid V/4).
+
+### Models (12)
+
+| Model | Class | Notes |
+|---|---|---|
+| `engineer_a` | engineer | multicam / coyote; sledgehammer strapped to the ruck (head at the left hip, handle up behind the shoulder); ear defenders |
+| `engineer_b` | engineer | ranger green, rolled sleeves; folding shovel on the ruck (handle above the right shoulder); welding goggles on the helmet |
+| `engineer_c` | engineer | olive, beard; oxy (black) / acetylene (red) bottles on the ruck sides for the cutting torch; welding goggles |
+| `flamer_a` | flamer | aluminised fire-proximity hood with gold visor and shoulder cape (reads silver-white at any distance) |
+| `flamer_b` | flamer | coyote helmet over a nomex hood, black respirator mask with filter |
+| `tool_sledgehammer`, `tool_shovel`, `tool_torch`, `tool_crowbar`, `tool_sandbag`, `tool_panel` | tool | engineer hand-held items (below) |
+| `sandbag_pile` | site | 0.9 × 0.45 × 0.35 m construction-site pile (5 cm props voxels), `grab` socket |
+
+**Engineer identity (RTS distance):** reflective hi-vis orange band round the helmet + orange stripe over the helmet
+top, orange shoulder panels on the vest, hi-vis + reflective band across the back of a big frame ruck, empty-sandbag
+roll on top of the ruck, tool belt (leather hammer loop, pouches). Weapon: compact carbine (`kind: "carbine"`, 0.85 m,
+collapsed stock, red-dot; muzzle `(0, 1.0, 6.25) V`, support `(0, -0.1, 3.5) V`).
+
+**Flamethrower identity:** two olive fuel cylinders (round section, red hazard band, yellow stencil, valves) on a
+frame + a metal pressure bottle between / behind them, rising to head height; hood / mask instead of a plain
+helmet. Weapon: flame gun (`kind: "flamer"`, ~1 m): rear trigger grip + valve wheel, forward vertical grip (support),
+shrouded fuel tube, nozzle, igniter housing with an **emissive pilot-light voxel** (palette `pilotFlame`, flag 1).
+
+Extra manifest fields:
+
+- flamer: `hose` = `{ from: {part: "torso", pos}, to: {part: "weapon", pos}, length: 1.25, voxel: 0.045, color, sag }`
+  (metres; `from` is in body space of the rest pose like sockets, `to` is weapon space). The hose is **procedural**:
+  the engine draws a sagging chain of 4.5 cm voxels between the two points (it cannot be a rigid part). Also
+  `weaponPoints` `{ pilot, nozzle }` (weapon space) and sockets `hose_tank` (torso), `pilot` (weapon).
+- engineer: `tools` = the tool model names.
+- tool: `toolId` (1 sledgehammer, 2 shovel, 3 torch, 4 crowbar, 5 sandbag, 6 panel), sockets `grip` (origin),
+  `support` (default left-hand point), `tip` (FX point: hammer face, blade, torch flame, claw).
+
+### Hand tools (tool space)
+
+Tools use **weapon space** (0.5 V cells, origin = the right-hand grip, long axis +Z, up +Y, vertices relative to the
+grip, `pivot` 0). They mount exactly like the weapon: child of `forearmR`, `T(hand - elbow) · R(mount)`, with the
+clip's mount channels (MILITARY_ANIMS.md §7). Sizes: sledgehammer 0.95 m (head 0.28 m), shovel 1.0 m (D-handle at the
+grip), cutting torch 0.45 m, pry bar 0.7 m (red), sandbag 0.47 × 0.14 × 0.33 m (grip at its right end, the bag extends
+to +X; support 5 V along +X), gabion panel (folded HESCO section) 1.0 × 0.85 × 0.09 m (grip at the bottom edge,
+panel up +Y; carried vertically at the right side like a sheet of plywood).
+
+Budgets: engineers 2.5–2.7 k triangles, flamethrowers 3.1–3.4 k, tools 46–460, pile 0.4 k.
+
+Review shots: `NODE_PATH=$(npm root -g) node tools/military_lab/spec_shots.mjs <outDir>` (Lab mode `7b` lineup, RTS
+mode with the specialists, `Eng+Flame` / `Eng` / `Flame` in Anim mode, scene `RTS 7b`).

@@ -32,3 +32,14 @@ Model approval 2026-11-26, owner: "Yes, amazing, amazing stuff." (reply to the m
 - Zombie Lab v3 characters: approved (phase 3).
 - Downtown and high-rises: approved and locked (phase 5B).
 - City layout: tensor generator seed 1, approved by the owner (phase 5).
+
+## Phase 7b — new squads (engineers, flamethrower)
+
+Separate files (`assets/military/specialists.*`, `specialist_anims.*`); the Stage A files are byte-identical (md5 checked).
+
+| Asset | Models | Animations | Notes |
+|---|---|---|---|
+| Engineer (3 variants) | pending review | pending review | hi-vis helmet band / shoulder panels, big ruck with tools; carbine; build / carry / dismantle clips |
+| Engineer hand tools (sledgehammer, shovel, cutting torch, pry bar, sandbag, gabion panel) + sandbag pile | pending review | n/a | |
+| Flamethrower (2 variants, squad size proposed 2) | pending review | pending review | twin fuel tanks, hood / mask, flame gun with pilot light, procedural hose |
+| Flame FX (stream, smoke, ground fire, pilot, corpse burn) + work FX (sparks, dust, dirt) | n/a | pending review | spec in specialist_anims.json `fx`, MILITARY_ANIMS.md §7.5 |

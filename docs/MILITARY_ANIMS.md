@@ -275,3 +275,80 @@ no smoke columns. Sizes in metres; colours sRGB; lifetimes in seconds; "frame" =
 | `canopy_ground` dust | 8 voxels 0.08 m around the hem, 0.5 s |
 
 The Lab previews all of them (MILITARY LAB, Anim mode).
+
+## 7. Specialists (Phase 7b): engineer + flamethrower clips — pending review
+
+Files: `assets/military/specialist_anims.bin` / `.json` (same TTZA v1 layout, same 44-float body track, weapon track for
+deaths; no crate track), models in `assets/military/specialists.json`. Classes `engineer` (models `engineer_a..c`) and
+`flamer` (`flamer_a..b`). Every v1 rule above applies; the additions are backwards compatible (all new bits are 0 in the
+v1 clips, and anims.bin / anims.json are byte-identical to the approved files).
+
+### 7.1 Flag extensions (body float 43)
+
+| Bits | Meaning |
+|---|---|
+| 8..11 | `tool` id (manifest `tools`: 1 sledgehammer, 2 shovel, 3 torch, 4 crowbar, 5 sandbag, 6 panel). When non-zero, the right-hand mount channels **36..42** (`weaponMount`, `supportW`, `supportTarget`) place the **tool** (tool space, MILITARY_ASSETS.md) instead of the weapon. Bit 7 (dropped) then drops the tool (weapon track = tool placement). |
+| 12 | `stowed`: the weapon is drawn at `stowMount[class]` (torso space, like `slungMount`): the engineer's carbine strapped flat across the back of the ruck. Always set while a tool is held. |
+
+`stowMount` / `slungMount` are in the manifest. Support-hand re-solve after blends (§4) works unchanged on tools
+(the support target is in tool space). On shafts the left hand **slides** along the handle: `supportTarget` varies per
+frame (nearest comfortable point to the shoulder).
+
+### 7.2 Standard set (both classes)
+
+The full v1 set is authored with the same generators: `idle, walk, run, turn_l/r, aim, fire, crouch_aim, crouch_fire,
+reload, hit, death_a/b/c` (weapon drop), `collect_ammo, enter_building, exit_building, stairs_up/down, para_descent,
+para_land, para_recover`. Engineer = rifleman style with the carbine (3 aimed shots / 0.9 s, rifle muzzle flash, eject
+port `fx.shell_eject_port.carbine`). Flamer = hip posture (fitted like the MG, lighter lean), its `fire` / `crouch_fire`
+are the flame loops below, `reload` is the valve switch below, `collect_ammo` takes a fuel can (`handItem` 4).
+
+### 7.3 Engineer work clips
+
+| Clip | s | Loop | Notes |
+|---|---|---|---|
+| `stow_weapon` / `draw_weapon` | 1.1 / 1.0 | no | carbine over the right shoulder to the ruck (`stow` 0.75 s) / back to carry (`draw` 0.3 s); bit 12 from / until the strap |
+| `build_hammer` | 1.5 | yes | two-handed overhead sledgehammer strike on a stake / gabion post ~1.0 m ahead (`tool_hit` 0.84 s, FX `hammer_hit`) |
+| `build_shovel` | 2.2 | yes | drive the blade in (`dig` 0.6), lever, lift, toss to the right-front into a gabion (`toss` 1.45, FX `dirt_toss`); blade may sink up to 10 cm (`toolGround`) |
+| `build_sandbag` | 2.8 | yes | turn left, take a bag from a pile beside the left foot (`grab` 0.7), carry, lay it on the course 0.6 m ahead at 1.0 m (`place` 1.95), pat (`pat` 2.3) |
+| `carry_sandbag` | 0.96 | yes | walk with a bag at the chest, in place, `speed` 1.1 m/s |
+| `carry_panel` | 0.96 | yes | walk with a folded gabion panel at the right side (right hand on the bottom edge), `speed` 1.1 m/s |
+| `cut_car` | 2.4 | yes | kneel, cutting torch in both hands sweeping a seam 0.7 m up, 0.75 m ahead; `stream: "cut_sparks"` |
+| `pry_car` | 2.0 | yes | pry bar in a gap 0.8 m up, two heaves leaning back (`pry_creak` 0.55 / 1.55) |
+| `death_tool_<tool>` | 1.2 | no | death_a motion while holding a tool: the tool is released at 0.3 s and falls beside the body (sandbag / panel land flat, `dropUpright`); the carbine stays on the back |
+
+Every work loop has a `work_tick` event once per cycle (the game advances construction / clearing by one step) and
+field `work` (`hammer`, `shovel`, `sandbag`, `cut`, `pry`). Engine flow: `idle` → `stow_weapon` → work loop … →
+`draw_weapon` → `idle`/`aim` (manifest `transitions`). Clearing a car: `cut_car` and `pry_car` alternate (or one of
+them) until the car's clear time is reached; towing is left to gameplay (the car can simply be dissolved, §2.3.3).
+
+### 7.4 Flamethrower clips
+
+| Clip | s | Loop | Notes |
+|---|---|---|---|
+| `ignite` | 0.5 | no | from `aim`: `pilot_flare` 0.08, `flame_start` 0.3 (stream on) |
+| `fire` | 2.4 | yes | `stream: "flame"`: sustained stream, ±0.32 rad sweep, gun shake |
+| `stop` | 0.45 | no | `flame_stop` 0.05 (emission off; the airborne stream burns out), back to `aim` |
+| `burn_ground` | 3.2 | yes | `stream: "flame"`, aimed at the ground 2.5–4 m ahead (corpse piles), ±0.5 rad sweep |
+| `crouch_fire` | 2.4 | yes | kneeling stream |
+| `reload` (proposal) | 2.6 | no | no tank swap in the field: left hand reaches back over the shoulder to the tank valves, switches to the reserve tank (`valve` 0.7), repressurises (`pressurise` 1.2), relights (`pilot_relight` 2.2). Full refill = `collect_ammo` at a supply point. |
+
+Stream rule: the flame emitter is on while a clip with `stream: "flame"` plays, or after a `flame_start` until a
+`flame_stop`. Emission origin / direction = weapon `muzzle` (nozzle) / weapon +Z of the **current** frame; emitted
+voxels keep their own trajectory (so a sweep draws a curved stream).
+
+### 7.5 FX (manifest `fx`, voxel style consistent with the volumetric explosions)
+
+- `flame_stream`: 90 voxels/s, 13–15 m/s, gravity 5 m/s², drag 0.6, life 0.5–0.62 s (~8 m reach, drooping), cubes
+  growing 6 → 24 cm, world-axis-aligned and snapped to a 6 cm grid, colour ramp white-yellow → orange → deep red =
+  `fireColour(k)` of `shaders/include/fx_volume_frag.glsl` (HDR, emissive). Each voxel ends as smoke (`flame_smoke`, every
+  3rd, 18 → 45 cm, rises 1.3 m/s, drifts with `FX_WIND`) or, if it reaches the ground first, seeds ground fire.
+- `ground_fire`: pools on the **0.25 m voxel grid of the explosion volumes**, 1–4 voxel flickering columns, burn 7 s
+  + 2 s fade, dark smoke column per pool; proposed engine form: FX volume **kind 2** in `fx_volume.glsl` (disc density ×
+  flicker noise, like `wreckDensity` but low). Gameplay hook: corpses inside a pool burn (`corpse_burn`: char tint 3 s,
+  then the voxel dissolve of §2.3.3 over 2.5 s, ash decal) and stop their rot gas; zombies inside take burn damage.
+- `pilot` (always while the gun is in hand), `pilot_flare`, `cut_sparks` (torch tip, 40/s, bouncing), `hammer_hit`,
+  `dig`, `dirt_toss`, `hose` (procedural voxel chain, MILITARY_ASSETS.md). Exact numbers in the manifest.
+
+Converter checks for these clips (in addition to §2.5 / §5): tool id valid, weapon stowed whenever a tool is held, held
+tool never more than 5 cm (shovel 10 cm) below the ground (`check.toolMinY`), dropped tools at rest flat and beside the
+body (`checkDeath` with the tool's voxels).

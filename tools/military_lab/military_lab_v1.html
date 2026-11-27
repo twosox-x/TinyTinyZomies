@@ -2969,7 +2969,8 @@ function buildAnimScene() {
       : [...LIB.infantry, ...SPEC.soldiers].filter(m => m.cls === anim.cls).slice(0, 3).map(m => [m.name, anim.cls]);
     list = list.filter(([m, c]) => CLIP[c + "/" + anim.action]);
     // side-by-side across the view direction (side view: spread along Z)
-    list.forEach(([m, c], i) => { const o = (i - (list.length - 1) / 2); const a = state.view === "side" ? makeActor(m, 0, o * 2.6, 0) : makeActor(m, o * 1.7, 0, 0); a.cls = c; });
+    const wk = /^(build|cut|pry)/.test(anim.action), spS = wk ? 4.6 : 2.6, spP = /^(cut|pry)/.test(anim.action) ? 4.6 : wk ? 2.6 : 1.7;
+    list.forEach(([m, c], i) => { const o = (i - (list.length - 1) / 2); const a = state.view === "side" ? makeActor(m, 0, o * spS, 0) : makeActor(m, o * spP, 0, 0); a.cls = c; });
     const act = anim.action;
     if (act.startsWith("stairs")) for (const a of actors) {   // stair flight under each actor (0.175 rise, 0.28 tread)
       const up = act === "stairs_up", mat = new THREE.MeshStandardMaterial({ color: 0x8d887c, roughness: 1 });

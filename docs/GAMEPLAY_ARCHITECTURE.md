@@ -57,13 +57,27 @@ B1 architecture with explicit ownership, and compilable interface headers under 
   path (`CityRenderer::drawExternal`). Distance LOD (pose rate, small gear), frustum cull per soldier. Caps:
   1,280 soldiers, 28,672 parts, 8,192 CPU instances.
 - FX: CPU pool (≤ 4,000) of voxel flashes / tracers / casings / puffs / dust at the **posed** muzzle (CPU forward
-  kinematics), up to 4 flash point lights. Game rounds (after B1 feedback): flash + tracer per `FxKind::Shot` along the
+  kinematics), up to 4 flash point lights. Muzzle flashes (round-3 feedback) are 3-frame voxel sequences per weapon (rifle / MG: hot core, tapering forward cone, side prongs, random roll; 1/60 s per frame) and their light is a small *sharp* point light (negative radius in `PointLight`: inverse-square with a 0.35 m core, windowed to 4-5 m, plain Lambert, never merged with fire lights; `lighting.glsl pointLights`), not a soft glow. Game rounds (after B1 feedback): flash + tracer per `FxKind::Shot` along the
   real shot ray (`GameRender::shotFx` -> `MilitaryRenderer::fxShotRay`; tracer cadence `GameRender::tracerEvery` =
   rifle 3, MG 1, sniper 1 (faint)); the streak ends where the GPU resolved the round (`HordeBridge::hitResults`,
   per-shooter queue order). Flashes / tracers are emissive by day and night, scene-pass only, and keep a minimum
   angular size (~2-3 px) at RTS distance. LODs (city chunks, instances, foliage, soldiers) measure from the nearer of
   the eye and the camera focus (RTS pivot); props / foliage are never distance-culled (coarse LODs instead). Parachute sequences for soldier (street, rooftop with canopy clamp) and
   cargo crate, canopy voxel dissolve after `canopy_ground` (2.5 s hold + 2.5 s).
+- Renderer look (round-3 owner feedback, `src/render/Renderer.*`, `shaders/include/{lighting,shadow}.glsl`):
+  - DOF auto focus: the focus distance is the median of 5 view rays (screen centre +- 4 %) marched through the city's
+    coarse height grid, smoothed in log distance over 0.25 s (`RenderSettings::dofAutoFocus`), so a rooftop squad at the
+    screen centre is sharp. Zoom-adaptive curve (`dofAt`): base values up to 70 m; towards 300 m the aperture stays,
+    max blur x0.85, a 0.04 in-focus band, and a screen-space tilt-shift CoC floor (0.8 at the top / bottom edge, sharp
+    centre 28 % of the half height) keeps the miniature look at max zoom.
+  - Smooth sun shadows: the shadow map is a 2-layer array; each layer holds the sun at a fixed clock key (1/150 h),
+    the layers re-render on alternate frames (texel-snapped fit), receivers cross-fade the two keys around the clock
+    (`shadowP2`). No stepping, no rotating texel grid, one shadow pass per frame.
+  - Foliage: full detail out to clamp(1.1 x camera distance, 100, 160) m from the nearer of eye / pivot, dithered
+    density fade over 120 m to the far set (every 8th instance, 2.8x wider, lower, height-varied: a crop surface).
+  - Windows: per-room (3.2 m x 3 m) brightness (off / dim / lit / bright) and colour (warm, neutral, fluorescent, rare
+    flickering TV blue); by day glass gets a per-room tilted sun glint + Fresnel sky reflection.
+  - Day / night: 20 real minutes of day (06-18 h) + 7 of night (`TimeOfDaySettings::dayMinutes / nightMinutes`).
 - **All of this is private to `MilitaryLab`** (one 1,445-line class: scene, UI and renderer mixed). The renderer hooks
   are single `std::function`s on `Renderer` (`extPrepare / extDraw / extShadowDraw`), so lab and game are exclusive.
   The stress mode moves soldiers with a scripted "walk along the street, turn back at obstacles" (no navigation).
@@ -509,6 +523,49 @@ steep shot clears the edge only from right there). Perception keeps scanning the
 firing-line test. Result: b1_sniper wave 2 (32 singles on rings of 70-190 m, some hidden behind other blocks): ~7 kills
 per minute, no crowd drawn (noise radius 12 m). Test `tests/game/b1_sniper.txt`.
 
+**Owner feedback round 3 (targeting, cars, gates, rooftop ammo, stepped roofs).**
+What was wrong: (1) the soldiers' firing-line check marched the soldiers' walk grid, where gate cells are LOWERED
+(soldiers pass gates), but the GPU stops rounds at the zombies' grid where a gate is a 2.4 m wall: an MG squad next to a
+gate saw a "clear" line to the zombies pressing on it and poured rounds into the gate, and because those zombies were
+the nearest (score = distance - closing speed) it never switched to a group approaching along the street. Only the 4
+nearest zombies were scored at all (the field was only read when no exact threat existed), so a group behind the 4
+nearest was invisible to the choice. (2) A zombie wedged between parked cars: torso line blocked by the car next to it
+(1.1 m aim), the lock was dropped after 1 s of no clear line, re-acquired from the 2 m eye (visible), dropped again:
+never a shot. The CPU check also skipped 0.6 m at the target end while the GPU does not (a car cell right at the zombie
+stopped rounds the CPU thought clear). (3) Crates: `canAirdrop` demanded a 1.6 m footprint flat within 0.35 m exactly
+at the clicked point (roof gravel / parapet steps of 0.75 m refused almost every roof, even curbs), and the 4 m landing
+scatter accepted the street below a roof. (4) Stepped roofs: off-grid recovery in `steer` let a soldier standing on a
+non-walkable rim cell step onto ANY walkable neighbour, including the street 16 m below or another roof level.
+Now:
+* `NavGrid` keeps a shot layer = the zombies' static grid (`setShotHeights` / `updateShotRows`, fed by GameWorld /
+  `Fortifications::patchNav`): gates and walls block rounds for the CPU exactly as on the GPU. `NavGrid::shotLine`
+  marches it like `game_hits.comp` (to 0.35 m short of the aim point), and both treat a static cell less than 0.3 m
+  above the ray within 2.5 m in front of the target as PARTIAL COVER (car roofs are stamped as full boxes): the round
+  goes on and counts only if it hits a zombie within those 2.5 m (`GRAZE`, `COVER_REACH`).
+* `SoldierAI::aimFor`: torso (1.1 m) first, else the head (1.55 m) over the car roof, crawlers low; the chosen height
+  travels in `TargetLock::aimY` to `Combat::fire`. Combat's fire-over-cover rule reads the shot layer too.
+* Target utility (`SoldierAI::scoreTarget`, documented in the code): proximity 10 x (1 - d / acquireRange) (snipers 4 x),
+  approach + 5 x min(closing / 2, 1.5) + 4 x (1 - eta / 8 s), on a soldier (any squad, buddyRadius) + 8, within
+  mustFight + 3, CANNOT REACH (an obstacle > 0.6 m right ahead of it toward us, 2.4 m wide: gate, wall, car wedge)
+  x 0.3, density (zombies in its 6 m tile) MG + 1.2 each (max 5), rifle + 0.3; sniper beyond 12 m + 3 alone / - 1 per
+  neighbour; overkill - 3 per squad mate already locked on it. Candidates = the exact nearest list every tick + on
+  perception ticks (and whenever there is no lock) the 8 nearest coarse-field samples out to 60 m that are not in the
+  exact list (snipers: their isolated-target search over the weapon range). Only HITTABLE candidates (clear firing
+  line now, in weapon range) are locked. Re-evaluated every tick: the lock is kept unless a hittable candidate beats
+  its score by switchMargin 2; an unhittable lock gives way at once. Threat stops of moving / resupplying soldiers
+  only fire for hittable zombies that can reach them.
+* Sidestep: a soldier with zombies in sight within 20 m but none shootable steps up to 2.6 m aside (walkable, same
+  island, within the leash of his slot, a clear line to the most urgent one), at most every 2.5 s.
+* Crates (`Logistics::airdropSpot`): the clicked surface (street or any roof level), snapped within 2.5 m to a flat 1.2 m
+  spot on that level with a walkable access cell; the scatter stays on that level and island; small roofs get the
+  nearest walkable cell as the access slot. Rooftop soldiers find it through `findNearest` (same island) as before:
+  snipers resupply themselves, multi-soldier squads send their runner.
+* Stepped roofs: placement already tests the clicked level (spot snapping and member landing within 0.4 m of the
+  clicked surface, same island); recovery steps in `steer` now stay on the same level (< 0.6 m).
+Tests: `b3_ai_gate.txt`, `b3_ai_cars.txt`, `b3_roof_crate.txt`, `b3_roof_levels.txt`, `b3_ai_survival.txt`
+(script metrics `static_pct`, `switches`, `sidesteps`, squad fields `switches` / `rounds`).
+RESULTS_PLACEHOLDER
+
 ## 8. Milestone B3a: buildings (capture, garrison, hospital, fortification; GAME_DESIGN 6 / 7 / 14b; PROPOSED, values UNAPPROVED)
 
 **Data (bake).** The baked tiles had no per-building data (buildings are merged into the tile mesh; HGT0 only flags
@@ -662,3 +719,116 @@ constant work inside the existing relaxation). Memory: nodes 48 KB, entrances 8 
 holds them until breached (no capture before), entry later than with an open door; no soldiers -> nobody enters;
 soldiers on floor 2 -> occupants stop there, interior attackers, defenders kill (each kill exactly one kill event);
 drain through the door once the soldiers leave. Script `tests/game/b3b_vertical.txt` (city, B3a's test building).
+
+## 11. Corpse rot gas and flamethrowers (GAME_DESIGN 14d; mechanics APPROVED, values UNAPPROVED, squad size PROPOSED 2)
+
+Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h,cpp}` (draw, game binary only),
+`FlameAI.{h,cpp}` (flamethrower behaviour), `CorpseGasTest.cpp` (self-test), shaders `game_gas_corpse.comp`,
+`game_gas_field.comp`, `game_gas_agents.comp`, `gas.vert` / `gas.frag`, `include/gas.glsl`; config `rot` / `flame` plus
+`weapons|soldiers|squads.flamethrower` and `logistics.*Stock.fuel` in `config/balance.json`.
+
+- **Data.** Per corpse slot an own `uvec4` (key = position hash, age, ignition, burn time): the 32 B corpse record stays
+  unchanged; a reset / reused slot is detected by the key. The rot level (0..63) is mirrored into the corpse's free
+  `info.z` bits 26..31 for renderers. Gas grid = 2 x 2 sim cells (1.5 m, 256 x 256 over the 384 m window), `uvec4`
+  per cell (gas, ground-fire seconds, igniting soldier, corpse / rotting counts), ping-pong, shifted with the window.
+- **Passes** (GameWorld::postSim, after the horde's field passes, sim time since the last update, <= ~30 Hz):
+  corpse pass (indirect over `C_CORPSES`: age, rot emission ramping over `rot.ramp`, counts, ignition by flame cones /
+  ground fire, burning, removal = alive bit cleared + negative height splat like `sim_corpse_blast`) -> field pass
+  (diffusion with buildings as reflecting walls, emission, decay, fire burns gas off, ground fire ages, flame cones
+  light the cells they cover; contained: fire never spreads) -> agents pass (zombies in a cone / in ground fire get
+  damage through HordeBridge's bullet-damage queue, credited to the flamethrower: deaths, kill records, rewards and
+  gore are the existing path). Packed readback (gas, fire, corpses, rotting per cell + stats), async ring of 3,
+  every 0.25 s.
+- **Gameplay.** `CorpseGas::tick` (after Combat): soldiers standing in gas above `rot.damageThreshold` lose
+  `damagePerSecond x level` hp/s (capped), the squad gets `SQ_GAS` (green status pip, "in gas" in the selection
+  panel, one notification). `NavGrid::setCostLayer`: cells above `rot.navAvoidLevel` cost extra in A* (avoided when a
+  way around exists, never blocked; string pulling may still cut a corner through thin gas).
+- **Flamethrower squad.** `SoldierClass::Flamethrower` / `SquadType::Flamethrower` / `AmmoType::Fuel` (tank =
+  magazine, spare tanks = reserve; reload = tank swap; resupply = the generic path, fuel stock in containers / crates).
+  Generic SoldierAI engages zombies at the 9 m weapon range; `Combat::fire` hands flamethrower rounds to
+  `FlameAI::spray` (cone, fuel by spray time, FX, one loud noise per second). `FlameAI::tick` (after SoldierAI): an idle
+  squad seeks the best pile / rotting gas source within `flame.seekRadius` of its post (the player's last order point),
+  walks to a stand-off point (its own move order), sprays the pile with a sweep until no corpse is left (readback) or a
+  timeout, then returns; a player order onto a pile burns that pile. Never sprays with a soldier inside the cone.
+- **Placeholder** until the approved flamethrower model / clips (tools/military_lab): rifleman variants and clips
+  (`FlameAI::usePlaceholderAssets`, one call in GameWorld), flame stream from the rifle muzzle
+  (`MilitaryRenderer::fxFlame`, emissive voxels with drag / lift, kind 9 in the FX pool, bounded by kMaxFx).
+- **Rendering.** One indirect instanced draw of the listed gas cells, 9 voxel boxes each: translucent low haze slab
+  (0.25 m height steps, alpha <= 0.42, destination alpha kept for the DOF), sparse rising puffs, flies over rotting
+  bodies, flickering emissive ground-fire voxels. Burning piles also get small wreck-style voxel fire volumes
+  (`GameWorld::fireVolumes`, nearest 6). Corpse colour itself is unchanged (rendering agent: rot level is in info.z).
+- **Tests.** Self-test section *corpse gas / flamethrowers* (`TTZ_SELFTEST_GAS=1` stops after it, `TTZ_SELFTEST_NO_GAS`
+  skips): squad / class / fuel type, fuel per spray time, friendly-fire block, fuel resupply conserved, no gas before
+  the rot delay and gas after it, spread grows, soldier in gas loses health + SQ_GAS (outside: none), a sprayed pile
+  burns away (list and height field), gas decays after, flame kills zombies with credit. Script
+  `tests/game/b4_gas_flame.txt` (verbs `corpses N X Z [R]`, test hook `rot DELAY [RAMP]`; metrics `gas_max`,
+  `gas_cells`, `rotting`, `burned`, `corpses_window`, `gas_damage`, `flame_sprays`, `flame_trips`, `fuel_used`).
+
+## 12. Engineers, construction jobs, wall placement 2.0, single gates, car clearing (GAME_DESIGN 14d; squad APPROVED, rules PROPOSED, values UNAPPROVED)
+
+**Modules.** `EngineerAI.*` (new: construction radius, job queue, assignment, work, car orders), `Walls` (blueprints,
+split pieces, auto-fill pieces, single-gate planning, loop closure, facade trimming), `Fortify` (charges, obstacles of
+finished pieces only, undo, drawing of blueprints / basket rows), `FortUI.cpp` (tools, guides, rings, progress),
+`FortScript.cpp` (verbs / metrics), `CityVehicles` (parked-vehicle pick + removal). Shared files got additive hooks only:
+`SquadType::Engineer` (= 4; riflemen by class: `Config` pairs squad types with classes through `kSquadCls`),
+`EngineerConfig` (`balance.json` "engineers"), `GameContext::engineers`, `Command::{BuildGate, ClearCar, UndoBuild}`,
+`SoldierAI::workHook` (one call in the Idle branch), `DeployTiming::engineerVariants`,
+`MilitaryLibrary::addEngineerPlaceholder`, `Vehicle::removed` (+ one skip in `CityRenderer`), `Tool::{BuyEngineer, ClearCar}`.
+
+**Construction radius.** Orders (walls, gates, gates into walls, car clearing) are accepted only within
+`engineers.radius` (40 m, UNAPPROVED) of an engineer squad: its post (anchor = last order destination) or, before the
+first order, its members' centroid. `WallEnv::buildable` carries the rule into planning (per piece: "outside engineer
+range"). `EngineerAI::instantBuild` (script `cheat build 1`) is the debug / test cheat: anywhere, built at once. B2 / B3
+scripts that are not about engineers use it.
+
+**Jobs.** Derived from the world every tick (never out of sync): every blueprint (`WallPiece::build < 1`), every wall
+piece being converted into a gate (`toGate`), every car order. Order: cars first, then placements in placement order. A
+blueprint overlapping a car being cleared waits ("waits for the car"). Each engineer squad takes the first free job
+within its radius (several squads share the queue; with nothing free they help). Members get work spots beside the job
+(the squad's side, spread along it, snapped walkable); EngineerAI sets them as their home, so SoldierAI's leash walks
+them there and threats still come first (engineers are riflemen). At the spot (`workRange`), `work()` adds
+`dt / time` per engineer (`pieceTime` per 4 m piece pro rata 30..120 %, `gateTime`, `carTime`; engineer-seconds:
+3 engineers are 3x as fast) and `postAi()` requests the work loop (collect_ammo, PLACEHOLDER). A player move order drops
+the squad's jobs; it picks jobs up again within the radius of its new post.
+
+**Blueprints.** Committed pieces start at build 0: no collision, no territory, no joint post, no pressure; they already
+count for placement (no overlaps) and snapping. When finished (`Walls::advance`) the piece becomes solid: obstacle
+stamped, posts (nodes count `solidDeg`), territory, rise animation. Drawn translucent, growing with progress; progress
+bars and waiting reasons above them. **Undo** (Ctrl+Z, `CommandType::UndoBuild`): the newest placement with unfinished
+parts loses those parts (finished pieces stay) and they are refunded at the price charged.
+
+**Placement 2.0.** Snapping: joint (1.5 m) > a point ON an existing piece (1.2 m, 0.5 m steps, >= 1 m from its ends; the
+piece is split there on commit, T post) > drag length (4 m pieces; Ctrl 1 m) > 1 m grid. Direction: Shift = 15 deg
+steps, otherwise 0 / 45 / 90 deg snap magnetically within 4 deg, relative to the previous leg / the wall the leg starts
+on / the world axes. Legs: whole 4 m pieces plus an auto-fill end piece (remainder >= 2.5 m: its own piece; 1..2.5 m:
+the last 4 m shares it, two pieces of 2.5..3 m; < 1 m: the 4 m pieces stretch); price pro rata (min 25 %). Pieces under
+3.5 m are drawn as a row of 1 m gabion baskets (approved joint asset), never as a squashed 4 m piece. Walls butt
+against facades: an end clicked inside a building is pulled back to 0.4 m into the facade. Per-piece conflicts with
+their own reason (building / water, kerb or step, vehicle, container, wall, joint, angle, range, too short); pieces
+through a car being cleared are amber ("after the car is cleared"); pieces that connect two already connected joints
+are outlined cyan ("closes the loop"). Guides: 1 m grid around the cursor, dashed extension of the leg, length / angle
+readout, engineer radius rings.
+
+**Single gates (J).** One 4 m gate at the cursor, rotated with Q / E / wheel (15 deg) / T (90 deg). Over a wall piece
+(1.5 m) it aligns to it and replaces that part (the piece is split around it; pieces up to 5.5 m are replaced whole;
+no slivers under 1 m next to a joint); the engineers convert it (gateTime) while the wall keeps standing. An end within
+1.2 m of a joint snaps there (both ends: between the two joints). Next to a wall end (2.5 m) it continues that wall.
+Otherwise it stands on its own with end posts.
+
+**Car clearing (K).** Click a parked vehicle within the radius (charged `carPrice`); engineers work beside it
+(`carTime`); then `CityVehicles::removeVehicle`: not drawn (custom list skip), never simulated, its baked footprint
+becomes ground, its cells re-uploaded (zombies, NavGrid patch), kept across window moves (`removed` per vehicle).
+
+**Containers (owner issue 3).** The shots in the feedback set show a floating building block (city bake overhang, not
+a container). Changes made on the container side: the descent is straight down onto the placed spot (unchanged), the
+collapsing canopies now fall to the side away from walls (or fold straight down onto the roof when walls are on both
+sides) instead of draping over / through an adjacent wall; containers may still be placed flush inside a compound.
+
+**Engineer look.** PLACEHOLDER: "Engineer (placeholder)" = the first rifleman variant with an orange helmet cover and a
+hi-vis vest (`addEngineerPlaceholder`, two palette entries); never used for rifle squads. When the approved engineer
+assets (class "engineer", tools/military_lab) are loaded into the library, `engineerVariants` uses them instead (their
+class clips must exist); the work clip request in `EngineerAI::postAi` is the one line to switch to their build clip.
+
+**Tests.** `tests/game/b4_engineers.txt` (no engineers -> refused, radius, blueprints, queue, undo + refund, build loop,
+mid-piece T split), `tests/game/b4_gate_car.txt` (gate into a wall, gates onto joints, territory closed by gates, soldiers
+pass, car clearing, a wall planned through the car built after it). B2 scripts run with `cheat build 1`.
