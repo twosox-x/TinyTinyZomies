@@ -147,36 +147,6 @@ void GameWorld::applyCommands(AppState& app) {
     applying_.clear();
 }
 
-void GameWorld::updateSquadFlags() {
-    const std::vector<SoldierContact>& contacts = horde_.contacts();
-    for (Squad& s : squads_.squads) {
-        uint32_t f = s.deploying ? (uint32_t)SQ_DEPLOYING : 0u;
-        int alive = 0, ammo = 0, full = 0, empty = 0;
-        for (const SoldierId& m : s.members) {
-            if (!soldiers_.valid(m) || !soldiers_.alive(m.index)) continue;
-            const uint32_t i = m.index;
-            ++alive;
-            const size_t c = (size_t)soldiers_.cls[i];
-            const int a = soldiers_.mag[i] + soldiers_.reserve[i];
-            ammo += a;
-            full += cfg_.weapon[c].magazine + cfg_.weapon[c].reserve;
-            empty += a == 0 ? 1 : 0;
-            const SoldierState st = soldiers_.state[i];
-            if (st == SoldierState::Moving) f |= SQ_MOVING;
-            if (st == SoldierState::Engaging || st == SoldierState::Reloading) f |= SQ_ENGAGED;
-            if (st == SoldierState::Resupplying || st == SoldierState::Collecting) f |= SQ_RESUPPLYING;
-            if (st == SoldierState::Hit) f |= SQ_UNDER_ATTACK;
-            const uint32_t pk = m.packed();
-            for (const SoldierContact& sc : contacts) if (sc.packedId == pk && sc.attackers > 0) f |= SQ_UNDER_ATTACK;
-        }
-        if (s.order.active) f |= SQ_MOVING;
-        if (alive < (int)s.members.size()) f |= SQ_CASUALTIES;
-        if (alive && empty == alive) f |= SQ_OUT_OF_AMMO;
-        else if (alive && full > 0 && (float)ammo < (float)full * cfg_.soldier[(size_t)s.type].lowAmmoFraction) f |= SQ_LOW_AMMO;
-        s.flags = f;
-    }
-}
-
 void GameWorld::tick(AppState& app) {
     const double t0 = nowMs();
     events_.shots.clear(); events_.kills.clear(); events_.noise.clear();   // per tick (fx: per frame, see preSim)
@@ -199,7 +169,6 @@ void GameWorld::tick(AppState& app) {
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)
     logistics_.tick(ctx_);                                     // g
     economy_.tick(ctx_);                                       // h
-    updateSquadFlags();                                        // UI markers
     if (script_.loaded() && !script_.tick(*this, ctx_.time)) finished_ = true;   // i
     ctx_.time += kTickDt;
     ++ctx_.tick;

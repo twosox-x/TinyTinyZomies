@@ -81,6 +81,7 @@ struct AppOptions {
     bool game = false;
     std::string gameScript;        // --game-script FILE: headless scenario (exit code = failed expectations)
     bool gameSync = false;         // --game-sync: wait for each horde readback (deterministic tests)
+    bool gameDemoRender = false;   // --game-demo-render: static soldiers playing clips through GameRender (screenshots)
     std::string balance = "config/balance.json";   // --balance FILE
 };
 

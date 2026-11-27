@@ -101,12 +101,12 @@ void SoldierAnimator::configure(const BalanceConfig& cfg) {
 }
 
 void SoldierAnimator::setWeaponTiming(SoldierClass c, float fireInterval, float reloadTime) {
-    if ((int)c < 0 || (int)c >= 3) return;
+    if ((unsigned)c >= 3u) return;
     fireInterval_[(int)c] = fireInterval;
     reloadTime_[(int)c] = reloadTime;
 }
 
-float SoldierAnimator::clipShotInterval(SoldierClass c) const { return (int)c >= 0 && (int)c < 3 ? shotInterval_[(int)c] : 0.3f; }
+float SoldierAnimator::clipShotInterval(SoldierClass c) const { return (unsigned)c < 3u ? shotInterval_[(int)c] : 0.3f; }
 
 int SoldierAnimator::clipFor(int infantry, AnimAction action, uint8_t deathVariant) const {
     if (infantry < 0 || infantry >= (int)inf_.size() || (int)action >= (int)AnimAction::Count) return -1;

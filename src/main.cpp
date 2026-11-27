@@ -105,6 +105,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--game")) o.game = true;
         else if (!std::strcmp(a, "--game-script")) { o.game = true; o.gameScript = next(); }
         else if (!std::strcmp(a, "--game-sync")) o.gameSync = true;
+        else if (!std::strcmp(a, "--game-demo-render")) { o.game = true; o.gameDemoRender = true; }
         else if (!std::strcmp(a, "--balance")) o.balance = next();
         else if (!std::strcmp(a, "--lab-views")) o.labViews = parseStrs(next());
         else if (!std::strcmp(a, "--lab-stress")) o.labStress = parseInts(next());

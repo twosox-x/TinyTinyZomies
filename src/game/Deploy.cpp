@@ -242,20 +242,7 @@ void Deploy::tick(GameContext& ctx) {
     // canopies are gone 2.5 s hold + 2.5 s dissolve after settling: drop the track a little later
     drops_.erase(std::remove_if(drops_.begin(), drops_.end(), [](const DropTrack& d) { return d.phase == DropPhase::Done && d.groundT > 7.f; }),
                  drops_.end());
-    if (ctx.squads)
-        for (Squad& s : ctx.squads->squads) {
-            if (!s.deploying) continue;
-            bool any = false;
-            for (const SoldierId& m : s.members)
-                if (P.valid(m)) {
-                    const SoldierState st = P.state[m.index];
-                    any |= st == SoldierState::Descending || st == SoldierState::Landing || st == SoldierState::Recovering;
-                }
-            if (!any) {   // 7: squad formation at the drop point (SoldierAI forms up on the order), 8: autonomous
-                s.deploying = false;
-                s.flags &= ~(uint32_t)SQ_DEPLOYING;
-            }
-        }
+    // Squad::deploying / flags: SoldierAI recomputes them every tick (single owner, from the soldier states)
 }
 
 bool Deploy::parachuted(SoldierId s) const {

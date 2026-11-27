@@ -100,7 +100,6 @@ public:
 private:
     void tick(AppState& app);
     void applyCommands(AppState& app);
-    void updateSquadFlags();
     void rebuildNav(AppState& app);
 
     GameOptions opt_;
