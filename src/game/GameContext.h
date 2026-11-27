@@ -20,6 +20,9 @@ class Logistics;
 class Deploy;
 class Walls;
 class Territory;
+class EngineerAI;
+class CorpseGas;
+class FlameAI;
 
 struct GameContext {
     const BalanceConfig* cfg = nullptr;
@@ -33,6 +36,9 @@ struct GameContext {
     Deploy* deploy = nullptr;
     Walls* walls = nullptr;                         // B2 (Fortifications)
     Territory* territory = nullptr;                 // B2 (Fortifications)
+    EngineerAI* engineers = nullptr;                // GAME_DESIGN 14d: construction jobs, engineer radius, car clearing
+    CorpseGas* gas = nullptr;                       // GAME_DESIGN 14d corpse rot gas / flame fire (null: headless CPU tests)
+    FlameAI* flame = nullptr;                       // GAME_DESIGN 14d flamethrower behaviour (Combat::fire hands it flamethrower rounds)
     TickEvents* events = nullptr;
     std::vector<AnimEvent>* animEvents = nullptr;   // clip events crossed this tick (SoldierAnimator::tick)
     double time = 0.0;                              // game time (s), advances kTickDt per tick

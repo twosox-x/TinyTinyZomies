@@ -18,7 +18,10 @@
 namespace ttz::game {
 
 enum class CommandType : uint8_t { Select, Move, Stop, BuySquad, BuyContainer, BuyAirdrop, Spawn /* debug / scripts */,
-                                   BuildWall /* B2: path of snapped points, wallType, gate */ };
+                                   BuildWall /* B2: path of snapped points, wallType, gate */,
+                                   BuildGate /* 14d: one gate at pos, yaw = facing (into a wall / at a wall end / alone) */,
+                                   ClearCar /* 14d: engineers remove the parked vehicle at pos */,
+                                   UndoBuild /* Ctrl+Z: unfinished pieces of the newest placement removed, refunded */ };
 
 struct Command {
     CommandType type = CommandType::Stop;

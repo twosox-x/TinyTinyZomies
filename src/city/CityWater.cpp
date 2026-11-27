@@ -204,6 +204,10 @@ void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const
     stats = {};
     if (!enabled || !pipe_ || tiles_.empty() || models_[0].empty()) return;
     bool bound = false;
+    const float camDist = std::sqrt((eye[0] - focus[0]) * (eye[0] - focus[0]) + (eye[1] - focus[1]) * (eye[1] - focus[1]) +
+                                    (eye[2] - focus[2]) * (eye[2] - focus[2]));
+    const float fadeA = std::clamp(camDist * fadeZoom, fadeStart, std::max(fadeStart, fadeStartMax)), fadeB = fadeA + std::max(10.f, fadeWidth);
+    const float lod1Dist = fadeA * lod1Frac;
     for (int key : keys) {
         auto it = tiles_.find(key);
         if (it == tiles_.end()) continue;
@@ -222,7 +226,7 @@ void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const
             // nearest point -> lod; the vertex shader thins by each instance's own distance down to the far set (every
             // farStride-th instance, grown into clumps); beyond fadeDist only that set is drawn (coarse far LOD)
             const int lod = dist < lod1Dist ? 0 : 1;
-            const uint32_t stride = dist > fadeDist ? (uint32_t)std::max(1, farStride) : 1u;
+            const uint32_t stride = dist > fadeB ? (uint32_t)std::max(1, farStride) : 1u;
             for (uint32_t ty = 0; ty < t.types && ty < models_[lod].size(); ++ty) {
                 const uint32_t a = t.start[c * t.types + ty], b = t.start[c * t.types + ty + 1];
                 const Model& m = models_[lod][ty];
@@ -235,7 +239,7 @@ void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const
                 }
                 if (!tileBound) { SDL_BindGPUVertexStorageBuffers(pass, 0, &t.inst, 1); tileBound = true; }
                 FolU u{{t.x0, t.z0, (float)lod, 0}, {m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0},
-                       {ty < sway_.size() ? sway_[ty] : 0.f, m.height, fadeStart, fadeDist}, {focus[0], focus[1], focus[2], farClump},
+                       {ty < sway_.size() ? sway_[ty] : 0.f, m.height, fadeA, fadeB}, {focus[0], focus[1], focus[2], farClump},
                        a, stride, (uint32_t)std::max(1, farStride), 0};
                 const uint32_t n = (b - a + stride - 1) / stride;
                 SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));

@@ -190,7 +190,7 @@ SquadId Deploy::execute(GameContext& ctx, SquadType type, const DropPlan& plan) 
     for (int k = 0; k < (int)plan.landing.size(); ++k) {
         const V3 land = plan.landing[(size_t)k];
         uint32_t seed = pcg((uint32_t)(sq.index * 977u + (uint32_t)k * 131u + 7u));
-        const std::vector<int>& vars = timing.variants[c];
+        const std::vector<int>& vars = type == SquadType::Engineer && !timing.engineerVariants.empty() ? timing.engineerVariants : timing.variants[c];
         const int inf = vars.empty() ? 0 : vars[(size_t)((seed >> 8) % vars.size())];
         DropTrack d;
         d.squad = sq;

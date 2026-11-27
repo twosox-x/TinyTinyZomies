@@ -121,6 +121,9 @@ public:
     uint32_t fxShotRay(const MilPoseInput& s, V3 hit, bool tracer, bool casing);
     // Bright emissive streak travelling from `from` to `to` (style 0 rifle, 1 MG, 2 sniper: thinner, faster).
     uint32_t fxTracer(V3 from, V3 to, int style);
+    // Flamethrower spray (GAME_DESIGN 14d, game FxKind::Flame): nozzle glow at the posed muzzle of `s` and a burst of
+    // emissive voxels streaming along `dir` (drag, lift, ground spread) that reach about `range` m. Bounded by kMaxFx.
+    void fxFlame(const MilPoseInput& s, V3 dir, float range);
     void fxTracerEnd(uint32_t id, float distFromStart);     // shorten / lengthen a live tracer (hit resolved)
     float tracerLength = 9.f;                               // m, visible streak behind the head
     float tracerWidth = 1.5f;                               // x the minimum angular width (1.5: ~3 px at 1080p)
@@ -144,7 +147,8 @@ private:
     // kind 0 static, 1 ballistic, 2 drift, 3 tracer (clip event), 4 ray tracer (p start, v unit dir, a length, b style)
     struct Fx { int model; V3 p, v; float q[4]; float age, life; int kind; float glow = 0.f, a = 0.f, b = 0.f, speed = 0.f; uint32_t id = 0; };
     static constexpr float kStreakVoxel = 0.05f, kStreakLength = 0.8f;   // FX_STREAK model: 1 x 16 x 1 voxels of 5 cm
-    struct Flash { V3 p; float life; float radius; };
+    struct Flash { V3 p; float life; float radius; float intensity; };
+    uint32_t flameSeq_ = 0;   // fxFlame jitter stream
     void soldierEvent(const MilPoseInput& so, const CharU& C, const MilFxEvent& e);
     void pushSoldier(const MilPoseInput& so, int lod);
     void sampleSoldier(const MilPoseInput& so, CharU& C, float mountQ[4], int lod) const;

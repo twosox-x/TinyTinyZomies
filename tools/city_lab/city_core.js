@@ -419,10 +419,14 @@ function waterSD(net, x, z) {
   return sd;
 }
 // bank surface height (m) at signed shore distance sd
+// Voxel terraces, not a ramp: BANK_STEPS treads of bank / BANK_STEPS m, each riser (top - toe) / BANK_STEPS m (~0.6 m)
+// high, so the bank reads as stacked stone / earth blocks at RTS range; the last tread is a riprap ledge just above the
+// waterline. The bed under the surface keeps its gentle slope (hidden by the water).
+const BANK_STEPS = 4;
 function bankY(sd) {
   const W = WATER;
   if (sd <= -W.bank) return W.top;
-  if (sd <= 0) return W.top + (W.toe - W.top) * (sd + W.bank) / W.bank;
+  if (sd <= 0) { const k = Math.min(BANK_STEPS - 1, Math.floor((sd + W.bank) / W.bank * BANK_STEPS)); return W.top + (W.toe - W.top) * (k + 1) / BANK_STEPS; }
   return W.toe + (W.bed - W.toe) * Math.min(1, sd / W.bedRun);
 }
 // bridges: every road stretch over (or within the bank of) the water, as a straight deck rectangle from 3 m of land
@@ -473,8 +477,11 @@ function waterColumn(net, x, z, onRoad) {
   if (br) return [Math.min(y, WATER.carve), y < WATER.level ? GROUND.WATER : GROUND.SOIL];
   if (onRoad && sd < -0.8) return null;                  // a road grazing the bank stays flat
   if (y < WATER.level - 0.05) return [y, GROUND.WATER];   // under the surface (bed)
+  // treads: riprap (stone blocks, 0.5 m checker of two rock tones + gravel) on the two lower steps, earth / gravel /
+  // grass on the next, grass with bare patches on the top one; the risers take the tread's material (WALL_MAT)
   const h = hash2(Math.floor(x * 2), Math.floor(z * 2), 77), h2 = hash2(Math.floor(x / 1.5), Math.floor(z / 1.5), 78);
-  const m = y < WATER.level + 0.35 ? (h2 < 0.45 ? GROUND.GRAVEL : GROUND.SOIL) : sd > -1.6 ? (h < 0.3 ? GROUND.GRAVEL : h < 0.55 ? GROUND.SOIL : GROUND.VERGE)
+  const m = y < WATER.level + 0.9 ? (h < 0.42 ? GROUND.ROCK : h < 0.8 ? GROUND.ROCK_DARK : GROUND.GRAVEL)
+    : sd > -1.8 ? (h < 0.35 ? GROUND.ROCK : h < 0.55 ? GROUND.GRAVEL : h2 < 0.5 ? GROUND.SOIL : GROUND.VERGE)
     : (h < 0.12 ? GROUND.SOIL : GROUND.VERGE);
   return [y, m];
 }
@@ -1521,7 +1528,7 @@ function ruralParcel(net, x, z) {
   const kind = h < 0.08 ? 'woodlot' : h < 0.34 ? 'corn' : h < 0.52 ? 'wheat' : h < 0.64 ? 'ploughed' : h < 0.74 ? 'soy' : 'pasture';
   return { i, j, x0, x1, z0, z1, kind, alongX: x1 - x0 > z1 - z0, edge: Math.min(x - x0, x1 - x, z - z0, z1 - z), hedge: hash2(i, j, sd + 29) };
 }
-const GROUND = { CROP: 202, FURROW: 203, WHEAT: 204, FOREST: 205, WATER: 206, GRAVEL: 207, SOIL: 140, SOY: 133, PASTURE: 14, VERGE: 16 };
+const GROUND = { CROP: 202, FURROW: 203, WHEAT: 204, FOREST: 205, WATER: 206, GRAVEL: 207, SOIL: 140, SOY: 133, PASTURE: 14, VERGE: 16, ROCK: 216, ROCK_DARK: 221 };
 // neighbourhood pods (net.plan.pods: convex quads + zone), indexed on a 64 m grid (lazily, per plan)
 const PODIX = new WeakMap();
 function podAt(pl, x, z) {
@@ -2710,7 +2717,7 @@ function meshColumns(H, M, w, d, ox, oz, wallMat, mb, none) {
 
 // ------------------------------------------------------------------------------------------------ pipeline
 // The build is split so it can run in parallel workers: fields -> chunks (any order, any worker) -> buildings.
-const WALL_MAT = (m) => (m === MAT.MEDIAN_GRASS || m === MAT.MEDIAN_CURB) ? MAT.MEDIAN_CURB : (m === 206 || m === 140 || m === 207 || m === 16) ? m : MAT.CURB;   // banks: earth risers
+const WALL_MAT = (m) => (m === MAT.MEDIAN_GRASS || m === MAT.MEDIAN_CURB) ? MAT.MEDIAN_CURB : (m === 206 || m === 140 || m === 207 || m === 16 || m === 216 || m === 221) ? m : MAT.CURB;   // banks: earth / stone risers
 function prepareBuild(net, voxel, opts) {
   opts = opts || {};
   const F = new FieldSampler(net, opts.fieldCell || 0.5);

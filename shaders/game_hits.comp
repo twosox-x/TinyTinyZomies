@@ -8,6 +8,8 @@
 // results[2 * h]: 0 miss / 1 zombie / 2 static, results[2 * h + 1]: float bits of the hit distance.
 #include "common.glsl"
 layout(local_size_x = 64) in;
+const float GRAZE = 0.3;        // m: a static cell this little above the ray is partial cover (car roof), not a wall
+const float COVER_REACH = 2.5;  // m: partial cover only counts right in front of the zombie it hides
 struct Hit { vec4 o; vec4 d; uvec4 info; };   // origin + max distance, dir + damage, x shooter, y flags
 layout(std430, set = 0, binding = 0) readonly buffer Hits      { Hit hits[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Agents    { Agent agents[]; };
@@ -66,14 +68,27 @@ void main() {
     uint bestK = 0xFFFFFFFFu;
     uint kind = 0u;
     float tHit = tMax;
+    float tGraze = 1e30;        // first static cell the ray only grazed (partial cover)
     for (int iter = 0; iter < 2048; ++iter) {
         if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) break;   // left the window
         if (tEnter > tMax || tEnter > best + world.z * 1.5) break;                      // nothing closer can follow
         float tExit = min(min(tNext.x, tNext.y), tMax);
-        // static geometry above the ray in this cell stops the round
+        // static geometry above the ray in this cell stops the round. Partial cover (owner feedback round 3: zombies
+        // wedged between parked cars must be killable): a cell whose top is less than GRAZE above the ray only grazes
+        // (car roofs are stamped as full boxes; the real roof line is lower and narrower); the round goes on, but it
+        // only counts if it hits a zombie within COVER_REACH after the first graze (cover right next to the target,
+        // the head / upper body seen above it), else it stops at the graze.
         float yLow = o.y + d.y * (d.y < 0.0 ? tExit : tEnter);
-        if (staticH[cellIndex(c)] > yLow && staticH[cellIndex(c)] > 0.0) {
-            if (best > tEnter) { kind = 2u; tHit = tEnter; bestK = 0xFFFFFFFFu; best = tEnter; }
+        float sh = staticH[cellIndex(c)];
+        if (sh > yLow && sh > 0.0) {
+            if (sh - yLow < GRAZE && tGraze > 1e29) tGraze = tEnter;
+            else if (sh - yLow >= GRAZE) {
+                if (best > tEnter) { kind = 2u; tHit = tEnter; bestK = 0xFFFFFFFFu; best = tEnter; }
+                break;
+            }
+        }
+        if (tGraze < 1e29 && tEnter > tGraze + COVER_REACH && best > tGraze + COVER_REACH) {   // no zombie behind it
+            kind = 2u; tHit = tGraze; bestK = 0xFFFFFFFFu; best = tGraze;
             break;
         }
         uint visited = 0u;
@@ -95,6 +110,7 @@ void main() {
         if (tEnter >= tMax) break;
         if (tNext.x < tNext.y) { tNext.x += tDelta.x; c.x += stp.x; } else { tNext.y += tDelta.y; c.y += stp.y; }
     }
+    if (kind == 1u && tGraze < 1e29 && best > tGraze + COVER_REACH) { kind = 2u; tHit = tGraze; bestK = 0xFFFFFFFFu; }
     if (kind == 1u) {
         uint b = GAME_HIT_BASE + 4u * bestK;
         atomicAdd(gameIO[b], uint(clamp(req.d.w, 0.0, 60.0) * 65536.0 + 0.5));

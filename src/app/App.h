@@ -57,8 +57,8 @@ struct AppOptions {
     int panSpawnEvery = 0;         // scripted pan: every N frames spawn 300 zombies and blast near the pivot
     int cityVerify = 0;            // > 0: every N frames a synchronous check of the horde against the window (test only)
     // time of day (TimeOfDay.h): --time H (0..24, start clock), --tod-speed X (cycle rate multiplier, 0 = frozen),
-    // --tod-paused, --day-cycle MIN (real minutes per 24 h, default 30). Default start: 16:30 (late afternoon).
-    float todHours = -1.f, todSpeed = 1.f, dayCycleMinutes = 30.f;
+    // --tod-paused, --day-cycle MIN (real minutes per 24 h, default 27 = 20 day + 7 night). Default start: 16:30 (late afternoon).
+    float todHours = -1.f, todSpeed = 1.f, dayCycleMinutes = 0.f;   // 0 = TimeOfDaySettings defaults
     bool todPaused = false;
     bool noDof = false;            // --no-dof: miniature depth of field off (comparison shots)
     int shadowMode = 1;            // --shadows 0 off | 1 key-light shadow map | 2 legacy moon height field

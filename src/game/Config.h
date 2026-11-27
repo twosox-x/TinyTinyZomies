@@ -49,8 +49,8 @@ struct EconomyConfig {
 };
 
 struct LogisticsConfig {
-    std::array<int, 3> containerStock = {3000, 2000, 300};   // rounds per AmmoType
-    std::array<int, 3> crateStock = {600, 400, 60};
+    std::array<int, kAmmoTypes> containerStock = {3000, 2000, 300, 1200};   // rounds per AmmoType (Fuel: flamethrower fuel units)
+    std::array<int, kAmmoTypes> crateStock = {600, 400, 60, 300};
     int containerSlots = 4, crateSlots = 2;                   // soldiers collecting at once (others queue)
     float collectRadius = 1.2f;                               // m from a slot
     float airdropAltitude = 60.f;                             // m above the landing surface
@@ -103,6 +103,18 @@ struct FortConfig {                  // B2 walls, territory, containers (GAME_DE
     float containerLandDuration = 1.0f;     // s from touchdown until it is usable
 };
 
+// Engineers (GAME_DESIGN 14d, APPROVED squad of 3; every value UNAPPROVED / PROPOSED): construction jobs (walls, gates,
+// gates placed into walls) and car clearing are only possible within `radius` of an engineer squad and take time.
+struct EngineerConfig {
+    float radius = 40.f;             // m around an engineer squad (its post / anchor) where construction can be ordered
+    float pieceTime = 6.f;           // engineer-seconds per 4 m wall piece (shorter pieces pro rata, min 30 %); 3 men: 2 s
+    float gateTime = 9.f;            // engineer-seconds per gate (new, or converting a wall piece into a gate)
+    float carTime = 24.f;            // engineer-seconds to tow / dismantle one parked car
+    int carPrice = 50;               // per car cleared (UNAPPROVED)
+    float workRange = 3.2f;          // m from his work spot where an engineer works (crouch / collect loop)
+    float carSearch = 3.f;           // m: a click selects the parked vehicle whose box is within this
+};
+
 struct BuildingConfig {              // B3a buildings (GAME_DESIGN 6 / 7 / 14b); every value UNAPPROVED / PROPOSED
     float captureTime = 5.f;         // s a squad must hold an entrance (no zombie inside / at the door) to capture
     float captureRadius = 7.f;       // m from an entrance (or inside the footprint) that counts as "at the building"
@@ -146,11 +158,44 @@ struct VerticalConfig {
     float minReachFraction = 0.8f;
 };
 
+// GAME_DESIGN 14d (APPROVED mechanic, values UNAPPROVED): corpses rot and give off poisonous gas (CorpseGas.h).
+struct RotConfig {
+    bool enabled = true;
+    float delay = 45.f;              // s a corpse lies before it starts to rot (gas emission starts)
+    float ramp = 120.f;              // s from the start of rot to full emission (the gas spreads further the longer they stay)
+    float emitPerCorpse = 0.010f;    // gas units / s per fully rotten corpse into its 2 m cell
+    float diffusion = 0.30f;         // fraction exchanged with the 4 neighbours per second (spread)
+    float decay = 0.020f;            // fraction lost per second (open air); a cleared pile's gas fades in ~1-2 min
+    float maxGas = 4.f;              // cell cap (gas units)
+    float damageThreshold = 0.15f;   // gas level below which troops take no damage (faint haze is only a warning)
+    float damagePerSecond = 1.5f;    // hp / s at gas level 1 (scales linearly, capped at maxDamagePerSecond)
+    float maxDamagePerSecond = 5.f;
+    float warnLevel = 0.10f;         // squad "gas" pip / UI warning above this level at a member
+    float navAvoidLevel = 0.35f;     // soldier paths treat cells above this as expensive (NavGrid cost), not blocked
+    float navCost = 6.f;             // extra A* cost per cell at gas level 1 (scaled, capped at 4 x)
+};
+
+// Flamethrower squad (GAME_DESIGN 14d; size PROPOSED 2, every value UNAPPROVED). Weapon stats (fuel tank = magazine, spare
+// tanks = reserve, one fuel unit per spray tick = fireInterval) are in weapons.flamethrower like any other class.
+struct FlameConfig {
+    float coneDeg = 18.f;            // half angle of the flame cone
+    float zombieDps = 1.6f;          // zombie health / s inside the cone (a zombie spawns with 1.0)
+    float groundFireTime = 4.f;      // s a sprayed 2 m cell keeps burning (contained: fire never spreads)
+    float groundFireDps = 0.5f;      // zombie health / s standing in ground fire
+    float corpseIgnite = 0.6f;       // s of spray / ground fire a corpse needs to ignite
+    float corpseBurnTime = 4.f;      // s a burning corpse burns before it is gone (removed from the corpse field and list)
+    float seekRadius = 35.f;         // m: leash around the squad's post where it seeks rotting piles / gas on its own
+    float seekInterval = 2.f;        // s between autonomous target picks
+    int seekMinCorpses = 3;          // corpses in a 2 m cell (or gas above rot.warnLevel) worth a trip
+    float standoff = 6.f;            // m from the pile to spray from
+    float friendlyClearance = 1.2f;  // m: never spray while a squad mate / soldier is inside the cone + this margin
+};
+
 struct BalanceConfig {
     std::string status = "UNAPPROVED";   // anything else must come from an owner decision
-    std::array<WeaponStats, 3> weapon;   // per SoldierClass
-    std::array<SoldierStats, 3> soldier;
-    std::array<SquadDef, 3> squad;       // per SquadType
+    std::array<WeaponStats, kSoldierClasses> weapon;   // per SoldierClass
+    std::array<SoldierStats, kSoldierClasses> soldier;
+    std::array<SquadDef, kSquadTypes> squad;       // per SquadType
     EconomyConfig economy;
     LogisticsConfig logistics;
     ZombieThreatConfig threat;
@@ -159,6 +204,9 @@ struct BalanceConfig {
     StaminaConfig stamina;
     BuildingConfig buildings;
     VerticalConfig vertical;             // B3b
+    EngineerConfig engineer;             // GAME_DESIGN 14d engineers (EngineerAI)
+    RotConfig rot;                       // GAME_DESIGN 14d corpse rot gas (CorpseGas)
+    FlameConfig flame;                   // GAME_DESIGN 14d flamethrower squad (FlameAI / CorpseGas)
     bool load(const std::string& path, std::string* error = nullptr);   // missing keys keep the defaults above
     bool approved() const { return status == "APPROVED"; }
 };

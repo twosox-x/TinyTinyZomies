@@ -26,6 +26,9 @@ struct TargetLock {                  // a point the soldier aims at (the GPU dec
     V3 vel;                          // its velocity (aim lead)
     float prone = 0.f;               // its prone factor (legless crawlers: aim at the ground, not at chest height)
     float blocked = 0.f;             // s without a clear firing line to it (dropped after AiTuning::blockedDrop)
+    float aimY = -1.f;               // m above its feet the firing line is clear to (torso, or the head over a car roof);
+                                     // < 0: Combat's default aim height
+    float score = 0.f;               // SoldierAI threat score of the locked zombie (debug overlay, hysteresis)
 };
 
 struct SoldierPool {

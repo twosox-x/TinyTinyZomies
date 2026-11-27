@@ -29,11 +29,13 @@ struct DropPlan {
 // Timeline constants of the approved clips (filled by GameWorld from the MilitaryLibrary when it is loaded; the
 // defaults are the clip values of assets/military/anims.json at Stage A approval, used headless without a library).
 struct DeployTiming {
-    std::array<float, 3> descentSpeed = {5.f, 5.f, 5.f};      // m/s per SoldierClass (<class>/para_descent)
-    std::array<float, 3> landDuration = {1.2f, 1.2f, 1.2f};   // s (<class>/para_land)
-    std::array<float, 3> recoverDuration = {2.0f, 2.0f, 2.0f};// s (<class>/para_recover)
+    std::array<float, kSoldierClasses> descentSpeed = {5.f, 5.f, 5.f, 5.f};      // m/s per SoldierClass (<class>/para_descent)
+    std::array<float, kSoldierClasses> landDuration = {1.2f, 1.2f, 1.2f, 1.2f};   // s (<class>/para_land)
+    std::array<float, kSoldierClasses> recoverDuration = {2.0f, 2.0f, 2.0f, 2.0f};// s (<class>/para_recover)
     float crateDescentSpeed = 5.f, crateLandDuration = 1.5f;  // crate/descent, crate/land
-    std::array<std::vector<int>, 3> variants;                 // MilitaryLibrary::infantry indices per class
+    std::vector<int> engineerVariants;   // 14d engineers (riflemen by class): approved "engineer" infantry, else the placeholder
+    std::array<std::vector<int>, kSoldierClasses> variants;   // MilitaryLibrary::infantry indices per class (flamethrower:
+                                                              // rifleman variants until its approved assets exist, FlameAI.h)
 };
 
 // One parachute in flight / on the ground (renderer: canopy + harness tracks; Deploy: soldier transform).

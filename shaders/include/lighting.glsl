@@ -7,7 +7,16 @@ vec3 pointLights(vec3 P, vec3 N) {
     for (uint i = 0u; i < gridDim.z; ++i) {
         vec3 L = lightPos[i].xyz - P;
         float d = length(L);
-        float att = clamp(1.0 - d / lightPos[i].w, 0.0, 1.0);
+        float R = lightPos[i].w;
+        if (R < 0.0) {   // sharp point light (muzzle flash): inverse-square with a 0.35 m core, windowed to |R|, plain Lambert
+            float x = d / -R;
+            if (x >= 1.0) continue;
+            float win = 1.0 - x * x;
+            float att = win * win / (1.0 + d * d * 8.0);
+            c += lightCol[i].rgb * lightCol[i].w * att * max(dot(N, L / max(d, 1e-3)), 0.0);
+            continue;
+        }
+        float att = clamp(1.0 - d / R, 0.0, 1.0);
         att *= att;
         c += lightCol[i].rgb * lightCol[i].w * att * (0.25 + 0.75 * max(dot(N, L / max(d, 1e-3)), 0.0));
     }
@@ -82,14 +91,23 @@ vec3 finish(vec3 col, vec3 P) {
     col = col / (1.0 + col * 0.3);          // soft highlight roll-off
     return pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
 }
-// finish() plus the miniature depth of field's circle of confusion in alpha: thin lens focused at sunDir.w (the RTS
-// pivot distance), CoC = aperture * (d - focus) / d (minus the in-focus band dofP.x) (skyColor.w = aperture in units of the max blur radius, 0 = off),
-// stored as 0.5 + 0.5 * clamp(CoC, -1, 1) (below 0.5 = near field). See shaders/post_dof_*.frag.
+// finish() plus the miniature depth of field's circle of confusion in alpha: thin lens focused at sunDir.w (the scene
+// distance under the screen centre, Renderer auto focus), CoC = aperture * (d - focus) / d (minus the in-focus band dofP.x)
+// (skyColor.w = aperture in units of the max blur radius, 0 = off), floored by a screen-space tilt-shift towards the top /
+// bottom of the frame (dofP.y strength beyond dofP.z of the half height; zoomed-out miniature look), stored as
+// 0.5 + 0.5 * clamp(CoC, -1, 1) (below 0.5 = near field). See shaders/post_dof_*.frag.
 vec4 finishA(vec3 col, vec3 P) {
     float d = max(length(P - camPos.xyz), 1e-3);
     float r = (d - sunDir.w) / d;
-    r = sign(r) * max(abs(r) - dofP.x, 0.0);   // zoom-adaptive in-focus band around the focus distance (0 = thin lens)
-    float coc = clamp(skyColor.w * r, -1.0, 1.0);
+    float rb = sign(r) * max(abs(r) - dofP.x, 0.0);   // zoom-adaptive in-focus band around the focus distance (0 = thin lens)
+    float coc = skyColor.w * rb;
+    if (dofP.y > 0.0 && skyColor.w > 0.0) {
+        vec4 cp = viewProj * vec4(P, 1.0);
+        float ny = abs(cp.y / max(abs(cp.w), 1e-4));
+        float tilt = dofP.y * smoothstep(dofP.z, 1.0, ny);
+        coc = (r >= 0.0 ? 1.0 : -1.0) * max(abs(coc), tilt);
+    }
+    coc = clamp(coc, -1.0, 1.0);
     return vec4(finish(col, P), 0.5 + 0.5 * coc);
 }
 float hash12(vec2 p) {

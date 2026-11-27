@@ -119,11 +119,20 @@ struct MilitaryLibrary {
     int handItemModels[6] = {-1, -1, -1, -1, -1, -1};   // flags bits 0..3: none, rifle mag, MG box, sniper mag, ammo can, belt end   // anims.json slungMount[class]: weapon on the torso while flag bit 6 is set
     std::string animSource;           // anims.json status
     int findClip(const std::string& cls, const std::string& action) const;
-    bool loadAnims(const std::string& dir);   // assets/military/anims.{json,bin}: per-class clips appended to the infantry
+    bool loadAnims(const std::string& dir);
+    // GAME_DESIGN 14d engineers, PLACEHOLDER until the approved engineer assets exist: a rifleman variant (class stays
+    // "rifleman": its clips) with an orange helmet cover and a hi-vis vest, variant name "Engineer (placeholder)".
+    // Skipped when the library already has an infantry class "engineer" (approved assets: the game uses those).
+    void addEngineerPlaceholder();   // assets/military/anims.{json,bin}: per-class clips appended to the infantry
     // lab-only helper models (scale ruler, ground grid, parachute demo, tracer)
     enum { FX_FLASH_RIFLE = 0, FX_FLASH_RIFLE_HALF, FX_FLASH_MG, FX_FLASH_MG_SMALL, FX_TRACER, FX_CASING, FX_PUFF_S, FX_PUFF_M, FX_PUFF_L,
-           FX_DUST, FX_DUST_L, FX_STREAK, FX_COUNT };
+           FX_DUST, FX_DUST_L, FX_STREAK,
+           FX_FLASH_R0, FX_FLASH_R1, FX_FLASH_R2,   // rifle muzzle flash, 3 frames (crisp emissive voxel star + cone)
+           FX_FLASH_M0, FX_FLASH_M1, FX_FLASH_M2,   // MG muzzle flash, 3 frames
+           FX_COUNT };
     int fxModels[FX_COUNT] = {};      // docs/MILITARY_ANIMS.md 6: voxel FX meshes
+    // flamethrower stream voxels (GAME_DESIGN 14d, MilitaryRenderer::fxFlame): hot core / flame / soot, one voxel each
+    int flameModels[3] = {-1, -1, -1};
     int flashModel = -1, rulerModel = -1, gridModel = -1, chuteOpenModel = -1, chuteCollapsedModel = -1, dropCrateModel = -1, tracerModel = -1;
     bool placeholder = true;
     std::string source;

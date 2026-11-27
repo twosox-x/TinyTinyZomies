@@ -68,9 +68,9 @@ private:
 
 class FakeSupply final : public SupplyAccess {
 public:
-    struct Point { SupplyId id; V3 pos; std::array<int, 3> stock = {0, 0, 0}; std::vector<V3> slots; std::vector<SoldierId> user; };
+    struct Point { SupplyId id; V3 pos; std::array<int, kAmmoTypes> stock{}; std::vector<V3> slots; std::vector<SoldierId> user; };
     std::vector<Point> points;
-    SupplyId add(V3 pos, std::array<int, 3> stock, int slots, float slotRadius = 1.2f);
+    SupplyId add(V3 pos, std::array<int, kAmmoTypes> stock, int slots, float slotRadius = 1.2f);
     SupplyId findNearest(const GameContext& ctx, V3 from, AmmoType type, float maxDist) override;
     bool reserve(SupplyId sp, SoldierId soldier, V3& slotPos) override;
     void release(SupplyId sp, SoldierId soldier) override;

@@ -560,6 +560,7 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
     if (vehicles_)
         for (uint32_t i : vehicles_->customList()) {
             const Vehicle& v = vehicles_->vehicle(i);
+            if (v.removed) continue;   // cleared by engineers
             gatherInstance(byModel, 0, v.variant, v.ro, v.q, v.paint);
         }
     stats_.triangles = stats_.tileTriangles;

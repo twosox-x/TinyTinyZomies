@@ -19,6 +19,10 @@
  *   assets/military/infantry.ttzm + infantry.json
  *   assets/military/props.ttzm    + props.json
  *   assets/military/anims.bin     + anims.json    (clips, docs/MILITARY_ANIMS.md)
+ *   assets/military/specialists.ttzm      + specialists.json       (Phase 7b: engineers, flamethrowers, tools, site props)
+ *   assets/military/specialist_anims.bin  + specialist_anims.json  (Phase 7b clips; same TTZA format + tool / stow flags)
+ * The v1 files (infantry, props, anims) are written exactly as before (v1 palette only: PAL_V1_COUNT entries), so they
+ * stay byte-identical to the approved assets; the specialists live in their own files.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -38,7 +42,8 @@ vm.createContext(sandbox);
 const lib = vm.runInContext(html.slice(a, b) + `
 ;({ buildAll, buildAnims, PALETTE, PAL, partFaces, quadsCulled, quadsGreedy, rigidGroup, DIRS, CORN, V_M, PROP_M, SLOTS, PIVOT, HAND, MIL_VERSION,
      ANIM_VERSION, ANIM_HZ, BODY_STRIDE, CANOPY_STRIDE, CRATE_STRIDE, HAND_ITEM, ANIM_CLASSES,
-     WEAPON_STRIDE, FLAG_DROPPED, posedBodyCells, posedMinY, weaponCells, fk, eulerMat, mvec, vadd, mmul })`, sandbox, { filename: "military_lab_v1.html" });
+     WEAPON_STRIDE, FLAG_DROPPED, posedBodyCells, posedMinY, weaponCells, fk, eulerMat, mvec, vadd, mmul,
+     PAL_V1_COUNT, buildSpecialists, buildSpecialistAnims, FLAG_STOWED, TOOL_SHIFT, TOOL_ID, SPEC_CLASSES, stowPlacement, toolCells })`, sandbox, { filename: "military_lab_v1.html" });
 
 const t0 = Date.now();
 const { infantry, props } = lib.buildAll();
@@ -141,12 +146,13 @@ function checkModel(model, sub, anchor) {
 }
 
 // ------------------------------------------------------------------ bake one file
-function bake(models, file, isInf) {
+function bake(models, file, isInfAll, palette) {
   const verts = [];
   const outModels = [];
   const stats = [];
   const allProblems = [];
   for (const m of models) {
+    const isInf = isInfAll === "auto" ? m.kind === "infantry" : isInfAll;
     const parts = [];
     let tri = 0, culledTri = 0;
     for (const p of m.parts) {
@@ -166,7 +172,7 @@ function bake(models, file, isInf) {
     const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
     for (const p of m.parts) { const e = p.set.size * p.unitM / 2; for (const c of partModelCells(m, p)) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], c[k] - e); mx[k] = Math.max(mx[k], c[k] + e); } }
     const anchor = isInf ? "ground" : (m.anchor || "ground");
-    const sub = isInf ? lib.V_M / 4 : lib.PROP_M;
+    const sub = isInf ? lib.V_M / 4 : (m.checkSub || lib.PROP_M);
     const problems = checkModel(m, sub, anchor);
     if (problems.length) allProblems.push(`${m.name}: ${problems.join("; ")}`);
     const entry = { name: m.name, label: m.label, class: m.cls || m.cat, bounds: { min: vr(mn), max: vr(mx) }, parts,
@@ -186,12 +192,13 @@ function bake(models, file, isInf) {
       entry.poses = { rest: pose(m.poses.rest), carry: pose(m.poses.carry) };
       entry.look = m.look;
     }
+    if (m.extra) Object.assign(entry, m.extra);
     outModels.push(entry);
     stats.push(`${m.name.padEnd(28)} ${String(m.parts.length).padStart(2)} parts ${String(tri).padStart(6)} tris (culled ${culledTri})`);
   }
   if (allProblems.length) { console.error(allProblems.join("\n")); throw new Error(`${file}: ${allProblems.length} model(s) failed the rest-pose checks`); }
-  // palette: only real entries (the Lab registers its reference-zombie colours outside the library)
-  const palette = lib.PALETTE;
+  // palette: only real entries (the Lab registers its reference-zombie colours outside the library); the v1 files
+  // carry the v1 palette (PAL_V1_COUNT entries), the specialists file the full library palette
   const head = new Uint32Array(8); head[0] = 0x4D5A5454; head[1] = FORMAT_VERSION; head[2] = palette.length; head[3] = verts.length / 2;
   const pal = new Uint32Array(palette.length * 2);
   palette.forEach((p, i) => {
@@ -212,9 +219,13 @@ function bake(models, file, isInf) {
   for (const s of stats) console.log("  " + s);
 }
 
-bake(infantry, "infantry", true);
-bake(props, "props", false);
+const PAL_V1 = lib.PALETTE.slice(0, lib.PAL_V1_COUNT);
+bake(infantry, "infantry", true, PAL_V1);
+bake(props, "props", false, PAL_V1);
 bakeAnims(infantry);
+const SPEC = lib.buildSpecialists();
+bake([...SPEC.soldiers, ...SPEC.tools, ...SPEC.props], "specialists", "auto", lib.PALETTE);
+bakeSpecialistAnims(SPEC);
 
 // ------------------------------------------------------------------ animations (docs/MILITARY_ANIMS.md)
 function bakeAnims(infantry) {
@@ -257,11 +268,11 @@ function bakeAnims(infantry) {
 //   - after weapon_drop no weapon voxel below the ground on any frame
 //   - at rest the weapon lies flat (side down) BESIDE the body: >= 2 cm from every body voxel in the ground plane (so
 //     never under the raised back / a limb, never through the body)
-function checkDeath(c) {
-  const model = infantry.find(m => m.cls === c.cls), V = lib.V_M, n = c.body.length;
+function checkDeath(c, models) {
+  const model = (models || infantry).find(m => m.cls === c.cls), V = lib.V_M, n = c.body.length;
   const ev = (c.events || []).find(e => e.type === "weapon_drop");
   if (!ev) throw new Error(`${c.name}: weapon track without a weapon_drop event`);
-  const WC = lib.weaponCells(model), bad = [];
+  const WC = c.dropTool ? lib.toolCells(c.dropTool) : lib.weaponCells(model), bad = [];
   const pose = fr => { const rot = {}; lib.SLOTS.forEach((s, i) => rot[s] = [fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2]]); return { rot, rootPos: [fr[30] / V, fr[31] / V, fr[32] / V], rootRot: [fr[33], fr[34], fr[35]] }; };
   const wPlace = w => ({ pos: [w[0] / V, w[1] / V, w[2] / V], R: lib.eulerMat([w[3], w[4], w[5]]) });
   const cellsAt = P => WC.cells.map(q => lib.vadd(P.pos, lib.mvec(P.R, q)));
@@ -279,9 +290,70 @@ function checkDeath(c) {
   let gap = Infinity;
   for (const q of cellsAt(P)) for (const b of body) gap = Math.min(gap, (Math.hypot(q[0] - b.p[0], q[2] - b.p[2]) - WC.h * 1.2 - b.h * 1.2) * V);   // ground plane
   if (gap < 0.02) bad.push(`weapon at rest under / touching the body (ground-plane gap ${gap.toFixed(3)} m)`);
-  if (Math.abs(Math.abs(P.R[3]) - 1) > 0.05) bad.push(`weapon at rest not flat (side axis y ${P.R[3].toFixed(2)})`);
+  if (c.dropUpright ? Math.abs(P.R[4] - 1) > 0.05 : Math.abs(Math.abs(P.R[3]) - 1) > 0.05) bad.push(`weapon at rest not flat (side axis y ${P.R[3].toFixed(2)})`);
   if (bad.length) throw new Error(`${c.name}: ${bad.join("; ")}`);
   c.stats.weaponMinY = +weaponMinY.toFixed(3); c.stats.weaponGap = +gap.toFixed(3); c.stats.restMinY = +bodyMin.toFixed(3);
+}
+// ------------------------------------------------------------------ specialist clips (docs/MILITARY_ANIMS.md §7)
+function bakeSpecialistAnims(SPEC) {
+  const soldiers = SPEC.soldiers;
+  const A = lib.buildSpecialistAnims(soldiers);
+  const floats = [];
+  const f6 = x => Math.round(x * 1e6) / 1e6;
+  const clips = A.clips.map(c => {
+    const tracks = [];
+    const push = (type, stride, frames) => { if (!frames) return; tracks.push({ type, offset: floats.length, stride, frames: frames.length }); for (const fr of frames) { if (fr.length !== stride) throw new Error(`${c.name}: ${type} stride`); for (const v of fr) { if (!Number.isFinite(v)) throw new Error(`${c.name}: non-finite value`); floats.push(v); } } };
+    push("body", lib.BODY_STRIDE, c.body);
+    push("canopy", lib.CANOPY_STRIDE, c.canopy);
+    push("weapon", lib.WEAPON_STRIDE, c.weapon);
+    if (c.weapon) checkDeath(c, soldiers);
+    checkTools(c);
+    const out = { name: c.name, class: c.cls, action: c.action, duration: c.duration, frames: c.frames, loop: !!c.loop, rootMotion: !!c.rootMotion };
+    for (const k of ["speed", "stride", "descentSpeed", "rate", "stairs", "phase0", "stream", "work", "carry", "dropTool", "toolGround"]) if (c[k] !== undefined) out[k] = c[k];
+    if (c.delta) out.delta = c.delta;
+    out.events = (c.events || []).map(e => Object.assign({}, e, { t: f6(e.t) })).sort((a, b) => a.t - b.t);
+    out.tracks = tracks;
+    out.check = c.stats;
+    return out;
+  });
+  const head = new Uint32Array(8); head[0] = 0x415A5454; head[1] = lib.ANIM_VERSION; head[2] = floats.length; head[3] = clips.length; head[4] = lib.ANIM_HZ;
+  const buf = Buffer.concat([Buffer.from(head.buffer), Buffer.from(Float32Array.from(floats).buffer)]);
+  fs.writeFileSync(path.join(ROOT, "assets/military/specialist_anims.bin"), buf);
+  const vrr = v => v.map(r6);
+  const place = p => ({ part: "torso", gripFromTorsoPivot: vrr(p.gripT.map(v => v * lib.V_M)), rot: vrr(matEulerJS(p.W)) });
+  const manifest = { format: "TTZA", version: lib.ANIM_VERSION, source: path.relative(ROOT, SRC), doc: "docs/MILITARY_ANIMS.md (section 7: specialists)", models: "assets/military/specialists.json", sampleRate: lib.ANIM_HZ,
+    strides: { body: lib.BODY_STRIDE, canopy: lib.CANOPY_STRIDE, weapon: lib.WEAPON_STRIDE }, dataOffsetBytes: 32, floatCount: floats.length,
+    slots: lib.SLOTS, handItems: lib.HAND_ITEM, flags: { stowed: lib.FLAG_STOWED, toolShift: lib.TOOL_SHIFT, toolMask: 15 }, tools: Object.fromEntries(Object.entries(lib.TOOL_ID).map(([k, v]) => [v, "tool_" + k])),
+    classes: lib.SPEC_CLASSES, classModels: Object.fromEntries(lib.SPEC_CLASSES.map(k => [k, soldiers.filter(m => m.cls === k).map(m => m.name)])),
+    slungMount: Object.fromEntries(Object.entries(A.slung).map(([k, p]) => [k, place(p)])),
+    stowMount: Object.fromEntries(Object.entries(A.stow).map(([k, p]) => [k, place(p)])),
+    weaponPoints: Object.fromEntries(Object.entries(A.rigs).map(([k, r]) => [k, Object.fromEntries(Object.entries(r).filter(([n, v]) => Array.isArray(v)).map(([n, v]) => [n, vrr(v.map(x => x * lib.V_M))]))])),
+    transitions: A.transitions, fx: A.fx, clips };
+  fs.writeFileSync(path.join(ROOT, "assets/military/specialist_anims.json"), JSON.stringify(manifest, null, 1) + "\n");
+  console.log(`\nspecialist anims: ${clips.length} clips, ${floats.length} floats, ${buf.length} bytes`);
+  for (const c of clips) console.log(`  ${c.name.padEnd(30)} ${c.duration.toFixed(2).padStart(5)} s ${c.loop ? "loop" : "once"} ${String(c.frames).padStart(4)} fr  sup ${c.check.supportError} m  minY ${c.check.minY}  slide ${c.check.footSlide}${c.check.toolMinY !== undefined ? `  toolMinY ${c.check.toolMinY}` : ""}${c.check.weaponGap !== undefined ? `  drop gap ${c.check.weaponGap} m, drop minY ${c.check.weaponMinY}, rest body minY ${c.check.restMinY}` : ""}`);
+}
+// tool clips: the tool id in the flags must be a known tool, the weapon must be stowed while a tool is held, and the held
+// tool's lowest voxel is reported (toolMinY; only the shovel / sledgehammer touch the ground: digging / striking, >= -5 cm)
+function checkTools(c) {
+  const V = lib.V_M, ids = new Set(Object.values(lib.TOOL_ID)), byId = Object.fromEntries(Object.entries(lib.TOOL_ID).map(([k, v]) => [v, k]));
+  let toolMin = Infinity, any = false;
+  for (let f = 0; f < c.body.length; f++) {
+    const fr = c.body[f], id = (fr[43] >> lib.TOOL_SHIFT) & 15;
+    if (!id) continue; any = true;
+    if (!ids.has(id)) throw new Error(`${c.name}: unknown tool id ${id}`);
+    if (!(fr[43] & lib.FLAG_STOWED)) throw new Error(`${c.name}: tool held but the weapon is not stowed (frame ${f})`);
+    if (fr[43] & lib.FLAG_DROPPED) continue;
+    const rot = {}; lib.SLOTS.forEach((s, i) => rot[s] = [fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2]]);
+    const F = lib.fk(rot), R0 = lib.eulerMat([fr[33], fr[34], fr[35]]), rp = [fr[30] / V, fr[31] / V, fr[32] / V];
+    const hand = lib.vadd(F.forearmR.pos, lib.mvec(F.forearmR.R, [0, -3.5, 0])), Wt = lib.mmul(R0, lib.mmul(F.forearmR.R, lib.eulerMat([fr[36], fr[37], fr[38]])));
+    const o = lib.vadd(rp, lib.mvec(R0, hand)), TC = lib.toolCells(byId[id]);
+    for (const q of TC.cells) { const y = (o[1] + lib.mvec(Wt, q)[1] - TC.h) * V; if (y < toolMin) toolMin = y; }
+  }
+  if (any && toolMin !== Infinity) {
+    c.stats.toolMinY = +toolMin.toFixed(3);
+    if (toolMin < -(c.toolGround || 0.05)) throw new Error(`${c.name}: held tool ${toolMin.toFixed(3)} m below the ground`);
+  }
 }
 function matEulerJS(m) { const b = Math.asin(Math.max(-1, Math.min(1, m[2]))); let a, c; if (Math.abs(m[2]) < 0.9999999) { a = Math.atan2(-m[5], m[8]); c = Math.atan2(-m[1], m[0]); } else { a = Math.atan2(m[7], m[4]); c = 0; } return [a, b, c]; }
 console.log(`\ndone in ${((Date.now() - t0) / 1000).toFixed(1)} s; all greedy meshes verified lossless; rest-pose float / coplanar checks passed`);

@@ -59,6 +59,12 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         vertical_.setZombieCounts = [&reg](BuildingId b, int in, int roof, const int16_t* pf, int n) { reg.setZombieCounts(b, in, roof, pf, n); };
     } else SDL_Log("game: vertical horde unavailable (game_vertical pipeline)");
     fort_.init(app, cfg_);                                     // B2: walls, territory, containers as obstacles
+    if (gas_.init(app.gpu, app.sim)) {                         // 14d: corpse rot gas + flame fire
+        gas_.configure(cfg_.rot, cfg_.flame);
+        gas_.setSync(opt.syncReadback);
+        ctx_.gas = &gas_;
+    } else SDL_Log("game: corpse gas unavailable (game_gas pipelines)");
+    ctx_.flame = &flame_;
     rebuildNav(app);
     economy_.reset(cfg_);
     ctx_.cfg = &cfg_;
@@ -72,6 +78,10 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     ctx_.deploy = &deploy_;
     ctx_.walls = &fort_.walls();
     ctx_.territory = &fort_.territory();
+    ctx_.engineers = &engineers_;                              // 14d: construction radius, jobs, car clearing
+    engineers_.ai = &ai_;
+    engineers_.removeVehicle = [&app](uint32_t v) { app.vehicles.removeVehicle(v); };
+    ai_.workHook = [this](GameContext& c, uint32_t i) { return engineers_.work(c, i); };
     ctx_.events = &events_;
     ctx_.animEvents = &animEvents_;
     if (!opt.script.empty()) {
@@ -79,6 +89,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         SDL_Log("game: script %s", opt.script.c_str());
     }
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
+    if (ctx_.gas && !gasRender_.init(app, gas_)) SDL_Log("game: gas renderer unavailable");
     render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); drawBuildingProps(mil, ctx_, buildings_); };
     // B3a buildings: BLDG records of the tiles under the window, UI hooks, hospital seeking (SoldierAI hook)
     syncBuildings(app, buildings_, fort_.navHeights(app), cfg_);
@@ -89,6 +100,18 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         animator_.init(*lib);
         animator_.configure(cfg_);   // fire / reload clip rates matched to the weapon stats
         timingFromLibrary(*lib, deploy_.timing, logistics_);
+        {   // 14d engineers: approved "engineer" infantry when it exists, else the placeholder rifleman variant (never a rifleman)
+            DeployTiming& t = deploy_.timing;
+            std::vector<int> approved, placeholder;
+            for (size_t i = 0; i < lib->infantry.size(); ++i) {
+                if (lib->infantry[i].cls == "engineer") approved.push_back((int)i);
+                else if (lib->infantry[i].variant.find("Engineer") != std::string::npos) placeholder.push_back((int)i);
+            }
+            t.engineerVariants = approved.empty() ? placeholder : approved;
+            std::vector<int>& rv = t.variants[(size_t)SoldierClass::Rifleman];
+            rv.erase(std::remove_if(rv.begin(), rv.end(), [&](int i) { return lib->infantry[(size_t)i].variant.find("Engineer") != std::string::npos; }), rv.end());
+        }
+        FlameAI::usePlaceholderAssets(deploy_.timing);       // 14d: rifleman variants until the flamethrower assets are approved
         SDL_Log("game: deploy timeline from clips: descent %.1f m/s, land %.2f s, recover %.2f s; crate %.1f m/s",
                 deploy_.timing.descentSpeed[0], deploy_.timing.landDuration[0], deploy_.timing.recoverDuration[0], deploy_.timing.crateDescentSpeed);
     }
@@ -100,6 +123,8 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
 }
 
 void GameWorld::shutdown(AppState& app) {
+    gasRender_.shutdown(app);
+    gas_.shutdown();
     render_.shutdown(app);
     fort_.shutdown();
     vertical_.shutdown();
@@ -111,6 +136,7 @@ void GameWorld::rebuildNav(AppState& app) {
     const std::vector<float>& h = fort_.navHeights(app);   // sim heights, gate passages lowered (B2)
     if (h.size() != (size_t)sb.gridW * (size_t)sb.gridH) return;
     nav_.build(h, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize);
+    nav_.setShotHeights(app.vehicles.simHeights());   // rounds stop at the zombies' grid (gates included)
     navOx_ = sb.originX; navOz_ = sb.originZ;
     navDirty_ = false;
     navBuiltAt_ = ctx_.time;
@@ -135,7 +161,8 @@ void GameWorld::applyCommands(AppState& app) {
             break;
         case CommandType::BuySquad: {   // 2: confirm -> charge once -> drop (an invalid spot is refused without charge)
             DropPlan plan = deploy_.plan(ctx_, c.squadType, c.pos);
-            const char* what = c.squadType == SquadType::Rifle ? "rifle squad" : c.squadType == SquadType::MachineGun ? "mg squad" : "sniper";
+            const char* what = c.squadType == SquadType::Rifle ? "rifle squad" : c.squadType == SquadType::MachineGun ? "mg squad"
+                             : c.squadType == SquadType::Flamethrower ? "flamethrower squad" : c.squadType == SquadType::Engineer ? "engineer squad" : "sniper";
             if (!plan.valid) { ++refused_; ui_.notify(std::string("Drop refused: ") + plan.reason, true, ctx_.time); break; }
             if (!economy_.spend(plan.price, what, ctx_.time)) { ++refused_; ui_.notify("Not enough funding", true, ctx_.time); break; }
             SquadId id = deploy_.execute(ctx_, c.squadType, plan);
@@ -145,7 +172,8 @@ void GameWorld::applyCommands(AppState& app) {
                 for (const SoldierId& m : s->members) ammo += soldiers_.mag[m.index] + soldiers_.reserve[m.index];
                 squadStarts_[id.index].ammo = ammo;
                 char t[96];
-                std::snprintf(t, sizeof(t), "%s %u inbound%s", c.squadType == SquadType::Rifle ? "Rifle squad" : c.squadType == SquadType::MachineGun ? "MG squad" : "Sniper",
+                std::snprintf(t, sizeof(t), "%s %u inbound%s", c.squadType == SquadType::Rifle ? "Rifle squad" : c.squadType == SquadType::MachineGun ? "MG squad"
+                              : c.squadType == SquadType::Flamethrower ? "Flamethrower squad" : c.squadType == SquadType::Engineer ? "Engineers" : "Sniper",
                               s->number, plan.rooftop ? " (rooftop drop)" : "");
                 ui_.notify(t, false, ctx_.time);
             }
@@ -167,6 +195,24 @@ void GameWorld::applyCommands(AppState& app) {
             ui_.notify("Ammo drop inbound", false, ctx_.time);
             break;
         }
+        case CommandType::ClearCar: {   // 14d: engineers tow / dismantle a parked vehicle (charged once, then a job)
+            const uint32_t v = app.vehicles.parkedAt(c.pos.x, c.pos.z, cfg_.engineer.carSearch);
+            Obb b;
+            if (v != UINT32_MAX) { app.vehicles.groundBox(v, b.cx, b.cz, b.hx, b.hz, b.yaw); b.top = 2.f; }
+            const char* why = v == UINT32_MAX ? "no parked vehicle there" : engineers_.carOrdered(v) ? "already being cleared"
+                            : !engineers_.inRange(ctx_, b.cx, b.cz) ? "outside engineer range" : nullptr;
+            if (why) { ++refused_; ui_.notify(std::string("Clearing refused: ") + why, true, ctx_.time); break; }
+            if (!economy_.spend(cfg_.engineer.carPrice, "clear car", ctx_.time)) { ++refused_; ui_.notify("Not enough funding", true, ctx_.time); break; }
+            engineers_.orderCar(ctx_, v, b, &why);
+            ui_.notify("Engineers: clearing the vehicle", false, ctx_.time);
+            break;
+        }
+        case CommandType::UndoBuild: {
+            std::string msg;
+            ui_.notify(msg, !fort_.undo(ctx_, economy_, msg), ctx_.time);
+            break;
+        }
+        case CommandType::BuildGate:
         case CommandType::BuildWall: {   // B2: plan (validated) -> charge once -> build; refused plans cost nothing
             std::string msg;
             if (!fort_.build(app, ctx_, c, economy_, msg)) { ++refused_; ui_.notify("Wall refused: " + msg, true, ctx_.time); break; }
@@ -194,7 +240,10 @@ void GameWorld::tick(AppState& app) {
     }
     deploy_.tick(ctx_);                                        // c
     buildings_.preAi(ctx_);                                    // c'' B3a: a new order releases garrisoned soldiers
+    engineers_.tick(ctx_);                                     // c3 14d: construction jobs -> engineer work spots
     ai_.tick(ctx_);                                            // d
+    engineers_.postAi(ctx_);                                   // d2 14d: work clip for engineers at work
+    flame_.tick(ctx_);                                         // d3 14d: flamethrowers seek / spray corpse piles
     reanim_.tick(ctx_, &animator_);                            // d': dead soldiers rise as zombies (GAME_DESIGN 14c)
     for (uint32_t i = 0; i < (uint32_t)soldiers_.capacity(); ++i) {   // e
         if (!soldiers_.used[i]) continue;
@@ -220,6 +269,22 @@ void GameWorld::tick(AppState& app) {
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)
     vertical_.tick(horde_.uploadedSoldiers(), ctx_.time);     // f'' B3b: active buildings, door attractors, interior fights
     buildings_.postCombat(ctx_);                               // f' nests: contact damage scaled (defence value)
+    for (const NoiseEvent& n : flame_.noise()) combat_.addNoise(n);   // f3 14d: flamethrower noise, gas damage / warnings
+    flame_.noise().clear();
+    if (ctx_.gas) {
+        gas_.tick(ctx_);
+        nav_.setCostLayer(&gas_.navCost(), gas_.width(), gas_.height(), gas_.originX(), gas_.originZ(), gas_.cellSize(), cfg_.rot.navCost);
+        for (size_t k = 0; k < squads_.squads.size() && k < 64; ++k) {
+            const Squad& s = squads_.squads[k];
+            const bool g = (s.flags & SQ_GAS) != 0;
+            if (g && !(gasWarned_ >> k & 1u)) {
+                char t[96];
+                std::snprintf(t, sizeof(t), "Squad %u is standing in corpse gas", s.number);
+                ui_.notify(t, true, ctx_.time);
+            }
+            gasWarned_ = g ? gasWarned_ | (1ull << k) : gasWarned_ & ~(1ull << k);
+        }
+    }
     logistics_.tick(ctx_);                                     // g
     fort_.tick(app, ctx_);                                     // g' B2: walls, breaches, obstacles, territory, income rate
     {
@@ -249,7 +314,10 @@ void GameWorld::preSim(AppState& app, SDL_GPUCommandBuffer* cmd, double frameDt)
     horde_.preSim(cmd);
 }
 
-void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) { horde_.postSim(cmd, app.frameIndex); vertical_.postSim(cmd); fort_.postSim(cmd); }
+void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) {
+    horde_.postSim(cmd, app.frameIndex); vertical_.postSim(cmd); fort_.postSim(cmd);
+    if (ctx_.gas) gas_.postSim(cmd);   // 14d: after the horde's field passes (damage queue of the last step's sort)
+}
 
 void GameWorld::render(AppState& app, float frameDt) {
     render_.setSelection(ui_.selection().squads);   // in-world selection rings (WS-B); GameUI draws the screen-space status
@@ -258,6 +326,9 @@ void GameWorld::render(AppState& app, float frameDt) {
 
 void GameWorld::drawUI(AppState& app) { ui_.draw(app, ctx_, commands_); }
 
-void GameWorld::afterSubmit(AppState& app) { horde_.harvest(); vertical_.harvest(); fort_.afterSubmit(opt_.syncReadback); }
+void GameWorld::afterSubmit(AppState& app) {
+    horde_.harvest(); vertical_.harvest(); fort_.afterSubmit(opt_.syncReadback);
+    if (ctx_.gas) gas_.harvest();
+}
 
 } // namespace ttz::game

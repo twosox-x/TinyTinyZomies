@@ -4,6 +4,7 @@
 // coordinate edits (docs/GAMEPLAY_ARCHITECTURE.md section 4).
 #include "render/Math.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace ttz::game {
@@ -27,11 +28,20 @@ struct SquadId : Handle {};
 struct SupplyId : Handle {};
 
 // ---- classes (GAME_DESIGN.md 3: exactly these, no others) --------------------------------------------------------
-enum class SoldierClass : uint8_t { Rifleman = 0, MachineGunner = 1, Sniper = 2, Count };
-enum class SquadType : uint8_t { Rifle = 0, MachineGun = 1, Sniper = 2, Count };
-enum class AmmoType : uint8_t { Rifle = 0, MachineGun = 1, Sniper = 2, Count };   // what a supply point stocks
-inline AmmoType ammoOf(SoldierClass c) { return (AmmoType)c; }
-inline const char* className(SoldierClass c) { return c == SoldierClass::Rifleman ? "rifleman" : c == SoldierClass::MachineGunner ? "mg" : "sniper"; }
+// GAME_DESIGN 14d adds squads (APPROVED): Flamethrower (= 3, corpse burning, FlameAI.h); further classes append after it.
+// Size per-class / per-squad / per-ammo tables with kSoldierClasses / kSquadTypes / kAmmoTypes, never a literal 3.
+enum class SoldierClass : uint8_t { Rifleman = 0, MachineGunner = 1, Sniper = 2, Flamethrower = 3, Count };
+// Engineers (= 4, GAME_DESIGN 14d): riflemen by class (rifle, rifleman clips; EngineerAI.h) who build and clear cars.
+enum class SquadType : uint8_t { Rifle = 0, MachineGun = 1, Sniper = 2, Flamethrower = 3, Engineer = 4, Count };
+enum class AmmoType : uint8_t { Rifle = 0, MachineGun = 1, Sniper = 2, Fuel = 3, Count };   // what a supply point stocks (Fuel: flamethrower tanks)
+constexpr size_t kSoldierClasses = (size_t)SoldierClass::Count;
+constexpr size_t kSquadTypes = (size_t)SquadType::Count;
+constexpr size_t kAmmoTypes = (size_t)AmmoType::Count;
+inline AmmoType ammoOf(SoldierClass c) { return c == SoldierClass::Flamethrower ? AmmoType::Fuel : (AmmoType)c; }
+inline const char* className(SoldierClass c) {
+    return c == SoldierClass::Rifleman ? "rifleman" : c == SoldierClass::MachineGunner ? "mg" : c == SoldierClass::Sniper ? "sniper"
+         : c == SoldierClass::Flamethrower ? "flamethrower" : "soldier";
+}
 
 // ---- soldier behaviour (SoldierAI.h: one lightweight state machine) ----------------------------------------------
 enum class SoldierState : uint8_t {
@@ -63,6 +73,7 @@ const char* actionName(AnimAction a);   // anims.json action names ("idle", "par
 enum SquadFlags : uint32_t {
     SQ_LOW_AMMO = 1u << 0, SQ_OUT_OF_AMMO = 1u << 1, SQ_CASUALTIES = 1u << 2, SQ_MOVING = 1u << 3,
     SQ_RESUPPLYING = 1u << 4, SQ_UNDER_ATTACK = 1u << 5, SQ_DEPLOYING = 1u << 6, SQ_ENGAGED = 1u << 7,
+    SQ_GAS = 1u << 8,               // a member stands in corpse gas above RotConfig::warnLevel (CorpseGas, GAME_DESIGN 14d)
 };
 
 // Why a zombie died (rewards may differ per cause; OPEN: owner decides whether non-soldier kills pay).

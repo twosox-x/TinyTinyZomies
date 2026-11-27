@@ -182,7 +182,7 @@ float rayCylinder(thread const float3& o, thread const float3& d, thread const f
     return (lo <= hi) ? lo : (-1.0);
 }
 
-kernel void main0(constant SimUniforms& _60 [[buffer(0)]], device Hits& _252 [[buffer(1)]], device Agents& _610 [[buffer(2)]], device CellStart& _572 [[buffer(3)]], device CellCount& _581 [[buffer(4)]], device StaticH& _481 [[buffer(5)]], device Counters& _287 [[buffer(6)]], device GameIO& _721 [[buffer(7)]], device Results& _765 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _60 [[buffer(0)]], device Hits& _252 [[buffer(1)]], device Agents& _648 [[buffer(2)]], device CellStart& _610 [[buffer(3)]], device CellCount& _619 [[buffer(4)]], device StaticH& _483 [[buffer(5)]], device Counters& _287 [[buffer(6)]], device GameIO& _774 [[buffer(7)]], device Results& _818 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint h = gl_GlobalInvocationID.x;
     if (h >= _60.misc.z)
@@ -247,78 +247,106 @@ kernel void main0(constant SimUniforms& _60 [[buffer(0)]], device Hits& _252 [[b
     uint bestK = 4294967295u;
     uint kind = 0u;
     float tHit = tMax;
+    float tGraze = 1000000015047466219876688855040.0;
     Agent a;
     for (int iter = 0; iter < 2048; iter++)
     {
-        bool _408 = c.x < 0;
-        bool _415;
-        if (!_408)
+        bool _409 = c.x < 0;
+        bool _416;
+        if (!_409)
         {
-            _415 = c.y < 0;
+            _416 = c.y < 0;
         }
         else
         {
-            _415 = _408;
+            _416 = _409;
         }
-        bool _425;
-        if (!_415)
+        bool _426;
+        if (!_416)
         {
-            _425 = c.x >= int(_60.grid.x);
+            _426 = c.x >= int(_60.grid.x);
         }
         else
         {
-            _425 = _415;
+            _426 = _416;
         }
-        bool _435;
-        if (!_425)
+        bool _436;
+        if (!_426)
         {
-            _435 = c.y >= int(_60.grid.y);
+            _436 = c.y >= int(_60.grid.y);
         }
         else
         {
-            _435 = _425;
+            _436 = _426;
         }
-        if (_435)
+        if (_436)
         {
             break;
         }
-        bool _441 = tEnter > tMax;
-        bool _453;
-        if (!_441)
+        bool _442 = tEnter > tMax;
+        bool _454;
+        if (!_442)
         {
-            _453 = tEnter > (best + (_60.world.z * 1.5));
+            _454 = tEnter > (best + (_60.world.z * 1.5));
         }
         else
         {
-            _453 = _441;
+            _454 = _442;
         }
-        if (_453)
+        if (_454)
         {
             break;
         }
         float tExit = fast::min(fast::min(tNext.x, tNext.y), tMax);
         float yLow = o.y + (d.y * ((d.y < 0.0) ? tExit : tEnter));
         int2 param = c;
-        bool _488 = _481.staticH[cellIndex(param, _60)] > yLow;
-        bool _497;
-        if (_488)
+        float sh = _483.staticH[cellIndex(param, _60)];
+        if ((sh > yLow) && (sh > 0.0))
         {
-            int2 param_1 = c;
-            _497 = _481.staticH[cellIndex(param_1, _60)] > 0.0;
+            if (((sh - yLow) < 0.300000011920928955078125) && (tGraze > 100000001504746621987668885504.0))
+            {
+                tGraze = tEnter;
+            }
+            else
+            {
+                if ((sh - yLow) >= 0.300000011920928955078125)
+                {
+                    if (best > tEnter)
+                    {
+                        kind = 2u;
+                        tHit = tEnter;
+                        bestK = 4294967295u;
+                        best = tEnter;
+                    }
+                    break;
+                }
+            }
+        }
+        bool _525 = tGraze < 100000001504746621987668885504.0;
+        bool _533;
+        if (_525)
+        {
+            _533 = tEnter > (tGraze + 2.5);
         }
         else
         {
-            _497 = _488;
+            _533 = _525;
         }
-        if (_497)
+        bool _540;
+        if (_533)
         {
-            if (best > tEnter)
-            {
-                kind = 2u;
-                tHit = tEnter;
-                bestK = 4294967295u;
-                best = tEnter;
-            }
+            _540 = best > (tGraze + 2.5);
+        }
+        else
+        {
+            _540 = _533;
+        }
+        if (_540)
+        {
+            kind = 2u;
+            tHit = tGraze;
+            bestK = 4294967295u;
+            best = tGraze;
             break;
         }
         uint visited = 0u;
@@ -327,69 +355,69 @@ kernel void main0(constant SimUniforms& _60 [[buffer(0)]], device Hits& _252 [[b
             for (int ox = -1; ox <= 1; ox++)
             {
                 int2 cc = c + int2(ox, oy);
-                bool _533 = cc.x < 0;
-                bool _540;
-                if (!_533)
+                bool _571 = cc.x < 0;
+                bool _578;
+                if (!_571)
                 {
-                    _540 = cc.y < 0;
+                    _578 = cc.y < 0;
                 }
                 else
                 {
-                    _540 = _533;
+                    _578 = _571;
                 }
-                bool _550;
-                if (!_540)
+                bool _588;
+                if (!_578)
                 {
-                    _550 = cc.x >= int(_60.grid.x);
+                    _588 = cc.x >= int(_60.grid.x);
                 }
                 else
                 {
-                    _550 = _540;
+                    _588 = _578;
                 }
-                bool _560;
-                if (!_550)
+                bool _598;
+                if (!_588)
                 {
-                    _560 = cc.y >= int(_60.grid.y);
+                    _598 = cc.y >= int(_60.grid.y);
                 }
                 else
                 {
-                    _560 = _550;
+                    _598 = _588;
                 }
-                if (_560)
+                if (_598)
                 {
                     continue;
                 }
-                int2 param_2 = cc;
-                uint cid = cellIndex(param_2, _60);
-                uint s = _572.cellStart[cid];
-                uint e = min((s + _581.cellCount[cid]), live);
+                int2 param_1 = cc;
+                uint cid = cellIndex(param_1, _60);
+                uint s = _610.cellStart[cid];
+                uint e = min((s + _619.cellCount[cid]), live);
                 for (uint k = s; k < e; k++)
                 {
-                    uint _598 = visited;
-                    uint _599 = _598 + uint(1);
-                    visited = _599;
-                    if (_599 > maxN)
+                    uint _636 = visited;
+                    uint _637 = _636 + uint(1);
+                    visited = _637;
+                    if (_637 > maxN)
                     {
                         break;
                     }
-                    a.pos = _610.agents[k].pos;
-                    a.vel = _610.agents[k].vel;
-                    a.prev = _610.agents[k].prev;
-                    a.dirs = _610.agents[k].dirs;
-                    a.info = _610.agents[k].info;
-                    Agent param_3 = a;
-                    if (agentState(param_3) >= 3u)
+                    a.pos = _648.agents[k].pos;
+                    a.vel = _648.agents[k].vel;
+                    a.prev = _648.agents[k].prev;
+                    a.dirs = _648.agents[k].dirs;
+                    a.info = _648.agents[k].info;
+                    Agent param_2 = a;
+                    if (agentState(param_2) >= 3u)
                     {
                         continue;
                     }
-                    float param_4 = a.pos.w;
-                    float3 param_5 = o;
-                    float3 param_6 = d;
-                    float3 param_7 = a.pos.xyz;
-                    float param_8 = bodyHeight(param_4, _60);
-                    float param_9 = R;
-                    float param_10 = tMax;
-                    float t = rayCylinder(param_5, param_6, param_7, param_8, param_9, param_10);
+                    float param_3 = a.pos.w;
+                    float3 param_4 = o;
+                    float3 param_5 = d;
+                    float3 param_6 = a.pos.xyz;
+                    float param_7 = bodyHeight(param_3, _60);
+                    float param_8 = R;
+                    float param_9 = tMax;
+                    float t = rayCylinder(param_4, param_5, param_6, param_7, param_8, param_9);
                     if ((t >= 0.0) && (t < best))
                     {
                         best = t;
@@ -416,16 +444,32 @@ kernel void main0(constant SimUniforms& _60 [[buffer(0)]], device Hits& _252 [[b
             c.y += stp.y;
         }
     }
+    bool _751 = (kind == 1u) && (tGraze < 100000001504746621987668885504.0);
+    bool _758;
+    if (_751)
+    {
+        _758 = best > (tGraze + 2.5);
+    }
+    else
+    {
+        _758 = _751;
+    }
+    if (_758)
+    {
+        kind = 2u;
+        tHit = tGraze;
+        bestK = 4294967295u;
+    }
     if (kind == 1u)
     {
         uint b = 8208u + (4u * bestK);
-        uint _733 = atomic_fetch_add_explicit((device atomic_uint*)&_721.gameIO[b], uint((fast::clamp(req.d.w, 0.0, 60.0) * 65536.0) + 0.5), memory_order_relaxed);
-        uint _740 = atomic_fetch_or_explicit((device atomic_uint*)&_721.gameIO[b + 1u], req.info.y & 3u, memory_order_relaxed);
-        uint _745 = atomic_fetch_add_explicit((device atomic_uint*)&_721.gameIO[b + 1u], 16u, memory_order_relaxed);
-        uint _751 = atomic_fetch_max_explicit((device atomic_uint*)&_721.gameIO[b + 2u], req.info.x, memory_order_relaxed);
-        uint _761 = atomic_exchange_explicit((device atomic_uint*)&_721.gameIO[b + 3u], pack_float_to_snorm4x8(float4(d, 0.0)), memory_order_relaxed);
+        uint _786 = atomic_fetch_add_explicit((device atomic_uint*)&_774.gameIO[b], uint((fast::clamp(req.d.w, 0.0, 60.0) * 65536.0) + 0.5), memory_order_relaxed);
+        uint _793 = atomic_fetch_or_explicit((device atomic_uint*)&_774.gameIO[b + 1u], req.info.y & 3u, memory_order_relaxed);
+        uint _798 = atomic_fetch_add_explicit((device atomic_uint*)&_774.gameIO[b + 1u], 16u, memory_order_relaxed);
+        uint _804 = atomic_fetch_max_explicit((device atomic_uint*)&_774.gameIO[b + 2u], req.info.x, memory_order_relaxed);
+        uint _814 = atomic_exchange_explicit((device atomic_uint*)&_774.gameIO[b + 3u], pack_float_to_snorm4x8(float4(d, 0.0)), memory_order_relaxed);
     }
-    _765.results[2u * h] = kind;
-    _765.results[(2u * h) + 1u] = as_type<uint>(tHit);
+    _818.results[2u * h] = kind;
+    _818.results[(2u * h) + 1u] = as_type<uint>(tHit);
 }
 

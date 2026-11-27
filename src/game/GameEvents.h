@@ -34,7 +34,7 @@ struct NoiseEvent {
 
 // Visual-only FX request for the soldier renderer (muzzle flash, tracer, casing, suppressor puff, dust, impact).
 // The animator already knows where the muzzle is at render time; game code only says "soldier X fired".
-enum class FxKind : uint8_t { Shot, Footstep, BodyFall, Landing, CrateTouch, Impact };
+enum class FxKind : uint8_t { Shot, Footstep, BodyFall, Landing, CrateTouch, Impact, Flame /* flamethrower spray: pos nozzle, dir */ };
 struct FxEvent { FxKind kind; SoldierId soldier; V3 pos, dir; };
 
 struct TickEvents {

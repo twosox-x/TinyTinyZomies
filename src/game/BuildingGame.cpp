@@ -357,7 +357,7 @@ bool buildingVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
     }
     if (v == "bzombies") {   // TEST HOOK: what B3b would report
         const int n = (int)fa(a, 0);
-        reg.setZombieCounts(bp.selected, n, 0, nullptr, 0);
+        bp.forceZombiesInside(bp.selected, n);
         return true;
     }
     return false;

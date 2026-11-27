@@ -62,6 +62,7 @@ struct Vehicle {
     bool queued = false;                // waiting for an explosion slot
     bool inWindow = false;
     bool contact = false;
+    bool removed = false;               // cleared by engineers (GAME_DESIGN 14d): not drawn, no collision, persistent
     int16_t sx0 = 0, sz0 = 0, sx1 = -1, sz1 = -1;   // cells it is stamped into (sim grid), empty if x1 < x0
 };
 
@@ -119,6 +120,12 @@ public:
     // the zombies' obstacle grid on top of the baked heights (not in groundAt / solidAt). They are kept across window
     // moves; add / remove only mark the rows they cover, which go up with the next update() (event driven).
     uint32_t addObstacle(float cx, float cz, float halfX, float halfZ, float yaw, float top);
+    // Engineers (GAME_DESIGN 14d): the parked (sleeping, intact or wrecked) vehicle in the window nearest (x, z) whose
+    // box is within maxR (UINT32_MAX: none), its ground box (centre, half extents, yaw as above), and its removal:
+    // the instance is no longer drawn, its cells return to the ground (rows re-uploaded), it never comes back.
+    uint32_t parkedAt(float x, float z, float maxR) const;
+    void groundBox(uint32_t i, float& cx, float& cz, float& hx, float& hz, float& yaw) const;
+    bool removeVehicle(uint32_t i);
     void removeObstacle(uint32_t id);
     uint32_t obstacleCount() const { uint32_t n = 0; for (const GameObstacle& o : gobst_) n += o.alive ? 1 : 0; return n; }
     // Row runs (first row, count) the last update() uploaded, and a counter bumped by every update() (consumers

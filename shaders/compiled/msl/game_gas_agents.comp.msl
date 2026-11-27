@@ -1,0 +1,248 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct GasUniforms
+{
+    uint4 gdim;
+    int4 gshift;
+    float4 rotP;
+    float4 airP;
+    float4 fireP;
+    float4 miscP;
+    float4 coneA[16];
+    float4 coneB[16];
+    uint4 coneC[16];
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct Field
+{
+    uint4 field[1];
+};
+
+struct GameIO
+{
+    uint gameIO[1];
+};
+
+struct Out
+{
+    uint outW[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+int2 gasCoord(thread const float2& xz, constant SimUniforms& _85)
+{
+    float2 g = (xz - _85.world.xy) * (_85.world.w / 2.0);
+    return int2(floor(g));
+}
+
+static inline __attribute__((always_inline))
+bool gasInside(thread const int2& g, constant GasUniforms& _64)
+{
+    bool _105 = g.x >= 0;
+    bool _111;
+    if (_105)
+    {
+        _111 = g.y >= 0;
+    }
+    else
+    {
+        _111 = _105;
+    }
+    bool _120;
+    if (_111)
+    {
+        _120 = g.x < int(_64.gdim.x);
+    }
+    else
+    {
+        _120 = _111;
+    }
+    bool _129;
+    if (_120)
+    {
+        _129 = g.y < int(_64.gdim.y);
+    }
+    else
+    {
+        _129 = _120;
+    }
+    return _129;
+}
+
+static inline __attribute__((always_inline))
+uint gasIndex(thread const int2& g, constant GasUniforms& _64)
+{
+    return (uint(g.y) * _64.gdim.x) + uint(g.x);
+}
+
+static inline __attribute__((always_inline))
+float coneCover(thread const float3& p, thread const float& slack, thread uint& owner, constant GasUniforms& _64)
+{
+    float s = 0.0;
+    owner = 0u;
+    for (uint k = 0u; (k < _64.gdim.w) && (k < 16u); k++)
+    {
+        float3 d = p - _64.coneA[k].xyz;
+        float along = dot(d, _64.coneB[k].xyz);
+        bool _164 = along < 0.0;
+        bool _173;
+        if (!_164)
+        {
+            _173 = along > _64.coneA[k].w;
+        }
+        else
+        {
+            _173 = _164;
+        }
+        if (_173)
+        {
+            continue;
+        }
+        float l = length(d);
+        float lat = sqrt(fast::max((l * l) - (along * along), 0.0));
+        float rad = (along * sqrt(fast::max(1.0 - (_64.coneB[k].w * _64.coneB[k].w), 0.0))) / fast::max(_64.coneB[k].w, 0.20000000298023223876953125);
+        if (lat > (rad + slack))
+        {
+            continue;
+        }
+        float t = as_type<float>(_64.coneC[k].y);
+        if (t > s)
+        {
+            s = t;
+            owner = _64.coneC[k].x;
+        }
+    }
+    return s;
+}
+
+kernel void main0(constant SimUniforms& _85 [[buffer(0)]], constant GasUniforms& _64 [[buffer(1)]], device Agents& _262 [[buffer(2)]], device Counters& _250 [[buffer(3)]], device Field& _305 [[buffer(4)]], device GameIO& _366 [[buffer(5)]], device Out& _398 [[buffer(6)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= _250.counters[0])
+    {
+        return;
+    }
+    Agent a;
+    a.pos = _262.agents[i].pos;
+    a.vel = _262.agents[i].vel;
+    a.prev = _262.agents[i].prev;
+    a.dirs = _262.agents[i].dirs;
+    a.info = _262.agents[i].info;
+    Agent param = a;
+    if (agentState(param) >= 3u)
+    {
+        return;
+    }
+    float2 param_1 = a.pos.xz;
+    int2 g = gasCoord(param_1, _85);
+    float dmg = 0.0;
+    uint owner = 0u;
+    int2 param_2 = g;
+    if (gasInside(param_2, _64))
+    {
+        int2 param_3 = g;
+        uint4 f = _305.field[gasIndex(param_3, _64)];
+        if (as_type<float>(f.y) > 0.0)
+        {
+            dmg += (_64.fireP.w * _64.rotP.x);
+            owner = f.z;
+        }
+    }
+    float3 param_4 = a.pos.xyz + float3(0.0, 0.89999997615814208984375, 0.0);
+    float param_5 = 0.3499999940395355224609375;
+    uint param_6;
+    float _340 = coneCover(param_4, param_5, param_6, _64);
+    uint co = param_6;
+    float spray = _340;
+    if (spray > 0.0)
+    {
+        dmg += (_64.fireP.z * spray);
+        owner = co;
+    }
+    if (dmg <= 0.0)
+    {
+        return;
+    }
+    uint b = 8208u + (4u * i);
+    uint _377 = atomic_fetch_add_explicit((device atomic_uint*)&_366.gameIO[b], uint((fast::clamp(dmg, 0.0, 60.0) * 65536.0) + 0.5), memory_order_relaxed);
+    uint _381 = atomic_fetch_or_explicit((device atomic_uint*)&_366.gameIO[b + 1u], 2u, memory_order_relaxed);
+    uint _385 = atomic_fetch_add_explicit((device atomic_uint*)&_366.gameIO[b + 1u], 16u, memory_order_relaxed);
+    if (owner != 0u)
+    {
+        uint _394 = atomic_fetch_max_explicit((device atomic_uint*)&_366.gameIO[b + 2u], owner, memory_order_relaxed);
+    }
+    uint _403 = atomic_fetch_add_explicit((device atomic_uint*)&_398.outW[_64.gdim.z + 4u], 1u, memory_order_relaxed);
+}
+

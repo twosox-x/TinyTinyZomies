@@ -54,7 +54,9 @@ public:
     int tracerEvery[3] = {3, 1, 1};
     // Weapons left on the ground by soldiers that rose as zombies (Reanimation, GameWorld sets it): drawn every frame.
     const std::vector<struct DroppedWeapon>* droppedWeapons = nullptr;
-    static uint8_t classColor(SoldierClass c) { return c == SoldierClass::MachineGunner ? MK_AMBER : c == SoldierClass::Sniper ? MK_CYAN : MK_GREEN; }
+    static uint8_t classColor(SoldierClass c) {
+        return c == SoldierClass::MachineGunner ? MK_AMBER : c == SoldierClass::Sniper ? MK_CYAN : c == SoldierClass::Flamethrower ? MK_RED : MK_GREEN;
+    }
     static MilMarker classIcon(SoldierClass c) { return c == SoldierClass::MachineGunner ? MilMarker::IconMG : c == SoldierClass::Sniper ? MilMarker::IconSniper : MilMarker::IconRifle; }
 
 private:

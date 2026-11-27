@@ -3,7 +3,7 @@
 // atrium in the gap between them, and a planted roof deck with a ridge skylight over the atrium. The towers share
 // one facade system (stone piers or metal-finned curtain wall) and crown, but differ in height; the floors the
 // bridges reach are glazed full height on every side (sky lobbies). A lot too narrow for two towers with an 8 m
-// gap gets a single tower with a cantilevered sky lounge instead.
+// gap gets a single tower with a two-storey glazed sky lobby band instead (no cantilevered lounge: floating look).
 (function () {
   const A = self.CityArch, L = A.lib, BM = L.BM, FH = L.FH;
   const VM = () => L.VoxModel();
@@ -156,29 +156,6 @@
     // underside: Warren truss panels on both faces
     for (let x = x0; x + 6 <= x1; x += 6) for (let k = 0; k < 3; ++k) {
       M.box(x + k, 1, 0, x + k + 1, 4, 1, BM.STEEL_DARK); M.box(x + k, 1, dd - 1, x + k + 1, 4, dd, BM.STEEL_DARK);
-    }
-    return M;
-  }
-  // sky lounge cantilevering out of the front face (along -z). Model origin at collar bottom; z 0 = outer end.
-  function loungeModel(ww, hh, out, S) {
-    const M = new (VM())(ww, hh + FH + 4, out + 6, 0, 0), y0 = FH + 2, zw = out + 6;        // struts hang below
-    M.box(0, y0, zw - 6, ww, y0 + hh, zw, S.collar);                                       // collar tucked into wall
-    M.box(1, y0 + 1, 0, ww - 1, y0 + 4, zw - 6, BM.STEEL_DARK);                             // floor girder
-    M.box(2, y0 + 4, 1, ww - 2, y0 + hh - 3, zw - 6, BM.CURTAIN);
-    for (let x = 2; x < ww - 2; x += 4) M.box(x, y0 + 4, 1, Math.min(ww - 2, x + 4), y0 + hh - 3, zw - 6, L.glassMat(S.seed, x, 77, 0.7, S.tint));
-    for (let z = 1; z < zw - 6; z += 4) for (let x = 2; x < ww - 2; x += 4) {
-      if (z === 1) M.box(x, y0 + 4, 0, x + 1, y0 + hh - 3, 1, S.mull);
-    }
-    for (let z = 4; z < zw - 6; z += 4) { M.box(1, y0 + 4, z, 2, y0 + hh - 3, z + 1, S.mull); M.box(ww - 2, y0 + 4, z, ww - 1, y0 + hh - 3, z + 1, S.mull); }
-    M.box(1, y0 + hh - 3, 0, ww - 1, y0 + hh - 1, zw - 6, S.mull);
-    M.box(3, y0 + hh - 1, 2, ww - 3, y0 + hh, zw - 7, BM.METAL);
-    // raking struts from the wall below up to the outer edge of the floor girder
-    for (const sx of [0, ww - 2]) {
-      for (let k = 0; k <= y0; ++k) {
-        const z = Math.round(zw - 2 - (k / y0) * (zw - 4));
-        M.box(sx, k, z - 1, sx + 2, k + 2, z + 1, BM.STEEL_DARK);
-      }
-      M.box(sx, 0, zw - 3, sx + 2, 4, zw, S.collar);                                   // wall shoe
     }
     return M;
   }
@@ -358,14 +335,9 @@
         for (let x = t.x0 + 4; x + 8 <= t.x1 - 2; x += 12) E.vox(C, treeModel(R, false), x + 3, yd, Math.max(6, tz0 - 9));
       }
     } else {
-      // cantilevered sky lounge on the front face
-      const t = yOf(towers[0].tiers, lay.lounge.f), T = t.t;
-      const fw = T.x1 - T.x0, ww = Math.max(20, Math.round(fw * (0.55 + R() * 0.1)));
-      const bad = new Set();
-      for (const u of planes(fw, S)) bad.add(T.x0 + u);
-      const x0 = avoid(((T.x0 + T.x1) >> 1) - (ww >> 1), [0, 2, ww - 2, ww], bad);
-      const out = 18 + Math.floor(R() * 8);
-      E.vox(C, loungeModel(ww, 2 * FH - 2, out, S), x0, t.y + 1 - (FH + 2), T.z0 + 1 - (out + 6));
+      // (no cantilevered sky lounge: the glass box hung off the front face read as a detached appendage at RTS
+      // range; the lounge storeys stay a two-storey sky lobby band, glazed full height on every side)
+      R(); R();                                                   // keep the random stream of the rest of the tower
       // garden on the podium deck around the tower
       const T0 = towers[0].tiers[0];
       for (const x of [6, W - 14]) for (let z = 8; z < D - 10; z += 14) if (x + 10 < T0.x0 - 3 || x > T0.x1 + 3) E.vox(C, treeModel(R, z % 28 === 8), x + 4, podH, z + 4);

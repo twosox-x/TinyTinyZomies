@@ -65,9 +65,11 @@ struct Frame
     float4x4 shadowVP;
     float4 shadowP;
     float4 dofP;
+    float4x4 shadowVP2;
+    float4 shadowP2;
 };
 
-constant spvUnsafeArray<float, 16> _500 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
+constant spvUnsafeArray<float, 16> _603 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
 
 struct main0_out
 {
@@ -89,16 +91,16 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _69)
     float d = length(P - _69.camPos.xyz);
     float f = (1.0 - exp((-_69.fogColor.w) * fast::max(d - _69.groundColor.w, 0.0))) * 0.699999988079071044921875;
     col = mix(col, _69.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _395;
+    float _449;
     if (_69.sunColor.w > 0.0)
     {
-        _395 = _69.sunColor.w;
+        _449 = _69.sunColor.w;
     }
     else
     {
-        _395 = 1.0;
+        _449 = 1.0;
     }
-    col *= _395;
+    col *= _449;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
@@ -108,12 +110,30 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
 {
     float d = fast::max(length(P - _69.camPos.xyz), 0.001000000047497451305389404296875);
     float r = (d - _69.sunDir.w) / d;
-    r = sign(r) * fast::max(abs(r) - _69.dofP.x, 0.0);
-    float coc = fast::clamp(_69.skyColor.w * r, -1.0, 1.0);
+    float rb = sign(r) * fast::max(abs(r) - _69.dofP.x, 0.0);
+    float coc = _69.skyColor.w * rb;
+    bool _507 = _69.dofP.y > 0.0;
+    bool _513;
+    if (_507)
+    {
+        _513 = _69.skyColor.w > 0.0;
+    }
+    else
+    {
+        _513 = _507;
+    }
+    if (_513)
+    {
+        float4 cp = _69.viewProj * float4(P, 1.0);
+        float ny = abs(cp.y / fast::max(abs(cp.w), 9.9999997473787516355514526367188e-05));
+        float tilt = _69.dofP.y * smoothstep(_69.dofP.z, 1.0, ny);
+        coc = ((r >= 0.0) ? 1.0 : (-1.0)) * fast::max(abs(coc), tilt);
+    }
+    coc = fast::clamp(coc, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _456 = finish(param, param_1, _69);
-    return float4(_456, 0.5 + (0.5 * coc));
+    float3 _560 = finish(param, param_1, _69);
+    return float4(_560, 0.5 + (0.5 * coc));
 }
 
 static inline __attribute__((always_inline))
@@ -124,11 +144,24 @@ float3 pointLights(thread const float3& P, thread const float3& N, constant Fram
     {
         float3 L = _69.lightPos[i].xyz - P;
         float d = length(L);
-        float att = fast::clamp(1.0 - (d / _69.lightPos[i].w), 0.0, 1.0);
-        att *= att;
-        c += (((_69.lightCol[i].xyz * _69.lightCol[i].w) * att) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        float R = _69.lightPos[i].w;
+        if (R < 0.0)
+        {
+            float x = d / (-R);
+            if (x >= 1.0)
+            {
+                continue;
+            }
+            float win = 1.0 - (x * x);
+            float att = (win * win) / (1.0 + ((d * d) * 8.0));
+            c += (((_69.lightCol[i].xyz * _69.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
+            continue;
+        }
+        float att_1 = fast::clamp(1.0 - (d / R), 0.0, 1.0);
+        att_1 *= att_1;
+        c += (((_69.lightCol[i].xyz * _69.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
-    float _194;
+    float _248;
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
         float age = _69.blasts[i_1].w;
@@ -143,13 +176,13 @@ float3 pointLights(thread const float3& P, thread const float3& N, constant Fram
         float d_1 = length(L_1);
         if (age < 0.100000001490116119384765625)
         {
-            _194 = 1.0 - (age / 0.100000001490116119384765625);
+            _248 = 1.0 - (age / 0.100000001490116119384765625);
         }
         else
         {
-            _194 = 0.0;
+            _248 = 0.0;
         }
-        float flash = _194;
+        float flash = _248;
         float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
         fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
         float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
@@ -195,7 +228,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _69 [[buffer(
     if (in.vFade < 0.999000012874603271484375)
     {
         int2 q = (int2(gl_FragCoord.xy) / int2(2)) & int2(3);
-        if (((_500[(q.y * 4) + q.x] + 0.5) / 16.0) > in.vFade)
+        if (((_603[(q.y * 4) + q.x] + 0.5) / 16.0) > in.vFade)
         {
             discard_fragment();
         }

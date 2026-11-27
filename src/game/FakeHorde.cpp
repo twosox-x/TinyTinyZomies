@@ -147,7 +147,7 @@ void FakeHorde::step(float dt) {
 }
 
 // ---- FakeSupply -----------------------------------------------------------------------------------------------------
-SupplyId FakeSupply::add(V3 pos, std::array<int, 3> stock, int slots, float slotRadius) {
+SupplyId FakeSupply::add(V3 pos, std::array<int, kAmmoTypes> stock, int slots, float slotRadius) {
     Point p;
     p.id.index = (uint32_t)points.size(); p.id.gen = 1;
     p.pos = pos; p.stock = stock;

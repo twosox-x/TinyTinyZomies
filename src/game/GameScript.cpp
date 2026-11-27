@@ -89,6 +89,9 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "hits") { out = (double)w.horde().stats().hitsOnZombies; return true; }          // rounds that hit a zombie (GPU)
     if (m == "hit_pct") { const double sh = (double)w.combat().roundsFired(); out = sh > 0 ? 100.0 * (double)w.horde().stats().hitsOnZombies / sh : 0; return true; }
     if (m == "hits_static") { out = (double)w.horde().stats().hitsOnStatic; return true; }
+    if (m == "static_pct") { const double sh = (double)w.combat().roundsFired(); out = sh > 0 ? 100.0 * (double)w.horde().stats().hitsOnStatic / sh : 0; return true; }
+    if (m == "switches") { out = 0; for (uint32_t i = 0; i < P.capacity(); ++i) out += P.used[i] ? P.targetSwitches[i] : 0; return true; }   // all soldiers
+    if (m == "sidesteps") { out = (double)w.ai().sidesteps(); return true; }
     if (m == "risen") { out = (double)w.reanimation().risen(); return true; }                 // dead soldiers risen as zombies
     if (m == "rising") { out = (double)w.reanimation().rising(); return true; }
     if (m == "stay_dead") { out = (double)w.reanimation().stayDead(); return true; }
@@ -107,7 +110,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "selected") { out = (double)w.ui().selection().squads.size(); return true; }
     if (m == "tool") { out = (double)w.ui().tool(); return true; }
     if (m == "zombies_live") { out = w.app() ? (double)w.app()->sim.stats().live : 0.0; return true; }
-    if (m == "delivered") { out = 0; for (int t = 0; t < 3; ++t) out += (double)w.logistics().roundsDelivered((AmmoType)t); return true; }
+    if (m == "delivered") { out = 0; for (size_t t = 0; t < kAmmoTypes; ++t) out += (double)w.logistics().roundsDelivered((AmmoType)t); return true; }
     if (m == "squad") {
         double nn;
         if (k + 1 >= a.size() || !num(a[k], nn)) { err = "squad N <field>"; return false; }
@@ -153,6 +156,8 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
             else if (fld == "wounded") out += al && P.wounded[i] ? 1 : 0;
             else if (fld == "speed") out += al ? std::hypot(P.vel[i].x, P.vel[i].z) : 0;
             else if (fld == "engaging") out += al && P.state[i] == SoldierState::Engaging ? 1 : 0;   // sum of feet heights (one sniper: his height)
+            else if (fld == "switches") out += P.targetSwitches[i];   // target switches (all members, dead included)
+            else if (fld == "rounds") out += P.rounds[i];             // rounds fired by the squad
             else if (fld == "inside") {               // bodies inside geometry: below the surface, or a wall through the body
                 const NavGrid* nav = w.context().nav;
                 if (!nav || !nav->ready()) continue;
@@ -334,7 +339,7 @@ bool GameScript::tick(GameWorld& world, double time) {
             std::printf("  t=%6.1f funding %.0f (+%.0f/min) kills %llu shots %llu soldiers %zu/%zu squads %zu zombies %u delivered %.0f\n", ctx.time,
                         world.economy().funding(), world.economy().incomePerMinute(), (unsigned long long)world.economy().kills(),
                         (unsigned long long)world.combat().roundsFired(), P.liveCount(), P.capacity(), ctx.squads->squads.size(),
-                        app ? app->sim.stats().live : 0u, [&] { double d = 0; for (int t = 0; t < 3; ++t) d += (double)world.logistics().roundsDelivered((AmmoType)t); return d; }());
+                        app ? app->sim.stats().live : 0u, [&] { double d = 0; for (size_t t = 0; t < kAmmoTypes; ++t) d += (double)world.logistics().roundsDelivered((AmmoType)t); return d; }());
             for (size_t si = 0; si < ctx.squads->squads.size(); ++si) {
                 const Squad& s = ctx.squads->squads[si];
                 if (L.verb == "squadinfo" && !a.empty() && (int)si + 1 != std::atoi(a[0].c_str())) continue;

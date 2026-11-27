@@ -30,6 +30,8 @@ struct Frame
     float4x4 shadowVP;
     float4 shadowP;
     float4 dofP;
+    float4x4 shadowVP2;
+    float4 shadowP2;
 };
 
 struct main0_out

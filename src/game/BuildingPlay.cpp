@@ -325,7 +325,8 @@ void BuildingPlay::capture(GameContext& ctx, float dt) {
     for (uint32_t b = 0; b < (uint32_t)reg_.size(); ++b) {
         Building& B = *reg_.get(BuildingId{b});
         if (B.capture == CaptureState::Captured) continue;
-        const bool inside = B.zombiesInside > 0;   // B3b counts (-1 unknown: not simulated yet -> not blocking)
+        const int forced = b < forced_.size() ? forced_[b] : -1;
+        const bool inside = forced >= 0 ? forced > 0 : B.zombiesInside > 0;   // B3b counts (-1 unknown: not simulated -> not blocking)
         if (present[b]) {
             if (contested[b] || inside) B.capture = CaptureState::Contested;
             else {

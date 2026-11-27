@@ -374,6 +374,35 @@ void MilitaryLibrary::buildLabHelpers() {
         fxModels[FX_FLASH_RIFLE_HALF] = star("fx_flash_rifle_half", 0.025f, 1);
         fxModels[FX_FLASH_MG] = star("fx_flash_mg", 0.07f, 3);
         fxModels[FX_FLASH_MG_SMALL] = star("fx_flash_mg_small", 0.056f, 3);
+        // muzzle flash frames (MilitaryRenderer: one per 1/60 s): a hot core at the muzzle, a forward cone that tapers
+        // (core colour then tip colour), side prongs (the muzzle brake's star seen from any side), optional diagonals
+        auto flash = [&](const char* name, float v, int cone, int coneW, int prong, bool diag) {
+            const int N = 2 * prong + 3, c = prong + 1, Z = cone + 2;
+            Builder b(name, N, N, Z, v);
+            b.box(c - 1, c, 0, c + 2, c + 1, 2, P_FLASH);   // core: 3 x 3 cross, 2 deep
+            b.box(c, c - 1, 0, c + 1, c + 2, 2, P_FLASH);
+            for (int k = 0; k < cone; ++k) {
+                const int wd = std::max(0, (coneW - 1) * (cone - k) / cone / 2);   // half width, tapering
+                const uint8_t pal = k < (cone + 1) / 2 ? P_FLASH : P_FLASH_TIP;
+                b.box(c - wd, c, 2 + k, c + wd + 1, c + 1, 3 + k, pal);
+                b.box(c, c - wd, 2 + k, c + 1, c + wd + 1, 3 + k, pal);
+            }
+            for (int k = 1; k <= prong; ++k) {   // orthogonal prongs in the muzzle plane (z = 1)
+                b.box(c - 1 - k, c, 1, c - k, c + 1, 2, P_FLASH_TIP); b.box(c + 1 + k, c, 1, c + 2 + k, c + 1, 2, P_FLASH_TIP);
+                b.box(c, c - 1 - k, 1, c + 1, c - k, 2, P_FLASH_TIP); b.box(c, c + 1 + k, 1, c + 1, c + 2 + k, 2, P_FLASH_TIP);
+            }
+            if (diag)
+                for (int k = 1; k < prong; ++k)
+                    for (int sx : {-1, 1}) for (int sy : {-1, 1}) b.box(c + sx * k, c + sy * k, 1, c + sx * k + 1, c + sy * k + 1, 2, P_FLASH_TIP);
+            b.centred(c + 0.5f, c + 0.5f, 0.f);
+            return add(b);
+        };
+        fxModels[FX_FLASH_R0] = flash("fx_flash_r0", 0.032f, 4, 3, 2, false);
+        fxModels[FX_FLASH_R1] = flash("fx_flash_r1", 0.028f, 3, 3, 2, true);
+        fxModels[FX_FLASH_R2] = flash("fx_flash_r2", 0.024f, 2, 1, 1, false);
+        fxModels[FX_FLASH_M0] = flash("fx_flash_m0", 0.04f, 6, 3, 3, true);
+        fxModels[FX_FLASH_M1] = flash("fx_flash_m1", 0.036f, 4, 3, 2, false);
+        fxModels[FX_FLASH_M2] = flash("fx_flash_m2", 0.03f, 2, 1, 1, false);
         { Builder b("fx_tracer", 1, 1, 15, 0.04f);
           b.box(0, 0, 14, 1, 1, 15, P_TRACER);
           for (int z : {11, 8, 4, 0}) b.box(0, 0, z, 1, 1, z + 1, P_TRACER_TAIL);
@@ -405,6 +434,10 @@ void MilitaryLibrary::buildLabHelpers() {
       Builder b("muzzle_flash", 5, 5, 6, av);
       b.box(1, 1, 0, 4, 4, 6, P_FLASH); b.box(0, 2, 1, 5, 3, 4, P_FLASH); b.box(2, 0, 1, 3, 5, 4, P_FLASH);
       b.centred(2.5f, 2.5f, 0.f); flashModel = add(b); }
+    {   // flamethrower stream (14d): single 0.1 m voxels, scaled per instance (hot core, flame, soot)
+        const uint8_t pals[3] = {P_FLASH, P_TRACER_TAIL, P_DUST};
+        for (int k = 0; k < 3; ++k) { Builder b("fx_flame", 1, 1, 1, 0.1f); b.box(0, 0, 0, 1, 1, 1, pals[k]); b.centred(0.5f, 0.5f, 0.5f); flameModels[k] = add(b); }
+    }
     // scale ruler: 2 m post with 0.25 m alternating bands, a 1 m foot bar
     { Builder b("scale_ruler", 10, 40, 2, 0.05f);
       for (int k = 0; k < 8; ++k) b.box(0, k * 5, 0, 2, k * 5 + 5, 2, k % 2 ? P_RULER_W : P_RULER_R);
@@ -665,10 +698,43 @@ bool MilitaryLibrary::load(const std::string& dir, float bodyVoxel) {
     if (!a && !b) return false;
     premeshed.resize(models.size());
     loadAnims(dir);
+    addEngineerPlaceholder();
     placeholder = false;
     source = dir + " (" + std::to_string(infantry.size()) + " infantry, " + std::to_string(props.size()) + " props)";
     SDL_Log("military lab: loaded %s", source.c_str());
     return true;
+}
+
+void MilitaryLibrary::addEngineerPlaceholder() {
+    int src = -1;
+    for (size_t i = 0; i < infantry.size(); ++i) {
+        if (infantry[i].cls == "engineer" || infantry[i].variant.find("Engineer") != std::string::npos) return;
+        if (src < 0 && infantry[i].cls == "rifleman") src = (int)i;
+    }
+    if (src < 0 || palette.size() + 2 > 240) return;
+    const uint8_t vest = (uint8_t)palette.size();
+    palette.push_back(mat(0.78f, 0.60f, 0.06f, 0.8f, 0.f, 0, EM_NONE, 0.f, "engineerVest"));      // hi-vis yellow
+    const uint8_t helm = (uint8_t)palette.size();
+    palette.push_back(mat(0.72f, 0.30f, 0.07f, 0.8f, 0.f, 0, EM_NONE, 0.f, "engineerHelmet"));    // orange cover
+    MilInfantry E = infantry[(size_t)src];
+    E.variant = "Engineer (placeholder)";
+    auto camo = [](const std::string& n) {
+        return n.rfind("mc", 0) == 0 || n.rfind("coyote", 0) == 0 || n.rfind("olive", 0) == 0 || n.rfind("ranger", 0) == 0 || n == "tan" || n == "khaki";
+    };
+    for (MilAttachment& A : E.atts) {
+        const bool head = A.name == "gear_head", torso = A.name == "gear_torso";
+        if ((!head && !torso) || A.model < 0 || A.model >= (int)premeshed.size() || premeshed[(size_t)A.model].verts.empty()) continue;
+        CityMesh m = premeshed[(size_t)A.model];
+        for (CityVertex& v : m.verts)
+            if (v.mat < palette.size() && camo(palette[v.mat].name)) v.mat = head ? helm : vest;
+        MilVoxelModel stub;
+        stub.name = models[(size_t)A.model].name + "_engineer";
+        models.push_back(stub);
+        premeshed.resize(models.size() - 1);
+        premeshed.push_back(std::move(m));
+        A.model = (int)models.size() - 1;
+    }
+    infantry.push_back(E);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

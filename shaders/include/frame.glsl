@@ -23,7 +23,10 @@ layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
     vec4  todP;         // time of day: x night 0..1 (windows / lamp lenses), y fire-light gain, z 1 = moon is the key light, w hours
     mat4  shadowVP;     // world -> key-light (sun / moon) shadow map clip space
     vec4  shadowP;      // x 1 = shadow map on, y metres per texel, z depth bias (clip units), w uv per texel
-    vec4  dofP;         // x DOF in-focus band (zoom-adaptive, see RenderSettings::dofAt), yzw unused
+    vec4  dofP;         // x DOF in-focus band (zoom-adaptive, see RenderSettings::dofAt), y screen tilt-shift strength,
+                        // z tilt-shift sharp half-height (NDC), w unused
+    mat4  shadowVP2;    // the other shadow map layer (next sun key; cross-faded, Renderer::shadowView)
+    vec4  shadowP2;     // x weight of shadowVP2, y layer of shadowVP, z layer of shadowVP2
 };
 #define DBG_DENSITY 1u
 #define DBG_FLOW    2u

@@ -3,6 +3,7 @@
 #include "game/Combat.h"
 
 #include "game/Config.h"
+#include "game/FlameAI.h"
 #include "game/NavGrid.h"
 #include "game/SoldierAnim.h"
 #include "game/Soldiers.h"
@@ -24,6 +25,10 @@ V3 Combat::spreadDir(V3 dir, float spreadDeg, uint32_t& rng) {
 
 void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
     SoldierPool& P = *ctx.soldiers;
+    if (P.cls[i] == SoldierClass::Flamethrower && ctx.flame) {   // GAME_DESIGN 14d: a flame cone, not a hit ray (FlameAI.h)
+        if (ctx.flame->spray(ctx, i, P.target[i].pos + P.target[i].vel * aimLead + V3{0, 0.8f, 0})) ++roundsFired_;
+        return;
+    }
     const WeaponStats& w = ctx.cfg->weapon[(int)P.cls[i]];
     --P.mag[i];
     ++P.rounds[i];
@@ -45,7 +50,7 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
             const float base = P.pos[i].y;
             float top = -1e9f, end = 0.f;
             for (float s = 0.25f; s <= coverReach; s += 0.25f) {
-                const float h = ctx.nav->surface(P.pos[i].x + d.x * s, P.pos[i].z + d.z * s);
+                const float h = ctx.nav->shotHeight(P.pos[i].x + d.x * s, P.pos[i].z + d.z * s);   // gates included
                 if (h > base + 0.4f) { top = std::max(top, h); end = s; }
             }
             if (top > base + 0.4f && top - base <= coverMaxHeight) {
@@ -55,7 +60,8 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
         }
     }
     // exact locks: lead the zombie along its velocity (readback latency + flight time); field locks: the sample point
-    const float aimH = aimHeight + (0.25f - aimHeight) * std::clamp(P.target[i].prone, 0.f, 1.f);   // crawlers: aim low
+    float aimH = aimHeight + (0.25f - aimHeight) * std::clamp(P.target[i].prone, 0.f, 1.f);   // crawlers: aim low
+    if (P.target[i].aimY >= 0.f) aimH = P.target[i].aimY;   // SoldierAI's clear firing line (head over a car roof)
     const V3 aim = P.target[i].pos + P.target[i].vel * aimLead + V3{0, aimH, 0};
     // Accuracy: cone = spreadDeg / accuracy (accuracy 1 -> spreadDeg), wider while wounded.
     const float cone = w.spreadDeg / std::max(0.1f, w.accuracy) * (P.wounded[i] ? 1.5f : 1.f);

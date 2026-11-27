@@ -1,0 +1,60 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Gas / ground-fire grid update (GAME_DESIGN 14d): one thread per gas cell. Reads the previous grid shifted with the
+// simulation window, diffuses gas (4 neighbours, buildings hold no gas and reflect it), adds the rot emission gathered
+// by game_gas_corpse, decays it, burns it off in fire; ground fire ages, flame cones light the cells they cover
+// (contained: fire never spreads to other cells). Writes the packed CPU readback cell and the render list.
+#include "common.glsl"
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(std430, set = 0, binding = 0) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Src     { uvec4 src[]; };
+layout(std430, set = 1, binding = 0) buffer Dst      { uvec4 dst[]; };
+layout(std430, set = 1, binding = 1) buffer Accum    { uint accum[]; };
+layout(std430, set = 1, binding = 2) buffer Out      { uint outW[]; };
+layout(std430, set = 1, binding = 3) buffer List     { uint list[]; };   // [0..3] draw args (vertices, instances, 0, 0), then cells
+#include "gas.glsl"
+bool solidCell(ivec2 g) {   // building / tall obstacle under the gas cell centre: no gas there
+    ivec2 c = ivec2(g) * int(GAS_DIV) + ivec2(GAS_DIV / 2u);
+    if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) return false;
+    return staticH[cellIndex(c)] > miscP.w;
+}
+float srcGas(ivec2 g, float self) {   // previous gas at g in the CURRENT window frame (outside / solid: reflect)
+    ivec2 s = g + gshift.xy;
+    if (!gasInside(g) || !gasInside(s) || solidCell(g)) return self;
+    return uintBitsToFloat(src[gasIndex(s)].x);
+}
+void main() {
+    ivec2 g = ivec2(gl_GlobalInvocationID.xy);
+    if (!gasInside(g)) return;
+    uint c = gasIndex(g);
+    ivec2 s = g + gshift.xy;
+    uvec4 prev = gasInside(s) ? src[gasIndex(s)] : uvec4(0u);
+    float dt = rotP.x;
+    float gas = uintBitsToFloat(prev.x), fire = uintBitsToFloat(prev.y);
+    uint owner = prev.z;
+    bool solid = solidCell(g);
+    if (!solid) {
+        float lap = srcGas(g + ivec2(1, 0), gas) + srcGas(g - ivec2(1, 0), gas) + srcGas(g + ivec2(0, 1), gas) + srcGas(g - ivec2(0, 1), gas) - 4.0 * gas;
+        gas += clamp(airP.x * dt, 0.0, 0.24) * lap;
+        gas += float(accum[4u * c]) * (1.0 / 65536.0);
+        gas -= gas * clamp(airP.y * dt, 0.0, 1.0);
+    } else gas = 0.0;
+    // ground fire: ages; burning corpses keep it lit; flame cones light the cell (spray: ground-fire time)
+    fire = max(fire - dt, 0.0);
+    fire = max(fire, float(accum[4u * c + 3u]) * (1.0 / 256.0));
+    uint coneOwner;
+    vec2 cc = gasCentre(g);
+    float h = solid ? 1e9 : max(staticH[cellIndex(clamp(g * int(GAS_DIV), ivec2(0), ivec2(grid.xy) - 1))], 0.0);
+    if (!solid && coneCover(vec3(cc.x, h + 0.3, cc.y), 0.75, coneOwner) > 0.0) { fire = airP.w; owner = coneOwner; }
+    if (fire > 0.0) gas = max(gas - miscP.z * dt, 0.0);   // fire burns the gas off
+    gas = clamp(gas, 0.0, airP.z);
+    if (gas < 1e-4) gas = 0.0;
+    uint corpsesN = min(accum[4u * c + 1u], 0xFFFFu), rottingN = min(accum[4u * c + 2u], 0xFFFFu);
+    dst[c] = uvec4(floatBitsToUint(gas), floatBitsToUint(fire), fire > 0.0 ? owner : 0u, corpsesN | (rottingN << 16));
+    accum[4u * c] = 0u; accum[4u * c + 1u] = 0u; accum[4u * c + 2u] = 0u; accum[4u * c + 3u] = 0u;
+    outW[c] = min(uint(gas * 64.0 + 0.5), 255u) | (min(uint(fire * 32.0 + 0.5), 255u) << 8) | (min(corpsesN, 255u) << 16) | (min(rottingN, 255u) << 24);
+    if (gas > 0.03 || fire > 0.0 || rottingN > 0u) {
+        uint k = atomicAdd(list[1], 1u);
+        list[4u + k] = c;
+    }
+}

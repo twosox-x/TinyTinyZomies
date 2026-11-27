@@ -144,7 +144,7 @@ void main() {
         vec3 L = lightPos[i].xyz - vWorld;
         vec3 H = normalize(normalize(L) + V);
         float spec = pow(max(H.y, 0.0), 180.0) * wet;
-        col += lightCol[i].rgb * lightCol[i].w * spec * 0.8 * clamp(1.0 - length(L) / (lightPos[i].w * 2.5), 0.0, 1.0);
+        col += lightCol[i].rgb * lightCol[i].w * spec * 0.8 * clamp(1.0 - length(L) / (abs(lightPos[i].w) * 2.5), 0.0, 1.0);
     }
     if ((gridDim.w & GRID_CITY) != 0u) {   // baked city: only overlays and blast light; the city shader draws the street
         if (overlayA < 0.02 && dot(emissive, emissive) < 1e-4) discard;

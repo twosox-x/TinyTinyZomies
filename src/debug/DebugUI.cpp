@@ -144,7 +144,8 @@ void drawDebugUI(AppState& s) {
         ImGui::SameLine();
         if (ImGui::Button("night")) t.hours = 0.f;
         ImGui::SliderFloat("clock speed", &t.speed, 0.f, 60.f, "%.1fx", ImGuiSliderFlags_Logarithmic);
-        ImGui::SliderFloat("cycle (min / 24 h)", &t.cycleMinutes, 2.f, 120.f, "%.0f");
+        ImGui::SliderFloat("day (real min, 06-18 h)", &t.dayMinutes, 1.f, 90.f, "%.1f");
+        ImGui::SliderFloat("night (real min, 18-06 h)", &t.nightMinutes, 1.f, 60.f, "%.1f");
         ImGui::SliderFloat("sun max elevation", &t.sunMaxElevation, 15.f, 85.f, "%.0f deg");
         ImGui::SliderFloat("sun azimuth offset", &t.sunAzimuthOffset, -180.f, 180.f, "%.0f deg");
         ImGui::SliderFloat("sun strength", &t.sunStrength, 0.f, 2.f);
@@ -203,13 +204,16 @@ void drawDebugUI(AppState& s) {
             ImGui::SliderFloat("bokeh highlight threshold", &rs.dofHighlightThreshold, 0.3f, 0.95f);
             ImGui::SliderFloat("hexagonal aperture", &rs.dofHexAperture, 0.0f, 1.0f);
             ImGui::Checkbox("show CoC (red near, blue far)", &rs.dofDebug);
+            ImGui::Checkbox("auto focus (scene under the screen centre)", &rs.dofAutoFocus);
             ImGui::Checkbox("zoom-adaptive DOF (city reads when zoomed out)", &rs.dofZoomAdapt);
             if (rs.dofZoomAdapt) {
                 ImGui::SliderFloat("full DOF up to (m)", &rs.dofZoomNear, 45.f, 300.f, "%.0f");
                 ImGui::SliderFloat("far DOF at (m)", &rs.dofZoomFar, 45.f, 300.f, "%.0f");
-                ImGui::SliderFloat("far aperture (x)", &rs.dofFarAperture, 0.0f, 1.0f);
+                ImGui::SliderFloat("far aperture (x)", &rs.dofFarAperture, 0.0f, 2.0f);
                 ImGui::SliderFloat("far max blur (x)", &rs.dofFarMaxBlur, 0.0f, 1.0f);
                 ImGui::SliderFloat("far in-focus band", &rs.dofFarBand, 0.0f, 0.5f);
+                ImGui::SliderFloat("far tilt-shift", &rs.dofFarTilt, 0.0f, 1.0f);
+                ImGui::SliderFloat("tilt-shift sharp centre", &rs.dofTiltSharp, 0.0f, 0.9f);
             }
         }
     }

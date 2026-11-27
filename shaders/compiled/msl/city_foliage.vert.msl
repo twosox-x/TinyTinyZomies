@@ -41,6 +41,8 @@ struct Frame
     float4x4 shadowVP;
     float4 shadowP;
     float4 dofP;
+    float4x4 shadowVP2;
+    float4 shadowP2;
 };
 
 struct main0_out
@@ -99,7 +101,8 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _152 [[buffer(0
     }
     float keep = _191;
     float clump = member ? far : 0.0;
-    float3 p = ((_47.origin.xyz + (float3(in.inPos.xyz) * _47.qscale.xyx)) * sc) * float3(mix(1.0, _47.focus.w, clump), keep * mix(1.0, 1.25, clump), mix(1.0, _47.focus.w, clump));
+    float hy = mix(1.0, 0.699999988079071044921875 + (0.5 * fract(h * 7.309999942779541015625)), clump);
+    float3 p = ((_47.origin.xyz + (float3(in.inPos.xyz) * _47.qscale.xyx)) * sc) * float3(mix(1.0, _47.focus.w, clump), keep * hy, mix(1.0, _47.focus.w, clump));
     float3 n = float3(in.inNrm.xyz) * 0.0078740157186985015869140625;
     float c = cos(yaw);
     float s = sin(yaw);
@@ -109,10 +112,10 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _152 [[buffer(0
     float t = _152.camPos.w;
     float gust = (sin(dot(base.xz, float2(0.10999999940395355224609375, 0.070000000298023223876953125)) - (t * 1.2999999523162841796875)) * 0.5) + 0.5;
     float2 w = float2(sin(((t * 2.099999904632568359375) + (base.x * 0.699999988079071044921875)) + (base.z * 0.300000011920928955078125)), cos((t * 1.7000000476837158203125) + (base.z * 0.60000002384185791015625))) * (0.0500000007450580596923828125 + (0.119999997317790985107421875 * gust));
-    float3 _374 = p;
-    float2 _376 = _374.xz + (((((w * _47.params.x) * k) * k) * _47.params.y) * sc);
-    p.x = _376.x;
-    p.z = _376.y;
+    float3 _381 = p;
+    float2 _383 = _381.xz + (((((w * _47.params.x) * k) * k) * _47.params.y) * sc);
+    p.x = _383.x;
+    p.z = _383.y;
     float3 P = base + p;
     if (keep <= 0.0)
     {

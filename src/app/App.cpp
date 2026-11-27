@@ -92,7 +92,11 @@ bool App::init() {
         t.hours = o.todHours >= 0.f ? std::fmod(o.todHours, 24.f) : o.lab == "military" ? 15.0f : 16.5f;
         t.speed = o.todSpeed;
         t.paused = o.todPaused;
-        t.cycleMinutes = std::max(0.1f, o.dayCycleMinutes);
+        if (o.dayCycleMinutes > 0.f) {   // --day-cycle MIN: total real minutes per 24 h, day : night kept at 20 : 7
+            const float k = std::max(0.1f, o.dayCycleMinutes) / t.cycleMinutes();
+            t.dayMinutes *= k;
+            t.nightMinutes *= k;
+        }
     }
     if (o.noDof) s_.renderSettings.tiltShift = false;
     {   // perf toggles (attribute explosion cost on the target machine)
@@ -588,6 +592,7 @@ void App::frame(double dt) {
         s.renderer.setLights(lamps);
         std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns
         s.vehicles.fireVolumes(p.x, p.z, 10, fireVols);
+        if (s.game) s.game->fireVolumes(p.x, p.z, fireVols);   // GAME_DESIGN 14d: burning corpse piles
         s.renderer.setFireVolumes(fireVols);
     }
     if ((!s.window || swap) && !skipRender) {

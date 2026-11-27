@@ -11,7 +11,9 @@ namespace ttz::game {
 namespace {
 constexpr float kPi = 3.14159265f;
 constexpr float kPieceLen = 4.f;        // approved straight / gate asset length
-constexpr float kMinLeg = 2.5f;         // shorter legs would squash the asset below 0.63x
+constexpr float kMinLeg = 1.0f;         // shortest piece (a 1 m gabion basket closes a 1 m gap)
+constexpr float kSplitEnd = 1.0f;       // m: a mid-piece snap keeps at least this much of the piece on both sides
+constexpr float kBuildingRise = 2.0f;   // m above the street: a building / water (facade trimming)
 constexpr float kSnapNode = 1.5f;       // m: the cursor snaps to an existing node within this
 constexpr float kSameNode = 0.3f;       // m: endpoints this close are the same node
 constexpr float kMinJointDeg = 35.f;
@@ -37,7 +39,7 @@ Obb boxOf(float ax, float az, float bx, float bz, WallType t, float top) {
     const float dx = bx - ax, dz = bz - az, len = std::sqrt(dx * dx + dz * dz);
     o.cx = 0.5f * (ax + bx); o.cz = 0.5f * (az + bz);
     o.hx = 0.5f * len;
-    o.hz = 0.5f * Walls::width(t) * std::clamp(len / kPieceLen, 0.6f, 1.4f);
+    o.hz = 0.5f * Walls::width(t) * std::clamp(len / kPieceLen, 1.0f, 1.4f);   // short pieces: full-width baskets
     o.yaw = std::atan2(-dz, dx);
     o.top = top;
     return o;
@@ -58,14 +60,51 @@ void Walls::configure(const FortConfig& c) {
 }
 
 int Walls::piecePrice(WallType t, bool gate) const { return (int)std::lround(price_[(size_t)t] * (gate ? gateMul_ : 1.f)); }
+int Walls::piecePrice(WallType t, bool gate, float len) const {
+    if (gate) return piecePrice(t, true);
+    return std::max(1, (int)std::lround(price_[(size_t)t] * std::clamp(len / kPieceLen, 0.25f, 1.f)));
+}
 
-V3 Walls::snap(V3 p, const V3* from, bool fine, int& node) const {
+int Walls::pieceAt(float x, float z, float tol) const {
+    int best = -1;
+    float bd = tol;
+    for (size_t i = 0; i < pieces_.size(); ++i) {
+        const WallPiece& p = pieces_[i];
+        if (!p.alive) continue;
+        const WallNode &a = nodes_[p.a], &b = nodes_[p.b];
+        const float d = segDist(a.x, a.z, b.x, b.z, x, z, x, z);
+        if (d > bd || std::hypot(x - a.x, z - a.z) < kSplitEnd - 0.05f || std::hypot(x - b.x, z - b.z) < kSplitEnd - 0.05f) continue;
+        bd = d; best = (int)i;
+    }
+    return best;
+}
+
+V3 Walls::snap(V3 p, const V3* from, bool fine, int& node, int* piece) const {
+    if (piece) *piece = -1;
     node = nearestNode(p.x, p.z, kSnapNode);
     if (node >= 0) return {nodes_[(size_t)node].x, nodes_[(size_t)node].y, nodes_[(size_t)node].z};
-    if (from && !fine) {
+    // onto an existing piece (T junction anywhere along it: the piece is split there on commit)
+    {
+        const int e = nearestPiece(p.x, p.z, 1.2f);
+        if (e >= 0) {
+            const WallNode &a = nodes_[pieces_[(size_t)e].a], &b = nodes_[pieces_[(size_t)e].b];
+            const float ux = b.x - a.x, uz = b.z - a.z, L = std::max(1e-3f, std::hypot(ux, uz));
+            float t = ((p.x - a.x) * ux + (p.z - a.z) * uz) / L;
+            t = std::round(t * 2.f) * 0.5f;   // 0.5 m steps along the piece
+            if (t < kSplitEnd || t > L - kSplitEnd) {   // near an end: that joint
+                node = t < 0.5f * L ? (int)pieces_[(size_t)e].a : (int)pieces_[(size_t)e].b;
+                const WallNode& n = nodes_[(size_t)node];
+                return {n.x, n.y, n.z};
+            }
+            if (piece) *piece = e;
+            return {a.x + ux * t / L, p.y, a.z + uz * t / L};
+        }
+    }
+    if (from) {
         const float dx = p.x - from->x, dz = p.z - from->z, l = std::sqrt(dx * dx + dz * dz);
         if (l > 0.5f) {
-            const float n = std::max(1.f, std::round(l / kPieceLen)), k = n * kPieceLen / l;
+            const float step = fine ? 1.f : kPieceLen;
+            const float n = std::max(1.f, std::round(l / step)), k = n * step / l;
             return {from->x + dx * k, p.y, from->z + dz * k};
         }
     }
@@ -115,7 +154,7 @@ JointShape Walls::joint(uint32_t node, float& yaw, WallType& type) const {
     int k = 0;
     type = WallType::Cheap;
     for (const WallPiece& p : pieces_) {
-        if (!p.alive || (p.a != node && p.b != node)) continue;
+        if (!p.solid() || (p.a != node && p.b != node)) continue;   // joints of finished pieces only
         const WallNode& o = nodes_[p.a == node ? p.b : p.a];
         if (k < 8) { const float l = std::max(1e-4f, std::hypot(o.x - n.x, o.z - n.z)); dir[k][0] = (o.x - n.x) / l; dir[k][1] = (o.z - n.z) / l; }
         ++k;
@@ -144,22 +183,72 @@ Obb Walls::postBox(uint32_t node) const {
     return o;
 }
 
-WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const WallEnv& env) const {
+WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, const WallEnv& env) const {
     WallPlan P;
     P.type = type; P.gate = gate;
-    if (pts.size() < 2) { P.reason = "click to add points, double-click / Enter to confirm"; return P; }
+    if (ptsIn.size() < 2) { P.reason = "click to add points, double-click / Enter to confirm"; return P; }
+    // walls butt against facades: an end clicked inside a building (not on a joint) is pulled back to the facade
+    std::vector<V3> pts = ptsIn;
+    auto inBuilding = [&](float x, float z) { return env.ground && env.ground(x, z) - env.streetY > kBuildingRise; };
+    auto trim = [&](V3& end, const V3& other) {
+        if (nearestNode(end.x, end.z, kSameNode) >= 0 || !inBuilding(end.x, end.z) || inBuilding(other.x, other.z)) return;
+        const float dx = other.x - end.x, dz = other.z - end.z, L = std::hypot(dx, dz);
+        if (L < 0.3f) return;
+        for (float t = 0.25f; t < L; t += 0.25f)
+            if (!inBuilding(end.x + dx * t / L, end.z + dz * t / L)) {
+                const float back = std::max(0.f, t - 0.4f);   // 0.4 m into the facade (the end allowance)
+                end.x += dx * back / L; end.z += dz * back / L;
+                P.trimmed = true;
+                return;
+            }
+    };
+    trim(pts.front(), pts[1]);
+    trim(pts.back(), pts[pts.size() - 2]);
+    // connectivity of the existing network (loop closure): union-find over nodes, new points get ids after them
+    std::vector<int> uf(nodes_.size());
+    for (size_t i = 0; i < uf.size(); ++i) uf[i] = (int)i;
+    std::function<int(int)> find = [&](int x) { while (uf[(size_t)x] != x) { uf[(size_t)x] = uf[(size_t)uf[(size_t)x]]; x = uf[(size_t)x]; } return x; };
+    auto unite = [&](int a, int b) { a = find(a); b = find(b); if (a != b) uf[(size_t)a] = b; return a != b; };
+    for (const WallPiece& p : pieces_) if (p.alive) unite((int)p.a, (int)p.b);
+    std::vector<std::pair<float, float>> fresh;   // positions of new points (ids nodes_.size() + k)
+    auto idOf = [&](float x, float z, int node, int split) {
+        if (node >= 0) return find(node);
+        if (split >= 0) return find((int)pieces_[(size_t)split].a);
+        for (size_t k = 0; k < fresh.size(); ++k)
+            if (std::fabs(fresh[k].first - x) + std::fabs(fresh[k].second - z) < 0.05f) return find((int)(nodes_.size() + k));
+        fresh.push_back({x, z});
+        uf.push_back((int)uf.size());
+        return (int)uf.size() - 1;
+    };
     for (size_t k = 0; k + 1 < pts.size(); ++k) {
         const V3 A = pts[k], B = pts[k + 1];
         const float L = std::hypot(B.x - A.x, B.z - A.z);
         if (L < 1e-3f) continue;
-        const int n = std::max(1, (int)std::lround(L / kPieceLen));
-        for (int j = 0; j < n; ++j) {
+        // cuts along the leg: walls = whole 4 m pieces + an auto-fill end piece (>= 1 m), gates = n equal pieces
+        std::vector<float> cut{0.f};
+        if (gate) {
+            const int n = std::max(1, (int)std::lround(L / kPieceLen));
+            for (int j = 1; j <= n; ++j) cut.push_back(L * (float)j / (float)n);
+        } else {
+            const int n4 = (int)std::floor(L / kPieceLen + 1e-3f);
+            const float r = L - kPieceLen * (float)n4;
+            if (n4 == 0) cut.push_back(L);
+            else if (r < kMinLeg) for (int j = 1; j <= n4; ++j) cut.push_back(L * (float)j / (float)n4);
+            else { for (int j = 1; j <= n4; ++j) cut.push_back(kPieceLen * (float)j); cut.push_back(L); }
+        }
+        for (size_t j = 0; j + 1 < cut.size(); ++j) {
             WallPlanPiece q;
-            q.ax = A.x + (B.x - A.x) * (float)j / (float)n; q.az = A.z + (B.z - A.z) * (float)j / (float)n;
-            q.bx = A.x + (B.x - A.x) * (float)(j + 1) / (float)n; q.bz = A.z + (B.z - A.z) * (float)(j + 1) / (float)n;
+            const float t0 = cut[j] / L, t1 = cut[j + 1] / L;
+            q.ax = A.x + (B.x - A.x) * t0; q.az = A.z + (B.z - A.z) * t0;
+            q.bx = A.x + (B.x - A.x) * t1; q.bz = A.z + (B.z - A.z) * t1;
             q.nodeA = nearestNode(q.ax, q.az, kSameNode);
             q.nodeB = nearestNode(q.bx, q.bz, kSameNode);
-            if (L < kMinLeg) { q.ok = false; q.why = "segment too short (min 2.5 m)"; }
+            if (q.nodeA < 0) q.splitA = pieceAt(q.ax, q.az, 0.3f);
+            if (q.nodeB < 0) q.splitB = pieceAt(q.bx, q.bz, 0.3f);
+            q.fill = !gate && cut[j + 1] - cut[j] < kPieceLen - 0.5f;
+            if (L < kMinLeg) { q.ok = false; q.why = "segment too short (min 1 m)"; }
+            q.closesLoop = !unite(idOf(q.ax, q.az, q.nodeA, q.splitA), idOf(q.bx, q.bz, q.nodeB, q.splitB));
+            P.closesLoop |= q.closesLoop;
             P.pieces.push_back(q);
         }
         P.length += L;
@@ -170,14 +259,16 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
         const float len = std::hypot(q.bx - q.ax, q.bz - q.az);
         const Obb box = boxOf(q.ax, q.az, q.bx, q.bz, type, height_[(size_t)type]);
         const float wq = 2.f * box.hz;
-        P.price += piecePrice(type, gate);
+        q.price = piecePrice(type, gate, len);
+        P.price += q.price;
         if (!q.ok) continue;
         auto fail = [&](const char* why) { if (q.ok) { q.ok = false; q.why = why; } };
-        if (q.nodeA >= 0 && q.nodeA == q.nodeB) { fail("segment too short (min 2.5 m)"); continue; }
+        if (q.nodeA >= 0 && q.nodeA == q.nodeB) { fail("segment too short (min 1 m)"); continue; }
+        if (env.buildable && (!env.buildable(q.ax, q.az) || !env.buildable(q.bx, q.bz))) { fail("outside engineer range"); continue; }
         // footprint samples
         float gmin = 1e9f, gmax = -1e9f;
         std::vector<float> gs;
-        bool outside = false, vehicle = false, container = false;
+        bool outside = false, vehicle = false, container = false, clearing = false;
         const int nu = std::max(2, (int)std::ceil(len / 0.5f)), nv = 2;
         for (int a = 0; a <= nu; ++a)
             for (int b = 0; b <= nv; ++b) {
@@ -189,18 +280,24 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
                 const float g = env.ground ? env.ground(x, z) : 0.f;
                 gmin = std::min(gmin, g); gmax = std::max(gmax, g);
                 gs.push_back(g);
-                if (env.solid && env.solid(x, z) - g > 0.4f) vehicle = true;
+                if (env.solid && env.solid(x, z) - g > 0.4f) {
+                    bool cleared = false;
+                    for (const Obb& c : env.clearing) cleared |= c.contains(x, z, -0.3f);
+                    if (cleared) clearing = true;
+                    else vehicle = true;
+                }
                 for (const Obb& c : env.containers) if (c.contains(x, z, 0.15f)) container = true;
             }
         q.y = gmin < 1e8f ? gmin : 0.f;
+        q.clearing = clearing;
         if (outside) { fail("outside the simulated area"); continue; }
         // a building / water / step blocks; a thin pole, bollard or tree in the line does not (the wall swallows it)
-        int high = 0;
+        int high = 0, tall = 0;
         const float ref = std::min(gmin, env.streetY + 0.3f);
-        for (float g : gs) high += g - ref > 0.6f ? 1 : 0;
-        if (high > 0 && (float)high > 0.2f * (float)gs.size()) { fail("blocked by a building, water or a steep step"); continue; }
-        if (vehicle) { fail("a vehicle is in the way"); continue; }
-        if (container) { fail("overlaps a supply container"); continue; }
+        for (float g : gs) { high += g - ref > 0.6f ? 1 : 0; tall += g - ref > kBuildingRise ? 1 : 0; }
+        if (high > 0 && (float)high > 0.2f * (float)gs.size()) { fail(tall * 2 >= high ? "a building or water is in the way" : "kerb or step too high"); continue; }
+        if (vehicle) { fail("a vehicle is in the way (engineers can clear it)"); continue; }
+        if (container) { fail("a supply container is in the way"); continue; }
         // existing pieces and posts
         for (size_t e = 0; e < pieces_.size() && q.ok; ++e) {
             const WallPiece& p = pieces_[e];
@@ -216,7 +313,14 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
                 if (jointAngle(j.x, j.z, atA ? q.bx : q.ax, atA ? q.bz : q.az, other.x, other.z) < kMinJointDeg) fail("joint angle too sharp");
                 continue;
             }
-            const float wp = width(p.type) * std::clamp(pieceScale((uint32_t)e), 0.6f, 1.4f);
+            const bool onA = q.splitA == (int)e, onB = q.splitB == (int)e;
+            if (onA && onB) { fail("a wall is already there"); break; }
+            if (onA || onB) {   // T junction onto this piece: angle against both halves
+                const float jx = onA ? q.ax : q.bx, jz = onA ? q.az : q.bz, ox = onA ? q.bx : q.ax, oz = onA ? q.bz : q.az;
+                if (jointAngle(jx, jz, ox, oz, na.x, na.z) < kMinJointDeg || jointAngle(jx, jz, ox, oz, nb.x, nb.z) < kMinJointDeg) fail("joint angle too sharp");
+                continue;
+            }
+            const float wp = width(p.type) * std::clamp(pieceScale((uint32_t)e), 1.0f, 1.4f);
             if (segDist(q.ax, q.az, q.bx, q.bz, na.x, na.z, nb.x, nb.z) < 0.5f * (wq + wp) * 0.95f) fail("overlaps a wall");
         }
         for (size_t nIdx = 0; nIdx < nodes_.size() && q.ok; ++nIdx) {
@@ -247,21 +351,135 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
     return P;
 }
 
+WallPlan Walls::planGate(V3 c, float yaw, WallType type, const WallEnv& env) const {
+    // 1. over an existing wall piece: aligned to it, that part of the piece becomes the gate
+    const int e = nearestPiece(c.x, c.z, 1.5f);
+    if (e >= 0 && !pieces_[(size_t)e].gate) {
+        const WallPiece& p = pieces_[(size_t)e];
+        const WallNode &a = nodes_[p.a], &b = nodes_[p.b];
+        const float ux = b.x - a.x, uz = b.z - a.z, L = std::max(1e-3f, std::hypot(ux, uz));
+        WallPlan P;
+        P.type = p.type; P.gate = true;
+        P.replacePiece = e;
+        WallPlanPiece q;
+        if (L <= kPieceLen + 1.5f) {   // the whole piece
+            q.ax = a.x; q.az = a.z; q.bx = b.x; q.bz = b.z; q.nodeA = (int)p.a; q.nodeB = (int)p.b;
+        } else {
+            float t = ((c.x - a.x) * ux + (c.z - a.z) * uz) / L;
+            t = std::clamp(std::round(t * 2.f) * 0.5f, 0.5f * kPieceLen, L - 0.5f * kPieceLen);
+            float t0 = t - 0.5f * kPieceLen, t1 = t + 0.5f * kPieceLen;
+            if (t0 < kSplitEnd) { t0 = 0.f; t1 = kPieceLen; }                       // no sliver next to a joint
+            if (L - t1 < kSplitEnd) { t1 = L; t0 = std::max(0.f, L - kPieceLen); }
+            q.ax = a.x + ux * t0 / L; q.az = a.z + uz * t0 / L; q.bx = a.x + ux * t1 / L; q.bz = a.z + uz * t1 / L;
+            q.nodeA = t0 <= 0.f ? (int)p.a : -1; q.nodeB = t1 >= L ? (int)p.b : -1;
+            q.splitA = q.nodeA < 0 ? e : -1; q.splitB = q.nodeB < 0 ? e : -1;
+        }
+        q.y = std::min(a.y, b.y);
+        q.price = piecePrice(p.type, true);
+        if (env.buildable && !env.buildable(0.5f * (q.ax + q.bx), 0.5f * (q.az + q.bz))) { q.ok = false; q.why = "outside engineer range"; }
+        P.price = q.price;
+        P.length = std::hypot(q.bx - q.ax, q.bz - q.az);
+        P.pieces.push_back(q);
+        P.valid = q.ok;
+        P.reason = q.ok ? "" : q.why;
+        return P;
+    }
+    if (e >= 0) { WallPlan P; P.gate = true; P.type = type; P.reason = "a gate is already there"; return P; }
+    // 2. next to a wall end: continue that wall
+    float dx = std::cos(yaw), dz = -std::sin(yaw);
+    V3 A{c.x - dx * 0.5f * kPieceLen, c.y, c.z - dz * 0.5f * kPieceLen}, B{c.x + dx * 0.5f * kPieceLen, c.y, c.z + dz * 0.5f * kPieceLen};
+    int best = -1;
+    float bd = 2.5f;
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+        const WallNode& n = nodes_[i];
+        if (!n.alive || n.degree != 1) continue;
+        const float d = std::min(std::hypot(n.x - A.x, n.z - A.z), std::hypot(n.x - B.x, n.z - B.z));
+        if (d < bd) { bd = d; best = (int)i; }
+    }
+    if (best >= 0) {
+        const WallNode& n = nodes_[(size_t)best];
+        for (const WallPiece& p : pieces_)
+            if (p.alive && (p.a == (uint32_t)best || p.b == (uint32_t)best)) {
+                const WallNode& o = nodes_[p.a == (uint32_t)best ? p.b : p.a];
+                const float l = std::max(1e-3f, std::hypot(n.x - o.x, n.z - o.z));
+                dx = (n.x - o.x) / l; dz = (n.z - o.z) / l;
+                if (p.type == WallType::Reinforced) type = WallType::Reinforced;
+                break;
+            }
+        A = {n.x, n.y, n.z};
+        B = {n.x + dx * kPieceLen, c.y, n.z + dz * kPieceLen};
+    } else {   // 3. on its own; a joint within 1 m snaps (connects both sides)
+        const int na = nearestNode(A.x, A.z, 1.f);
+        if (na >= 0) { const WallNode& n = nodes_[(size_t)na]; B = {B.x + n.x - A.x, B.y, B.z + n.z - A.z}; A = {n.x, n.y, n.z}; }
+    }
+    const int nb = nearestNode(B.x, B.z, 1.f);
+    if (nb >= 0) B = {nodes_[(size_t)nb].x, nodes_[(size_t)nb].y, nodes_[(size_t)nb].z};
+    return plan({A, B}, type, true, env);
+}
+
 uint32_t Walls::addNode(float x, float z, float y) {
     for (uint32_t i = 0; i < nodes_.size(); ++i)
-        if (!nodes_[i].alive && nodes_[i].obstacle == ~0u) { nodes_[i] = WallNode{x, z, y, 0, true, ~0u}; return i; }
-    nodes_.push_back(WallNode{x, z, y, 0, true, ~0u});
+        if (!nodes_[i].alive && nodes_[i].obstacle == ~0u) { nodes_[i] = WallNode{}; nodes_[i].x = x; nodes_[i].z = z; nodes_[i].y = y; nodes_[i].alive = true; return i; }
+    WallNode n;
+    n.x = x; n.z = z; n.y = y; n.alive = true;
+    nodes_.push_back(n);
     return (uint32_t)nodes_.size() - 1;
 }
 
-std::vector<uint32_t> Walls::commit(const WallPlan& plan) {
+uint32_t Walls::splitAt(float x, float z, float y) {
+    const int nn = nearestNode(x, z, kSameNode);
+    if (nn >= 0) return (uint32_t)nn;
+    const int e = pieceAt(x, z, 0.35f);
+    if (e < 0) return addNode(x, z, y);
+    const WallNode &a = nodes_[pieces_[(size_t)e].a], &b = nodes_[pieces_[(size_t)e].b];
+    const float ux = b.x - a.x, uz = b.z - a.z, L2 = std::max(1e-6f, ux * ux + uz * uz);
+    const float t = std::clamp(((x - a.x) * ux + (z - a.z) * uz) / L2, 0.f, 1.f);
+    const uint32_t n = addNode(a.x + ux * t, a.z + uz * t, a.y + (b.y - a.y) * t);   // may reallocate nodes_
+    WallPiece second = pieces_[(size_t)e];   // n -> b
+    WallPiece& first = pieces_[(size_t)e];   // a -> n (keeps its index and obstacle id; re-stamped)
+    second.a = n;
+    second.obstacle = ~0u;
+    second.restamp = false;
+    second.price = (int)std::lround(first.price * (1.f - t));
+    first.price -= second.price;
+    first.b = n;
+    first.restamp = first.obstacle != ~0u;
+    nodes_[n].degree = 2;
+    nodes_[n].solidDeg = first.solid() ? 2 : 0;
+    uint32_t idx = (uint32_t)pieces_.size();
+    for (uint32_t i = 0; i < pieces_.size(); ++i)
+        if (!pieces_[i].alive && pieces_[i].obstacle == ~0u) { idx = i; break; }
+    if (idx == pieces_.size()) pieces_.push_back(second);
+    else { second.gen = pieces_[idx].gen + 1; pieces_[idx] = second; }
+    changed_ = true;
+    return n;
+}
+
+std::vector<uint32_t> Walls::commit(const WallPlan& plan, bool instant) {
     std::vector<uint32_t> added;
     if (!plan.valid) return added;
+    ++batch_;
+    if (plan.replacePiece >= 0 && plan.pieces.size() == 1) {   // gate placed into a wall piece
+        const WallPlanPiece& q = plan.pieces[0];
+        const uint32_t a = q.nodeA >= 0 ? (uint32_t)q.nodeA : splitAt(q.ax, q.az, q.y);
+        const uint32_t b = q.nodeB >= 0 ? (uint32_t)q.nodeB : splitAt(q.bx, q.bz, q.y);
+        for (uint32_t i = 0; i < pieces_.size(); ++i) {
+            WallPiece& p = pieces_[i];
+            if (!p.alive || !((p.a == a && p.b == b) || (p.a == b && p.b == a))) continue;
+            p.batch = batch_;
+            p.price += q.price;
+            if (instant || !p.solid()) { p.gate = true; p.toGate = false; p.hp = p.maxHp; }
+            else p.toGate = true;
+            added.push_back(i);
+            break;
+        }
+        changed_ = true;
+        return added;
+    }
     for (const WallPlanPiece& q : plan.pieces) {
         auto nodeFor = [&](int snapped, float x, float z) -> uint32_t {
             if (snapped >= 0 && nodes_[(size_t)snapped].alive) return (uint32_t)snapped;
-            const int n = nearestNode(x, z, kSameNode);
-            return n >= 0 ? (uint32_t)n : addNode(x, z, q.y);
+            return splitAt(x, z, q.y);   // existing joint, a point on a piece (split) or a new joint
         };
         const uint32_t a = nodeFor(q.nodeA, q.ax, q.az), b = nodeFor(q.nodeB, q.bx, q.bz);
         if (a == b) continue;
@@ -270,12 +488,16 @@ std::vector<uint32_t> Walls::commit(const WallPlan& plan) {
         p.type = plan.type; p.gate = plan.gate;
         p.alive = true;
         p.hp = p.maxHp = health_[(size_t)plan.type];
+        p.build = instant ? 1.f : 0.f;
+        p.batch = batch_;
+        p.price = q.price;
         uint32_t idx = (uint32_t)pieces_.size();
         for (uint32_t i = 0; i < pieces_.size(); ++i)
             if (!pieces_[i].alive && pieces_[i].obstacle == ~0u) { idx = i; break; }
         if (idx == pieces_.size()) pieces_.push_back(p);
         else { p.gen = pieces_[idx].gen + 1; pieces_[idx] = p; }
         ++nodes_[a].degree; ++nodes_[b].degree;
+        if (instant) { ++nodes_[a].solidDeg; ++nodes_[b].solidDeg; }
         added.push_back(idx);
         // rubble under the new piece is cleared
         const Obb box = pieceBox(idx);
@@ -285,9 +507,40 @@ std::vector<uint32_t> Walls::commit(const WallPlan& plan) {
     return added;
 }
 
-void Walls::detach(uint32_t node) {
+bool Walls::advance(uint32_t i, float amount) {
+    if (i >= pieces_.size() || !pieces_[i].alive || pieces_[i].build >= 1.f) return false;
+    WallPiece& p = pieces_[i];
+    p.build = std::min(1.f, p.build + amount);
+    if (p.build < 1.f) return false;
+    p.age = 0.f;   // rise animation from now
+    ++nodes_[p.a].solidDeg; ++nodes_[p.b].solidDeg;
+    changed_ = true;
+    return true;
+}
+
+void Walls::finishGate(uint32_t i) {
+    if (i >= pieces_.size() || !pieces_[i].alive || !pieces_[i].toGate) return;
+    WallPiece& p = pieces_[i];
+    p.toGate = false; p.gate = true; p.hp = p.maxHp; p.age = 0.f;
+    changed_ = true;
+}
+
+bool Walls::cancel(uint32_t i) {
+    if (i >= pieces_.size() || !pieces_[i].alive) return false;
+    WallPiece& p = pieces_[i];
+    if (p.toGate) { p.toGate = false; return true; }
+    if (p.solid()) return false;
+    p.alive = false;
+    detach(p.a, false);
+    detach(p.b, false);
+    changed_ = true;
+    return true;
+}
+
+void Walls::detach(uint32_t node, bool solid) {
     WallNode& n = nodes_[node];
     if (n.degree) --n.degree;
+    if (solid && n.solidDeg) --n.solidDeg;
     if (!n.degree) n.alive = false;   // GameWorld removes its post obstacle (obstacle id stays set until then)
 }
 
@@ -299,7 +552,7 @@ void Walls::damage(uint32_t i, float hp) {
 }
 
 void Walls::addPressure(uint32_t i, float zombies, float dt) {
-    if (i >= pieces_.size() || !pieces_[i].alive) return;
+    if (i >= pieces_.size() || !pieces_[i].solid()) return;
     WallPiece& p = pieces_[i];
     p.pressure = zombies;
     const float excess = std::max(0.f, zombies - (float)threshold_);
@@ -312,13 +565,15 @@ bool Walls::destroy(uint32_t i) {
     if (i >= pieces_.size() || !pieces_[i].alive) return false;
     WallPiece& p = pieces_[i];
     const Obb box = pieceBox(i);
+    const bool wasSolid = p.solid();
     p.alive = false;
     p.hp = 0;
+    p.toGate = false;
     const float y = 0.5f * (nodes_[p.a].y + nodes_[p.b].y);
-    rubble_.push_back({box, p.type, p.gate, y, 0.f});
+    if (wasSolid) rubble_.push_back({box, p.type, p.gate, y, 0.f});
     if (rubble_.size() > 512) rubble_.erase(rubble_.begin());
-    detach(p.a);
-    detach(p.b);
+    detach(p.a, wasSolid);
+    detach(p.b, wasSolid);
     destroyed_.push_back({i, box.cx, y, box.cz, box});
     changed_ = true;
     return true;
@@ -327,7 +582,7 @@ bool Walls::destroy(uint32_t i) {
 void Walls::tick(float dt, const std::function<bool(float, float, float)>& soldierNear) {
     for (size_t i = 0; i < pieces_.size(); ++i) {
         WallPiece& p = pieces_[i];
-        if (!p.alive) continue;
+        if (!p.solid()) continue;
         p.age += dt;
         p.damageRate *= std::exp(-dt * 0.5f);
         if (p.gate) {
@@ -340,6 +595,7 @@ void Walls::tick(float dt, const std::function<bool(float, float, float)>& soldi
 }
 
 uint32_t Walls::alivePieces() const { uint32_t n = 0; for (const WallPiece& p : pieces_) n += p.alive ? 1 : 0; return n; }
+uint32_t Walls::solidPieces() const { uint32_t n = 0; for (const WallPiece& p : pieces_) n += p.solid() ? 1 : 0; return n; }
 uint32_t Walls::aliveGates() const { uint32_t n = 0; for (const WallPiece& p : pieces_) n += p.alive && p.gate ? 1 : 0; return n; }
 float Walls::totalLength() const {
     float l = 0;

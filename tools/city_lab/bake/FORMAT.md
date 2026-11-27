@@ -104,7 +104,8 @@ centre is in it); owned buildings may extend beyond the rectangle (use the AABB 
 
 Sections, in this order (a section may be absent if empty):
 
-- `MESH` — road / ground raster + buildings + kit dressing (yards, parks, rural trees, service yards) as one mesh,
+- `MESH` — road / ground raster + buildings + kit dressing (yards, parks, service yards; per tile: `ruralkit.js` woods,
+  roadside tree lines, hedgerows, fences, farmsteads and `infillkit.js` fill of leftover urban plot ground) as one mesh,
   LOD0 + LOD1 (section 2). LOD1 (mid) = the leading `lod1Quads` quads: quads whose longest edge is >= 1 m, plus
   upward-facing quads (ground raster, decks, roofs) whose longest edge is >= 0.35 m, so ground and roofs stay closed
   (window reveals, sills, trim, small dressing are dropped). ~40-60 % of LOD0's quads (`lod.js relodMesh`).
@@ -174,9 +175,9 @@ Sections, in this order (a section may be absent if empty):
   width, m: 3.5), `u32` reserved; then `i16 sd[nz][nx]` = signed distance to the shore (cm, > 0 over the water) at the
   grid points (x0 + i * cell, z0 + j * cell). Grid points on a tile edge are computed from the same world position in
   both tiles, so surfaces meet without seams. The engine draws a flat surface at `level` over the cells whose corners
-  reach sd > -1.6 m (the bank hides the part under it) and shades it from the interpolated sd (depth tint, foam line
-  near the shore). The terrain under it (in `MESH`) is the bank: ground (+0.15 m at sd <= -3.5 m) sloping in 0.1 m
-  voxel steps to -2.3 m at the shore line and a bed to -3.6 m (`city_core.js WATER / bankY / waterColumn`); bed
+  reach sd > -1.6 m (the bank hides the part under it) and shades it per 0.5 m cell from sd (voxel style: posterised depth bands, blocky ripple tiles, foam cells
+  near the shore). The terrain under it (in `MESH`) is the bank: ground (+0.15 m at sd <= -3.5 m) stepping down in 4 voxel terraces
+  (~0.6 m risers, riprap stone on the lower treads) to -2.3 m at the shore line and a bed to -3.6 m (`city_core.js WATER / bankY / waterColumn`); bed
   material 206 marks HGT0 WATER. Road bridges cut the bank under their deck (carve to -2.6 m) and are part of `MESH`
   (owned by the tile containing the bridge centre; HGT0 of every tile they cross is overridden: deck ROAD at +0.03 m,
   sidewalks WALK at +0.18 m, parapets / central barrier / arch ribs BLOCKED).

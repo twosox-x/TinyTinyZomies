@@ -1,0 +1,16 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Corpse gas haze / flies / ground fire (gas.vert). Translucent haze is blended over the scene; the destination alpha
+// (depth of field circle of confusion) is kept by the pipeline's blend state.
+#define FRAME_SET 3
+#include "frame.glsl"
+#include "lighting.glsl"
+layout(location = 0) in vec3 vWorld;
+layout(location = 1) in vec3 vNormal;
+layout(location = 2) flat in vec4 vColor;
+layout(location = 3) flat in float vEmissive;
+layout(location = 0) out vec4 outColor;
+void main() {
+    vec3 col = vEmissive > 0.5 ? vColor.rgb : shade(vColor.rgb * 1.6, normalize(vNormal), vWorld, 1.0);
+    outColor = vec4(finish(col, vWorld), vColor.a);
+}

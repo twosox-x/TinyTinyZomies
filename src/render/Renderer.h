@@ -34,7 +34,10 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
     Vec4 todP;                  // x night 0..1, y fire-light gain, z moon key light, w hours
     float shadowVP[16];         // world -> shadow map clip
     Vec4 shadowP;               // x on, y m / texel, z depth bias, w uv / texel
-    Vec4 dofP;                  // x in-focus band (|d - focus| / d below it is sharp; zoom-adaptive DOF), yzw unused
+    Vec4 dofP;                  // x in-focus band (|d - focus| / d below it is sharp; zoom-adaptive DOF), y screen tilt-shift
+                                // strength, z tilt-shift sharp half-height (NDC), w unused
+    float shadowVP2[16];        // second shadow map layer (the next sun key, cross-faded; Renderer::shadowView)
+    Vec4 shadowP2;              // x weight of shadowVP2, y layer of shadowVP, z layer of shadowVP2
 };
 
 // Voxel explosion / fire volumes (shaders/include/fx_volume.glsl): pushed to vertex and fragment uniform slot 1.
@@ -67,21 +70,29 @@ struct RenderSettings {
     float dofHexAperture = 0.0f;     // 0 = round bokeh, 1 = hexagonal (six aperture blades)
     bool dofDebug = false;           // show the CoC (red near, blue far)
     // zoom-adaptive DOF (RenderSettings::dofAt): the values above apply up to dofZoomNear (camera pivot distance, m);
-    // towards dofZoomFar the aperture and max blur shrink to the *Far fractions and an in-focus band opens
-    // (|d - focus| / d below dofFarBand stays sharp), so the zoomed-out city reads while the top / bottom of the frame
-    // keep a gentle miniature fall-off. Smoothstep in between.
+    // towards dofZoomFar the aperture / max blur move to the *Far fractions, a small in-focus band opens (|d - focus| / d
+    // below dofFarBand stays sharp) and a screen-space tilt-shift ramps in (dofFarTilt: CoC floor towards the top and
+    // bottom of the frame beyond dofTiltSharp of the half height), so the zoomed-out city keeps a clear miniature look
+    // (blurred top / bottom bands, shallow focus) while the centre stays readable. Smoothstep in between.
     bool dofZoomAdapt = true;
     float dofZoomNear = 70.f, dofZoomFar = 300.f;
-    float dofFarAperture = 0.55f;    // x dofAperture at dofZoomFar
-    float dofFarMaxBlur = 0.55f;     // x dofMaxBlur at dofZoomFar
-    float dofFarBand = 0.12f;        // in-focus band at dofZoomFar (0 at dofZoomNear)
-    struct DofAt { float aperture, maxBlur, band; };
+    float dofFarAperture = 1.0f;     // x dofAperture at dofZoomFar
+    float dofFarMaxBlur = 0.85f;     // x dofMaxBlur at dofZoomFar
+    float dofFarBand = 0.04f;        // in-focus band at dofZoomFar (0 at dofZoomNear)
+    float dofFarTilt = 0.8f;         // tilt-shift CoC at the frame's top / bottom edge at dofZoomFar (0 at dofZoomNear)
+    float dofTiltSharp = 0.28f;      // tilt-shift: sharp centre band, fraction of the half height (NDC)
+    // auto focus: the focus distance follows the scene under the screen centre (median of 5 rays marched through the
+    // city height grid, temporally smoothed over dofFocusTime s), so a rooftop squad at the centre is sharp; off = pivot
+    bool dofAutoFocus = true;
+    float dofFocusTime = 0.25f;
+    struct DofAt { float aperture, maxBlur, band, tilt; };
     DofAt dofAt(float camDist) const {
-        if (!dofZoomAdapt || dofZoomFar <= dofZoomNear) return {dofAperture, dofMaxBlur, 0.f};
+        if (!dofZoomAdapt || dofZoomFar <= dofZoomNear) return {dofAperture, dofMaxBlur, 0.f, 0.f};
         float t = (camDist - dofZoomNear) / (dofZoomFar - dofZoomNear);
         t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
         t = t * t * (3.f - 2.f * t);
-        return {dofAperture * (1.f + (dofFarAperture - 1.f) * t), dofMaxBlur * (1.f + (dofFarMaxBlur - 1.f) * t), dofFarBand * t};
+        return {dofAperture * (1.f + (dofFarAperture - 1.f) * t), dofMaxBlur * (1.f + (dofFarMaxBlur - 1.f) * t), dofFarBand * t,
+                dofFarTilt * t};
     }
     float saturation = 1.18f, contrast = 1.06f, vignette = 0.12f;
     int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
@@ -175,7 +186,19 @@ private:
     SDL_GPUSampler* shadowCmp_ = nullptr;
     SDL_GPUGraphicsPipeline* pBoxShadow_ = nullptr;
     uint32_t shadowSize_ = 0, shadowDraws_ = 0;
-    mutable float shadowHx_ = 0.f, shadowHy_ = 0.f;   // shadow fit half extents (size hysteresis, shadowView)
+    mutable float shadowHx_[2] = {0.f, 0.f}, shadowHy_[2] = {0.f, 0.f};   // per layer shadow fit half extents (size hysteresis)
+    // smooth sun: the shadow map's two layers hold the sun at neighbouring clock keys (k * kShadowKeyH), re-rendered on
+    // alternate frames and cross-faded by the receivers (shadowView)
+    static constexpr float kShadowKeyH = 1.f / 150.f;
+    static constexpr int kShadowKeys = 3600;   // keys per 24 h (even: key parity = layer across midnight)
+    uint64_t shadowFrame_ = 0;
+    int layerKey_[2] = {-1, -1};
+    M4 layerVP_[2];
+    static int shadowKeyFor(float hours, int layer) {   // the key of `layer` among the two around the clock
+        const float h = std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f);
+        const int n = (int)std::floor(h / kShadowKeyH) % kShadowKeys;
+        return (n & 1) == layer ? n : (n + 1) % kShadowKeys;
+    }
     void ensureShadowMap(uint32_t size);
     SDL_GPUBuffer* shadowExt_ = nullptr;
     SDL_GPUBuffer* lampDummy_ = nullptr;   // empty street-lamp grid (no city)
@@ -212,6 +235,9 @@ private:
     uint32_t fxW_ = 0, fxH_ = 0;
     void ensureFxTargets(uint32_t w, uint32_t h);
     float dofMaxBlurEff_ = 0.015f;   // this frame's max blur (zoom-adaptive)
+    float focusDist_ = -1.f;          // smoothed auto-focus distance (m), < 0 = not yet measured
+    double focusTime_ = 0.0;
+    float measureFocus(const Camera& cam, uint32_t w, uint32_t h) const;   // scene distance under the screen centre
     uint32_t fxDrawn_ = 0;            // voxel volumes drawn last frame (blasts + wreck fires)
 public:
     // Optional extensions (Military Asset Lab): compute work recorded before the scene pass, and draws inside the scene

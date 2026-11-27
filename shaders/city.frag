@@ -121,16 +121,34 @@ void main() {
         }
     }
 
-    vec3 col = shadeV(albedo * 2.0, N, vWorld, 1.0, moonVisibility(vWorld, N));
+    float vis = moonVisibility(vWorld, N);
+    vec3 col = shadeV(albedo * 2.0, N, vWorld, 1.0, vis);
     vec3 V = normalize(camPos.xyz - vWorld);
     float gloss = m.albedo.w;
+    // window "room" cell: ~3.2 m along the facade x one 3 m storey, sampled just inside the wall (one hash per room:
+    // lit-window brightness / colour at night, pane tilt for the day-time sun glints)
+    vec3 Pin = vWorld - N * 0.1;
+    float along = dot(Pin.xz, vec2(-N.z, N.x));
+    vec2 room = vec2(floor(along / 3.2), floor(Pin.y / 3.0)) + floor(dot(Pin.xz, N.xz) * 0.25) * vec2(17.0, 31.0);
+    float rh = hash12(room + vec2(N.x * 3.0, N.z * 7.0));
     if ((flags & (M_GLASS | M_WATER)) != 0u || wet > 0.0) {
-        // Fresnel reflection of the night sky (purple zenith, fog-coloured horizon)
-        vec3 R = reflect(-V, N);
+        // Fresnel reflection of the sky (purple zenith, fog-coloured horizon)
+        bool glass = (flags & M_GLASS) != 0u && (flags & M_WATER) == 0u;
+        vec3 Ng = N;
+        if (glass && abs(N.y) < 0.3) {   // panes are not perfectly coplanar: a slight per-room tilt so glints sparkle
+            float a = (rh - 0.5) * 0.09, b = (hash12(room * 1.37 + 5.1) - 0.5) * 0.06;
+            Ng = normalize(N + vec3(-N.z, 0.0, N.x) * a + vec3(0.0, b, 0.0));
+        }
+        vec3 R = reflect(-V, Ng);
         vec3 sky = mix(fogColor.rgb * 1.2, skyColor.rgb * 1.6, clamp(R.y * 1.5, 0.0, 1.0));
-        float f = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
-        float k = (flags & M_WATER) != 0u ? 1.0 : (flags & M_GLASS) != 0u ? max(gloss, 0.5) : wet * 0.6;
-        col = mix(col, sky, clamp(f * k, 0.0, 1.0)) + sky * 0.15 * k * ((flags & M_GLASS) != 0u ? 1.0 : 0.0);
+        float f = 0.04 + 0.96 * pow(1.0 - max(dot(Ng, V), 0.0), 5.0);
+        float k = (flags & M_WATER) != 0u ? 1.0 : glass ? max(gloss, 0.5) : wet * 0.6;
+        col = mix(col, sky, clamp(f * k, 0.0, 1.0)) + sky * 0.15 * k * (glass ? 1.0 : 0.0);
+        if (glass) {   // the sun (or moon) in the glass: a sharp specular glint, Fresnel-weighted, shadowed with the facade
+            float sp = max(dot(R, sunDir.xyz), 0.0);
+            float glint = pow(sp, 900.0) * 60.0 + pow(sp, 60.0) * 0.6;
+            col += sunColor.rgb * glint * (0.25 + 0.75 * f) * vis * k;
+        }
     }
     // emission (FORMAT.md section 6, City Lab's uNight = todP.x: 0 day .. 1 night)
     if ((flags & M_EMISSIVE) != 0u) {
@@ -138,7 +156,18 @@ void main() {
         float steady = mix(m.emis.w, m.emis.x, night);                          // day .. night strength
         int mode = int(m.emis.y + 0.5);
         float e = steady;
-        if (mode == 2) e = 1.3 * night;                                          // lit windows (day: unlit glass, below)
+        if (mode == 2) {   // lit windows (day: unlit glass, above): per-room brightness and colour temperature
+            float r2 = hash12(room * 0.731 + 11.3), r3 = hash12(room * 1.913 + 3.7);
+            float lvl = rh < 0.16 ? 0.0 : rh < 0.38 ? 0.25 + 0.3 * r2 : rh < 0.85 ? 0.7 + 0.5 * r2 : 1.3 + 0.6 * r2;   // off / dim / lit / bright
+            vec3 tint = r3 < 0.55 ? vec3(1.0, 0.78, 0.5)                    // warm incandescent
+                      : r3 < 0.8 ? vec3(1.0, 0.92, 0.78)                     // neutral
+                      : r3 < 0.97 ? vec3(0.78, 0.92, 1.0)                    // cool fluorescent
+                                  : vec3(0.45, 0.62, 1.0);                   // TV blue, flickering
+            if (r3 >= 0.97) lvl = 0.5 * (0.55 + 0.45 * sin(t * 7.3 + rh * 40.0) * sin(t * 2.9 + r2 * 13.0));
+            float lum = dot(m.albedo.rgb, vec3(0.3, 0.55, 0.15));
+            col += mix(m.albedo.rgb, tint * lum * 1.25, 0.75) * (1.3 * night * lvl);
+            e = 0.0;
+        }
         else if (mode == 3) e = steady * (0.6 + 0.4 * sq(t, 0.5));               // aircraft beacon
         else if (mode == 4) e = steady * (0.25 + 0.75 * sq(t + (vMat == 190u ? 0.3125 : 0.0), 1.6));   // light bars
         else if (mode == 5) {                                                    // traffic / pedestrian signals, 30 s cycle

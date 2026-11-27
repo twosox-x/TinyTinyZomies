@@ -211,7 +211,17 @@ function foliage(C, net, R, x0, z0, size) {
       const jx = x + (r1 - 0.5) * st, jz = z + (r2 - 0.5) * st, g = ground(jx, jz);
       if (C.bridgeAt(net, jx, jz, 1.5)) continue;
       if (sd > -1.1 && cl > 0.35 && r3 < 0.75) add(FT.REED, jx, jz, Math.max(g[0], C.WATER.level - 0.1), r1 * 6.283, 0.8 + 0.5 * r2);
-      else if (sd < -0.6 && r3 < 0.07) add(FT.ROCK, jx, jz, g[0] - 0.05, r2 * 6.283, 0.6 + 0.9 * r1);
+      else if (sd < -0.6 && r3 < 0.2) add(FT.ROCK, jx, jz, g[0] - 0.05, r2 * 6.283, 0.6 + 0.9 * r1);
+      else if (sd < -1.2 && r3 < 0.45) add(FT.GRASS, jx, jz, g[0], r1 * 6.283, 0.8 + 0.5 * r2);
+      continue;
+    }
+    if (sd > -3.6 && sd <= -2.2) {                              // the grassy top tread: tufts, the odd reed clump / rock
+      const jx = x + (r1 - 0.5) * st, jz = z + (r2 - 0.5) * st;
+      if (C.bridgeAt(net, jx, jz, 1.5)) continue;
+      const g = ground(jx, jz);
+      if (g[1] !== 16 && g[1] !== 140) continue;                 // verge / earth only (not roads, sidewalks, lots)
+      if (r3 < 0.4) add(FT.GRASS, jx, jz, g[0], r1 * 6.283, 0.8 + 0.6 * r2);
+      else if (r3 < 0.47) add(FT.ROCK, jx, jz, g[0] - 0.05, r2 * 6.283, 0.5 + 0.6 * r1);
       continue;
     }
     if (sd > -2.2) continue;

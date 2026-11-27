@@ -99,6 +99,13 @@ function workerMain() {
       const g = C.ruralGround(net, tx, tz, 99); if (!g || g.kind === 'farmyard') continue;
       props.push({ type: 'tree', x: tx, y: 0.2, z: tz, yaw: C.hash2(gx, gz, 5109) * 6.283, phase: 0 });
     }
+    // ---- countryside 3D (towers/ruralkit.js: woods, hedgerows, roadside tree lines, pasture fences, farmsteads) and
+    // urban infill of leftover ground (towers/infillkit.js): the regional page path (planAll) builds neither, so the
+    // tile builds them for its own rectangle (both are keyed by world position hashes: tiles agree at the seams)
+    const kmb = new C.MeshBuffer(), kst = {};
+    if (L.ruralKit && net.plan) kst.rural = L.ruralKit({ PL: { net }, C, R, mb: kmb, hs: R.hs * V, voxel: V, region: { x0, z0, x1, z1 } });
+    if (L.infillKit) kst.infill = L.infillKit({ net, C, R, F: Fw, mb: kmb, hs: R.hs * V, voxel: V, region: { x0, z0, x1, z1 }, road: m, bld: Bm, plan, pages: P, props, owns });
+    const Km = kmb.quads ? kmb.finish(0.002) : null;
     const wgrid = WK.waterGrid(C, net, x0, z0, TILE);
     const fol = WK.foliage(C, net, R, x0, z0, TILE);
     // ---- meshes
@@ -114,9 +121,11 @@ function workerMain() {
     const lim2x = 0.35 * 0.35, farKeepX = (q) => { const Pp = xPart.pos, o = q * 12; return (Pp[o + 3] - Pp[o]) ** 2 + (Pp[o + 4] - Pp[o + 1]) ** 2 + (Pp[o + 5] - Pp[o + 2]) ** 2 >= lim2x || (Pp[o + 9] - Pp[o]) ** 2 + (Pp[o + 10] - Pp[o + 1]) ** 2 + (Pp[o + 11] - Pp[o + 2]) ** 2 >= lim2x; };
     const mparts = [Object.assign({ lod1: farKeep(m.pos) }, roadPart), Object.assign({ lod1: farKeep(Bm.pos) }, bldPart)];
     if (xPart.quads) mparts.push(Object.assign({ lod1: farKeepX }, xPart));
+    const kPart = Km ? { pos: Km.pos, mat: Km.mat, nrm: Km.nrm, nvec: Km.nvec, quads: Km.quads, unit: V } : null;
+    if (kPart) mparts.push(Object.assign({ lod1: farKeep(Km.pos) }, kPart));
     const mesh = B.meshSection(mparts, SXZ, SY, [x0 + TILE / 2, 0, z0 + TILE / 2], st0);
     // ---- height grid (bridge decks override the cut bank under them)
-    const H = heightGrid(x0, z0, roadPart, xPart.quads ? [bldPart, xPart] : [bldPart], props);
+    const H = heightGrid(x0, z0, roadPart, [bldPart].concat(xPart.quads ? [xPart] : [], kPart ? [kPart] : []), props);
     WK.stampBridges(C, net, H, x0, z0, HC, HN, F);
     const spawns = spawnPoints(H, x0, z0, i, j);
     // traffic out: variant keys + meshes not sent yet by this worker
@@ -136,7 +145,7 @@ function workerMain() {
     if (fol.length) sections.push(['FOLI', WK.foliageSection(B, fol, x0, z0)]);
     const bl = buildingRecords(r.jobs, Bm, i, j);
     if (bl.length) sections.push(['BLDG', bldgSection(bl)]);
-    parentPort.postMessage({ ij: msg.ij, sections, traffic: tr, spawns, ms: Date.now() - t0, foliage: fol.length, water: !!wgrid, tris0: st0.tris0, tris1: st0.tris1, clamped: st0.clamped, props: props.map(p => p.type), pages: pages.size,
+    parentPort.postMessage({ ij: msg.ij, sections, traffic: tr, spawns, kit: kst, ms: Date.now() - t0, foliage: fol.length, water: !!wgrid, tris0: st0.tris0, tris1: st0.tris1, clamped: st0.clamped, props: props.map(p => p.type), pages: pages.size,
       heap: Math.round(process.memoryUsage().heapUsed / 1048576) });
   });
   parentPort.postMessage({ ready: true });
@@ -318,6 +327,7 @@ async function main() {
         if (d.traffic) for (const v of d.traffic.variants) if (v.hi && !variantMesh.has(v.key)) variantMesh.set(v.key, v);
         res.set(d.ij.join(','), { traffic: d.traffic, spawns: d.spawns, ms: d.ms, foliage: d.foliage, water: d.water, tris0: d.tris0, tris1: d.tris1, clamped: d.clamped, props: d.props });
         maxHeap = Math.max(maxHeap, d.heap);
+        if (todo.length <= 12) console.log(`  tile ${i}_${j}: ${d.ms} ms, kits ${JSON.stringify(d.kit)}`);
         if (++done % 10 === 0 || done === todo.length) console.log(`  ${done}/${todo.length} tiles  ${((Date.now() - t0) / 1000).toFixed(0)} s  (last ${d.ms} ms, worker heap ${d.heap} MB, pages ${d.pages})`);
         give();
       });

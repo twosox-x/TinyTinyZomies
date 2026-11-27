@@ -68,8 +68,8 @@ void Territory::rebuild(const TerritoryInput& in) {
     std::vector<int> boxPiece;   // wall piece index per box (-2: post / container)
     if (in.walls) {
         const Walls& W = *in.walls;
-        for (uint32_t i = 0; i < W.pieces().size(); ++i) if (W.pieces()[i].alive) { boxes.push_back(W.pieceBox(i)); boxPiece.push_back((int)i); }
-        for (uint32_t n = 0; n < W.nodes().size(); ++n) if (W.nodes()[n].alive && W.nodes()[n].degree) boxes.push_back(W.postBox(n));
+        for (uint32_t i = 0; i < W.pieces().size(); ++i) if (W.pieces()[i].solid()) { boxes.push_back(W.pieceBox(i)); boxPiece.push_back((int)i); }
+        for (uint32_t n = 0; n < W.nodes().size(); ++n) if (W.nodes()[n].alive && W.nodes()[n].solidDeg) boxes.push_back(W.postBox(n));
     }
     boxPiece.resize(boxes.size(), -2);
     for (const Obb& c : in.containers) { boxes.push_back(c); boxPiece.push_back(-2); }

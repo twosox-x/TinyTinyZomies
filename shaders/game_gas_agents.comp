@@ -1,0 +1,36 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Flamethrower damage to zombies (GAME_DESIGN 14d): one thread per live agent (sorted order of the last step, consumed
+// by the next sim_predict through the bullet-damage queue, so deaths / kill records / rewards use the existing path).
+// Inside a flame cone: cone dps x spray seconds; standing in ground fire: ground dps x dt. Credited to the shooter.
+#include "common.glsl"
+layout(local_size_x = 256) in;
+layout(std430, set = 0, binding = 0) readonly buffer Agents   { Agent agents[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Counters { uint counters[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Field    { uvec4 field[]; };
+layout(std430, set = 1, binding = 0) buffer GameIO   { uint gameIO[]; };
+layout(std430, set = 1, binding = 1) buffer Out      { uint outW[]; };
+#include "gas.glsl"
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= counters[C_LIVE]) return;
+    Agent a = agents[i];
+    if (agentState(a) >= ST_DYING) return;
+    ivec2 g = gasCoord(a.pos.xz);
+    float dmg = 0.0;
+    uint owner = 0u;
+    if (gasInside(g)) {
+        uvec4 f = field[gasIndex(g)];
+        if (uintBitsToFloat(f.y) > 0.0) { dmg += fireP.w * rotP.x; owner = f.z; }
+    }
+    uint co;
+    float spray = coneCover(a.pos.xyz + vec3(0.0, 0.9, 0.0), 0.35, co);
+    if (spray > 0.0) { dmg += fireP.z * spray; owner = co; }
+    if (dmg <= 0.0) return;
+    uint b = GAME_HIT_BASE + 4u * i;
+    atomicAdd(gameIO[b], uint(clamp(dmg, 0.0, 60.0) * 65536.0 + 0.5));
+    atomicOr(gameIO[b + 1u], 2u);          // quiet: small blood puff only
+    atomicAdd(gameIO[b + 1u], 16u);
+    if (owner != 0u) atomicMax(gameIO[b + 2u], owner);
+    atomicAdd(outW[gdim.z + GAS_STAT_FLAMED], 1u);
+}

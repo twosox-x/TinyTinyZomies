@@ -469,6 +469,27 @@ void MilitaryRenderer::fxTracerEnd(uint32_t id, float dist) {
         }
 }
 
+void MilitaryRenderer::fxFlame(const MilPoseInput& so, V3 dir, float range) {
+    if (!fxEnabled || so.infantry < 0 || so.infantry >= (int)lib_.infantry.size() || lib_.flameModels[1] < 0) return;
+    const std::string kind = lib_.infantry[(size_t)so.infantry].weaponKind;
+    CharU C;
+    float mq[4];
+    sampleSoldier(so, C, mq, 0);
+    soldierEvent(so, C, {0, "muzzle_flash", kind == "sniper" ? "rifle" : kind});   // nozzle glow + light, sets lastMuzzle_
+    const float l = length(dir);
+    const V3 d = l > 1e-3f ? dir * (1.f / l) : V3{0, 0, 1};
+    for (int k = 0; k < 6 && fx_.size() < kMaxFx; ++k) {
+        const uint32_t h = (uint32_t)fx_.size() * 2654435761u + (uint32_t)k * 40503u + flameSeq_++ * 977u;
+        const float j0 = hashf(h) - 0.5f, j1 = hashf(h ^ 0x9E37u) - 0.5f, j2 = hashf(h * 3u + 1u);
+        const float life = 0.42f + 0.22f * j2;
+        const float speed = range * 2.9f * (0.75f + 0.45f * hashf(h + 7u));
+        V3 v = d * speed + V3{j0 * 3.2f, j1 * 2.2f + 0.6f, (hashf(h + 11u) - 0.5f) * 3.2f};
+        Fx f{lib_.flameModels[0], lastMuzzle_ + d * (0.15f * (float)k), v, {0, 0, 0, 1}, 0.f, life, 9};
+        f.b = 0.8f + 0.5f * j2;   // size scale
+        fx_.push_back(f);
+    }
+}
+
 uint32_t MilitaryRenderer::fxShotRay(const MilPoseInput& so, V3 hit, bool tracer, bool casing) {
     if (!fxEnabled || so.infantry < 0 || so.infantry >= (int)lib_.infantry.size()) return 0;
     const std::string kind = lib_.infantry[(size_t)so.infantry].weaponKind;
@@ -538,17 +559,20 @@ void MilitaryRenderer::soldierEvent(const MilPoseInput& so, const CharU& C, cons
             return;
         }
         if (kind == "sniper") return;   // suppressed: the `suppressed` event makes the puff
-        if (kind == "mg") {
-            float qz[4] = {0, 0, std::sin(kPi / 8.f), std::cos(kPi / 8.f)}, q2[4];   // alternate rounds: star rotated 45 deg, 0.8 scale
-            qmul(wq, qz, q2);
-            bool alt = (mgRound_++ & 1) != 0;
-            spawnFx(M[alt ? MilitaryLibrary::FX_FLASH_MG_SMALL : MilitaryLibrary::FX_FLASH_MG], mp, {}, alt ? q2 : wq, 2.f / 30.f, 0, alt ? 0.17f : 0.21f);
-            if (flashes_.size() < 64) flashes_.push_back({mp, 2.f / 30.f, 7.f});
-        } else {
-            spawnFx(M[MilitaryLibrary::FX_FLASH_RIFLE], mp, {}, wq, 1.f / 30.f, 0, 0.15f);
-            spawnFx(M[MilitaryLibrary::FX_FLASH_RIFLE_HALF], mp, {}, wq, 2.f / 30.f, 0, 0.075f);
-            if (flashes_.size() < 64) flashes_.push_back({mp, 1.5f / 30.f, 5.f});
-        }
+        // 3-frame voxel flash (one model per 1/60 s: full star + cone, smaller star, last wisp), random roll per round,
+        // and a small, sharp-falloff point light at the muzzle (lights the shooter, the ground and walls around it)
+        const bool mg = kind == "mg";
+        const uint32_t hr = (uint32_t)(mgRound_++) * 2654435761u ^ (uint32_t)(mp.x * 131.f + mp.z * 71.f);
+        const float roll = (float)(hr % 4u) * (kPi / 8.f);   // 0 / 22.5 / 45 / 67.5 deg about the barrel
+        float qz[4] = {0, 0, std::sin(roll), std::cos(roll)}, q2[4];
+        qmul(wq, qz, q2);
+        Fx f{M[mg ? MilitaryLibrary::FX_FLASH_M0 : MilitaryLibrary::FX_FLASH_R0], mp, {}, {0, 0, 0, 1}, 0.f, 3.5f / 60.f, 5};
+        std::memcpy(f.q, q2, sizeof(f.q));
+        f.glow = mg ? 0.26f : 0.18f;
+        f.b = mg ? 1.f : 0.f;
+        if (fx_.size() < kMaxFx) fx_.push_back(f);
+        const float jit = 0.8f + 0.4f * (float)((hr >> 8) % 1000u) / 1000.f;
+        if (flashes_.size() < 64) flashes_.push_back({mp + dir * 0.15f, 2.5f / 60.f, mg ? 5.f : 4.f, (mg ? 9.f : 7.f) * jit});
     } else if (e.type == "tracer") {
         spawnFx(M[MilitaryLibrary::FX_TRACER], mp + dir * 0.6f, dir * 600.f, wq, 0.07f, 3);   // a streak that persists ~4 frames
     } else if (e.type == "shell_eject") {
@@ -840,6 +864,14 @@ void MilitaryRenderer::updateFx(float fdt) {
             g = g < 90.f ? g : 0.f;
             if (f.p.y < g + 0.015f && f.v.y < 0) { f.p.y = g + 0.015f; f.v = {f.v.x * 0.4f, -f.v.y * 0.3f, f.v.z * 0.4f}; }
         } else if (f.kind == 2 || f.kind == 3) f.p = f.p + f.v * fdt;
+        else if (f.kind == 9) {   // flame voxel (fxFlame): drag, lift, spreads on the ground
+            f.p = f.p + f.v * fdt;
+            f.v = f.v * std::max(0.f, 1.f - 2.6f * fdt);
+            f.v.y += 2.2f * fdt;
+            float g = groundHeight ? groundHeight(f.p.x, f.p.z) : 0.f;
+            g = g < 90.f ? g : 0.f;
+            if (f.p.y < g + 0.08f) { f.p.y = g + 0.08f; if (f.v.y < 0) f.v.y = 0.f; }
+        }
     }
     const int streak = lib_.fxModels[MilitaryLibrary::FX_STREAK];
     fx_.erase(std::remove_if(fx_.begin(), fx_.end(), [](const Fx& f) { return f.age >= f.life; }), fx_.end());
@@ -869,8 +901,20 @@ void MilitaryRenderer::updateFx(float fdt) {
             addGlow(streak, hp, q, thick / kStreakVoxel, (head - tail) / kStreakLength);
             continue;
         }
-        if (f.glow > 0.f) {   // emissive flash: at least ~3 px across, at most 6x its modelled size
-            const float sc = std::clamp(length(f.p - eye_) * 0.0026f * flashScale / f.glow, 1.f, 6.f);
+        if (f.kind == 9) {   // flame voxel: hot core -> flame (emissive, growing) -> small soot speck
+            const float a = f.age / f.life;
+            const int* FM = lib_.flameModels;
+            if (a > 0.82f) { if (FM[2] >= 0) addModel(FM[2], f.p, f.q); continue; }
+            const float sc = (1.4f + 4.2f * a) * f.b;
+            if (FM[a < 0.22f ? 0 : 1] >= 0) addGlow(FM[a < 0.22f ? 0 : 1], f.p, f.q, sc, sc);
+            continue;
+        }
+        if (f.kind == 5) {   // muzzle flash sequence: frame by age (1/60 s each)
+            const int fr = std::clamp((int)(f.age * 60.f - 0.01f), 0, 2);
+            model = lib_.fxModels[(f.b > 0.5f ? MilitaryLibrary::FX_FLASH_M0 : MilitaryLibrary::FX_FLASH_R0) + fr];
+        }
+        if (f.glow > 0.f) {   // emissive flash: at least ~3 px across, at most 4x its modelled size
+            const float sc = std::clamp(length(f.p - eye_) * 0.0026f * flashScale / f.glow, 1.f, 4.f);
             addGlow(model, f.p, f.q, sc, sc);
             continue;
         }
@@ -936,7 +980,9 @@ void MilitaryRenderer::injectLights(std::vector<PointLight>& lights) const {
     std::sort(fl.begin(), fl.end(), [&](const Flash* a, const Flash* b) { return length(a->p - eye_) < length(b->p - eye_); });
     for (size_t k = 0; k < fl.size() && k < kMaxFlashLights; ++k) {
         if (lights.size() >= (size_t)kMaxLights) lights.pop_back();
-        lights.insert(lights.begin(), PointLight{fl[k]->p.x, fl[k]->p.y, fl[k]->p.z, fl[k]->radius, 1.f, 0.85f, 0.5f, 2.6f});
+        // negative radius = sharp muzzle light (inverse-square core, Lambert, never merged; lighting.glsl pointLights)
+        const float fade = std::clamp(fl[k]->life * 60.f / 1.5f, 0.3f, 1.f);
+        lights.insert(lights.begin(), PointLight{fl[k]->p.x, fl[k]->p.y, fl[k]->p.z, -fl[k]->radius, 1.f, 0.74f, 0.42f, fl[k]->intensity * fade});
     }
 }
 

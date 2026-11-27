@@ -30,14 +30,16 @@ void main() {
     float yaw = float((b >> 16) & 255u) * (6.2831853 / 256.0), sc = float(b >> 24) * 0.01;
     float h = h11(a ^ (b * 0x9e3779b9u));
     float d = min(length(camPos.xyz - base), length(focus.xyz - base));
-    float far = smoothstep(params.z, params.w, d);
+    float far = smoothstep(params.z, params.w, d);   // fade window follows the zoom (CityFoliage::draw)
     float dens = 1.0 - far;
     // fade by shrinking the thinned-out instances (no popping) down to the far set (every K-th instance), whose
     // members grow into clumps instead: the coarse far LOD the CPU draws beyond the fade (stride K) is that same set
     bool member = (li % K) == 0u;
     float keep = member ? 1.0 : clamp((dens - h) * 6.0, 0.0, 1.0);
     float clump = member ? far : 0.0;
-    vec3 p = (origin.xyz + vec3(inPos.xyz) * qscale.xyx) * sc * vec3(mix(1.0, focus.w, clump), keep * mix(1.0, 1.25, clump), mix(1.0, focus.w, clump));
+    // far set: wider, a little lower, with per-clump height variation (a mottled crop surface, not scattered boxes)
+    float hy = mix(1.0, 0.7 + 0.5 * fract(h * 7.31), clump);
+    vec3 p = (origin.xyz + vec3(inPos.xyz) * qscale.xyx) * sc * vec3(mix(1.0, focus.w, clump), keep * hy, mix(1.0, focus.w, clump));
     vec3 n = vec3(inNrm.xyz) * (1.0 / 127.0);
     float c = cos(yaw), s = sin(yaw);
     p = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);

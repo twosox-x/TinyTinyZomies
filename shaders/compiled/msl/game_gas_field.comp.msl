@@ -1,0 +1,358 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
+};
+
+struct GasUniforms
+{
+    uint4 gdim;
+    int4 gshift;
+    float4 rotP;
+    float4 airP;
+    float4 fireP;
+    float4 miscP;
+    float4 coneA[16];
+    float4 coneB[16];
+    uint4 coneC[16];
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct Src
+{
+    uint4 src[1];
+};
+
+struct Accum
+{
+    uint accum[1];
+};
+
+struct Dst
+{
+    uint4 dst[1];
+};
+
+struct Out
+{
+    uint outW[1];
+};
+
+struct List
+{
+    uint list[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(16u, 16u, 1u);
+
+static inline __attribute__((always_inline))
+bool gasInside(thread const int2& g, constant GasUniforms& _83)
+{
+    bool _96 = g.x >= 0;
+    bool _102;
+    if (_96)
+    {
+        _102 = g.y >= 0;
+    }
+    else
+    {
+        _102 = _96;
+    }
+    bool _111;
+    if (_102)
+    {
+        _111 = g.x < int(_83.gdim.x);
+    }
+    else
+    {
+        _111 = _102;
+    }
+    bool _120;
+    if (_111)
+    {
+        _120 = g.y < int(_83.gdim.y);
+    }
+    else
+    {
+        _120 = _111;
+    }
+    return _120;
+}
+
+static inline __attribute__((always_inline))
+uint gasIndex(thread const int2& g, constant GasUniforms& _83)
+{
+    return (uint(g.y) * _83.gdim.x) + uint(g.x);
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _60)
+{
+    return (uint(c.y) * _60.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+bool solidCell(thread const int2& g, constant SimUniforms& _60, constant GasUniforms& _83, device StaticH& _293)
+{
+    int2 c = (g * int2(2)) + int2(1);
+    bool _258 = c.x < 0;
+    bool _265;
+    if (!_258)
+    {
+        _265 = c.y < 0;
+    }
+    else
+    {
+        _265 = _258;
+    }
+    bool _275;
+    if (!_265)
+    {
+        _275 = c.x >= int(_60.grid.x);
+    }
+    else
+    {
+        _275 = _265;
+    }
+    bool _285;
+    if (!_275)
+    {
+        _285 = c.y >= int(_60.grid.y);
+    }
+    else
+    {
+        _285 = _275;
+    }
+    if (_285)
+    {
+        return false;
+    }
+    int2 param = c;
+    return _293.staticH[cellIndex(param, _60)] > _83.miscP.w;
+}
+
+static inline __attribute__((always_inline))
+float srcGas(thread const int2& g, thread const float& self, constant SimUniforms& _60, constant GasUniforms& _83, device StaticH& _293, device Src& _338)
+{
+    int2 s = g + _83.gshift.xy;
+    int2 param = g;
+    bool _315 = !gasInside(param, _83);
+    bool _323;
+    if (!_315)
+    {
+        int2 param_1 = s;
+        _323 = !gasInside(param_1, _83);
+    }
+    else
+    {
+        _323 = _315;
+    }
+    bool _330;
+    if (!_323)
+    {
+        int2 param_2 = g;
+        _330 = solidCell(param_2, _60, _83, _293);
+    }
+    else
+    {
+        _330 = _323;
+    }
+    if (_330)
+    {
+        return self;
+    }
+    int2 param_3 = s;
+    return as_type<float>(((device uint*)&_338.src[gasIndex(param_3, _83)])[0u]);
+}
+
+static inline __attribute__((always_inline))
+float2 gasCentre(thread const int2& g, constant SimUniforms& _60)
+{
+    return _60.world.xy + ((float2(g) + float2(0.5)) * (_60.world.z * 2.0));
+}
+
+static inline __attribute__((always_inline))
+float coneCover(thread const float3& p, thread const float& slack, thread uint& owner, constant GasUniforms& _83)
+{
+    float s = 0.0;
+    owner = 0u;
+    for (uint k = 0u; (k < _83.gdim.w) && (k < 16u); k++)
+    {
+        float3 d = p - _83.coneA[k].xyz;
+        float along = dot(d, _83.coneB[k].xyz);
+        bool _175 = along < 0.0;
+        bool _184;
+        if (!_175)
+        {
+            _184 = along > _83.coneA[k].w;
+        }
+        else
+        {
+            _184 = _175;
+        }
+        if (_184)
+        {
+            continue;
+        }
+        float l = length(d);
+        float lat = sqrt(fast::max((l * l) - (along * along), 0.0));
+        float rad = (along * sqrt(fast::max(1.0 - (_83.coneB[k].w * _83.coneB[k].w), 0.0))) / fast::max(_83.coneB[k].w, 0.20000000298023223876953125);
+        if (lat > (rad + slack))
+        {
+            continue;
+        }
+        float t = as_type<float>(_83.coneC[k].y);
+        if (t > s)
+        {
+            s = t;
+            owner = _83.coneC[k].x;
+        }
+    }
+    return s;
+}
+
+kernel void main0(constant SimUniforms& _60 [[buffer(0)]], constant GasUniforms& _83 [[buffer(1)]], device StaticH& _293 [[buffer(2)]], device Src& _338 [[buffer(3)]], device Dst& _587 [[buffer(4)]], device Accum& _460 [[buffer(5)]], device Out& _622 [[buffer(6)]], device List& _664 [[buffer(7)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    int2 g = int2(gl_GlobalInvocationID.xy);
+    int2 param = g;
+    if (!gasInside(param, _83))
+    {
+        return;
+    }
+    int2 param_1 = g;
+    uint c = gasIndex(param_1, _83);
+    int2 s = g + _83.gshift.xy;
+    int2 param_2 = s;
+    uint4 _377;
+    if (gasInside(param_2, _83))
+    {
+        int2 param_3 = s;
+        _377 = _338.src[gasIndex(param_3, _83)];
+    }
+    else
+    {
+        _377 = uint4(0u);
+    }
+    uint4 prev = _377;
+    float dt = _83.rotP.x;
+    float gas = as_type<float>(prev.x);
+    float fire = as_type<float>(prev.y);
+    uint owner = prev.z;
+    int2 param_4 = g;
+    bool solid = solidCell(param_4, _60, _83, _293);
+    if (!solid)
+    {
+        int2 param_5 = g + int2(1, 0);
+        float param_6 = gas;
+        int2 param_7 = g - int2(1, 0);
+        float param_8 = gas;
+        int2 param_9 = g + int2(0, 1);
+        float param_10 = gas;
+        int2 param_11 = g - int2(0, 1);
+        float param_12 = gas;
+        float lap = (((srcGas(param_5, param_6, _60, _83, _293, _338) + srcGas(param_7, param_8, _60, _83, _293, _338)) + srcGas(param_9, param_10, _60, _83, _293, _338)) + srcGas(param_11, param_12, _60, _83, _293, _338)) - (4.0 * gas);
+        gas += (fast::clamp(_83.airP.x * dt, 0.0, 0.23999999463558197021484375) * lap);
+        gas += (float(_460.accum[4u * c]) * 1.52587890625e-05);
+        gas -= (gas * fast::clamp(_83.airP.y * dt, 0.0, 1.0));
+    }
+    else
+    {
+        gas = 0.0;
+    }
+    fire = fast::max(fire - dt, 0.0);
+    fire = fast::max(fire, float(_460.accum[(4u * c) + 3u]) * 0.00390625);
+    int2 param_13 = g;
+    float2 cc = gasCentre(param_13, _60);
+    float _501;
+    if (solid)
+    {
+        _501 = 1000000000.0;
+    }
+    else
+    {
+        int2 param_14 = clamp(g * int2(2), int2(0), int2(_60.grid.xy) - int2(1));
+        _501 = fast::max(_293.staticH[cellIndex(param_14, _60)], 0.0);
+    }
+    float h = _501;
+    bool _524 = !solid;
+    uint coneOwner;
+    bool _543;
+    if (_524)
+    {
+        float3 param_15 = float3(cc.x, h + 0.300000011920928955078125, cc.y);
+        float param_16 = 0.75;
+        uint param_17;
+        float _540 = coneCover(param_15, param_16, param_17, _83);
+        coneOwner = param_17;
+        _543 = _540 > 0.0;
+    }
+    else
+    {
+        _543 = _524;
+    }
+    if (_543)
+    {
+        fire = _83.airP.w;
+        owner = coneOwner;
+    }
+    if (fire > 0.0)
+    {
+        gas = fast::max(gas - (_83.miscP.z * dt), 0.0);
+    }
+    gas = fast::clamp(gas, 0.0, _83.airP.z);
+    if (gas < 9.9999997473787516355514526367188e-05)
+    {
+        gas = 0.0;
+    }
+    uint corpsesN = min(_460.accum[(4u * c) + 1u], 65535u);
+    uint rottingN = min(_460.accum[(4u * c) + 2u], 65535u);
+    _587.dst[c] = uint4(as_type<uint>(gas), as_type<uint>(fire), (fire > 0.0) ? owner : 0u, corpsesN | (rottingN << uint(16)));
+    _460.accum[4u * c] = 0u;
+    _460.accum[(4u * c) + 1u] = 0u;
+    _460.accum[(4u * c) + 2u] = 0u;
+    _460.accum[(4u * c) + 3u] = 0u;
+    _622.outW[c] = ((min(uint((gas * 64.0) + 0.5), 255u) | (min(uint((fire * 32.0) + 0.5), 255u) << uint(8))) | (min(corpsesN, 255u) << uint(16))) | (min(rottingN, 255u) << uint(24));
+    if (((gas > 0.02999999932944774627685546875) || (fire > 0.0)) || (rottingN > 0u))
+    {
+        uint _666 = atomic_fetch_add_explicit((device atomic_uint*)&_664.list[1], 1u, memory_order_relaxed);
+        uint k = _666;
+        _664.list[4u + k] = c;
+    }
+}
+

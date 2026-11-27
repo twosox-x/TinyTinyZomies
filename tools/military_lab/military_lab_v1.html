@@ -49,10 +49,10 @@ body { background: var(--bg); color: var(--fg); font: 14px var(--ui); overflow: 
 <aside class="panel" aria-label="Military asset controls">
   <div class="brand"><h1>Tiny Tiny <b>Military</b> Lab</h1><span>v1 · models + anims</span></div>
   <div class="sec"><div class="label">Mode</div>
-    <div class="seg" data-group="mode"><button data-v="single" aria-pressed="true">Asset</button><button data-v="lineup" aria-pressed="false">Lineup</button><button data-v="props" aria-pressed="false">Props</button><button data-v="rts" aria-pressed="false">RTS</button><button data-v="anim" aria-pressed="false">Anim</button></div></div>
+    <div class="seg" data-group="mode"><button data-v="single" aria-pressed="true">Asset</button><button data-v="lineup" aria-pressed="false">Lineup</button><button data-v="props" aria-pressed="false">Props</button><button data-v="rts" aria-pressed="false">RTS</button><button data-v="speclineup" aria-pressed="false">7b</button><button data-v="anim" aria-pressed="false">Anim</button></div></div>
   <div class="sec" id="animSec" hidden><div class="label">Animation <em id="animClip"></em></div>
-    <div class="seg" id="animScene"><button data-s="classes" aria-pressed="true">Classes</button><button data-s="para" aria-pressed="false">Parachute</button><button data-s="crate" aria-pressed="false">Crate</button><button data-s="rts" aria-pressed="false">RTS crowd</button></div>
-    <div class="seg" id="animCls"><button data-c="all" aria-pressed="true">All 3</button><button data-c="rifleman" aria-pressed="false">Rifle</button><button data-c="mg" aria-pressed="false">MG</button><button data-c="sniper" aria-pressed="false">Sniper</button></div>
+    <div class="seg" id="animScene"><button data-s="classes" aria-pressed="true">Classes</button><button data-s="para" aria-pressed="false">Parachute</button><button data-s="crate" aria-pressed="false">Crate</button><button data-s="rts" aria-pressed="false">RTS crowd</button><button data-s="specrts" aria-pressed="false">RTS 7b</button></div>
+    <div class="seg" id="animCls"><button data-c="all" aria-pressed="true">All 3</button><button data-c="rifleman" aria-pressed="false">Rifle</button><button data-c="mg" aria-pressed="false">MG</button><button data-c="sniper" aria-pressed="false">Sniper</button><button data-c="new" aria-pressed="false">Eng+Flame</button><button data-c="engineer" aria-pressed="false">Eng</button><button data-c="flamer" aria-pressed="false">Flame</button></div>
     <div class="chips" id="animActions"></div>
     <div class="row"><button class="btn" id="animPlay">Pause</button><button class="btn" id="animRestart">Restart</button>
       <select class="btn" id="animSpeed"><option value="0.1">0.1×</option><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></div>
@@ -1073,7 +1073,11 @@ function rigidGroup(model, part) {
    ===================================================================================== */
 const ANIM_VERSION = 1, ANIM_HZ = 30, BODY_STRIDE = 44, CANOPY_STRIDE = 12, CRATE_STRIDE = 6;   // WEAPON_STRIDE 7 (death clips), below
 const ANIM_CLASSES = ["rifleman", "mg", "sniper"];
-const CLS_WEAPON = { rifleman: "rifle", mg: "mg", sniper: "sniper" };
+const CLS_WEAPON = { rifleman: "rifle", mg: "mg", sniper: "sniper", engineer: "carbine", flamer: "flamer" };
+// clip authoring style per class (Phase 7b specialists reuse the rifle / hip styles); FX kind of the shot events
+const CLS_STYLE = { rifleman: "rifle", mg: "mg", sniper: "sniper", engineer: "rifle", flamer: "flame" };
+const CLS_FX = { rifleman: "rifle", mg: "mg", sniper: "sniper", engineer: "rifle", flamer: "flame" };
+const FLAG_STOWED = 4096, TOOL_SHIFT = 8;   // Phase 7b: bit 12 weapon stowed on the back (stowMount), bits 8..11 right-hand tool id
 const HAND_ITEM = { none: 0, rifleMag: 1, mgBox: 2, sniperMag: 3, ammoCan: 4, belt: 5 };
 const FLAG_FOOT_L = 16, FLAG_FOOT_R = 32, FLAG_SLUNG = 64;
 const ARM_L = 3.5, LEG_L = 4;
@@ -1155,11 +1159,13 @@ const soleOf = (F, side) => vadd(F["shin" + side].pos, mvec(F["shin" + side].R, 
 /* ---- class rig data: weapons (weapon space, V) and class poses (torso space) ---- */
 function classRig(cls) {
   const w = WEAPONS[CLS_WEAPON[cls]](Object.assign({}, LOOK_BASE, { cls }));
-  const butt = { rifle: [0, 0.75, -3.5], mg: [0, 0.75, -3.5], sniper: [0, 0.25, -4] }[w.kind];
+  const butt = { rifle: [0, 0.75, -3.5], mg: [0, 0.75, -3.5], sniper: [0, 0.25, -4], carbine: [0, 0.75, -2.75], flamer: [0, 0.5, -1.75] }[w.kind];
   const extra = {
     rifle: { magwell: [0, -1.2, 1.5], charge: [0, 1.6, -0.8], bolt: null },
     mg: { magwell: [0.75, -1.5, 1.25], cover: [0, 2.6, 1.0], tray: [0.9, 0.8, 1.5] },
     sniper: { magwell: [0, -0.8, 1.25], bolt: [-0.7, 1.0, 0.5], boltBack: [-0.7, 1.0, -0.9] },
+    carbine: { magwell: [0, -1.2, 1.5], charge: [0, 1.6, -0.8], bolt: null },
+    flamer: { valve: [1.25, 7.6, -3.3], valveApproach: [2.2, 6.6, -1.8], pilot: w.pilot, hose: w.hose },
   }[w.kind];
   return Object.assign({ kind: w.kind, support: w.support, muzzle: w.muzzle, sling: w.sling, butt }, extra);
 }
@@ -1178,9 +1184,11 @@ const AIM = {
   rifleman: { rootYaw: -0.45, torsoX: 0.16, head: [0.2, 0.9, 0.05], footL: [1.6, 0, 3.0], footR: [-2.8, 0, -2.2], pelvis: [0, -0.85, 0] },
   mg: { rootYaw: -0.45, torsoX: 0.4, head: [-0.05, 0.45, 0.0], hip: true, footL: [2.5, 0, 3.3], footR: [-3.0, 0, -2.7], pelvis: [0, -1.55, 0] },
   sniper: { rootYaw: -0.45, torsoX: 0.18, head: [0.26, 0.9, 0.1], footL: [1.6, 0, 3.2], footR: [-2.8, 0, -2.4], pelvis: [0, -0.95, 0] },
+  engineer: { rootYaw: -0.45, torsoX: 0.16, head: [0.2, 0.9, 0.05], footL: [1.6, 0, 3.0], footR: [-2.8, 0, -2.2], pelvis: [0, -0.85, 0] },
+  flamer: { rootYaw: -0.35, torsoX: 0.3, head: [0.05, 0.35, 0.0], hip: true, footL: [2.4, 0, 3.2], footR: [-2.9, 0, -2.6], pelvis: [0, -1.35, 0] },
 };
-function initPostures() {
-  for (const cls of ANIM_CLASSES) {
+function initPostures(classes) {
+  for (const cls of (classes || ANIM_CLASSES)) {
     const rig = classRig(cls), A = AIM[cls];
     // carry (low ready across the body): torso yaw, grip (body space), weapon yaw; muzzle down 0.42, roll -0.15
     const fc = q => { const [ty, gx, gy, gz, wy] = q; const [e1, e2] = armErr(rig, [0.08, ty, 0], [gx, gy, gz], wMat([wy, 0.42, -0.15]));
@@ -1264,7 +1272,7 @@ function finalizeFrame(cls, S, model) {
   } else { rot.upperArmL = free[0]; rot.forearmL = free[1]; }
   // ground: lift (or lock) the body so its lowest voxel rests on y = 0
   if (S.ground !== undefined && model) {
-    const mn = posedMinY(model, rot, rootRot, rootPos, S.slung ? slungPlacement(cls) : null, S.dropped ? "dropped" : mount, !!S.dropped);
+    const mn = posedMinY(model, rot, rootRot, rootPos, S.slung ? slungPlacement(cls) : (S.stowed ? stowPlacement(cls) : null), S.dropped ? "dropped" : mount, !!S.dropped);
     rootPos[1] += S.ground >= 1 ? -mn : Math.max(0, -mn) * (1 - S.ground) + (-mn) * S.ground;
   }
   const out = new Array(BODY_STRIDE).fill(0);
@@ -1273,14 +1281,14 @@ function finalizeFrame(cls, S, model) {
   out[33] = rootRot[0]; out[34] = rootRot[1]; out[35] = rootRot[2];
   out[36] = mount[0]; out[37] = mount[1]; out[38] = mount[2];
   out[39] = sw; out[40] = st[0] * V_M; out[41] = st[1] * V_M; out[42] = st[2] * V_M;
-  out[43] = (S.item || 0) | (S.footL ? FLAG_FOOT_L : 0) | (S.footR ? FLAG_FOOT_R : 0) | (S.slung ? FLAG_SLUNG : 0);
+  out[43] = (S.item || 0) | (S.footL ? FLAG_FOOT_L : 0) | (S.footR ? FLAG_FOOT_R : 0) | (S.slung ? FLAG_SLUNG : 0) | (S.stowed ? FLAG_STOWED : 0) | ((S.tool || 0) << TOOL_SHIFT);
   return { out, rot, rootPos, rootRot, supErr };
 }
 // slung weapon: fixed placement in torso space (diagonal across the chest, muzzle down to the right) — paratrooper jump carry
 function slungPlacement(cls) {
   const z = vnorm([-0.55, -0.83, 0]), x = [0, 0, 1], y = vcross(z, x);
   const W = colsMat(vcross(y, z), y, z);
-  const front = { rifleman: 3.6, mg: 4.1, sniper: 3.4 }[cls];
+  const front = { rifleman: 3.6, mg: 4.1, sniper: 3.4, engineer: 3.6, flamer: 3.8 }[cls];
   return { gripT: [0.6, 4.2, front], W };
 }
 // lowest point of the posed model (metres -> V via unit), for ground contact
@@ -1354,11 +1362,12 @@ function bakeWeaponDrop(c, raw, model) {
   const place = fr => { const F = fk(fr.rot), R0 = eulerMat(fr.rootRot); return { pos: vadd(fr.rootPos, mvec(R0, handPos(F, "R"))), R: mmul(R0, mmul(F.forearmR.R, eulerMat(fr.out.slice(36, 39)))) }; };
   const P0 = place(raw[fr0]), Pm = place(raw[Math.max(0, fr0 - 1)]);
   const vel = vscale(vsub(P0.pos, Pm.pos), ANIM_HZ);            // V / s
-  const WC = weaponCells(model), G = 9.8 / V_M;
+  const WC = c.dropCells || weaponCells(model), G = 9.8 / V_M;
   const last = raw[n - 1], body = posedBodyCells(model, last.rot, last.rootRot, last.rootPos);
   // flat on its side: weapon X axis vertical (side down nearest to the release roll), barrel along its release heading
   const zr = [P0.R[2], 0, P0.R[8]], hd = Math.atan2(zr[0], zr[2]), sgn = P0.R[3] >= 0 ? 1 : -1;
-  const restR = yaw => { const z = [Math.sin(yaw), 0, Math.cos(yaw)], x = [0, sgn, 0], y = vcross(z, x); return colsMat(x, y, z); };
+  const restR = c.dropUpright ? (yaw => { const z = [Math.sin(yaw), 0, Math.cos(yaw)], y = [0, 1, 0], x = vcross(y, z); return colsMat(x, y, z); })   // sandbag / panel: lies flat (own Y up)
+                                : (yaw => { const z = [Math.sin(yaw), 0, Math.cos(yaw)], x = [0, sgn, 0], y = vcross(z, x); return colsMat(x, y, z); });
   // natural landing spot: ballistic estimate from the release, then the nearest spot with clearance from the body
   const tFall0 = Math.sqrt(2 * Math.max(1, P0.pos[1]) / G);
   const nat = [P0.pos[0] + vel[0] * tFall0 * 0.6, 0, P0.pos[2] + vel[2] * tFall0 * 0.6];
@@ -1464,7 +1473,11 @@ function buildAnims(infantry) {
   const add = (cls, action, def) => clips.push(Object.assign({ name: cls + "/" + action, cls, action }, def));
   for (const cls of ANIM_CLASSES) authorClass(cls, rep[cls], add);
   authorCrate(add);
-  // bake
+  bakeClipList(clips, rep);
+  return { clips, transitions: ANIM_TRANSITIONS, fx: FX_SPEC, slung: Object.fromEntries(ANIM_CLASSES.map(c => [c, slungPlacement(c)])), rigs: Object.fromEntries(ANIM_CLASSES.map(c => [c, POSTURE[c].rig])) };
+}
+// bake clip generators to 30 Hz frames (+ checks); rep = class -> representative model
+function bakeClipList(clips, rep) {
   const report = [];
   for (const c of clips) {
     const n = c.loop ? Math.round(c.duration * ANIM_HZ) : Math.round(c.duration * ANIM_HZ) + 1;
@@ -1485,7 +1498,7 @@ function buildAnims(infantry) {
     }
     if (c.gen && c.checkGround !== false) {
       if (c.weaponDrop !== undefined) bakeWeaponDrop(c, raw, rep[c.cls]);
-      for (let f = 0; f < n; f += 3) { const fr = raw[f]; const mn = posedMinY(rep[c.cls], fr.rot, fr.rootRot, fr.rootPos, (fr.out[43] & FLAG_SLUNG) ? slungPlacement(c.cls) : null, (fr.out[43] & FLAG_DROPPED) ? "dropped" : fr.out.slice(36, 39)); minY = Math.min(minY, mn * V_M); }
+      for (let f = 0; f < n; f += 3) { const fr = raw[f]; const mn = posedMinY(rep[c.cls], fr.rot, fr.rootRot, fr.rootPos, (fr.out[43] & FLAG_SLUNG) ? slungPlacement(c.cls) : ((fr.out[43] & FLAG_STOWED) ? stowPlacement(c.cls) : null), ((fr.out[43] & FLAG_DROPPED) || (fr.out[43] >> TOOL_SHIFT & 15)) ? "dropped" : fr.out.slice(36, 39)); minY = Math.min(minY, mn * V_M); }
     }
     // foot sliding: while a foot is flagged planted, its sole (world = clip + agent travel) must not move
     let slide = 0;
@@ -1506,14 +1519,14 @@ function buildAnims(infantry) {
     // delta: ground-plane displacement (+ yaw for turns); vertical offsets of deaths / landings are pose, not motion
     if (c.gen) { const a = c.body[0], b = c.body[n - 1]; c.delta = c.rootMotion ? [b[30] - a[30], 0, b[32] - a[32], c.action.startsWith("turn") ? b[34] - a[34] : 0].map(v => +v.toFixed(5)) : null; }
     if (c.deltaOverride) c.delta = c.deltaOverride;
+    if (c.afterBake) c.afterBake(c, raw);
     report.push(c);
   }
-  return { clips, transitions: ANIM_TRANSITIONS, fx: FX_SPEC, slung: Object.fromEntries(ANIM_CLASSES.map(c => [c, slungPlacement(c)])), rigs: Object.fromEntries(ANIM_CLASSES.map(c => [c, POSTURE[c].rig])) };
 }
 
 function authorClass(cls, model, add) {
   const P = POSTURE[cls], rig = P.rig, A = AIM[cls], AT = P.aim.torso, CT = P.crouch.torso, rootAim = [0, A.rootYaw, 0];
-  const isMG = cls === "mg", isSn = cls === "sniper";
+  const ST = CLS_STYLE[cls], isMG = ST === "mg", isSn = ST === "sniper", isFl = ST === "flame";
   const carryT = P.carry;
   const stanceL = [1.5, 0, 0.35], stanceR = [-1.5, 0, -0.45];
   const standLegs = (pel, L, R) => ({ legs: { L: { foot: L || stanceL }, R: { foot: R || stanceR } }, footL: true, footR: true });
@@ -1580,8 +1593,8 @@ function authorClass(cls, model, add) {
   add(cls, "aim", { duration: 2.0, loop: true, gen: t => aimSpec(t) });
 
   // ---- standing fire
-  const fx = { rifleman: "rifle", mg: "mg", sniper: "sniper" }[cls];
-  if (cls === "rifleman") {   // 3 aimed shots per 0.9 s loop: short sharp kick
+  const fx = CLS_FX[cls];
+  if (ST === "rifle") {   // 3 aimed shots per 0.9 s loop: short sharp kick
     const shots = [0, 0.3, 0.6];
     add(cls, "fire", { duration: 0.9, loop: true, rate: 3.33, events: shots.flatMap(s => [{ t: s, type: "muzzle_flash", fx }, { t: s, type: "shell_eject", fx }, { t: s, type: "recoil", kick: 0.12 }]),
       gen: t => { let k = 0; for (const s of shots) { const d = t - s; if (d >= 0 && d < 0.3) k = Math.max(k, d < 0.033 ? d / 0.033 : Math.exp(-(d - 0.033) * 12)); }
@@ -1593,6 +1606,8 @@ function authorClass(cls, model, add) {
         const kick = [0.5 + 0.55 * k, 0.06 + 0.12 * k * (0.6 + 0.4 * hnoise(i, 1)), 0.06 * hnoise(i, 2) * k, 0.18 * k];
         const jit = [0.05 * k + 0.02, 0.04 * hnoise(i, 3) * k];
         const S = aimSpec(0, kick, jit); S.pelvis = [0.08 * hnoise(i, 5) * k, A.pelvis[1] - 0.08 * k, 0]; S.head = [A.head[0] + 0.03 * hnoise(i, 4) * k, A.head[1], A.head[2]]; return S; } });
+  } else if (isFl) {         // flamethrower: sustained stream (FX emitter while the clip plays), slow sweep
+    authorFlameFire(cls, add, aimSpec, A);
   } else {                   // one heavy suppressed shot + bolt cycle (left hand works the bolt)
     const dur = 1.9;
     add(cls, "fire", { duration: dur, loop: true, rate: 1 / dur,
@@ -1625,7 +1640,7 @@ function authorClass(cls, model, add) {
     return Object.assign({ torso, head: [A.head[0] + (isMG ? 0.15 : 0), isMG ? 0.9 : A.head[1], A.head[2]], wpn, sw: 1, ground: 0, rootRot: rootAim }, kneel, { legs: kneel.legs, pelvis: kneel.pelvis });
   };
   add(cls, "crouch_aim", { duration: 2.0, loop: true, gen: t => crouchSpec(t) });
-  if (cls === "rifleman") {
+  if (ST === "rifle") {
     const shots = [0, 0.3, 0.6];
     add(cls, "crouch_fire", { duration: 0.9, loop: true, rate: 3.33, events: shots.flatMap(s => [{ t: s, type: "muzzle_flash", fx }, { t: s, type: "shell_eject", fx }]),
       gen: t => { let k = 0; for (const s of shots) { const d = t - s; if (d >= 0 && d < 0.3) k = Math.max(k, d < 0.033 ? d / 0.033 : Math.exp(-(d - 0.033) * 22)); } return crouchSpec(0, [0.5 * k, 0.15 * k, 0.02 * k, 0.12 * k]); } });
@@ -1634,6 +1649,9 @@ function authorClass(cls, model, add) {
     add(cls, "crouch_fire", { duration: dur, loop: true, rate: n, events: Array.from({ length: n }, (_, i) => [{ t: +(i / n).toFixed(4), type: "muzzle_flash", fx, round: i }, { t: +(i / n).toFixed(4), type: "shell_eject", fx }].concat(i % 4 === 0 ? [{ t: +(i / n).toFixed(4), type: "tracer", fx }] : [])).flat(),
       gen: t => { const i = Math.floor(t * n), d = t - i / n, k = d < 0.02 ? 1 : Math.exp(-(d - 0.02) * 30);
         return crouchSpec(0, [0.3 + 0.35 * k, 0.04 + 0.07 * k * (0.6 + 0.4 * hnoise(i, 1)), 0.04 * hnoise(i, 2) * k, 0.1 * k], [0.03 * k, 0.02 * hnoise(i, 3) * k]); } });
+  } else if (isFl) {
+    add(cls, "crouch_fire", { duration: 2.4, loop: true, stream: "flame", events: [], gen: t => { const sw = 0.3 * Math.sin(t / 2.4 * Math.PI * 2), i = Math.floor(t * 20);
+      return crouchSpec(0, [0.2 + 0.05 * hnoise(i, 1), 0.03 * hnoise(i, 2), 0, 0.04], [0.02, sw]); } });
   } else {
     const dur = 1.9;
     add(cls, "crouch_fire", { duration: dur, loop: true, events: [{ t: 0, type: "suppressed", fx }, { t: 0, type: "muzzle_flash", fx }, { t: 0.78, type: "bolt" }, { t: 0.9, type: "shell_eject", fx }, { t: 1.12, type: "bolt" }],
@@ -1646,11 +1664,11 @@ function authorClass(cls, model, add) {
 
   // ---- reload (from aim, ends in aim): keyed left-hand path; weapon lowered / canted for readability
   {
-    const pouchT = { rifleman: [1.0, 2.4, 3.3], mg: [2.9, 1.2, -1.8], sniper: [1.0, 3.2, 3.1] }[cls];
-    const item = { rifleman: HAND_ITEM.rifleMag, mg: HAND_ITEM.mgBox, sniper: HAND_ITEM.sniperMag }[cls];
+    const pouchT = { rifleman: [1.0, 2.4, 3.3], mg: [2.9, 1.2, -1.8], sniper: [1.0, 3.2, 3.1], engineer: [1.0, 2.4, 3.3], flamer: [1.0, 2.4, 3.3] }[cls];
+    const item = { rifleman: HAND_ITEM.rifleMag, mg: HAND_ITEM.mgBox, sniper: HAND_ITEM.sniperMag, engineer: HAND_ITEM.rifleMag, flamer: 0 }[cls];
     // keys: [t, mode ('w' = weapon-space target, 'b' = torso-space), target, item, lower(0..1)]
     let keys, dur, events;
-    if (cls === "rifleman") {
+    if (ST === "rifle") {
       dur = 2.4;
       keys = [[0, "w", rig.support, 0, 0], [0.3, "w", rig.magwell, 0, 1], [0.42, "w", rig.magwell, item, 1], [0.85, "b", pouchT, item, 1], [1.05, "b", pouchT, item, 1],
               [1.45, "w", rig.magwell, item, 1], [1.55, "w", rig.magwell, 0, 1], [1.8, "w", rig.charge, 0, 1], [1.9, "w", vadd(rig.charge, [0, 0, -1.2]), 0, 1], [2.15, "w", rig.support, 0, 0.6], [2.4, "w", rig.support, 0, 0]];
@@ -1661,6 +1679,11 @@ function authorClass(cls, model, add) {
               [1.35, "b", [1.8, -1.5, 3.2], item, 1], [1.45, "b", [1.8, -1.5, 3.2], 0, 1], [1.9, "b", pouchT, 0, 1], [2.1, "b", pouchT, item, 1], [2.7, "w", rig.magwell, item, 1], [2.85, "w", rig.magwell, HAND_ITEM.belt, 1],
               [3.15, "w", rig.tray, HAND_ITEM.belt, 1], [3.3, "w", rig.tray, 0, 1], [3.5, "w", vadd(rig.cover, [0, 1.5, 0.5]), 0, 1], [3.65, "w", rig.cover, 0, 1], [3.95, "w", rig.support, 0, 0.5], [4.2, "w", rig.support, 0, 0]];
       events = [{ t: 0.5, type: "belt_open" }, { t: 0.95, type: "mag_out" }, { t: 2.1, type: "grab" }, { t: 2.8, type: "mag_in" }, { t: 3.2, type: "belt" }, { t: 3.65, type: "belt_close" }];
+    } else if (isFl) {   // flamethrower "reload" (proposal): reach back over the left shoulder, switch to the reserve tank, repressurise, relight
+      dur = 2.6;
+      keys = [[0, "w", rig.support, 0, 0], [0.35, "b", rig.valveApproach, 0, 1], [0.6, "b", rig.valve, 0, 1], [0.85, "b", vadd(rig.valve, [0.3, 0, 0.2]), 0, 1], [1.1, "b", rig.valve, 0, 1],
+              [1.35, "b", vadd(rig.valve, [0.3, 0, 0.2]), 0, 1], [1.6, "b", rig.valveApproach, 0, 1], [2.05, "w", rig.support, 0, 0.6], [2.6, "w", rig.support, 0, 0]];
+      events = [{ t: 0.7, type: "valve" }, { t: 1.2, type: "pressurise" }, { t: 2.2, type: "pilot_relight" }];
     } else {
       dur = 2.9;
       keys = [[0, "w", rig.support, 0, 0], [0.3, "w", rig.bolt, 0, 1], [0.4, "w", rig.boltBack, 0, 1], [0.65, "w", rig.magwell, 0, 1], [0.75, "w", rig.magwell, item, 1], [1.15, "b", pouchT, item, 1],
@@ -1674,8 +1697,8 @@ function authorClass(cls, model, add) {
       // lowered / canted weapon: muzzle down-left, pulled in to the chest (MG: to the hip, muzzle up)
       const torso = [AT[0] + (isMG ? 0.12 : 0.1) * low, AT[1], AT[2]];
       let wpn = aimP(torso);
-      wpn = kickPlacement(wpn, isMG ? [1.5 * low, 0.7 * low, 0.35 * low, -0.5 * low] : [2.0 * low, -0.7 * low, 0.5 * low, -1.6 * low]);
-      wpn.W = mmul(wpn.W, eulerMat([0, 0, (isMG ? 0.3 : 0.8) * low]));
+      wpn = kickPlacement(wpn, isFl ? [0.3 * low, -0.25 * low, -0.1 * low, -0.2 * low] : isMG ? [1.5 * low, 0.7 * low, 0.35 * low, -0.5 * low] : [2.0 * low, -0.7 * low, 0.5 * low, -1.6 * low]);
+      wpn.W = mmul(wpn.W, eulerMat([0, 0, (isFl ? 0.15 : isMG ? 0.3 : 0.8) * low]));
       const S = Object.assign({ torso, head: [A.head[0] + 0.3 * low, A.head[1] * (1 - 0.5 * low), 0], pelvis: A.pelvis, wpn, item: u < 0.5 ? a[3] : b[3] }, aimLegs);
       // left hand: both keys in weapon space -> pure support-target interpolation; mixed -> weight blend
       if (a[1] === "w" && b[1] === "w") { S.sw = 1; S.st = vlerp(a[2], b[2], u); }
@@ -1724,8 +1747,8 @@ function authorClass(cls, model, add) {
   // ---- collect ammunition: kneel at a crate (in front, 0.75 m), grab with the left hand, stow on the vest, stand
   {
     const dur = 3.2, crate = [0.8, 4.6, 8.0];      // grab point, clip space V (on top of the crate, slightly left)
-    const pouch = { rifleman: [1.2, 2.6, 3.3], mg: [1.6, 2.8, 3.8], sniper: [1.2, 3.2, 3.1] }[cls];
-    const item = { rifleman: HAND_ITEM.rifleMag, mg: HAND_ITEM.ammoCan, sniper: HAND_ITEM.sniperMag }[cls];
+    const pouch = { rifleman: [1.2, 2.6, 3.3], mg: [1.6, 2.8, 3.8], sniper: [1.2, 3.2, 3.1], engineer: [1.2, 2.6, 3.3], flamer: [1.6, 2.6, 3.4] }[cls];
+    const item = { rifleman: HAND_ITEM.rifleMag, mg: HAND_ITEM.ammoCan, sniper: HAND_ITEM.sniperMag, engineer: HAND_ITEM.rifleMag, flamer: HAND_ITEM.ammoCan }[cls];
     add(cls, "collect_ammo", { duration: dur, loop: false, events: [{ t: 1.25, type: "grab" }, { t: 2.05, type: "stow" }], gen: t => {
       const down = smooth(t / 0.7) * (1 - smooth((t - 2.35) / 0.7));
       const reach = smooth((t - 0.6) / 0.55) * (1 - smooth((t - 1.3) / 0.55));
@@ -1912,6 +1935,456 @@ function authorCrate(add) {
     } });
 }
 
+/* =====================================================================================
+   SPECIALISTS (Phase 7b): Engineers (3 variants) and Flamethrower (2 variants), their hand tools, work and flame clips.
+   Exported to separate files (assets/military/specialists.* and specialist_anims.*) so the approved v1 files stay
+   byte-identical: the palette entries below are appended AFTER the v1 palette (PAL_V1_COUNT), which is all the v1
+   files contain. Formats: docs/MILITARY_ASSETS.md §Specialists, docs/MILITARY_ANIMS.md §7.
+   ===================================================================================== */
+const PAL_V1_COUNT = PALETTE.length;
+pal("hiVis", "#e8701e", 0.03); pal("hiVisDark", "#b9561a", 0.03); pal("reflect", "#d9dbd2", 0.02);
+pal("leather", "#7a5636", 0.06); pal("toolSteel", "#71757a", 0.04, 2); pal("toolHead", "#35383b", 0.04, 2); pal("handle", "#9a7a4e", 0.07);
+pal("hoodSilver", "#b4b6ae", 0.05, 2); pal("hoodSilverDark", "#8c8e87", 0.05, 2); pal("visorGold", "#b8902e", 0.02, 4);
+pal("nomex", "#6e6a52", 0.05); pal("nomexDark", "#55523f", 0.05); pal("rubber", "#242424", 0.03);
+pal("tankOlive", "#4f5536", 0.04, 2); pal("hazardRed", "#9a2a20", 0.03); pal("hazardYellow", "#c9a62a", 0.03);
+pal("pilotFlame", "#ffb040", 0, 1); pal("copper", "#a8643a", 0.04, 2); pal("gasRed", "#8e2a22", 0.04, 2); pal("gasBlack", "#2a2c2e", 0.04, 2);
+
+/* ---- weapons of the specialists (weapon space, 0.5 V cells; grip = origin, barrel +Z) ---- */
+WEAPONS.carbine = function (L) {   // compact carbine (engineer self-defence): short barrel, collapsed stock, short handguard
+  const g = makeSet(0.5), fur = L.rifleFurn || "gunBlack", mag = L.mag || "gunMetal";
+  W(g, 0, 0, 0, 0, 0, 0, fur); W(g, 0, 0, -1, -1, -1, 0, fur);
+  W(g, 0, 0, 0, 0, 1, 1, "gunBlack");
+  W(g, 0, 0, 1, 2, -1, 5, "gunBlack");
+  W(g, 0, 0, 0, 0, 2, 3, mag); W(g, 0, 0, -1, -1, 2, 3, mag); W(g, 0, 0, -2, -2, 3, 4, mag);
+  W(g, 0, 0, 1, 2, 6, 8, fur);
+  W(g, 0, 0, 2, 2, 9, 11, "gunMetal"); W(g, 0, 0, 2, 2, 12, 12, "gunBlack");
+  W(g, 0, 0, 3, 3, 1, 3, "gunBlack"); g.set(0, 2, 1, "lens");                       // red-dot
+  W(g, 0, 0, 1, 1, -2, -3, "gunBlack"); W(g, 0, 0, 0, 2, -4, -4, fur);            // collapsed stock
+  return { set: g, kind: "carbine", support: [0, -0.1, 3.5], muzzle: [0, 1.0, 6.25], sling: [0, 0.5, -2.0] };
+};
+WEAPONS.flamer = function (L) {    // flame gun: rear grip + fuel valve, forward grip, shrouded tube, nozzle, pilot igniter
+  const g = makeSet(0.5), body = L.gunBody || "tankOlive";
+  W(g, 0, 0, 0, 0, 0, 0, "gunBlack"); W(g, 0, 0, -1, -1, -1, 0, "gunBlack");     // rear grip (trigger)
+  W(g, 0, 0, 0, 0, 1, 1, "gunBlack");
+  W(g, 0, 0, 1, 2, -3, 3, body); W(g, -1, -1, 1, 1, -1, 1, "metal");               // valve body + valve wheel (right side)
+  W(g, 0, 0, -1, -1, -3, -2, "metal"); W(g, 0, 0, -2, -2, -3, -3, "rubber");      // hose fitting (rear bottom)
+  W(g, 0, 0, 1, 1, 4, 16, "gunMetal");                                             // fuel tube
+  W(g, 0, 0, 2, 2, 5, 13, "gunBlack"); W(g, -1, 1, 1, 1, 6, 12, "gunBlack");      // perforated heat shield (plus section)
+  for (let k = 7; k <= 12; k += 2) g.set(0, 1, k * 0.5, "metal");
+  W(g, 0, 0, -1, 0, 7, 7, "gunBlack"); W(g, 0, 0, -2, -2, 7, 7, "gunBlack");      // forward grip (support hand)
+  W(g, 0, 0, 0, 2, 17, 18, "metal");                                               // nozzle
+  W(g, 0, 0, -1, -1, 15, 17, "gunBlack");                                          // igniter housing under the nozzle
+  g.set(0, -0.5, 9, "pilotFlame");                                                 // pilot light (emissive)
+  return { set: g, kind: "flamer", support: [0, -0.6, 3.5], muzzle: [0, 0.5, 9.4], sling: [0, 0.5, -1.0], pilot: [0, -0.5, 9.4], hose: [0, -1.0, -1.5] };
+};
+CARRY.carbine = CARRY.rifle;
+CARRY.flamer = { grip: [-2.4, 8.6, 3.6], yaw: 0.2, pitch: 0.1, roll: -0.1, torso: [0.1, 0.18, 0], head: [-0.02, 0.12, 0], legs: true };
+
+/* ---- gear ---- */
+function engHeadGear(L) {
+  const g = buildHeadGear(L);
+  // reflective hi-vis band round the helmet + a stripe over the top (reads from an RTS camera)
+  g.paint(c => (Math.abs(c.y - 17.75) < 0.01 && (Math.abs(c.x) > 1.5 || Math.abs(c.z) > 1.5)) ? "hiVis" : null);
+  g.paint(c => (c.y > 18 && Math.abs(c.x) < 0.5) ? "hiVis" : null);
+  if (L.welding) {   // welding goggles pushed up on the helmet front
+    g.ebox(-1.5, 1.5, 18, 18.5, 2, 2.5, "black"); g.set(-0.75, 18.25, 2.25, "lensGlint"); g.set(0.75, 18.25, 2.25, "lensGlint");
+  }
+  if (L.earPro) for (const sx of [-1, 1]) g.ebox(sx > 0 ? 2 : -2.5, sx > 0 ? 2.5 : -2, 15.5, 16.5, -0.5, 0.5, L.earPro);
+  return g;
+}
+function engTorsoGear(L) {
+  const g = buildTorsoGear(Object.assign({}, L, { pack: "none", radioBack: false }));
+  // hi-vis shoulder panels on the straps (front + top) and a reflective band on the back plate
+  g.paint(c => (c.y > 13 && Math.abs(c.x) > 0.9 && Math.abs(c.x) < 2.1) ? (c.y > 14 ? "hiVis" : "hiVisDark") : null);
+  // tool belt: hammer loop on the left hip, pliers / tape pouches, leather
+  g.ebox(2.5, 3, 7.5, 9.5, -1.5, -0.5, "leather"); g.ebox(2.5, 3, 6.5, 7.5, -1.25 + 0.25, -0.75, "leather");
+  g.ebox(-3, -2.5, 7.5, 9, -1.5, -0.5, "leather"); g.set(-2.75, 9.25, -1.25, "hiVis");
+  // big ruck (frame pack) with a sandbag roll on top and tools on the sides
+  const bz = -2, pc = L.packCol;
+  g.ebox(-2, 2, 8.5, 15.5, bz - 2.5, bz, "x"); g.paint(c => c.m === "x" ? camoAt(pc, L.seed + 3, c.x, c.y, c.z, 0.5) : null);
+  g.ebox(-1.5, 1.5, 9.5, 12, bz - 3, bz - 2.5, pc === "mc" ? "coyote" : pc);                     // front pocket
+  g.ebox(-2, 2, 13, 13.5, bz - 3, bz - 2.5, "reflect"); g.ebox(-2, 2, 12.5, 13, bz - 3, bz - 2.5, "hiVis");   // hi-vis + reflective band across the back
+  // sandbag roll on top (empty bags rolled, across the pack) + straps
+  g.ebox(-2.5, 2.5, 15.5, 16.5, bz - 2.5, bz - 0.5, "sandbag"); g.ebox(-2, 2, 16.5, 17, bz - 2, bz - 1, "sandbag");
+  for (const x of [-1.5, 1.5]) g.ebox(x - 0.25, x + 0.25, 15.5, 17.25, bz - 2.75, bz - 0.25, "strap");
+  if (L.packTool === "shovel") {        // folding shovel strapped on the right side, handle up past the shoulder
+    g.ebox(-2.5, -2, 10, 17.5, bz - 1.5, bz - 1, "handle"); g.ebox(-2.5, -2, 17.5, 18, bz - 2, bz - 0.5, "black");
+    g.ebox(-2.5, -2, 8.5, 10, bz - 2, bz - 0.5, "toolSteel");
+  } else if (L.packTool === "sledge") { // sledgehammer, head down at the left hip, handle up behind the left shoulder
+    g.ebox(2, 2.5, 9.5, 18, bz - 1.5, bz - 1, "handle"); g.ebox(2, 3, 8.5, 9.5, bz - 2.5, bz, "toolHead");
+  } else if (L.packTool === "gas") {    // oxy / acetylene bottles for the cutting torch, upright on the pack sides
+    g.ebox(-3, -2, 9, 15, bz - 2, bz - 1, "gasBlack"); g.ebox(-2.75, -2.25, 15, 15.5, bz - 1.75, bz - 1.25, "brass");
+    g.ebox(2, 3, 9, 14.5, bz - 2, bz - 1, "gasRed"); g.ebox(2.25, 2.75, 14.5, 15, bz - 1.75, bz - 1.25, "brass");
+    g.ebox(-2, 2, 9, 9.5, bz - 2.75, bz - 2.5, "rubber");                                          // hose coil
+  }
+  return g;
+}
+function flameHeadGear(L) {
+  const g = makeSet(0.5);
+  if (L.hood === "proximity") {          // aluminised fire hood with a gold visor and a shoulder cape
+    ring(g, 15, 18.5, 2, 1.5, "hoodSilver", { round: true });
+    g.ebox(-1.5, 1.5, 18.5, 19, -1.5, 1.5, "hoodSilver"); g.ebox(-1, 1, 19, 19.5, -1, 1, "hoodSilverDark");
+    g.ebox(-1.5, 1.5, 15.5, 17.5, 1.5, 2, "visorGold"); g.ebox(-1.5, 1.5, 17.5, 18, 2, 2.5, "hoodSilverDark");   // visor + peak
+    ring(g, 14.5, 15, 2, 0.5, "hoodSilverDark", {});                                                // collar on the shoulders
+  } else {                                // nomex hood, respirator mask, helmet on top
+    const L2 = Object.assign({}, L, { goggles: false, nvg: false });
+    const h = buildHeadGear(L2);
+    for (const c of h.map.values()) g.set(c.x, c.y, c.z, c.m);
+    ring(g, 15, 16, 2, 1.5, "nomex", { round: true });
+    ring(g, 14.5, 15, 2, 0.5, "nomexDark", {});
+    g.ebox(-1.5, 1.5, 16, 17, 1.5, 2, "rubber"); g.set(-0.75, 16.5, 2.25, "lens"); g.set(0.75, 16.5, 2.25, "lens");   // mask lenses
+    g.ebox(-1, 1, 15, 16, 1.5, 2.5, "rubber"); g.ebox(-0.5, 0.5, 15, 16, 2.5, 3, "oliveDark");     // snout + filter
+  }
+  return g;
+}
+function flameTorsoGear(L) {
+  const g = buildTorsoGear(Object.assign({}, L, { pack: "none", radioBack: false }));
+  const bz = -2.5;
+  g.ebox(-2.5, 2.5, 8.5, 14.5, bz, -2, "black");                                                     // backpack frame
+  for (const sx of [-1, 1]) {                                                                         // two fuel cylinders (round section)
+    const cx = sx * 1.25;
+    for (let x = -1; x < 1; x += 0.5) for (let z = -1; z < 1; z += 0.5) {
+      if ((x === -1 || x === 0.5) && (z === -1 || z === 0.5)) continue;                                // cut corners
+      g.ebox(cx + x, cx + x + 0.5, 8.5, 15.5, bz - 2 + (z + 1), bz - 2 + (z + 1) + 0.5, "tankOlive");
+    }
+    g.ebox(cx - 0.5, cx + 0.5, 15.5, 16, bz - 1.5, bz - 0.5, "tankOlive");                            // domed top
+    g.ebox(cx - 0.25, cx + 0.25, 16, 16.5, bz - 1.25, bz - 0.75, "metal");                            // valve
+    g.paint(c => (Math.abs(c.x - cx) <= 1 && c.z < bz && c.z > bz - 2.1 && c.y > 13 && c.y < 13.5) ? "hazardRed" : null);   // hazard band
+    g.paint(c => (Math.abs(c.x - cx) <= 1 && c.z < bz - 1.9 && c.y > 11 && c.y < 12 && Math.abs(c.x - cx) < 0.6) ? "hazardYellow" : null);
+  }
+  g.ebox(-0.5, 0.5, 9.5, 13, bz - 2.5, bz - 1.5, "metal"); g.ebox(-0.25, 0.25, 13, 13.5, bz - 2.25, bz - 1.75, "black");  // pressure bottle (between / behind the tanks)
+  g.ebox(-1.75, -0.75, 8, 8.5, bz - 1.5, bz - 0.5, "metal");                                         // outlet (hose)
+  g.ebox(-2.5, 2.5, 10, 10.5, bz - 2.25, bz - 2, "strap");                                           // tank strap
+  return g;
+}
+
+/* ---- specialist soldiers ---- */
+const SPECIALISTS = [
+  { name: "engineer_a", label: "Engineer A (sledge)", cls: "engineer", weapon: "carbine", look: { seed: 211, skin: 1, hair: 0, helmetCover: "mc", vest: "coyote", pouch: "coyote", gloves: "leather", kneepads: true, packCol: "coyote", packTool: "sledge", earPro: "olive" } },
+  { name: "engineer_b", label: "Engineer B (shovel)", cls: "engineer", weapon: "carbine", look: { seed: 223, skin: 4, hair: 2, uniform: "rg", helmetCover: "rg", vest: "rangerGreen", pouch: "rangerGreen", gloves: "leather", rolled: true, kneepads: true, packCol: "rangerGreen", packTool: "shovel", welding: true, boot: "bootBrown" } },
+  { name: "engineer_c", label: "Engineer C (cutter)", cls: "engineer", weapon: "carbine", look: { seed: 239, skin: 2, hair: 1, beard: true, uniform: "olive", helmetCover: "olive", vest: "olive", pouch: "olive", gloves: "black", kneepads: true, packCol: "olive", packTool: "gas", welding: true, boot: "black", rifleFurn: "fde" } },
+  { name: "flamer_a", label: "Flamethrower A (fire hood)", cls: "flamer", weapon: "flamer", look: { seed: 251, skin: 0, hair: 0, hood: "proximity", uniform: "olive", vest: "olive", pouch: "olive", gloves: "leather", kneepads: false, boot: "black" } },
+  { name: "flamer_b", label: "Flamethrower B (mask)", cls: "flamer", weapon: "flamer", look: { seed: 263, skin: 3, hair: 2, hood: "nomex", helmetCover: "coyote", uniform: "mc", vest: "coyote", pouch: "coyote", gloves: "black", kneepads: true, gunBody: "oliveDark" } },
+];
+function buildSpecialist(def) {
+  const L = Object.assign({}, LOOK_BASE, def.look, { cls: def.cls });
+  const parts = [];
+  for (const slot of SLOTS) parts.push({ name: slot, slot, parent: PARENT[slot], set: buildBody(slot, L), pivot: PIVOT[slot], unitM: V_M, rigid: true });
+  const isEng = def.cls === "engineer";
+  const gear = { gear_head: ["head", isEng ? engHeadGear(L) : flameHeadGear(L)], gear_torso: ["torso", isEng ? engTorsoGear(L) : flameTorsoGear(L)] };
+  for (const sl of ["thighL", "thighR", "shinL", "shinR"]) { const gg = buildLegGear(sl, L); if (gg && gg.map.size) gear["gear_" + sl] = [sl, gg]; }
+  for (const [n, [par, set]] of Object.entries(gear)) parts.push({ name: n, slot: null, parent: par, set, pivot: PIVOT[par], unitM: V_M, rigid: true, gearOf: par });
+  const wpn = WEAPONS[def.weapon](L);
+  parts.push({ name: "weapon", slot: null, parent: "forearmR", set: wpn.set, pivot: HAND.R, unitM: V_M, rigid: false, weaponSpace: true });
+  const poses = makePoses(def.weapon, wpn);
+  const sockets = [
+    { name: "parachute", part: "torso", pos: [0, 14.5, -0.5], dir: [0, 1, 0] },
+    { name: "eyes", part: "head", pos: [0, 16.5, 1.5], dir: [0, 0, 1] },
+    { name: "back", part: "torso", pos: [0, 11.5, -2], dir: [0, 0, -1] },
+    { name: "muzzle", part: "weapon", pos: vadd(HAND.R, wpn.muzzle), dir: [0, 0, 1] },
+  ];
+  const extra = {};
+  if (!isEng) {
+    sockets.push({ name: "hose_tank", part: "torso", pos: HOSE.tank, dir: [0, -1, 0] }, { name: "pilot", part: "weapon", pos: vadd(HAND.R, wpn.pilot), dir: [0, 0, 1] });
+    extra.hose = { from: { part: "torso", pos: HOSE.tank.map(v => +(v * V_M).toFixed(6)) }, to: { part: "weapon", pos: wpn.hose.map(v => +(v * V_M).toFixed(6)) }, length: HOSE.length, voxel: HOSE.voxel, color: HOSE.color, sag: HOSE.sag };
+    extra.weaponPoints = { pilot: wpn.pilot.map(v => +(v * V_M).toFixed(6)), nozzle: wpn.muzzle.map(v => +(v * V_M).toFixed(6)) };
+  } else extra.tools = Object.keys(TOOLS).map(k => "tool_" + k);
+  return { name: def.name, label: def.label, cls: def.cls, kind: "infantry", unitM: V_M, parts, sockets, look: L, extra,
+           weapon: { kind: wpn.kind, grip: [0, 0, 0], support: wpn.support, muzzle: wpn.muzzle, sling: wpn.sling, pilot: wpn.pilot, hose: wpn.hose }, poses };
+}
+// flamethrower hose: procedural (engine draws a sagging voxel chain between the tank outlet and the gun's hose fitting)
+const HOSE = { tank: [-1.25, 8.0, -3.5], length: 1.25, voxel: 0.045, color: "#242424", sag: 0.18 };
+
+/* ---- engineer hand tools (tool space = weapon space: 0.5 V cells, origin = right-hand grip, long axis +Z) ---- */
+const TOOLS = {
+  sledgehammer: { id: 1, label: "Sledgehammer", build(g) {
+    W(g, 0, 0, 0, 0, -3, 12, "handle"); W(g, 0, 0, 0, 0, -4, -4, "rubber");
+    W(g, -1, 1, -2, 2, 13, 15, "toolHead"); W(g, 0, 0, -3, 3, 14, 14, "toolHead"); },
+    support: [0, 0, -1.25], slide: [-1.75, 4.5], tip: [0, 0, 7.0] },
+  shovel: { id: 2, label: "Shovel", build(g) {   // grip = D-handle (right hand), left hand down the shaft
+    W(g, -1, 1, 0, 0, -1, -1, "black"); W(g, -1, -1, 0, 0, 0, 0, "black"); W(g, 1, 1, 0, 0, 0, 0, "black");
+    W(g, 0, 0, 0, 0, 1, 15, "handle"); W(g, 0, 0, 0, 0, 16, 16, "toolSteel");
+    W(g, -2, 2, 0, 0, 17, 20, "toolSteel"); W(g, -1, 1, 0, 0, 21, 21, "toolSteel"); W(g, -2, 2, 1, 1, 17, 17, "toolSteel"); },
+    support: [0, 0, 4.0], slide: [1.0, 7.5], tip: [0, 0, 10.0] },
+  torch: { id: 3, label: "Cutting torch", build(g) {
+    W(g, 0, 0, 0, 0, -3, 2, "black"); W(g, 0, 0, 1, 1, -1, 0, "brass"); W(g, -1, -1, 1, 1, 0, 0, "brass");   // handle + valves
+    W(g, 0, 0, -1, -1, -4, -3, "rubber");                                                                    // hose stubs
+    W(g, 0, 0, 0, 0, 3, 8, "metal"); W(g, 0, 0, -1, -1, 9, 9, "metal"); W(g, 0, 0, -2, -2, 10, 10, "copper"); },
+    support: [0, 0, 2.0], slide: [0.5, 4.0], tip: [0, -1.25, 5.25] },
+  crowbar: { id: 4, label: "Crowbar / pry bar", build(g) {
+    W(g, 0, 0, 0, 0, -3, 9, "hazardRed"); W(g, 0, 0, 0, 0, -4, -4, "toolHead"); W(g, 0, 0, -1, -1, 10, 10, "toolHead"); W(g, 0, 0, -2, -2, 11, 11, "toolHead"); },
+    support: [0, 0, -1.5], slide: [-1.75, 4.0], tip: [0, -1.0, 5.5] },
+  sandbag: { id: 5, label: "Sandbag (carried)", build(g) {   // grip = right hand on the bag's right end, bag extends to +X
+    for (let i = 1; i <= 9; i++) for (let j = -1; j <= 1; j++) for (let k = -3; k <= 3; k++) {
+      if ((j !== 0) && (k === -3 || k === 3)) continue;
+      g.set(i * 0.5, j * 0.5, k * 0.5, hash3(i, j, k, 77) < 0.25 ? "sandbagDark" : "sandbag"); }
+    W(g, 10, 10, 0, 0, -1, 1, "sandbagDark"); W(g, 11, 11, 0, 0, 0, 0, "rope"); },
+    support: [5.0, 0, 0], tip: [2.5, 0, 0] },
+  panel: { id: 6, label: "Gabion panel (folded)", build(g) {   // grip = bottom edge centre, panel up +Y, length along Z
+    for (let j = 0; j <= 17; j++) for (let k = -10; k <= 10; k++) {
+      const edge = j === 0 || j === 17 || k === -10 || k === 10, wire = j % 4 === 0 || (k + 10) % 4 === 0;
+      g.set(0, j * 0.5, k * 0.5, edge || wire ? "hescoWire" : "hescoFabric"); if (edge) g.set(-0.5, j * 0.5, k * 0.5, "hescoWire"); } },
+    support: [0, 8.0, -3.0], tip: [0, 4.25, 0] },
+};
+function toolCells(name) { const g = makeSet(0.5); TOOLS[name].build(g); return { cells: [...g.map.values()].map(c => [c.x, c.y, c.z]), h: 0.25 }; }
+function buildTool(name) {
+  const T = TOOLS[name], g = makeSet(0.5); T.build(g);
+  return { name: "tool_" + name, label: T.label, cls: "tool", cat: "tool", kind: "tool", unitM: V_M, anchor: "self", checkSub: V_M / 4,
+           parts: [{ name: "tool", parent: null, set: g, pivot: [0, 0, 0], unitM: V_M, rigid: true }],
+           sockets: [{ name: "grip", pos: [0, 0, 0], dir: [0, 0, 1] }, { name: "support", pos: T.support.map(v => +(v * V_M).toFixed(6)), dir: [0, 0, 1] }, { name: "tip", pos: T.tip.map(v => +(v * V_M).toFixed(6)), dir: [0, 0, 1] }],
+           extra: { toolId: T.id } };
+}
+function sandbagPileProp() {   // construction-site sandbag pile (prop voxels, 5 cm), the build_sandbag clip picks from it
+  const g = propSet(1);
+  sandbagRun(g, 0, 18, 0, 0, 7, "sandbag", 501, false); sandbagRun(g, 2, 16, 3, 0, 7, "sandbagOlive", 502, true); sandbagRun(g, 5, 13, 6, 1, 6, "sandbag", 503, false);
+  const parts = [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }];
+  return { name: "sandbag_pile", label: "Sandbag pile (site)", cat: "site", kind: "prop", unitM: PROP_M, parts, sockets: [{ name: "grab", pos: [0.45, 0.45, 0.2], dir: [0, 1, 0] }] };
+}
+function buildSpecialists() {
+  const soldiers = SPECIALISTS.map(buildSpecialist);
+  const tools = Object.keys(TOOLS).map(buildTool);
+  return { soldiers, tools, props: [sandbagPileProp()] };
+}
+
+/* ---- specialist clips ---- */
+const SPEC_CLASSES = ["engineer", "flamer"];
+const TOOL_ID = Object.fromEntries(Object.entries(TOOLS).map(([k, v]) => [k, v.id]));
+// engineer: carbine strapped flat across the back of the ruck (muzzle up-left) while a tool is in the hands
+function stowPlacement(cls) {
+  const z = vnorm([0.5, 0.866, 0]), x = [0, 0, -1], y = vcross(z, x);
+  return { gripT: [-1.3, 2.0, -4.85], W: colsMat(x, y, z) };
+}
+// body-space placement from a grip point, the tool's long axis (z) and a side hint (x), then to torso space
+function placeB(torso, gripB, zdir, xhint) {
+  const z = vnorm(zdir); let x = vsub(xhint, vscale(z, vdot(xhint, z))); x = vnorm(x); const y = vcross(z, x);
+  return toTorso(torso, gripB, colsMat(x, y, z));
+}
+const keyLerp = (keys, t) => {   // keys [[t, value(array)]], smooth between keys
+  let i = 0; while (i < keys.length - 2 && t >= keys[i + 1][0]) i++;
+  const a = keys[i], b = keys[i + 1], u = smooth((t - a[0]) / Math.max(1e-6, b[0] - a[0]));
+  return a[1].map((v, k) => lerp(v, b[1][k], u));
+};
+function authorFlameFire(cls, add, aimSpec, A) {
+  // sustained stream: the emitter is on for the whole clip (field stream), the gunner sweeps +-0.32 rad and the gun shakes
+  add(cls, "fire", { duration: 2.4, loop: true, stream: "flame", events: [], gen: t => {
+    const sw = 0.32 * Math.sin(t / 2.4 * Math.PI * 2), i = Math.floor(t * 20);
+    const S = aimSpec(0, [0.3 + 0.08 * hnoise(i, 1), 0.04 * hnoise(i, 2), 0.02 * hnoise(i, 3), 0.05], [0.02 + 0.01 * hnoise(i, 4), sw]);
+    S.head = [A.head[0], A.head[1] + 0.4 * sw, 0]; return S; } });
+}
+function buildSpecialistAnims(soldiers) {
+  initPostures(SPEC_CLASSES);
+  const rep = { engineer: soldiers.find(m => m.cls === "engineer"), flamer: soldiers.find(m => m.cls === "flamer") };
+  const clips = [];
+  const add = (cls, action, def) => clips.push(Object.assign({ name: cls + "/" + action, cls, action }, def));
+  for (const cls of SPEC_CLASSES) authorClass(cls, rep[cls], add);
+  authorEngineerWork(add);
+  authorFlamerExtra(add);
+  bakeClipList(clips, rep);
+  return { clips, transitions: SPEC_TRANSITIONS, fx: FX_SPEC2, slung: Object.fromEntries(SPEC_CLASSES.map(c => [c, slungPlacement(c)])), stow: { engineer: stowPlacement("engineer") },
+           rigs: Object.fromEntries(SPEC_CLASSES.map(c => [c, POSTURE[c].rig])) };
+}
+const SPEC_TRANSITIONS = [
+  { from: "*", to: "stow_weapon", s: 0.15 }, { from: "stow_weapon", to: "build_*", s: 0.25 }, { from: "stow_weapon", to: "carry_*", s: 0.25 }, { from: "stow_weapon", to: "cut_car", s: 0.3 }, { from: "stow_weapon", to: "pry_car", s: 0.3 },
+  { from: "build_*", to: "draw_weapon", s: 0.25 }, { from: "carry_*", to: "draw_weapon", s: 0.2 }, { from: "cut_car", to: "draw_weapon", s: 0.35 }, { from: "pry_car", to: "draw_weapon", s: 0.3 },
+  { from: "draw_weapon", to: "idle", s: 0.15 }, { from: "draw_weapon", to: "aim", s: 0.15 }, { from: "build_*", to: "death_tool_*", s: 0.1 }, { from: "carry_*", to: "death_tool_*", s: 0.1 },
+  { from: "aim", to: "ignite", s: 0.06 }, { from: "ignite", to: "fire", s: 0.0 }, { from: "fire", to: "stop", s: 0.0 }, { from: "stop", to: "aim", s: 0.06 },
+  { from: "aim", to: "burn_ground", s: 0.25 }, { from: "burn_ground", to: "aim", s: 0.25 }, { from: "*", to: "*", s: 0.2, note: "all v1 rules (anims.json transitions) apply to the standard clips" },
+];
+
+function authorEngineerWork(add) {
+  const cls = "engineer", P = POSTURE[cls], carryT = P.carry, CTo = P.carryTorso, CH = P.carryHead;
+  const stanceL = [1.5, 0, 0.35], stanceR = [-1.5, 0, -0.45];
+  const X = [1, 0, 0];
+  const tool = n => TOOLS[n];
+  // the left hand slides along a handle (tools with `slide`): nearest comfortable point to the left shoulder (torso space)
+  const slideSupport = (name, place) => {
+    const T = tool(name); if (!T.slide || !place) return T.support;
+    const z = mvec(place.W, [0, 0, 1]), sh = vsub(PIVOT.upperArmL, PIVOT.torso);
+    let best = T.support[2], be = Infinity;
+    for (let s = T.slide[0]; s <= T.slide[1] + 1e-6; s += 0.25) { const d = vlen(vsub(vadd(place.gripT, vscale(z, s)), sh)); const e = 100 * Math.max(0, d - 6.3) ** 2 + 0.02 * (s - T.support[2]) ** 2; if (e < be) { be = e; best = s; } }
+    return [0, 0, best];
+  };
+  const W1 = (S, name, place) => Object.assign(S, { tool: TOOL_ID[name], stowed: true, wpn: place, sw: 1, st: slideSupport(name, place) });
+
+  // ---- stow / draw the carbine (weapon to the back of the ruck over the right shoulder)
+  const over = (torso) => placeB(torso, [-2.6, 13.6, -0.6], [0.2, 0.95, -0.25], [0, 0, -1]);
+  const stowSpec = t => {   // t in [0, 1]
+    const torso = [CTo[0] + 0.1 * Math.sin(Math.PI * t), CTo[1] - 0.25 * Math.sin(Math.PI * t), 0];
+    const S = { torso, head: [CH[0], CH[1] - 0.3 * Math.sin(Math.PI * t), 0], pelvis: [0, -0.15, 0], legs: { L: { foot: stanceL }, R: { foot: stanceR } }, footL: true, footR: true };
+    const stw = stowPlacement(cls);
+    if (t < 0.45) { S.wpn = blendPlacement(carryT, over(torso), smooth(t / 0.45)); S.sw = 1 - smooth(t / 0.2); S.leftRot = { upper: [0.1, 0, 0.12], fore: [-0.3, 0, 0] }; }
+    else if (t < 0.7) { S.wpn = blendPlacement(over(torso), stw, smooth((t - 0.45) / 0.25)); S.sw = 0; }
+    else { S.stowed = true; S.wpn = null; S.sw = 0; S.rightT = vlerp([-2.4, 4.2, -2.2], [-3.4, -1.2, 0.6], smooth((t - 0.7) / 0.3)); }
+    return S;
+  };
+  add(cls, "stow_weapon", { duration: 1.1, loop: false, events: [{ t: 0.75, type: "stow" }], gen: t => stowSpec(t / 1.1) });
+  add(cls, "draw_weapon", { duration: 1.0, loop: false, events: [{ t: 0.3, type: "draw" }], gen: t => stowSpec(1 - t / 1.0) });
+
+  // ---- build_hammer (loop 1.5 s): two-handed overhead sledgehammer strikes on a stake / gabion post 0.95 m ahead
+  {
+    const dur = 1.5, pel = [0, -0.9, 0], fL = [1.9, 0, 1.6], fR = [-1.9, 0, -1.1];
+    // keys: t, grip (body V), handle dir, torso pitch
+    const K = [[0, [-0.8, 15.5, 0.8, 0, 0.55, -1, -0.05]], [0.5, [-0.6, 17.2, -0.6, 0, 0.35, -1, -0.15]], [0.72, [-0.4, 12.5, 3.6, 0, 0.6, 1, 0.3]], [0.84, [-0.4, 7.6, 4.6, 0, -0.62, 1, 0.62]],
+               [0.98, [-0.4, 8.1, 4.4, 0, -0.55, 1, 0.58]], [1.5, [-0.8, 15.5, 0.8, 0, 0.55, -1, -0.05]]];
+    add(cls, "build_hammer", { duration: dur, loop: true, work: "hammer", events: [{ t: 0.84, type: "tool_hit", fx: "hammer_hit" }, { t: 0.84, type: "work_tick" }], gen: t => {
+      const k = keyLerp(K, t), torso = [k[6], 0.12, 0];
+      const S = { torso, head: [0.25 + 0.4 * Math.max(0, k[6]), -0.05, 0], pelvis: [pel[0], pel[1] - 0.3 * Math.max(0, k[6]), pel[2] - 0.3 * Math.max(0, k[6])], legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
+      return W1(S, "sledgehammer", placeB(torso, k.slice(0, 3), k.slice(3, 6), X));
+    } });
+  }
+  // ---- build_shovel (loop 2.2 s): drive the blade in, lever, lift, toss into the gabion to the right-front
+  {
+    const dur = 2.2, fL = [1.8, 0, 1.4], fR = [-1.8, 0, -1.2];
+    const K = [[0, [-1.6, 11.0, 0.6, 0.12, -0.8, 0.6, 0.45, -1.4]], [0.45, [-1.2, 10.4, 1.2, 0.05, -0.85, 0.5, 0.7, -2.0]], [0.75, [-1.2, 8.8, 0.9, 0.0, -0.45, 0.9, 0.8, -2.4]],
+               [1.15, [-1.6, 9.8, 1.6, -0.25, 0.1, 1.0, 0.3, -1.2]], [1.45, [-2.6, 12.0, 2.6, -0.6, 0.45, 0.7, 0.05, -0.6]], [1.6, [-2.6, 12.4, 2.4, -0.6, 0.55, 0.6, 0.0, -0.5]],
+               [2.2, [-1.6, 11.0, 0.6, 0.12, -0.8, 0.6, 0.45, -1.4]]];
+    add(cls, "build_shovel", { duration: dur, loop: true, work: "shovel", toolGround: 0.1, events: [{ t: 0.6, type: "dig", fx: "dig" }, { t: 1.45, type: "toss", fx: "dirt_toss" }, { t: 1.45, type: "work_tick" }], gen: t => {
+      const k = keyLerp(K, t), torso = [k[6], -0.15 + 0.3 * smooth((t - 1.1) / 0.4) * (1 - smooth((t - 1.6) / 0.5)), 0];
+      const S = { torso, head: [0.2 + 0.3 * k[6], -0.1, 0], pelvis: [0, k[7] * 0.8, -0.2], legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
+      return W1(S, "shovel", placeB(torso, k.slice(0, 3), k.slice(3, 6), X));
+    } });
+  }
+  // ---- build_sandbag (loop 2.8 s): take a bag from the pile at the left-front, lift, place it on the wall course ahead (1.0 m), pat it down
+  {
+    const dur = 2.8, fL = [1.7, 0, 1.0], fR = [-1.7, 0, -0.6];
+    const pileGrip = [3.6, 2.4, 2.4], wallGrip = [-1.8, 10.2, 5.9];   // clip space V: right end of the bag on the pile / on the wall
+    add(cls, "build_sandbag", { duration: dur, loop: true, work: "sandbag", events: [{ t: 0.7, type: "grab" }, { t: 1.95, type: "place" }, { t: 1.95, type: "work_tick" }, { t: 2.3, type: "pat" }], gen: t => {
+      const bend = smooth(t / 0.55) * (1 - smooth((t - 0.75) / 0.6)), reach = smooth((t - 1.35) / 0.55) * (1 - smooth((t - 2.35) / 0.4));
+      const yaw = 0.7 * (1 - smooth((t - 0.8) / 0.6)) * (t > 0.3 ? 1 : smooth(t / 0.3)) + 0.7 * smooth((t - 2.45) / 0.35) * (t > 2.4 ? 1 : 0);
+      const torso = [0.05 + 1.0 * bend + 0.45 * reach, yaw, 0], pel = [0, -0.2 - 2.6 * bend - 0.4 * reach, -0.6 * bend];
+      const S = { torso, head: [0.2 + 0.4 * bend, 0, 0], pelvis: pel, legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true, stowed: true };
+      const holding = t >= 0.7 && t < 1.95;
+      // bag path: pile -> chest -> wall (clip space), bag flat (own Y up), long axis across the body
+      const chest = [-1.8, 11.0, 3.4];
+      let g = t < 1.3 ? vlerp(pileGrip, chest, smooth((t - 0.75) / 0.55)) : vlerp(chest, wallGrip, smooth((t - 1.35) / 0.55));
+      if (holding) {
+        const gb = vsub(g, pel), xh = mvec(eulerMat([0, yaw * 0.6, 0]), X);
+        return W1(S, "sandbag", placeB(torso, gb, mvec(eulerMat([0, yaw * 0.6, 0]), [0, 0, 1]), xh));
+      }
+      // empty hands: reach to the pile / pat the placed bag (torso-space targets)
+      const tR = eulerMat(torso), toT = p => mvec(mT(tR), vsub(vsub(p, pel), PIVOT.torso));
+      const pat = t >= 1.95 ? 0.6 * Math.max(0, Math.sin((t - 1.95) / 0.35 * Math.PI * 2)) : 0;
+      const tgtR = t < 0.7 ? vlerp(vadd(chest, [0, -2, 0]), pileGrip, smooth(t / 0.6)) : vlerp(vadd(wallGrip, [0.5, 1.1 + pat, 0]), vadd(pileGrip, [0, 0.4, 0]), smooth((t - 2.35) / 0.45));
+      const tgtL = vadd(tgtR, mvec(eulerMat([0, (t < 0.7 ? yaw : 0) * 0.6, 0]), [4.8, t >= 1.95 ? 0.6 - pat : 0, 0]));
+      S.wpn = null; S.sw = 0; S.rightT = toT(tgtR); S.leftT = toT(tgtL); S.tool = 0;
+      return S;
+    } });
+  }
+  // ---- carry walks (in place, speed 1.1 m/s): sandbag at the chest / folded gabion panel at the right side
+  const carryWalk = (action, name, upper) => {
+    const speed = 1.1, cycle = 0.96, duty = 0.62, lift = 1.2, hipMax = 7.85, halfV = speed * cycle * duty / 2 / V_M;
+    add(cls, action, { duration: cycle, loop: true, speed, phase0: "L heel strike", stride: +(speed * cycle).toFixed(3), carry: name,
+      events: [{ t: 0, type: "footstep", foot: "L" }, { t: cycle / 2, type: "footstep", foot: "R" }], gen: t => {
+        const u = t / cycle;
+        const fL = gaitFoot(u, duty, halfV, lift, 1.5, 0.15), fR = gaitFoot(u + 0.5, duty, halfV, lift, -1.5, 0.15);
+        let py = 0; const K = 5;
+        for (let k = -K; k <= K; k++) { const uu = u + k * 0.012; py += pelvisFor([gaitFoot(uu, duty, halfV, lift, 1.5, 0.15), gaitFoot(uu + 0.5, duty, halfV, lift, -1.5, 0.15)], hipMax); }
+        py /= 2 * K + 1;
+        const sw = Math.sin(u * Math.PI * 2);
+        return upper({ pelvis: [0.2 * sw, py, 0], legs: { L: { foot: fL.p }, R: { foot: fR.p } }, footL: fL.planted, footR: fR.planted }, u, sw);
+      } });
+  };
+  carryWalk("carry_sandbag", "sandbag", (S, u, sw) => {
+    const torso = [-0.06 + 0.02 * Math.cos(u * Math.PI * 4), -0.05 * sw, 0]; S.torso = torso; S.head = [0.12, 0.04 * sw, 0];
+    return W1(S, "sandbag", placeB(torso, [-2.4, 10.6 + 0.15 * Math.cos(u * Math.PI * 4), 3.3], [0, 0, 1], X));
+  });
+  carryWalk("carry_panel", "panel", (S, u, sw) => {
+    const torso = [0.04, -0.05 * sw, 0.07]; S.torso = torso; S.head = [0.05, 0.05 * sw, -0.05];
+    const S2 = W1(S, "panel", placeB(torso, [-3.75, 6.9 + 0.1 * Math.cos(u * Math.PI * 4), 0.3], [0, 0.02, 1], [0.995, -0.1, 0]));
+    S2.sw = 0; S2.leftRot = { upper: [-0.35 * sw, 0, 0.12], fore: [-0.35, 0, 0] }; return S2;
+  });
+  // ---- cut_car (loop 2.4 s): kneel, cutting torch in both hands, slow cut along a seam 0.75 m up, 0.75 m ahead
+  {
+    const dur = 2.4, kneelP = [0, -3.55, -0.3];
+    add(cls, "cut_car", { duration: dur, loop: true, stream: "cut_sparks", work: "cut", events: [{ t: 0, type: "work_tick" }], gen: t => {
+      const sx = 1.4 * Math.sin(t / dur * Math.PI * 2), torso = [0.32, 0.1 * sx / 1.4, 0];
+      const tip = [sx, 7.4, 8.0], dir = vnorm([0.0, -0.25, 1]);
+      const T = tool("torch"), gripC = vsub(tip, vadd(vscale(dir, T.tip[2]), [0, T.tip[1], 0]));
+      const S = { torso, head: [0.35, 0.25 * sx / 1.4, 0], pelvis: kneelP, legs: { L: { foot: [1.7, 0, 3.6] }, R: { thigh: [0.08, 0, -0.05], shin: [1.62, 0, 0] } }, footL: true, ground: 0 };
+      return W1(S, "torch", placeB(torso, vsub(gripC, kneelP), dir, X));
+    } });
+  }
+  // ---- pry_car (loop 2.0 s): crowbar tip in a door gap / wheel arch 0.8 m up, heave back twice, leaning on the lever
+  {
+    const dur = 2.0, tip = [0.3, 8.6, 8.4], fL = [1.7, 0, 1.6], fR = [-1.6, 0, -1.6];
+    add(cls, "pry_car", { duration: dur, loop: true, work: "pry", events: [{ t: 0.55, type: "pry_creak" }, { t: 1.55, type: "pry_creak" }, { t: 1.6, type: "work_tick" }], gen: t => {
+      const h = Math.max(0, Math.sin(t / dur * Math.PI * 4 - 0.6)) ** 1.5;   // two heaves per loop
+      const torso = [0.45 - 0.5 * h, 0.15, 0], pel = [0, -0.9 - 0.6 * h, -0.3 - 0.9 * h];
+      const ang = lerp(0.45, -0.25, h), dir = vnorm([0, Math.sin(-ang) * -1, Math.cos(ang)]);
+      const T = tool("crowbar"), grip = vsub(tip, vadd(vscale(dir, T.tip[2]), [0, T.tip[1], 0]));
+      const S = { torso, head: [0.3 - 0.25 * h, 0.1, 0], pelvis: pel, legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
+      return W1(S, "crowbar", placeB(torso, vsub(grip, pel), dir, X));
+    } });
+  }
+  // ---- deaths while holding a tool: death_a body motion, the TOOL is released and falls beside the body (weapon stays on the back)
+  const low = (name) => ({ sledgehammer: [[-2.4, 8.0, 2.4], [0.25, -0.75, 0.6]], shovel: [[-2.4, 9.0, 2.0], [0.2, -0.85, 0.5]], torch: [[-2.2, 8.6, 3.0], [0.1, -0.3, 1]], crowbar: [[-2.4, 8.2, 2.6], [0.1, -0.6, 0.8]],
+                         sandbag: [[-2.4, 10.4, 3.2], [0, 0, 1]], panel: [[-3.75, 6.9, 0.3], [0, 0.02, 1]] })[name];
+  for (const name of Object.keys(TOOLS)) {
+    const up = name === "sandbag" || name === "panel";
+    add(cls, "death_tool_" + name, { duration: 1.2, loop: false, rootMotion: true, weaponDrop: 0.3, dropTool: name, dropCells: toolCells(name), dropUpright: up, events: [{ t: 0.6, type: "body_fall" }], gen: t => {
+      const k1 = smooth(t / 0.25), k2 = smooth((t - 0.15) / 0.45), k3 = smooth((t - 0.6) / 0.2);
+      const torso = [CTo[0] - 0.5 * k1 + 0.4 * k2 - 0.2 * k3, CTo[1] * (1 - k2), 0.1 * k1];
+      const L0 = low(name), base = placeB(CTo, L0[0], L0[1], name === "panel" ? [0.995, -0.1, 0] : X);
+      const S = { torso, head: [-0.5 * k1 + 0.3 * k3, 0.3 * k2, 0.2 * k2], pelvis: [0, -1.5 * k1, -2.6 * k2], rootRot: [-1.5 * k2 - 0.07 * k3, 0.2 * k2, 0.1 * k2],
+        legs: { L: { thigh: [-0.3 * k1 - 0.5 * k2 + 0.4 * k3, 0, 0.15 * k2], shin: [0.9 * k1 - 0.3 * k2, 0, 0] }, R: { thigh: [-0.1 * k1 - 0.2 * k2, 0, -0.25 * k2], shin: [0.7 * k1 + 0.2 * k2, 0, 0] } },
+        leftRot: { upper: [-1.3 * k2, 0, 0.3 + 1.0 * k2], fore: [-0.2, 0, 0] }, poleR: [-1, 0.5, -0.4], ground: k3, dropped: t >= 0.3 - 1e-6 };
+      W1(S, name, kickPlacement(base, [0.8 * k1, -0.6 * k2, 0.5 * k2, 0.8 * k1])); S.sw = t >= 0.3 ? 0 : (up ? 1 - k1 : 1 - k1); if (name === "panel") S.sw = 0;
+      return S;
+    } });
+  }
+}
+function authorFlamerExtra(add) {
+  const cls = "flamer", P = POSTURE[cls], A = AIM[cls], AT = P.aim.torso;
+  const aimLegs = { legs: { L: { foot: A.footL }, R: { foot: A.footR } }, footL: true, footR: true, rootRot: [0, A.rootYaw, 0] };
+  const spec = (torso, kick) => Object.assign({ torso, head: A.head, pelvis: A.pelvis, wpn: aimPlacement(cls, torso, kick), sw: 1 }, aimLegs);
+  // ignite: pilot flare, then the stream starts (flame_start); ends on the fire clip's frame 0 pose
+  add(cls, "ignite", { duration: 0.5, loop: false, events: [{ t: 0.08, type: "pilot_flare" }, { t: 0.3, type: "flame_start", fx: "flame" }], gen: t => {
+    const j = smooth((t - 0.25) / 0.2) * Math.exp(-Math.max(0, t - 0.3) * 6);
+    return spec([AT[0] + 0.02, AT[1], AT[2]], [0.3 * smooth(t / 0.5) + 0.2 * j, 0.05 * j, 0, 0.05 * smooth(t / 0.5)]); } });
+  // stop: valve closed (flame_stop), the stream tail burns out, gun settles back to aim
+  add(cls, "stop", { duration: 0.45, loop: false, events: [{ t: 0.05, type: "flame_stop", fx: "flame" }], gen: t => {
+    const k = 1 - smooth(t / 0.45); return spec([AT[0] + 0.02 * k, AT[1], AT[2]], [0.3 * k, 0, 0, 0.05 * k]); } });
+  // burn_ground: stream aimed down at the ground 2.5-4 m ahead (corpse piles), wide slow sweep
+  add(cls, "burn_ground", { duration: 3.2, loop: true, stream: "flame", events: [], gen: t => {
+    const sw = 0.5 * Math.sin(t / 3.2 * Math.PI * 2), i = Math.floor(t * 20);
+    const torso = [AT[0] + 0.3, AT[1] + sw, AT[2]];
+    const S = spec(torso, [0.25 + 0.06 * hnoise(i, 1), -0.3 + 0.03 * hnoise(i, 2), 0.02 * hnoise(i, 3), -0.3]);
+    S.head = [A.head[0] + 0.35, A.head[1] + 0.4 * sw, 0]; return S; } });
+}
+/* ---- FX spec (specialists): voxel flame stream, ground fire, smoke, work FX ---- */
+const FX_SPEC2 = {
+  voxel: "axis-aligned cubes; flame and embers emissive (HDR fireColour ramp of shaders/include/fx_volume_frag.glsl), smoke lit; sizes m, colours sRGB, life s",
+  inherits: "anims.json fx (v1, approved): muzzle_flash.rifle for the carbine, shell_eject, footstep, body_fall",
+  shell_eject_port: { carbine: [-0.05, 0.08, 0.10] },
+  flame_stream: {
+    emitter: "weapon muzzle (nozzle), direction weapon +Z; on while a clip with stream:'flame' plays, or between flame_start and flame_stop",
+    rate: 90, speed: [13.0, 15.0], spread: 0.035, gravity: 5.0, drag: 0.6, life: [0.5, 0.62], range: "about 8 m (ballistic, droops at the end)",
+    size: { start: 0.06, end: 0.24, curve: "sqrt(age / life)", note: "chunky cubes, axis-aligned in world space (like the explosion voxels)" },
+    color: { ramp: [[0.0, "#fff4c8"], [0.15, "#ffd25a"], [0.4, "#ff8c22"], [0.75, "#d9461a"], [1.0, "#6a1c0a"]], emissive: true, hdr: "fireColour(k) of fx_volume_frag.glsl, k = age / life" },
+    jitter: "per-voxel position noise 0.04 m and a 15 % brightness flicker per frame (hash of particle id + frame)",
+    snap: "positions snapped to a 0.06 m world grid when drawing (reads as voxels, not sprites)",
+    endOfLife: "each flame voxel becomes a smoke voxel (below) at its last position; if it hits the ground (y <= 0) or a wall first it becomes a ground_fire seed at the hit point",
+  },
+  flame_smoke: { size: [0.18, 0.45], color: [["0", "#4a423b"], ["1", "#7a746c"]], alpha: [0.8, 0.0], rise: 1.3, drift: "FX_WIND (0.55, 0, 0.25) m/s, as the volume smoke", life: 1.4, every: 3, note: "one smoke voxel per 3 flame voxels" },
+  ground_fire: {
+    seeds: "flame voxels hitting the ground merge into pools on a 0.25 m world grid (the explosion / building voxel size)",
+    pool: { cell: 0.25, radiusGrow: "0.25 m per 6 seeds, max 1.25 m", heightVoxels: [1, 4], flicker: "column height = 1 + floor(3 * noise(cell, 6 Hz))", life: 7.0, fadeOut: 2.0 },
+    color: "same fireColour ramp, column base k = 0.2, top k = 0.85; embers (#ff6a1e, 0.06 m) at the base for the last 2 s",
+    smoke: { perPool: 1, column: "dark smoke voxels 0.25 m rising 1.5 m/s, 4-6 m high, drift FX_WIND", color: "#2f2a26" },
+    engine: "proposed FX volume kind 2 (ground fire) in fx_volume.glsl: origin = pool centre, B.x = radius, B.w = strength (seeds), B.z seed; density = disc * flicker noise, like wreckDensity but low",
+    gameplay: "a pool burns corpses inside its radius (corpse rot stops) and damages zombies standing in it; the light (#ff8a3a, 6 m) also lights the night scene",
+  },
+  corpse_burn: { note: "a corpse inside a ground_fire pool: dark char tint over 3 s (multiply #2a2520), then the corpse dissolves with the canopy voxel dissolve (MILITARY_ANIMS 2.3.3) over 2.5 s, leaving a 0.25 m ash decal (#3a3633)" },
+  pilot: { point: "weapon space weaponPoints.pilot", voxels: 2, size: 0.03, colors: ["#ffb040", "#7fb6ff"], flicker: "alternate every 2 frames, scale 0.7..1.0", when: "flamer alive and gun in hands (not slung, not dropped)" },
+  pilot_flare: { voxels: 5, size: [0.04, 0.09], color: "#ffd25a", life: 0.15 },
+  cut_sparks: { emitter: "tool tip (tool_torch socket 'tip'), on while a clip with stream:'cut_sparks' plays", rate: 40, size: 0.025, colors: ["#fff3b0", "#ffb040"], speed: [1.5, 3.5], cone: 1.0, gravity: 9.8, bounce: 0.3, life: 0.45,
+                flame: { voxels: 3, size: 0.03, color: "#cfe6ff", length: 0.08 } },
+  hammer_hit: { at: "tool tip at the tool_hit event", sparks: { count: 4, size: 0.03, color: "#ffd27a", life: 0.2 }, dust: { count: 5, size: 0.06, color: "ground", life: 0.4 } },
+  dig: { at: "tool tip", count: 4, size: 0.06, color: "#6b5a40", life: 0.35 },
+  dirt_toss: { at: "tool tip", count: 7, size: [0.05, 0.08], color: ["#6b5a40", "#857053"], vel: [0.0, 2.6, 2.2], spread: 0.6, gravity: 9.8, life: 0.7 },
+  hose: { from: "torso socket hose_tank", to: "weapon hose fitting", voxel: 0.045, color: "#242424", sag: 0.18, note: "catenary-like sag; drawn as a chain of voxels every 0.045 m; while the gun is dropped the hose follows it (max length 1.25 m, else hidden)" },
+};
+
 /* === MILITARY LIBRARY END === */
 
 /* =====================================================================================
@@ -2015,6 +2488,8 @@ const ZOMBIES = { drone: zombieSets("drone"), walker: zombieSets("walker") };
 const ALL = {};
 for (const m of LIB.infantry) ALL[m.name] = m;
 for (const m of LIB.props) ALL[m.name] = m;
+const SPEC = buildSpecialists();   // Phase 7b: engineers, flamethrowers, hand tools, site props (assets/military/specialists.*)
+for (const m of [...SPEC.soldiers, ...SPEC.tools, ...SPEC.props]) ALL[m.name] = m;
 const buildMs = performance.now() - t0;
 
 // ---- instantiate a model as a THREE hierarchy (metres)
@@ -2111,6 +2586,14 @@ function rebuild() {
       place("zombie_drone", fp, isInf ? -0.7 : 0, null);
     }
     frame(bounds(shown), isInf ? 1.0 : 1.0);
+  } else if (state.mode === "speclineup") {
+    // Phase 7b review: the new squads beside one of each approved class, zombies, and the engineer tools on the ground
+    const names = ["rifleman_a", "mg_a", "sniper_a", ...SPEC.soldiers.map(x => x.name)];
+    names.forEach((n, i) => place(n, (i - names.length / 2) * 0.85, 0, ALL[n].label.replace(/ \(.*\)$/, "")));
+    place("zombie_drone", (names.length / 2 + 0.2) * 0.85, 0, "Zombie");
+    place("zombie_walker", (names.length / 2 + 1.2) * 0.85, 0, "Zombie");
+    if (state.tools !== false) SPEC.tools.forEach((t, i) => { const o = place(t.name, (i - 2.5) * 0.9 + 0.4, 1.3, null, 0); o.root.rotation.set(0, Math.PI / 2, t.name === "tool_panel" ? Math.PI / 2 : 0); o.root.position.y = t.name === "tool_panel" ? 0.03 : 0.07; });
+    frame(bounds(shown), 1);
   } else if (state.mode === "lineup") {
     const names = LIB.infantry.map(x => x.name);
     names.forEach((n, i) => place(n, (i - names.length / 2) * 0.8, 0, ALL[n].label));
@@ -2139,6 +2622,7 @@ function rebuild() {
     sq(["rifleman_a", "rifleman_b", "rifleman_c", "rifleman_d", "rifleman_e"], -6, -1);
     sq(["mg_a", "mg_b", "mg_c"], -1, -1);
     sq(["sniper_a"], 3, -1);
+    if (state.spec) { sq(["engineer_a", "engineer_b", "engineer_c"], -1, 3); sq(["flamer_a", "flamer_b"], 3, 3); }
     for (let i = 0; i < 6; i++) place(i % 2 ? "zombie_walker" : "zombie_drone", 6 + (i % 3) * 1.0, -1 + Math.floor(i / 3) * 1.1, null, -0.8);
     const c = new THREE.Vector3(0, 0.8, 0);
     const pitch = THREE.MathUtils.degToRad(state.rtsPitch || 50), dist = state.rtsDist || 100;
@@ -2168,10 +2652,13 @@ function updateInfo() {
 // =====================================================================================
 const tA0 = performance.now();
 const AN = buildAnims(LIB.infantry);
+const AN2 = buildSpecialistAnims(SPEC.soldiers);
 const animMs = performance.now() - tA0;
-const CLIP = Object.fromEntries(AN.clips.map(c => [c.name, c]));
-const ACTIONS = [...new Set(AN.clips.filter(c => c.cls !== "crate").map(c => c.action))];
-const CLS_MODEL = { rifleman: "rifleman_a", mg: "mg_a", sniper: "sniper_a" };
+const CLIP = Object.fromEntries([...AN.clips, ...AN2.clips].map(c => [c.name, c]));
+const ACTIONS = [...new Set([...AN.clips, ...AN2.clips].filter(c => c.cls !== "crate").map(c => c.action))];
+const CLS_MODEL = { rifleman: "rifleman_a", mg: "mg_a", sniper: "sniper_a", engineer: "engineer_a", flamer: "flamer_a" };
+const SLUNG = Object.assign({}, AN.slung, AN2.slung), RIGS = Object.assign({}, AN.rigs, AN2.rigs);
+const TOOL_BY_ID = Object.fromEntries(Object.entries(TOOL_ID).map(([k, v]) => [v, "tool_" + k]));
 const anim = { scene: "classes", cls: "all", action: "walk", playing: true, loop: true, speed: 1, t: 0, travel: true, fx: true, rtsDist: 110, rtsPitch: 50 };
 let actors = [], animProps = [], fxGroup = new THREE.Group(); scene.add(fxGroup);
 const markMat = new THREE.MeshBasicMaterial({ color: 0x1b1f14 }), markMatR = new THREE.MeshBasicMaterial({ color: 0x7a2a1a });
@@ -2218,7 +2705,8 @@ function makeActor(modelName, x, z, heading) {
   const r = inst(modelName); outer.add(r); scene.add(outer);
   const G = r.userData.groups;
   const item = new THREE.Mesh(cubeGeo, itemMat); item.position.set(0, -3.5 * V_M, 0); item.visible = false; item.scale.setScalar(0.05); G.forearmL.add(item);
-  const a = { outer, root: r, G, model: r.userData.model, item, base: [x, 0, z], marks: [], lastFlags: 0, clip: null, prev: null, blend: 1, last: null, canopy: null };
+  const a = { outer, root: r, G, model: r.userData.model, item, base: [x, 0, z], marks: [], lastFlags: 0, clip: null, prev: null, blend: 1, last: null, canopy: null, tools: {} };
+  if (a.model.cls === "engineer") for (const t of SPEC.tools) { const tr = inst(t.name); tr.visible = false; tr.userData.markers.forEach(m => m.visible = false); G.forearmR.add(tr); a.tools[t.extra.toolId] = tr; }
   actors.push(a); shown.push({ root: outer, label: null }); r.userData.markers.forEach(m => m.visible = false);
   return a;
 }
@@ -2227,14 +2715,24 @@ function applyBody(a, fr, wfr) {
   const G = a.G;
   SLOTS.forEach((s, i) => G[s].rotation.set(fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2], "XYZ"));
   a.root.position.set(fr[30], fr[31], fr[32]); a.root.rotation.set(fr[33], fr[34], fr[35], "XYZ");
-  const slung = (fr[43] & FLAG_SLUNG) !== 0, w = G.weapon;
-  if (w) {
-    if ((fr[43] & FLAG_DROPPED) && wfr) {   // released (death clips): weapon track in clip space (MILITARY_ANIMS.md 2.5)
+  const slung = (fr[43] & FLAG_SLUNG) !== 0, w = G.weapon, toolId = (fr[43] >> TOOL_SHIFT) & 15, stowed = (fr[43] & FLAG_STOWED) !== 0;
+  for (const [id, tr] of Object.entries(a.tools)) {   // Phase 7b: right-hand tool (MILITARY_ANIMS §7): mount channels place the tool, weapon stowed
+    const on = +id === toolId; tr.visible = on; if (!on) continue;
+    if ((fr[43] & FLAG_DROPPED) && wfr) { if (tr.parent !== a.outer) a.outer.add(tr); tr.position.set(wfr[0], wfr[1], wfr[2]); tr.rotation.set(wfr[3], wfr[4], wfr[5], "XYZ"); }
+    else { if (tr.parent !== G.forearmR) G.forearmR.add(tr); tr.position.set(0, -3.5 * V_M, 0); tr.rotation.set(fr[36], fr[37], fr[38], "XYZ"); }
+  }
+  if (w && stowed && !slung) {
+    if (w.parent !== G.torso) G.torso.add(w);
+    const P = AN2.stow[a.model.cls]; const m = P.W;
+    w.position.set(P.gripT[0] * V_M, P.gripT[1] * V_M, P.gripT[2] * V_M);
+    mWork.set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, 0, 0, 0, 1); w.rotation.setFromRotationMatrix(mWork, "XYZ");
+  } else if (w) {
+    if ((fr[43] & FLAG_DROPPED) && wfr && !toolId) {   // released (death clips): weapon track in clip space (MILITARY_ANIMS.md 2.5)
       if (w.parent !== a.outer) a.outer.add(w);
       w.position.set(wfr[0], wfr[1], wfr[2]); w.rotation.set(wfr[3], wfr[4], wfr[5], "XYZ");
     } else if (slung) {
       if (w.parent !== G.torso) G.torso.add(w);
-      const P = AN.slung[a.model.cls === "mg" ? "mg" : a.model.cls]; const m = P.W;
+      const P = SLUNG[a.model.cls]; const m = P.W;
       w.position.set(P.gripT[0] * V_M, P.gripT[1] * V_M, P.gripT[2] * V_M);
       mWork.set(m[0], m[1], m[2], 0, m[3], m[4], m[5], 0, m[6], m[7], m[8], 0, 0, 0, 0, 1); w.rotation.setFromRotationMatrix(mWork, "XYZ");
     } else {
@@ -2277,8 +2775,10 @@ function eventsInWindow(clip, t, win) {
 }
 function drawFx(a, clip, t) {
   if (!anim.fx || !a.G.weapon) return;
+  drawFx2(a, clip, t);
   const w = a.G.weapon; w.updateWorldMatrix(true, false);
-  const kind = AN.rigs[a.model.cls === "mg" ? "mg" : a.model.cls].kind, mz = a.model.weapon.muzzle.map(v => v * V_M);
+  const kind0 = RIGS[a.model.cls].kind, kind = kind0 === "carbine" ? "rifle" : kind0, mz = a.model.weapon.muzzle.map(v => v * V_M);
+  if (kind === "flamer") return;
   const wp = (x, y, z) => w.localToWorld(v3a.set(x, y, z)).clone();
   const dirW = wp(0, 0, 1).sub(wp(0, 0, 0)).normalize();
   for (const [e, age] of eventsInWindow(clip, t, 0.7)) {
@@ -2302,6 +2802,110 @@ function drawFx(a, clip, t) {
       const p = wp(port[0] + v[0] * age, port[1] + v[1] * age - 0.5 * S.gravity * age * age * 0.6, port[2] + v[2] * age);
       if (p.y < 0.02) p.y = 0.02;
       const m = fxCube(p, S.size, "#c8a14a"); m.rotation.set(age * 20, age * 13, 0);
+    }
+  }
+}
+// ---- Phase 7b FX preview (FX_SPEC2): flame stream, smoke, ground fire, pilot light, hose, cut sparks, work FX
+const FX2 = FX_SPEC2;
+function rampColor(ramp, k) { for (let i = ramp.length - 1; i >= 0; i--) if (k >= ramp[i][0]) return ramp[i][1]; return ramp[0][1]; }
+function outerToWorld(a, p) { const h = a.outer.rotation.y, c = Math.cos(h), s = Math.sin(h); return [c * p[0] + s * p[2] + a.outer.position.x, p[1] + a.outer.position.y, -s * p[0] + c * p[2] + a.outer.position.z]; }
+function outerDir(a, d) { const h = a.outer.rotation.y, c = Math.cos(h), s = Math.sin(h); return [c * d[0] + s * d[2], d[1], -s * d[0] + c * d[2]]; }
+function nozzleAt(a, clip, tt) {   // nozzle position / direction (world) at clip time tt, from the baked frames (emission history)
+  const fr = sampleTrack(clip, "body", clip.loop ? tt : Math.max(0, Math.min(clip.duration, tt)));
+  const rot = {}; SLOTS.forEach((sl, i) => rot[sl] = [fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2]]);
+  const F = fk(rot), R0 = eulerMat([fr[33], fr[34], fr[35]]);
+  const hand = vadd([fr[30] / V_M, fr[31] / V_M, fr[32] / V_M], mvec(R0, handPos(F, "R")));
+  const Wm = mmul(R0, mmul(F.forearmR.R, eulerMat([fr[36], fr[37], fr[38]])));
+  const p = vadd(hand, mvec(Wm, a.model.weapon.muzzle)).map(v => v * V_M);
+  return { p: outerToWorld(a, p), d: outerDir(a, mvec(Wm, [0, 0, 1])) };
+}
+const snapV = (v, g) => Math.round(v / g) * g;
+function streamOn(clip, t) {
+  if (clip.stream) return clip.stream;
+  const st = (clip.events || []).find(e => e.type === "flame_start"); if (st && t >= st.t) return "flame";
+  return null;
+}
+function drawFlame(a, clip, t, stopAt) {
+  const S = FX2.flame_stream, rate = S.rate, g = S.gravity, life = S.life[1];
+  const n0 = Math.floor(t * rate), seeds = [];
+  const start = (clip.events || []).find(e => e.type === "flame_start");
+  for (let k = 0; k < Math.ceil((life + 1.4) * rate); k++) {
+    const id = n0 - k, te = id / rate, age = t - te; if (age < 0) continue;
+    if (!clip.loop && te < (start ? start.t : 0)) break;
+    if (stopAt !== undefined && te > stopAt) continue;
+    const L = lerp(S.life[0], S.life[1], hash3(id, 1, 2, 77)), v = lerp(S.speed[0], S.speed[1], hash3(id, 3, 4, 77));
+    const em = nozzleAt(a, clip, te);
+    const ta = Math.min(age, L), dr = (1 - Math.exp(-S.drag * ta)) / S.drag;
+    const j = [hnoise(id, 11) * S.spread, hnoise(id, 12) * S.spread, hnoise(id, 13) * S.spread];
+    let p = [em.p[0] + (em.d[0] + j[0]) * v * dr, em.p[1] + (em.d[1] + j[1]) * v * dr - 0.5 * g * ta * ta, em.p[2] + (em.d[2] + j[2]) * v * dr];
+    const hit = p[1] < 0.05; if (hit) p[1] = 0.05;
+    if (age <= L) {
+      const k01 = age / L, sz = S.size.start + (S.size.end - S.size.start) * Math.sqrt(k01);
+      fxCube(new THREE.Vector3(snapV(p[0], 0.06), Math.max(sz / 2, snapV(p[1], 0.06)), snapV(p[2], 0.06)), sz, rampColor(S.color.ramp, k01));
+      if (hit) seeds.push(p);
+    } else if (id % FX2.flame_smoke.every === 0) {
+      const sa = age - L, SM = FX2.flame_smoke; if (sa > SM.life) continue;
+      const q = [p[0] + 0.55 * sa, p[1] + SM.rise * sa, p[2] + 0.25 * sa], k01 = sa / SM.life;
+      fxCube(new THREE.Vector3(snapV(q[0], 0.08), snapV(q[1], 0.08), snapV(q[2], 0.08)), lerp(SM.size[0], SM.size[1], k01), k01 < 0.5 ? SM.color[0][1] : SM.color[1][1], lerp(SM.alpha[0], 0.15, k01));
+    }
+  }
+  return seeds;
+}
+function drawGroundFire(a, clip, t) {   // pools on a 0.25 m grid where the stream reached the ground during the last 2 s
+  const cells = new Map(), S = FX2.flame_stream;
+  for (let k = 0; k < 40; k++) {
+    const te = t - k * 0.05; if (te < 0 && !clip.loop) break;
+    const em = nozzleAt(a, clip, te), v = (S.speed[0] + S.speed[1]) / 2, g = S.gravity, L = S.life[1];
+    // ballistic hit time (drag-free estimate is fine for the preview): y(t) = p.y + d.y v t - g t^2 / 2 = 0
+    const A = 0.5 * g, B = -em.d[1] * v, C = -em.p[1], tt = (-B + Math.sqrt(Math.max(0, B * B - 4 * A * C))) / (2 * A);
+    if (tt > L) continue;
+    const dr = (1 - Math.exp(-S.drag * tt)) / S.drag, x = em.p[0] + em.d[0] * v * dr, z = em.p[2] + em.d[2] * v * dr;
+    for (const [dx, dz] of [[0, 0], [0.25, 0], [-0.25, 0], [0, 0.25], [0, -0.25]]) { const key = Math.round((x + dx) / 0.25) + "," + Math.round((z + dz) / 0.25); cells.set(key, (cells.get(key) || 0) + (dx || dz ? 0.5 : 1)); }
+  }
+  for (const [key, w] of cells) {
+    const [i, k] = key.split(",").map(Number), fl = Math.floor(t * 6), hgt = Math.min(4, 1 + Math.floor(3 * hash3(i, k, fl, 31) * Math.min(1, w / 3)));
+    for (let y = 0; y < hgt; y++) fxCube(new THREE.Vector3(i * 0.25, 0.125 + y * 0.25, k * 0.25), 0.25, rampColor(FX2.flame_stream.color.ramp, 0.25 + 0.6 * y / 4 + 0.1 * hash3(i, k, y + fl, 5)), 0.95);
+    if (hash3(i, k, 0, 9) < 0.35) for (let y = 0; y < 5; y++) { const sy = ((t * 1.5 + y * 0.9 + hash3(i, k, y, 3) * 4) % 5.0); fxCube(new THREE.Vector3(i * 0.25 + 0.55 * sy * 0.2, 1.0 + sy, k * 0.25 + 0.25 * sy * 0.2), 0.25, "#2f2a26", 0.75 * (1 - sy / 5)); }
+  }
+}
+function drawFx2(a, clip, t) {
+  const fl = Math.floor(t * 15);
+  // hose (flamer): sagging voxel chain tank outlet -> gun fitting
+  if (a.model.cls === "flamer") {
+    const w = a.G.weapon; a.G.torso.updateWorldMatrix(true, false); w.updateWorldMatrix(true, false);
+    const p0 = a.G.torso.localToWorld(new THREE.Vector3(HOSE.tank[0] * V_M, (HOSE.tank[1] - 8) * V_M, HOSE.tank[2] * V_M));
+    const hp = a.model.weapon.hose, p1 = w.localToWorld(new THREE.Vector3(hp[0] * V_M, hp[1] * V_M, hp[2] * V_M));
+    const L = p0.distanceTo(p1), n = Math.ceil(L / HOSE.voxel);
+    if (L < HOSE.length + 0.4) for (let i = 0; i <= n; i++) { const u = i / n, q = p0.clone().lerp(p1, u); q.y -= HOSE.sag * Math.sin(Math.PI * u) * Math.max(0.3, (HOSE.length - L) / HOSE.length + 0.4); fxCube(q, HOSE.voxel, "#242424"); }
+    const fr = a.last || [];
+    if (!(fr[43] & (FLAG_SLUNG | FLAG_DROPPED))) {   // pilot light flicker
+      const pp = a.model.weapon.pilot, q = w.localToWorld(new THREE.Vector3(pp[0] * V_M, pp[1] * V_M, pp[2] * V_M + 0.02));
+      fxCube(q, 0.03 * (0.7 + 0.3 * hash3(fl, 1, 1, 3)), fl % 2 ? "#ffb040" : "#7fb6ff");
+    }
+    const mode = streamOn(clip, t);
+    const stop = (clip.events || []).find(e => e.type === "flame_stop");
+    if (mode === "flame" || stop) { drawFlame(a, clip, t, stop ? stop.t : undefined); if (mode === "flame") drawGroundFire(a, clip, t); }
+    for (const [e, age] of eventsInWindow(clip, t, 0.3)) if (e.type === "pilot_flare" && age < 0.15) { const pp = a.model.weapon.muzzle, q = w.localToWorld(new THREE.Vector3(0, pp[1] * V_M, pp[2] * V_M + 0.05)); for (let i = 0; i < 5; i++) fxCube(q.clone().add(new THREE.Vector3(hnoise(i, 1) * 0.05, hnoise(i, 2) * 0.05, 0.03 * i)), 0.06, "#ffd25a"); }
+  }
+  // engineer: tool tip FX
+  const tid = ((a.last || [])[43] >> TOOL_SHIFT) & 15, tr = tid ? a.tools[tid] : null;
+  if (tr) {
+    const T = TOOLS[TOOL_BY_ID[tid].slice(5)]; tr.updateWorldMatrix(true, false);
+    const tip = tr.localToWorld(new THREE.Vector3(T.tip[0] * V_M, T.tip[1] * V_M, T.tip[2] * V_M));
+    if (clip.stream === "cut_sparks") {
+      const S = FX2.cut_sparks;
+      for (let i = 0; i < 3; i++) fxCube(tip.clone().add(new THREE.Vector3(0, 0, 0.025 * i)), S.flame.size, S.flame.color);
+      for (let k = 0; k < Math.ceil(S.life * S.rate); k++) {
+        const id = Math.floor(t * S.rate) - k, age = t - id / S.rate; if (age < 0 || age > S.life) continue;
+        const sp = lerp(S.speed[0], S.speed[1], hash3(id, 1, 1, 5)), vx = hnoise(id, 2) * sp, vz = -Math.abs(hnoise(id, 3)) * sp * 0.6 - 0.5, vy = hnoise(id, 4) * sp * 0.6 + 0.6;
+        const q = tip.clone().add(new THREE.Vector3(vx * age, vy * age - 4.9 * age * age, vz * age)); if (q.y < 0.015) q.y = 0.015;
+        fxCube(q, S.size, k % 3 ? S.colors[1] : S.colors[0]);
+      }
+    }
+    for (const [e, age] of eventsInWindow(clip, t, 0.8)) {
+      if (e.fx === "hammer_hit" && age < 0.4) { for (let i = 0; i < 5; i++) fxCube(tip.clone().add(new THREE.Vector3(hnoise(i, 1) * 0.25 * (0.3 + age * 2), 0.03 + age * 0.4, hnoise(i, 2) * 0.25 * (0.3 + age * 2))), 0.06, "#8d7a5a", 1 - age / 0.4); if (age < 0.2) for (let i = 0; i < 4; i++) fxCube(tip.clone().add(new THREE.Vector3(hnoise(i, 5) * age * 3, 0.1 + age * 2, hnoise(i, 6) * age * 3)), 0.03, "#ffd27a"); }
+      if (e.fx === "dig" && age < 0.35) for (let i = 0; i < 4; i++) fxCube(tip.clone().add(new THREE.Vector3(hnoise(i, 1) * 0.15, 0.05 + age * 0.5, hnoise(i, 2) * 0.15)), 0.06, "#6b5a40");
+      if (e.fx === "dirt_toss" && age < 0.7) for (let i = 0; i < 7; i++) { const S = FX2.dirt_toss; const v = outerDir(a, [hnoise(i, 1) * S.spread - 0.6, S.vel[1] * (0.8 + 0.3 * hash3(i, 2, 2, 1)), S.vel[2] * (0.8 + 0.3 * hash3(i, 3, 3, 1))]); const q = tip.clone().add(new THREE.Vector3(v[0] * age, v[1] * age - 4.9 * age * age, v[2] * age)); if (q.y > 0.03) fxCube(q, i % 2 ? 0.05 : 0.08, i % 2 ? "#6b5a40" : "#857053"); }
     }
   }
 }
@@ -2361,7 +2965,9 @@ function clearAnim() { for (const a of actors) { clearMarks(a); scene.remove(a.o
 function buildAnimScene() {
   clearAnim();
   if (anim.scene === "classes") {
-    const list = anim.cls === "all" ? ["rifleman", "mg", "sniper"].map(c => [CLS_MODEL[c], c]) : LIB.infantry.filter(m => m.cls === anim.cls).slice(0, 3).map(m => [m.name, anim.cls]);
+    let list = anim.cls === "all" ? ["rifleman", "mg", "sniper"].map(c => [CLS_MODEL[c], c]) : anim.cls === "new" ? [["engineer_a", "engineer"], ["flamer_a", "flamer"]]
+      : [...LIB.infantry, ...SPEC.soldiers].filter(m => m.cls === anim.cls).slice(0, 3).map(m => [m.name, anim.cls]);
+    list = list.filter(([m, c]) => CLIP[c + "/" + anim.action]);
     // side-by-side across the view direction (side view: spread along Z)
     list.forEach(([m, c], i) => { const o = (i - (list.length - 1) / 2); const a = state.view === "side" ? makeActor(m, 0, o * 2.6, 0) : makeActor(m, o * 1.7, 0, 0); a.cls = c; });
     const act = anim.action;
@@ -2374,6 +2980,7 @@ function buildAnimScene() {
       for (const [sx, sy, sz, px, py] of [[0.25, 2.4, 0.3, -0.62, 1.2], [0.25, 2.4, 0.3, 0.62, 1.2], [1.5, 0.3, 0.3, 0, 2.55]]) { const b = addExtra(new THREE.Mesh(cubeGeo, mat)); b.scale.set(sx, sy, sz); b.position.set(a.base[0] + px, py, z); b.castShadow = true; }
     }
     if (act === "collect_ammo") for (const a of actors) { const c = inst("crate_ammo"); c.position.set(a.base[0], 0, 0.85); c.rotation.y = Math.PI / 2; addExtra(c); }
+    workSet(act, actors.map(a => [a.base[0], a.base[2], 0]));
   } else if (anim.scene === "para" || anim.scene === "crate") {
     if (anim.scene === "para") {
       const mat = new THREE.MeshStandardMaterial({ color: 0x8b8578, roughness: 1 });
@@ -2385,6 +2992,14 @@ function buildAnimScene() {
     const co = addExtra(new THREE.Group()); co.position.set(crateX, 0, 4);
     const crate = inst("crate_ammo_drop"); co.add(crate); const can = makeCanopy("para_cargo", co);
     animProps.push({ outer: co, crate, canopy: can, startH: 40 });
+  } else if (anim.scene === "specrts") {
+    // Phase 7b at RTS distance: engineers at work (each with its context), flamethrowers firing / burning, approved squads, zombies
+    const work = [["build_hammer", "engineer_a"], ["build_shovel", "engineer_b"], ["build_sandbag", "engineer_c"], ["cut_car", "engineer_c"], ["pry_car", "engineer_a"], ["carry_panel", "engineer_b"], ["carry_sandbag", "engineer_a"], ["walk", "engineer_b"], ["fire", "engineer_c"]];
+    work.forEach(([act, m], j) => { const x = -14 + (j % 5) * 4.5, z = -5 + Math.floor(j / 5) * 6; const a = makeActor(m, x, z, 0.35); a.cls = "engineer"; a.fixedAction = act; a.phase = j * 0.23; workSet(act, [[x, z, 0.35]]); });
+    [["fire", "flamer_a"], ["burn_ground", "flamer_b"], ["aim", "flamer_a"], ["walk", "flamer_b"], ["reload", "flamer_a"]].forEach(([act, m], j) => { const a = makeActor(m, 10 + (j % 3) * 5, -5 + Math.floor(j / 3) * 6, act === "fire" || act === "burn_ground" ? 0.2 : 0.35); a.cls = "flamer"; a.fixedAction = act; a.phase = j * 0.31; });
+    [["rifleman_a", "rifleman", "aim"], ["rifleman_b", "rifleman", "walk"], ["mg_a", "mg", "aim"], ["sniper_a", "sniper", "idle"], ["rifleman_c", "rifleman", "fire"]].forEach(([m, c, act], j) => { const a = makeActor(m, -14 + j * 2.2, 7, 0.35); a.cls = c; a.fixedAction = act; a.phase = j * 0.2; });
+    for (let i = 0; i < 12; i++) { const z = inst(i % 2 ? "zombie_walker" : "zombie_drone"); z.position.set(16 + (i % 4) * 1.1, 0, 8 + Math.floor(i / 4) * 1.3); z.rotation.y = -1.6; addExtra(z); }
+    for (let i = 0; i < 5; i++) { const z = inst(i % 2 ? "zombie_walker" : "zombie_drone"); z.position.set(11.5 + i * 0.5, 0.2, 4.8 + (i % 2) * 0.6); z.rotation.set(-Math.PI / 2, 0, 0.7 * i); addExtra(z); }   // corpses in the burn zone
   } else if (anim.scene === "rts") {
     // readability crowd: rows = classes, columns = actions; zombies on the right
     const cols = ["idle", "walk", "run", "aim", "fire", "reload", "crouch_fire", "collect_ammo", "death_a", "death_b"];
@@ -2395,6 +3010,18 @@ function buildAnimScene() {
     for (let i = 0; i < 14; i++) { const z = inst(i % 2 ? "zombie_walker" : "zombie_drone"); z.position.set(24 + (i % 5) * 1.2, 0, -6 + Math.floor(i / 5) * 1.5); z.rotation.y = -1.6; addExtra(z); }
   }
   for (const a of actors) a.root.traverse(o => { if (o.isMesh) o.castShadow = true; });
+}
+// Phase 7b work context props (preview only): stake + gabion, sandbag course + pile, a car body
+function workSet(act, spots) {
+  const box = (x, y, z, sx, sy, sz, col) => { const b = addExtra(new THREE.Mesh(cubeGeo, new THREE.MeshStandardMaterial({ color: col, roughness: 1 }))); b.scale.set(sx, sy, sz); b.position.set(x, y, z); b.castShadow = b.receiveShadow = true; return b; };
+  for (const [x, z, ry] of spots) {
+    const R = (dx, dz) => [x + Math.cos(ry) * dx + Math.sin(ry) * dz, z - Math.sin(ry) * dx + Math.cos(ry) * dz];
+    if (act === "build_hammer") { const p = R(-0.04, 1.0); box(p[0], 0.14, p[1], 0.09, 0.28, 0.09, 0x6a4f31); const w = inst("wall_cheap_end"); const q = R(0, 1.75); w.position.set(q[0], 0, q[1]); w.rotation.y = ry + Math.PI / 2; addExtra(w); }
+    if (act === "build_shovel") { const w = inst("wall_cheap_straight"); const q = R(-1.4, 1.4); w.position.set(q[0], 0, q[1]); w.rotation.y = ry; w.scale.set(0.5, 0.62, 1); addExtra(w); const p = R(0.0, 0.95); box(p[0], 0.08, p[1], 0.9, 0.16, 0.6, 0x9c8961); }
+    if (act === "build_sandbag") { const p = R(-0.35, 0.8); const b = box(p[0], 0.42, p[1], 1.3, 0.84, 0.5, 0xa99a70); b.rotation.y = ry; const pile = inst("sandbag_pile"); const q = R(0.68, -0.3); pile.position.set(q[0], 0, q[1]); pile.rotation.y = ry - Math.PI / 2; addExtra(pile); }
+    if (act === "cut_car" || act === "pry_car") { const p = R(0, 0.8 + 0.9); const c = box(p[0], 0.75, p[1], 4.2, 1.1, 1.8, 0x6d7a86); c.rotation.y = ry; const c2 = box(p[0], 1.55, p[1], 2.2, 0.55, 1.6, 0x56616b); c2.rotation.y = ry;
+      for (const dx of [-1.35, 1.35]) { const wq = R(dx, 0.78); const wh = box(wq[0], 0.33, wq[1], 0.66, 0.66, 0.1, 0x1d1d1d); wh.rotation.y = ry; } }
+  }
 }
 function surfFor(a) { const ox = a.outer.position.x, oz = a.outer.position.z, base = a.surfH || 0; return (x, z) => { const wx = ox + x, wz = oz + z; const inRoof = Math.abs(wx - ROOF.x) < ROOF.w / 2 && Math.abs(wz - ROOF.z) < ROOF.d / 2; return (inRoof ? ROOF.h : 0) - base; }; }
 function paraState(a, T) {   // demo timeline for one paratrooper: descent -> land -> recover -> idle
@@ -2450,7 +3077,7 @@ function animUpdate(dt) {
       const tg = land.events.find(e => e.type === "canopy_ground").t;
       setDissolve(p.canopy, canopyDissolve(inAir ? -1 : T - D - tg));
     }
-  } else if (anim.scene === "rts") {
+  } else if (anim.scene === "rts" || anim.scene === "specrts") {
     for (const a of actors) {
       const clip = CLIP[a.cls + "/" + a.fixedAction]; const t = clip.loop ? T + a.phase * clip.duration : a.fixedAction.startsWith("death") ? (a.phase < 0.3 ? clip.duration : Math.min(clip.duration, T)) : (T + a.phase * clip.duration) % clip.duration;
       poseActor(a, clip, t, dt); drawFx(a, clip, clipTime(clip, t));
@@ -2468,17 +3095,17 @@ function frameAnim() {
     camera.fov = 32; controls.target.set(0, 9, 0); camera.position.set(14, 22, 42); camera.near = 0.5; camera.far = 600; camera.updateProjectionMatrix(); controls.update();
   } else if (anim.scene === "crate") {
     camera.fov = 32; controls.target.set(0, 1.2, 4); camera.position.set(7, 4.5, 13); camera.near = 0.1; camera.far = 600; camera.updateProjectionMatrix(); controls.update();
-  } else if (anim.scene === "rts") {
+  } else if (anim.scene === "rts" || anim.scene === "specrts") {
     const c = new THREE.Vector3(2, 0.8, 0), pitch = THREE.MathUtils.degToRad(anim.rtsPitch), dist = anim.rtsDist;
     camera.fov = 32; controls.target.copy(c); camera.position.set(c.x + Math.cos(pitch) * dist * 0.5, c.y + Math.sin(pitch) * dist, c.z + Math.cos(pitch) * dist * 0.866);
     camera.near = 1; camera.far = 2000; camera.updateProjectionMatrix(); controls.update();
   }
-  grid.visible = anim.scene !== "rts";
-  if (scene.fog) { const far = anim.scene === "rts" || anim.scene === "para"; scene.fog.near = far ? 400 : LIGHTING[state.light].fog[0]; scene.fog.far = far ? 1200 : LIGHTING[state.light].fog[1]; }
+  grid.visible = anim.scene !== "rts" && anim.scene !== "specrts";
+  if (scene.fog) { const far = anim.scene === "rts" || anim.scene === "specrts" || anim.scene === "para"; scene.fog.near = far ? 400 : LIGHTING[state.light].fog[0]; scene.fog.far = far ? 1200 : LIGHTING[state.light].fog[1]; }
 }
 function updateAnimInfo() {
   const el = document.getElementById("animInfo"); if (!el || state.mode !== "anim") return;
-  const c = CLIP[(anim.cls === "all" ? "rifleman" : anim.cls) + "/" + anim.action];
+  const c = CLIP[(actors[0] ? actors[0].cls : (anim.cls === "all" ? "rifleman" : anim.cls)) + "/" + anim.action];
   const scrub = document.getElementById("animScrub");
   if (anim.scene === "classes" && c) { if (document.activeElement !== scrub) scrub.value = String(Math.round((c.loop ? anim.t % c.duration : Math.min(anim.t, c.duration)) / c.duration * 1000)); }
   else if (document.activeElement !== scrub) scrub.value = String(Math.round(Math.min(1, anim.t / 16) * 1000));
@@ -2521,7 +3148,7 @@ document.getElementById("animLoop").addEventListener("change", e => { anim.loop 
 document.getElementById("animTravel").addEventListener("change", e => { anim.travel = e.target.checked; rebuild(); });
 document.getElementById("animFx").addEventListener("change", e => { anim.fx = e.target.checked; });
 document.getElementById("animScrub").addEventListener("input", e => {
-  const c = CLIP[(anim.cls === "all" ? "rifleman" : anim.cls) + "/" + anim.action];
+  const c = CLIP[(actors[0] ? actors[0].cls : "rifleman") + "/" + anim.action] || CLIP["rifleman/idle"];
   anim.playing = false; anim.t = anim.scene === "classes" ? (+e.target.value / 1000) * c.duration : (+e.target.value / 1000) * 16; syncAnimUI();
 });
 function syncAnimUI() {
@@ -2555,7 +3182,7 @@ function loop() {
   const span = Math.max(4, camera.position.distanceTo(c) * 0.7); const sc = key.shadow.camera; sc.left = sc.bottom = -span; sc.right = sc.top = span; sc.near = 0.1; sc.far = 80; sc.updateProjectionMatrix();
   renderer.render(scene, camera);
   // labels
-  if (state.mode === "lineup" || state.mode === "props") {
+  if (state.mode === "lineup" || state.mode === "props" || state.mode === "speclineup") {
     if (labelsEl.childElementCount !== shown.filter(s => s.label).length) labelsEl.innerHTML = shown.filter(s => s.label).map(() => '<div class="tag"></div>').join("");
     let i = 0;
     for (const o of shown) if (o.label) {
@@ -2566,7 +3193,7 @@ function loop() {
   requestAnimationFrame(loop);
 }
 resize(); setLight("neutral"); rebuild(); loop();
-window.__mil = { state, rebuild, setLight, syncUI, exportJSON, LIB, ALL, camera, controls, scene, renderer, frame, bounds, shown: () => shown, ready: true,
+window.__mil = { state, rebuild, setLight, syncUI, exportJSON, LIB, SPEC, AN2, CLIP, ALL, camera, controls, scene, renderer, frame, bounds, shown: () => shown, ready: true,
   set(o) { Object.assign(state, o); if (o.light) setLight(o.light); syncUI(); rebuild(); },
   AN, anim, setAnim(o) { Object.assign(anim, o); syncAnimUI(); if (state.mode === "anim") { rebuild(); } },
   step(dt) { animUpdate(dt); controls.update(); renderer.render(scene, camera); },

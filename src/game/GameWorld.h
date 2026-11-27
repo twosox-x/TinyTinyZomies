@@ -34,9 +34,13 @@
 #include "game/Combat.h"
 #include "game/Commands.h"
 #include "game/Config.h"
+#include "game/CorpseGas.h"
+#include "game/CorpseGasRender.h"
+#include "game/FlameAI.h"
 #include "game/Deploy.h"
 #include "game/Reanimation.h"
 #include "game/Economy.h"
+#include "game/EngineerAI.h"
 #include "game/Fortify.h"
 #include "game/GameEvents.h"
 #include "game/GameRender.h"
@@ -91,10 +95,12 @@ public:
     GameUI& ui() { return ui_; }
     const Combat& combat() const { return combat_; }
     Combat& combat() { return combat_; }
+    const SoldierAI& ai() const { return ai_; }
     const HordeBridge& horde() const { return horde_; }
     const Deploy& deploy() const { return deploy_; }
     const Logistics& logistics() const { return logistics_; }
     const Economy& economy() const { return economy_; }
+    EngineerAI& engineers() { return engineers_; }              // 14d engineers (construction jobs, car clearing)
     Fortifications& fort() { return fort_; }                    // B2
     const Fortifications& fort() const { return fort_; }
     const Reanimation& reanimation() const { return reanim_; }
@@ -109,6 +115,11 @@ public:
     std::string takeScriptShot() { return script_.takeShot(); }
     bool shotPending() const { return script_.shotPending(); }
     const GameScript& script() const { return script_; }
+    // GAME_DESIGN 14d: corpse rot gas + flamethrowers (CorpseGas / FlameAI); burning piles as voxel fire volumes (App)
+    const CorpseGas& gas() const { return gas_; }
+    CorpseGas& gas() { return gas_; }
+    const FlameAI& flameAI() const { return flame_; }
+    void fireVolumes(float camX, float camZ, std::vector<FireVolume>& out) const { gasRender_.fireVolumes(camX, camZ, out); }
 
 private:
     void tick(AppState& app);
@@ -128,9 +139,14 @@ private:
     Logistics logistics_;
     Deploy deploy_;
     Fortifications fort_;
+    EngineerAI engineers_;           // 14d: engineers build walls / gates and clear cars (jobs, radius)
     Reanimation reanim_;
     HordeVertical vertical_;         // B3b: zombies in buildings (entrances, stairs, roofs, barricades)
     BuildingPlay buildings_;         // B3a: capture, garrison, hospital, barricades
+    CorpseGas gas_;                  // 14d: corpse rot gas, ground fire, flame damage (GPU)
+    CorpseGasRender gasRender_;      // 14d: haze / flies / ground fire draw (Renderer extension)
+    FlameAI flame_;                  // 14d: flamethrower squads (corpse burning, flame rounds)
+    uint64_t gasWarned_ = 0;         // squads (bit per squad index < 64) already warned about gas
     CommandQueue commands_;
     std::vector<Command> applying_;
     GameUI ui_;

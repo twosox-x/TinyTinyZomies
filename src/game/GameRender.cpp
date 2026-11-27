@@ -205,6 +205,15 @@ void GameRender::update(AppState& app, const GameContext& ctx, float frameDt, fl
     for (const FxEvent& e : fx) {
         if (e.kind == FxKind::Landing || e.kind == FxKind::CrateTouch) mil_->fxBurst(e.pos, 1);
         else if (e.kind == FxKind::Impact) mil_->fxBurst(e.pos, 0);
+        else if (e.kind == FxKind::Flame && ctx.soldiers && ctx.soldiers->valid(e.soldier)) {   // 14d flamethrower spray
+            const SoldierPool& P = *ctx.soldiers;
+            const uint32_t i = e.soldier.index;
+            if (P.infantry[i] < mil_->library().infantry.size()) {
+                MilPoseInput p;
+                soldierPose(P.anim[i], P.infantry[i], P.pos[i] + P.vel[i] * ahead, P.yaw[i], app.paused ? 0.f : ahead, p);
+                if (mil_->visible(p.pos, 10.f)) mil_->fxFlame(p, e.dir, ctx.cfg ? ctx.cfg->weapon[(size_t)SoldierClass::Flamethrower].range : 9.f);
+            }
+        }
     }
     shotFx(app, ctx, fx, ahead);
 

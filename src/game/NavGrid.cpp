@@ -10,6 +10,7 @@ namespace ttz::game {
 namespace {
 constexpr int kMinIslandCells = 16;   // smaller flat patches (car roofs, kiosks, poles) are not walkable
 constexpr float kSqrt2 = 1.41421356f;
+constexpr float kGraze = 0.3f, kCoverReach = 2.5f;   // = GRAZE / COVER_REACH in shaders/game_hits.comp
 }
 
 bool NavGrid::cellOf(float x, float z, int& i, int& j) const {
@@ -24,7 +25,8 @@ V3 NavGrid::centre(int i, int j) const {
 
 void NavGrid::build(const std::vector<float>& heights, int gw, int gh, float ox, float oz, float cell, float stepUp, float clearance) {
     h_ = heights; gw_ = gw; gh_ = gh; ox_ = ox; oz_ = oz; cell_ = cell; stepUp_ = stepUp; clearance_ = clearance;
-    if ((int)h_.size() != gw * gh) { gw_ = gh_ = 0; h_.clear(); walk_.clear(); island_.clear(); return; }
+    if ((int)h_.size() != gw * gh) { gw_ = gh_ = 0; h_.clear(); shotH_.clear(); walk_.clear(); island_.clear(); return; }
+    shotH_ = h_;
     walk_.assign(h_.size(), 0);
     island_.assign(h_.size(), 0);
     const size_t n = h_.size();
@@ -39,6 +41,9 @@ void NavGrid::updateRows(const std::vector<float>& heights, int z0, int rows) {
     const int a = std::max(0, z0), b = std::min(gh_, z0 + rows);
     for (int j = a; j < b; ++j)
         std::copy(heights.begin() + (size_t)j * gw_, heights.begin() + (size_t)(j + 1) * gw_, h_.begin() + (size_t)j * gw_);
+    if (shotH_.size() == h_.size())   // default: the shot layer follows the walk heights (updateShotRows overrides)
+        for (int j = a; j < b; ++j)
+            std::copy(heights.begin() + (size_t)j * gw_, heights.begin() + (size_t)(j + 1) * gw_, shotH_.begin() + (size_t)j * gw_);
     computeWalk(std::max(0, a - 1), std::min(gh_, b + 1));
     computeIslands();
     for (Query& q : queries_) if (!q.done) q.started = false;
@@ -131,6 +136,49 @@ bool NavGrid::lineOfSight(V3 a, V3 b) const {
         if (h_[(size_t)j * gw_ + i] > a.y + d.y * t) return false;
     }
     return true;
+}
+
+void NavGrid::setShotHeights(const std::vector<float>& heights) {
+    if (ready() && heights.size() == h_.size()) shotH_ = heights;
+}
+
+void NavGrid::updateShotRows(const std::vector<float>& heights, int z0, int rows) {
+    if (!ready() || heights.size() != h_.size() || shotH_.size() != h_.size()) return;
+    const int a = std::max(0, z0), b = std::min(gh_, z0 + rows);
+    for (int j = a; j < b; ++j)
+        std::copy(heights.begin() + (size_t)j * gw_, heights.begin() + (size_t)(j + 1) * gw_, shotH_.begin() + (size_t)j * gw_);
+}
+
+float NavGrid::shotHeight(float x, float z) const {
+    if (!ready()) return 0.f;
+    const int i = std::clamp((int)std::floor((x - ox_) / cell_), 0, gw_ - 1), j = std::clamp((int)std::floor((z - oz_) / cell_), 0, gh_ - 1);
+    const std::vector<float>& H = shotH_.size() == h_.size() ? shotH_ : h_;
+    return H[(size_t)j * gw_ + i];
+}
+
+bool NavGrid::shotLine(V3 a, V3 b, float skipEnd) const {
+    if (!ready()) return true;
+    const std::vector<float>& H = shotH_.size() == h_.size() ? shotH_ : h_;
+    const V3 d = b - a;
+    const float len = std::sqrt(d.x * d.x + d.z * d.z);
+    const float step = cell_ * 0.25f;
+    for (float s = 0.f; s < len - skipEnd; s += step) {
+        const float t = s / std::max(len, 1e-4f);
+        int i, j;
+        if (!cellOf(a.x + d.x * t, a.z + d.z * t, i, j)) continue;
+        const float h = H[(size_t)j * gw_ + i], y = a.y + d.y * t;
+        if (h <= y) continue;
+        if (h - y < kGraze && s > len - kCoverReach) continue;   // partial cover right in front of the target (game_hits.comp)
+        return false;
+    }
+    return true;
+}
+
+float NavGrid::extraCost(float x, float z) const {
+    if (!costL_ || costScale_ <= 0.f) return 0.f;
+    const int i = (int)std::floor((x - costOx_) / costCell_), j = (int)std::floor((z - costOz_) / costCell_);
+    if (i < 0 || j < 0 || i >= costW_ || j >= costH_ || (size_t)(j * costW_ + i) >= costL_->size()) return 0.f;
+    return std::min(4.f, (float)(*costL_)[(size_t)j * costW_ + i] / 64.f) * costScale_;
 }
 
 bool NavGrid::walkLine(V3 a, V3 b) const {
@@ -245,7 +293,8 @@ bool NavGrid::expand(Query& q, int& budget) {
                 if ((!di && !dj) || !edge(ci, cj, di, dj)) continue;
                 const uint32_t n = (uint32_t)((cj + dj) * gw_ + ci + di);
                 if (closed_[n] == searchStamp_) continue;
-                const float g = g_[o.c] + ((di && dj) ? kSqrt2 : 1.f);
+                float g = g_[o.c] + ((di && dj) ? kSqrt2 : 1.f);
+                if (costL_) { const V3 cn = centre(ci + di, cj + dj); g += ((di && dj) ? kSqrt2 : 1.f) * extraCost(cn.x, cn.z); }   // gas (14d)
                 if (stamp_[n] == searchStamp_ && g >= g_[n]) continue;
                 stamp_[n] = searchStamp_; g_[n] = g; parent_[n] = o.c;
                 open_.push_back({g + heur(ci + di, cj + dj), n});

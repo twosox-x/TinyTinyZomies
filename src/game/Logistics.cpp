@@ -24,6 +24,7 @@ V3 local(V3 c, float yaw, float u, float v) {
 }
 
 bool simulatedAt(const GameContext& ctx, float x, float z) { return !ctx.horde || ctx.horde->simulated(x, z); }
+float dist2(V3 a, V3 b) { return (a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z); }
 
 // Access slot near `want` on the same surface as the supply point (walkable when the grid knows walkability).
 bool slotAt(const GameContext& ctx, V3 want, float surfaceY, V3& out) {
@@ -62,7 +63,7 @@ SupplyId Logistics::placeContainer(GameContext& ctx, V3 pos, float yaw) {
     sp.kind = SupplyKind::Container;
     sp.yaw = yaw;
     sp.pos = {pos.x, ctx.nav ? ctx.nav->surface(pos.x, pos.z) : pos.y, pos.z};
-    for (int a = 0; a < 3; ++a) sp.stock[(size_t)a] = ctx.cfg->logistics.containerStock[(size_t)a];
+    for (size_t a = 0; a < kAmmoTypes; ++a) sp.stock[a] = ctx.cfg->logistics.containerStock[a];
     const int want = std::max(1, ctx.cfg->logistics.containerSlots);
     const V3 cand[6] = {local(sp.pos, yaw, 4.4f, -0.8f), local(sp.pos, yaw, 4.4f, 0.8f), local(sp.pos, yaw, 0.f, 2.9f),
                         local(sp.pos, yaw, 0.f, -2.9f), local(sp.pos, yaw, -4.8f, 0.f), local(sp.pos, yaw, 2.2f, 2.9f)};
@@ -91,14 +92,42 @@ SupplyId Logistics::placeContainer(GameContext& ctx, V3 pos, float yaw) {
 }
 
 bool Logistics::canAirdrop(const GameContext& ctx, V3 pos, const char** why) const {
+    V3 spot;
+    return airdropSpot(ctx, pos, spot, why);
+}
+
+bool Logistics::airdropSpot(const GameContext& ctx, V3 pos, V3& spot, const char** why) const {
     auto no = [&](const char* r) { if (why) *why = r; return false; };
     if (!ctx.nav || !ctx.nav->ready()) return no("no navigation grid");
     if (!simulatedAt(ctx, pos.x, pos.z)) return no("outside the simulated area");
-    float y = 0;
-    if (!flatFootprint(ctx, pos, 0.8f, 0.8f, 0.f, 0.35f, &y)) return no("blocked: inside geometry, a vehicle or an edge");
-    float ground = y;
-    for (int k = 0; k < 8; ++k) ground = std::min(ground, ctx.nav->surface(pos.x + 8.f * std::cos(k * kPi / 4), pos.z + 8.f * std::sin(k * kPi / 4)));
-    if (y - ground > 0.5f && y - ground <= 2.5f) return no("blocked: on a vehicle, wall or obstacle");
+    const NavGrid& nav = *ctx.nav;
+    const float clicked = nav.surface(pos.x, pos.z);
+    // a spot: crate footprint flat (roof gravel / curbs within 0.35 m), on the clicked surface level (a stepped roof's
+    // levels are separate surfaces), not on a vehicle / wall top, and a walkable access cell on that level next to it
+    const char* reason = "blocked: inside geometry, a vehicle or an edge";
+    auto ok = [&](V3 c, float& y) {
+        if (!simulatedAt(ctx, c.x, c.z)) return false;
+        if (!flatFootprint(ctx, c, kCrateHalf, kCrateHalf, 0.f, 0.35f, &y)) return false;
+        if (std::fabs(y - clicked) > 1.0f) return false;
+        float ground = y;
+        for (int k = 0; k < 8; ++k) ground = std::min(ground, nav.surface(c.x + 8.f * std::cos(k * kPi / 4), c.z + 8.f * std::sin(k * kPi / 4)));
+        if (y - ground > 0.5f && y - ground <= 2.5f) { reason = "blocked: on a vehicle, wall or obstacle"; return false; }
+        V3 w;
+        if (!nav.nearestWalkable(c, 1.6f, w) || std::fabs(nav.surface(w.x, w.z) - y) > 0.4f) return false;
+        return true;
+    };
+    float y;
+    if (ok(pos, y)) { spot = {pos.x, y, pos.z}; if (why) *why = ""; return true; }
+    float best = 1e9f;
+    for (float r = 0.5f; r <= 2.5f + 1e-3f; r += 0.5f)
+        for (int k = 0; k < 16; ++k) {
+            const float a = (float)k * kPi / 8.f;
+            V3 c{pos.x + std::cos(a) * r, 0, pos.z + std::sin(a) * r};
+            if (!ok(c, y)) continue;
+            const float sc = r + std::fabs(y - clicked);
+            if (sc < best) { best = sc; spot = {c.x, y, c.z}; }
+        }
+    if (best > 1e8f) return no(reason);
     if (why) *why = "";
     return true;
 }
@@ -110,21 +139,35 @@ SupplyId Logistics::airdrop(GameContext& ctx, V3 pos) {
     // scatter (deterministic per drop): the crate lands near, not exactly at, the requested point
     uint32_t seed = pcg((uint32_t)points_.size() * 7919u + (uint32_t)(ctx.tick * 31u) + 17u);
     V3 land = pos;
-    for (int k = 0; k < 8; ++k) {
+    V3 base;
+    const bool snapped = airdropSpot(ctx, pos, base);
+    if (snapped) land = base;
+    // scatter stays on the requested surface: the same level and navigation island (a crate for a rooftop sniper lands
+    // on his roof, never in the street below or on the next roof level)
+    const uint32_t isl = snapped && ctx.nav ? ctx.nav->island(base.x, base.z) : 0u;
+    for (int k = 0; k < 8 && snapped; ++k) {
         const float a = rand01(seed) * 2.f * kPi, r = rand01(seed) * L.airdropScatter;
-        V3 c{pos.x + std::cos(a) * r, pos.y, pos.z + std::sin(a) * r};
-        if (canAirdrop(ctx, c)) { land = c; break; }
+        V3 c{base.x + std::cos(a) * r, base.y, base.z + std::sin(a) * r}, s2;
+        if (!airdropSpot(ctx, c, s2) || std::fabs(s2.y - base.y) > 0.4f || dist2(s2, base) > (L.airdropScatter + 0.5f) * (L.airdropScatter + 0.5f)) continue;
+        V3 w;
+        if (isl && (!ctx.nav->nearestWalkable(s2, 1.6f, w) || ctx.nav->island(w.x, w.z) != isl)) continue;
+        land = s2;
+        break;
     }
     land.y = ctx.nav ? ctx.nav->surface(land.x, land.z) : pos.y;
     sp.pos = land;
     sp.yaw = rand01(seed) * 2.f * kPi;
-    for (int a = 0; a < 3; ++a) sp.stock[(size_t)a] = L.crateStock[(size_t)a];
+    for (size_t a = 0; a < kAmmoTypes; ++a) sp.stock[a] = L.crateStock[a];
     const int want = std::max(1, L.crateSlots);
     for (int k = 0; k < 8 && (int)sp.slots.size() < want; ++k) {
         static const float off[8] = {0.f, kPi, kPi / 2, -kPi / 2, kPi / 4, 3 * kPi / 4, -kPi / 4, -3 * kPi / 4};
         const float a = sp.yaw + off[k];
         V3 c{land.x + std::cos(a) * 1.1f, land.y, land.z + std::sin(a) * 1.1f}, s;
         if (ctx.nav && slotAt(ctx, c, land.y, s)) sp.slots.push_back(s);
+    }
+    if (sp.slots.empty() && ctx.nav) {   // small roof: the nearest walkable cell on the crate's level
+        V3 w;
+        if (ctx.nav->nearestWalkable(land, 1.6f, w) && std::fabs(ctx.nav->surface(w.x, w.z) - land.y) < 0.4f) sp.slots.push_back({w.x, ctx.nav->surface(w.x, w.z), w.z});
     }
     if (sp.slots.empty()) sp.slots.push_back({land.x + 1.1f, land.y, land.z});
     sp.slotUser.assign(sp.slots.size(), SoldierId{});

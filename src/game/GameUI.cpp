@@ -68,6 +68,10 @@ void classGlyph(ImDrawList* dl, ImVec2 c, float r, SquadType t, ImU32 fill, ImU3
         dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), fill, 1.5f);
         dl->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), edge, 1.5f, 0, 1.5f);
         dl->AddLine(ImVec2(c.x - r * 0.55f, c.y), ImVec2(c.x + r * 0.55f, c.y), edge, 1.5f);   // "MG" bar
+    } else if (t == SquadType::Flamethrower) {   // flamethrower: upward triangle (flame)
+        const float q = r * 1.25f;
+        dl->AddTriangleFilled(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y + q * 0.8f), ImVec2(c.x - q, c.y + q * 0.8f), fill);
+        dl->AddTriangle(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y + q * 0.8f), ImVec2(c.x - q, c.y + q * 0.8f), edge, 1.5f);
     } else {
         const float q = r * 1.2f;
         dl->AddQuadFilled(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y), ImVec2(c.x, c.y + q), ImVec2(c.x - q, c.y), fill);
@@ -75,7 +79,12 @@ void classGlyph(ImDrawList* dl, ImVec2 c, float r, SquadType t, ImU32 fill, ImU3
     }
 }
 
-const char* squadName(SquadType t) { return t == SquadType::Rifle ? "Rifle squad" : t == SquadType::MachineGun ? "MG squad" : "Sniper"; }
+const char* squadName(SquadType t) {
+    return t == SquadType::Rifle ? "Rifle squad" : t == SquadType::MachineGun ? "MG squad" : t == SquadType::Flamethrower ? "Flamethrower squad" : "Sniper";
+}
+SquadType buyType(Tool t) {
+    return t == Tool::BuyRifle ? SquadType::Rifle : t == Tool::BuyMG ? SquadType::MachineGun : t == Tool::BuyFlame ? SquadType::Flamethrower : SquadType::Sniper;
+}
 
 V3 squadCentre(const Squad& s, const SoldierPool& P, int* alive = nullptr) {
     V3 c{};
@@ -198,9 +207,9 @@ void GameUI::placeAt(AppState& app, const GameContext& ctx, V3 p, CommandQueue& 
     int price = 0;
     bool ok = false;
     switch (tool_) {
-    case Tool::BuyRifle: case Tool::BuyMG: case Tool::BuySniper: {
+    case Tool::BuyRifle: case Tool::BuyMG: case Tool::BuySniper: case Tool::BuyFlame: {
         c.type = CommandType::BuySquad;
-        c.squadType = tool_ == Tool::BuyRifle ? SquadType::Rifle : tool_ == Tool::BuyMG ? SquadType::MachineGun : SquadType::Sniper;
+        c.squadType = buyType(tool_);
         DropPlan plan = ctx.deploy->plan(ctx, c.squadType, p);
         ok = plan.valid; why = plan.reason; price = plan.price;
         break;
@@ -248,6 +257,7 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
         if (k == SDLK_Z) return toggle(Tool::BuyRifle);
         if (k == SDLK_X) return toggle(Tool::BuyMG);
         if (k == SDLK_C) return toggle(Tool::BuySniper);
+        if (k == SDLK_Y) return toggle(Tool::BuyFlame);   // 14d
         if (k == SDLK_V) return toggle(Tool::PlaceContainer);
         if (k == SDLK_B) return toggle(Tool::Airdrop);
         if (k == SDLK_T && tool_ == Tool::PlaceContainer) { containerYaw_ = std::fmod(containerYaw_ + kPi / 2.f, 2.f * kPi); return true; }
@@ -437,15 +447,17 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
     ImGui::Begin("##build", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
                                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     struct B { Tool t; const char* name; const char* key; int price; const char* tip; };
-    const B items[5] = {
+    const B items[6] = {
         {Tool::BuyRifle, "Rifle squad", "Z", cfg.squad[0].price, "5 riflemen. General purpose: clearing and defence."},
         {Tool::BuyMG, "MG squad", "X", cfg.squad[1].price, "3 machine gunners. Sustained fire against dense hordes. Loud, high ammo use."},
         {Tool::BuySniper, "Sniper", "C", cfg.squad[2].price, "1 suppressed sniper. Quiet removal of isolated zombies; rooftops."},
         {Tool::PlaceContainer, "Ammo container", "V", cfg.economy.containerPrice, "Central ammunition container (finite stock). Soldiers walk to it to refill.\nArrives by parachute, never disappears and blocks zombies like a wall piece.\nQ / E / mouse wheel rotate 15 deg, T 90 deg."},
         {Tool::Airdrop, "Ammo drop", "B", cfg.economy.airdropPrice, "Airdrop crate by parachute near your units (finite stock)."},
+        {Tool::BuyFlame, "Flamethrowers", "Y", cfg.squad[(size_t)SquadType::Flamethrower].price,
+         "2 flamethrowers (size PROPOSED). Burn corpse piles: burnt bodies are gone and stop giving off poison gas.\nSeek rotting piles near their post on their own (or order them onto a pile); short-range flame cone\nalso burns zombies. Fuel from containers / crates. Very loud. Placeholder model (rifleman) until approved."},
     };
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    for (int k = 0; k < 5; ++k) {
+    for (int k = 0; k < 6; ++k) {
         const B& b = items[k];
         if (k) ImGui::SameLine();
         const bool afford = ctx.economy->canAfford(b.price), active = tool_ == b.t;
@@ -463,6 +475,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
         const ImVec2 ic(p0.x + 14.f, p0.y + sz.y * 0.5f);
         const ImU32 fc = afford ? IM_COL32(150, 156, 98, 255) : IM_COL32(90, 90, 80, 255);
         if (k < 3) classGlyph(dl, ic, 6.f, (SquadType)k, fc, IM_COL32(20, 22, 14, 255));
+        else if (b.t == Tool::BuyFlame) classGlyph(dl, ic, 6.f, SquadType::Flamethrower, fc, IM_COL32(20, 22, 14, 255));
         else if (k == 3) { dl->AddRectFilled(ImVec2(ic.x - 8, ic.y - 5), ImVec2(ic.x + 8, ic.y + 5), fc, 1.f); dl->AddLine(ImVec2(ic.x - 3, ic.y - 5), ImVec2(ic.x - 3, ic.y + 5), IM_COL32(20, 22, 14, 255), 1.f); }
         else { dl->AddRectFilled(ImVec2(ic.x - 5, ic.y - 1), ImVec2(ic.x + 5, ic.y + 7), fc, 1.f); dl->AddCircle(ImVec2(ic.x, ic.y - 4), 6.f, fc, 12, 1.5f); }
         ImGui::PopID();
@@ -500,6 +513,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
         ImGui::TextColored(ImGui::ColorConvertU32ToFloat4((s->flags & SQ_UNDER_ATTACK) ? kBad : (s->flags & SQ_OUT_OF_AMMO) ? kBad
                                                           : (s->flags & SQ_LOW_AMMO) ? kAmber : kDim), "%s%s", status,
                            (s->flags & SQ_OUT_OF_AMMO) ? ", no ammo" : (s->flags & SQ_LOW_AMMO) ? ", low ammo" : "");
+        if (s->flags & SQ_GAS) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.6f, 0.78f, 0.16f, 1.f), "in gas"); }   // 14d
         for (const SoldierId& m : s->members) {
             if (!P.valid(m)) continue;
             const uint32_t i = m.index;
@@ -598,6 +612,9 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
             x += 8.f;
         }
         if (f & SQ_RESUPPLYING) pip(kBlue);
+        if (f & SQ_GAS) {   // 14d: standing in corpse gas (sickly green, pulsing)
+            pip(((int)(now_ * 3.0) & 1) ? IM_COL32(150, 190, 40, 255) : IM_COL32(90, 120, 20, 255));
+        }
         if ((f & SQ_MOVING) && !(f & SQ_DEPLOYING)) {
             dl->AddTriangleFilled(ImVec2(x - 3, sp.y - 3), ImVec2(x + 3, sp.y), ImVec2(x - 3, sp.y + 3), kOk);
             x += 8.f;
@@ -627,8 +644,8 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
     const char* why = "";
     char label[96];
     int price = 0;
-    if (tool_ == Tool::BuyRifle || tool_ == Tool::BuyMG || tool_ == Tool::BuySniper) {
-        const SquadType t = tool_ == Tool::BuyRifle ? SquadType::Rifle : tool_ == Tool::BuyMG ? SquadType::MachineGun : SquadType::Sniper;
+    if (tool_ == Tool::BuyRifle || tool_ == Tool::BuyMG || tool_ == Tool::BuySniper || tool_ == Tool::BuyFlame) {
+        const SquadType t = buyType(tool_);
         DropPlan plan = ctx.deploy->plan(ctx, t, p);
         ok = plan.valid; why = plan.reason; price = plan.price;
         const ImU32 col = ok ? kOk : kBad;

@@ -8,7 +8,7 @@
 #ifndef TTZ_SHADOW_GLSL
 #define TTZ_SHADOW_GLSL
 #define DBG_SHADOWS 32u
-layout(set = 2, binding = 0) uniform sampler2DShadow shadowMap;
+layout(set = 2, binding = 0) uniform sampler2DArrayShadow shadowMap;   // 2 layers: neighbouring sun keys
 float shadowAt(ivec2 c) {
     ivec2 d = ivec2(gridDim.xy) * 3;
     c = clamp(c, ivec2(0), d - 1);
@@ -23,11 +23,8 @@ float shadowFieldVisibility(vec3 P, vec3 N) {
     float h = mix(mix(shadowAt(c0), shadowAt(c0 + ivec2(1, 0)), f.x), mix(shadowAt(c0 + ivec2(0, 1)), shadowAt(c0 + ivec2(1, 1)), f.x), f.y);
     return smoothstep(-0.08, 0.08, Q.y - h);
 }
-float shadowMapVisibility(vec3 P, vec3 N) {
-    // normal offset grows at grazing angles (where depth slopes are steep); a little extra towards the light
-    float ndl = dot(N, sunDir.xyz);
-    vec3 Q = P + N * shadowP.y * (1.2 + 1.8 * (1.0 - abs(ndl))) + sunDir.xyz * shadowP.y * 0.5;
-    vec4 c = shadowVP * vec4(Q, 1.0);
+float shadowMapLayer(vec3 Q, mat4 vp, float layer) {
+    vec4 c = vp * vec4(Q, 1.0);
     float edge = max(abs(c.x), abs(c.y));
     if (edge >= 1.0 || c.z <= 0.0) return 1.0;
     vec2 uv = vec2(c.x * 0.5 + 0.5, 0.5 - 0.5 * c.y);
@@ -35,9 +32,19 @@ float shadowMapVisibility(vec3 P, vec3 N) {
     float d = shadowP.w;
     float s = 0.0;
     for (int j = -1; j <= 1; ++j)
-        for (int i = -1; i <= 1; ++i) s += texture(shadowMap, vec3(uv + vec2(i, j) * d, z));
+        for (int i = -1; i <= 1; ++i) s += texture(shadowMap, vec4(uv + vec2(i, j) * d, layer, z));
     s *= 1.0 / 9.0;
     return mix(s, 1.0, smoothstep(0.88, 1.0, edge));   // fade out towards the map's border
+}
+float shadowMapVisibility(vec3 P, vec3 N) {
+    // normal offset grows at grazing angles (where depth slopes are steep); a little extra towards the light
+    float ndl = dot(N, sunDir.xyz);
+    vec3 Q = P + N * shadowP.y * (1.2 + 1.8 * (1.0 - abs(ndl))) + sunDir.xyz * shadowP.y * 0.5;
+    // smooth sun: cross-fade the maps of the two clock keys around the current time (Renderer::shadowView)
+    float w = shadowP2.x;
+    float a = w < 0.999 ? shadowMapLayer(Q, shadowVP, shadowP2.y) : 1.0;
+    float b = w > 0.001 ? shadowMapLayer(Q, shadowVP2, shadowP2.z) : 1.0;
+    return w < 0.001 ? a : w > 0.999 ? b : mix(a, b, w);
 }
 // 1 = lit by the key light, 0 = in shadow. (Name kept from the night-only engine.)
 float moonVisibility(vec3 P, vec3 N) {

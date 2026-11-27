@@ -29,7 +29,7 @@ struct AppState;
 
 namespace ttz::game {
 
-enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop, BuildWall /* B2 */ };
+enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop, BuildWall /* B2 */, BuyFlame /* 14d */ };
 
 struct UiNotice { std::string text; double time = 0; bool bad = false; };
 

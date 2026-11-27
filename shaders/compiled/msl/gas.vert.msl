@@ -1,0 +1,275 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+// Implementation of signed integer mod accurate to SPIR-V specification
+template<typename Tx, typename Ty>
+inline Tx spvSMod(Tx x, Ty y)
+{
+    Tx remainder = x - y * (x / y);
+    return select(Tx(remainder + y), remainder, remainder == 0 || (x >= 0) == (y >= 0));
+}
+
+struct GasDraw
+{
+    float4 gOrigin;
+    uint4 gDim;
+    float4 gStyle;
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct List
+{
+    uint list[1];
+};
+
+struct Field
+{
+    uint4 field[1];
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+    float4 blastsP[8];
+    float4 todP;
+    float4x4 shadowVP;
+    float4 shadowP;
+    float4 dofP;
+    float4x4 shadowVP2;
+    float4 shadowP2;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
+};
+
+constant spvUnsafeArray<int3, 24> _223 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _231 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
+constant spvUnsafeArray<float3, 6> _605 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    float3 vNormal [[user(locn1)]];
+    float4 vColor [[user(locn2)]];
+    float vEmissive [[user(locn3)]];
+    float4 gl_Position [[position]];
+};
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float simTop(thread const float2& xz, constant GasDraw& _67, const device StaticH& _112, const device CorpseH& _121)
+{
+    int2 c = clamp(int2(floor((xz - _67.gOrigin.xy) / float2(_67.gOrigin.w))), int2(0), int2(_67.gDim.zw) - int2(1));
+    uint id = (uint(c.y) * _67.gDim.z) + uint(c.x);
+    return fast::max(_112.staticH[id], 0.0) + (float(_121.corpseH[id]) * 0.001000000047497451305389404296875);
+}
+
+vertex main0_out main0(constant Frame& _622 [[buffer(0)]], constant GasDraw& _67 [[buffer(1)]], const device List& _136 [[buffer(2)]], const device Field& _149 [[buffer(3)]], const device StaticH& _112 [[buffer(4)]], const device CorpseH& _121 [[buffer(5)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    uint cell = _136.list[4u + uint(int(gl_InstanceIndex))];
+    uint4 f = _149.field[cell];
+    float gas = as_type<float>(f.x);
+    float fire = as_type<float>(f.y);
+    uint rotting = f.w >> uint(16);
+    int2 g = int2(int(cell % _67.gDim.x), int(cell / _67.gDim.x));
+    float2 c0 = _67.gOrigin.xy + (float2(g) * _67.gOrigin.z);
+    float2 cc = c0 + float2(0.5 * _67.gOrigin.z);
+    int box = int(gl_VertexIndex) / 36;
+    int v = spvSMod(int(gl_VertexIndex), 36);
+    int face = v / 6;
+    float3 corner = float3(_223[(face * 4) + _231[spvSMod(v, 6)]]);
+    float t = _67.gStyle.y;
+    uint seed = (cell * 2654435761u) + (uint(box) * 40503u);
+    uint param = seed;
+    float h1 = hash01(param);
+    uint param_1 = seed ^ 2654435769u;
+    float h2 = hash01(param_1);
+    uint param_2 = (seed * 7u) + 3u;
+    float h3 = hash01(param_2);
+    float3 lo = float3(0.0);
+    float3 size = float3(0.0);
+    float4 col = float4(0.0);
+    float em = 0.0;
+    bool on = false;
+    float2 param_3 = cc;
+    float ground = simTop(param_3, _67, _112, _121);
+    if ((box == 0) && (gas > 0.02999999932944774627685546875))
+    {
+        float hgt = 0.25 * fast::clamp(1.0 + floor(gas * 2.0), 1.0, _67.gStyle.w / 0.25);
+        lo = float3(c0.x, ground - 0.0500000007450580596923828125, c0.y);
+        size = float3(_67.gOrigin.z, hgt + 0.0500000007450580596923828125, _67.gOrigin.z);
+        col = float4(0.300000011920928955078125, 0.4000000059604644775390625, 0.07999999821186065673828125, fast::clamp((0.0500000007450580596923828125 + (0.1599999964237213134765625 * gas)) * _67.gStyle.x, 0.0, 0.4199999868869781494140625));
+        on = true;
+    }
+    else
+    {
+        bool _344 = (box == 1) || (box == 2);
+        bool _351;
+        if (_344)
+        {
+            _351 = gas > _67.gStyle.z;
+        }
+        else
+        {
+            _351 = _344;
+        }
+        if (_351)
+        {
+            float ph = fract((t * (0.100000001490116119384765625 + (0.0500000007450580596923828125 * h3))) + h1);
+            float s = 0.5;
+            lo = float3(c0.x + (h1 * (_67.gOrigin.z - s)), (ground + 0.25) + (ph * (0.800000011920928955078125 + (0.5 * fast::min(gas, 2.0)))), c0.y + (h2 * (_67.gOrigin.z - s)));
+            size = float3(s);
+            col = float4(0.36000001430511474609375, 0.4600000083446502685546875, 0.119999997317790985107421875, fast::clamp(((0.2199999988079071044921875 * _67.gStyle.x) * fast::min(gas, 1.5)) * sin(ph * 3.141590118408203125), 0.0, 0.3499999940395355224609375));
+            on = col.w > 0.00999999977648258209228515625;
+        }
+        else
+        {
+            if (((box >= 3) && (box <= 5)) && (rotting > 0u))
+            {
+                float a = ((t * (2.2000000476837158203125 + (1.2999999523162841796875 * h1))) * ((h2 > 0.5) ? 1.0 : (-1.0))) + (h3 * 6.283100128173828125);
+                float r = 0.300000011920928955078125 + (0.449999988079071044921875 * h2);
+                float s_1 = 0.070000000298023223876953125;
+                lo = float3(cc.x + (cos(a) * r), ((ground + 0.449999988079071044921875) + (0.4000000059604644775390625 * h1)) + (0.119999997317790985107421875 * sin((t * 7.0) + (h3 * 10.0))), cc.y + (sin(a * 1.2999999523162841796875) * r)) - float3(0.5 * s_1);
+                size = float3(s_1);
+                col = float4(0.014999999664723873138427734375, 0.014999999664723873138427734375, 0.01200000010430812835693359375, 1.0);
+                on = true;
+            }
+            else
+            {
+                if ((box >= 6) && (fire > 0.0))
+                {
+                    float ph_1 = fract((t * (1.2000000476837158203125 + (0.800000011920928955078125 * h3))) + h1);
+                    float s_2 = mix(0.4199999868869781494140625, 0.119999997317790985107421875, ph_1) * fast::clamp(fire, 0.300000011920928955078125, 1.0);
+                    lo = float3((c0.x + 0.1500000059604644775390625) + (h1 * ((_67.gOrigin.z - 0.300000011920928955078125) - s_2)), ground + (ph_1 * 1.10000002384185791015625), (c0.y + 0.1500000059604644775390625) + (h2 * ((_67.gOrigin.z - 0.300000011920928955078125) - s_2)));
+                    size = float3(s_2);
+                    float3 hot = mix(float3(9.0, 6.5, 2.400000095367431640625), float3(5.5, 1.60000002384185791015625, 0.25), float3(smoothstep(0.0, 0.5, ph_1)));
+                    col = float4(mix(hot, float3(1.60000002384185791015625, 0.25, 0.039999999105930328369140625), float3(smoothstep(0.5, 1.0, ph_1))), 0.949999988079071044921875);
+                    em = 1.0;
+                    on = true;
+                }
+            }
+        }
+    }
+    if (!on)
+    {
+        out.gl_Position = float4(0.0, 0.0, -2.0, 1.0);
+        out.vWorld = float3(0.0);
+        out.vNormal = float3(0.0, 1.0, 0.0);
+        out.vColor = float4(0.0);
+        out.vEmissive = 0.0;
+        return out;
+    }
+    out.vWorld = lo + (corner * size);
+    out.vNormal = _605[face];
+    out.vColor = col;
+    out.vEmissive = em;
+    out.gl_Position = _622.viewProj * float4(out.vWorld, 1.0);
+    return out;
+}
+

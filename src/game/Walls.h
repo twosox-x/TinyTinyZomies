@@ -4,9 +4,14 @@
 // the oriented footprints that GameWorld stamps into the zombies' static height grid (CityVehicles::addObstacle) and
 // that Territory rasterises.
 //
-// Network: a wall is a set of nodes (joints, snapped to the 1 m grid or to existing nodes) and pieces between two
-// nodes. A drawn leg of length L is split into n = round(L / 4) pieces of the approved 4 m straight (or gate) asset,
-// uniformly scaled by L / 4n (0.75 .. 1.33; the collision footprint uses the same scale). Each node shows the joint
+// Network: a wall is a set of nodes (joints, snapped to the 1 m grid, to existing nodes or onto an existing piece,
+// which is then split there) and pieces between two nodes. A drawn leg of length L becomes whole 4 m pieces of the
+// approved straight asset plus one auto-fill end piece for a remainder >= 1 m (a remainder < 1 m stretches the 4 m
+// pieces); gates stay n = round(L / 4) pieces scaled by L / 4n. Pieces shorter than 3.5 m are drawn as a row of 1 m
+// gabion baskets (the approved joint post asset), never as a squashed 4 m piece.
+// Construction (GAME_DESIGN 14d): committed pieces start as blueprints (build 0) and become solid (collision,
+// territory, joints, pressure) only when engineers finish them (EngineerAI); commit(plan, instant = true) is the
+// debug / test cheat. Blueprints already count for placement (no overlaps) and snapping. Each node shows the joint
 // asset its connections need: 1 piece -> end cap, 2 (bent > 8 deg) -> corner post, 2 straight -> nothing (butt joint),
 // 3 -> T post, 4+ -> X post. Every connected node also gets a square collision post so bends never leave a gap.
 // Mixed types at a node take the taller post.
@@ -64,7 +69,8 @@ template <class F> void forEachObbCell(const Obb& b, float ox, float oz, float c
 
 struct WallNode {
     float x = 0, z = 0, y = 0;
-    uint16_t degree = 0;          // alive pieces attached
+    uint16_t degree = 0;          // alive pieces attached (blueprints included)
+    uint16_t solidDeg = 0;        // finished (solid) pieces attached: posts / joints / obstacles
     bool alive = false;
     uint32_t obstacle = ~0u;      // CityVehicles obstacle id of the post (GameWorld)
 };
@@ -81,6 +87,12 @@ struct WallPiece {
     float gateOpen = 0;           // 0 closed .. 1 open (visual: soldiers nearby)
     uint32_t obstacle = ~0u;      // CityVehicles obstacle id (GameWorld)
     uint32_t gen = 0;
+    float build = 1.f;            // construction progress 0..1 (1 = solid: collision, territory, pressure)
+    bool toGate = false;          // solid wall piece being converted into a gate (gate placed into a wall)
+    bool restamp = false;         // geometry changed (split): Fortifications re-stamps its obstacle
+    uint32_t batch = 0;           // placement batch (undo of the last placement before construction completes)
+    int price = 0;                // what was charged for it (refund on undo)
+    bool solid() const { return alive && build >= 1.f; }
 };
 
 struct WallRubble { Obb box; WallType type; bool gate; float y = 0, t = 0; };   // destroyed piece (visual)
@@ -91,13 +103,20 @@ struct WallEnv {
     std::function<float(float, float)> solid;      // ground + parked vehicles
     std::function<bool(float, float)> simulated;   // inside the simulated window
     std::vector<Obb> containers;                   // supply containers (landed or on their way down)
+    std::vector<Obb> clearing;                     // vehicles engineers are ordered to remove: not obstacles for planning
+    std::function<bool(float, float)> buildable;   // inside an engineer squad's construction radius (null: anywhere)
     float streetY = 0.f;                           // street level of the window (walls stand on the street, not on roofs)
 };
 
 struct WallPlanPiece {
     float ax = 0, az = 0, bx = 0, bz = 0, y = 0;
     int nodeA = -1, nodeB = -1;   // existing nodes snapped to (-1: new)
+    int splitA = -1, splitB = -1; // existing piece this end lies on (mid-piece snap: split on commit)
     bool ok = true;
+    bool fill = false;            // auto-fill end piece (shorter than 4 m)
+    bool closesLoop = false;      // connects two already connected wall nodes (closes a perimeter)
+    bool clearing = false;        // overlaps a vehicle engineers are ordered to remove (built after it is gone)
+    int price = 0;
     const char* why = "";
 };
 
@@ -109,6 +128,9 @@ struct WallPlan {
     const char* reason = "empty";
     int price = 0;
     float length = 0;
+    int replacePiece = -1;        // gate placed into an existing wall piece (that part of the piece becomes the gate)
+    bool trimmed = false;         // an end was pulled back to a building facade (walls butt against facades)
+    bool closesLoop = false;
 };
 
 class Walls {
@@ -121,13 +143,24 @@ public:
     static float postSize(WallType t) { return t == WallType::Reinforced ? 1.2f : 1.0f; }
     float height(WallType t) const { return height_[(size_t)t]; }
 
-    // Snapping for the tool: an existing node within 1.5 m wins (node >= 0); else, from `from` (drag), the length is
-    // snapped to whole 4 m pieces along the drag direction unless `fine`; else the 1 m grid.
-    V3 snap(V3 p, const V3* from, bool fine, int& node) const;
+    // Snapping for the tool: an existing node within 1.5 m wins (node >= 0); else a point on an existing piece within
+    // 1.2 m (projected onto it, *piece = its index; >= 1 m from its ends); else, from `from` (drag), the length is
+    // snapped to whole 4 m pieces along the drag direction unless `fine` (then whole metres); else the 1 m grid.
+    V3 snap(V3 p, const V3* from, bool fine, int& node, int* piece = nullptr) const;
     // Plan a polyline (>= 2 points, already snapped). Cost, validity and per-piece reasons; never changes anything.
     WallPlan plan(const std::vector<V3>& pts, WallType type, bool gate, const WallEnv& env) const;
-    // Build a valid plan (the caller charged Economy first). Returns the indices of the new pieces.
-    std::vector<uint32_t> commit(const WallPlan& plan);
+    // A single 4 m gate centred at c (yaw: yawQuat convention). Over an existing wall piece (within 1.5 m) it aligns
+    // to it and replaces that part of the piece; next to a wall end (within 2.5 m) it continues that wall; otherwise
+    // it stands on its own (end posts). Joints snap to existing nodes within 1 m.
+    WallPlan planGate(V3 c, float yaw, WallType type, const WallEnv& env) const;
+    // Build a valid plan (the caller charged Economy first). Returns the indices of the new pieces (blueprints with
+    // build 0 unless `instant`; a gate placed into a wall: the piece to convert).
+    std::vector<uint32_t> commit(const WallPlan& plan, bool instant = true);
+    // Construction (EngineerAI): add progress (0..1 units); true when the piece just became solid.
+    bool advance(uint32_t piece, float amount);
+    void finishGate(uint32_t piece);                                 // toGate piece -> gate
+    bool cancel(uint32_t piece);                                     // unfinished blueprint removed / gate order dropped
+    uint32_t lastBatch() const { return batch_; }
 
     // Damage / destruction
     void addPressure(uint32_t piece, float zombies, float dt);       // pressure damage (FortConfig rate / threshold)
@@ -151,10 +184,13 @@ public:
     JointShape joint(uint32_t node, float& yaw, WallType& type) const;
     int nearestNode(float x, float z, float maxR) const;
     int nearestPiece(float x, float z, float maxR) const;
-    uint32_t alivePieces() const;
+    uint32_t alivePieces() const;                    // blueprints included
+    uint32_t solidPieces() const;
     uint32_t aliveGates() const;
     float totalLength() const;
-    int piecePrice(WallType t, bool gate) const;
+    int piecePrice(WallType t, bool gate) const;                     // per 4 m piece
+    int piecePrice(WallType t, bool gate, float len) const;          // auto-fill pieces pay their length
+    int pieceAt(float x, float z, float tol) const;  // piece whose segment passes within tol, >= 1 m from its ends
 
     // Placement preview of the wall tool (GameUI sets it, the renderer draws ghosts of the valid pieces).
     WallPlan preview;
@@ -162,7 +198,9 @@ public:
 
 private:
     uint32_t addNode(float x, float z, float y);
-    void detach(uint32_t node);
+    void detach(uint32_t node, bool solid);
+    uint32_t splitAt(float x, float z, float y);     // node at (x, z): existing, or split the piece there, or new
+    uint32_t batch_ = 0;
     std::vector<WallNode> nodes_;
     std::vector<WallPiece> pieces_;
     std::vector<WallRubble> rubble_;

@@ -1,6 +1,7 @@
 #pragma once
-// Day / night cycle: a 24 h clock mapped onto a configurable real-time cycle (default 30 min: 15 min of day from
-// 06:00 to 18:00, 15 min of night), with dawn / dusk inside the transitions. evalTimeOfDay() turns the clock into the
+// Day / night cycle: a 24 h clock mapped onto a configurable real-time cycle (GAME_DESIGN: 20 real minutes of day, sun up
+// 06:00 -> 18:00, then 7 real minutes of night, 18:00 -> 06:00), with dawn / dusk inside the transitions (the clock rate
+// blends smoothly between the day and night rates over the hour around sunrise / sunset). evalTimeOfDay() turns the clock into the
 // lighting of a frame: the key light (warm sun by day, cool moon by night, both fading to zero at their horizon so
 // the direction can switch without a pop), hemisphere ambient, fog / sky colour, exposure, and how far the night
 // emissives (windows, street lamps) are on.
@@ -15,16 +16,26 @@ struct TimeOfDaySettings {
     float hours = 16.5f;          // clock, 0..24 (6 = sunrise, 12 = noon, 18 = sunset, 0 = midnight)
     bool paused = false;
     float speed = 1.0f;           // multiplier on the cycle rate
-    float cycleMinutes = 30.f;    // real minutes per 24 h (half day, half night)
+    float dayMinutes = 20.f;      // real minutes from 06:00 to 18:00 (sun up)
+    float nightMinutes = 7.f;     // real minutes from 18:00 to 06:00
     float sunMaxElevation = 52.f; // degrees at noon (lower = longer shadows all day)
     float sunAzimuthOffset = 25.f;// degrees: rotates the sun's path against the street grid (diagonal shadows)
     float moonMaxElevation = 50.f;
     float nightBrightness = 1.0f; // scales the night ambient + moonlight
     float sunStrength = 1.0f;     // scales the direct sun
+    float cycleMinutes() const { return dayMinutes + nightMinutes; }
+    // real seconds -> clock hours at clock time h: 12 h per dayMinutes by day, per nightMinutes by night; the rate
+    // blends over 05:30-06:30 and 17:30-18:30 (no step in the shadow speed at sunrise / sunset)
+    float hoursPerSecond(float h) const {
+        const float dayRate = 12.f / (std::max(dayMinutes, 0.05f) * 60.f), nightRate = 12.f / (std::max(nightMinutes, 0.05f) * 60.f);
+        auto sm = [](float a, float b, float x) { float t = std::clamp((x - a) / (b - a), 0.f, 1.f); return t * t * (3.f - 2.f * t); };
+        const float day = sm(5.5f, 6.5f, h) * (1.f - sm(17.5f, 18.5f, h));
+        return nightRate + (dayRate - nightRate) * day;
+    }
     // advance by dt real seconds
     void advance(float dt) {
-        if (paused || cycleMinutes <= 0.f) return;
-        hours = std::fmod(hours + dt * speed * 24.f / (cycleMinutes * 60.f), 24.f);
+        if (paused || cycleMinutes() <= 0.f) return;
+        hours = std::fmod(hours + dt * speed * hoursPerSecond(hours), 24.f);
         if (hours < 0.f) hours += 24.f;
     }
 };

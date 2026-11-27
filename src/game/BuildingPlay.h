@@ -60,6 +60,8 @@ public:
     const Stats& stats() const { return stats_; }
     int ammoStock(BuildingId b) const { return b.v < ammo_.size() ? ammo_[b.v] : 0; }
     bool posted(uint32_t soldier) const;
+    // TEST HOOK (scripts): zombies inside a building as B3b would report them (-1: off); wins over the B3b count
+    void forceZombiesInside(BuildingId b, int n) { if (forced_.size() <= b.v) forced_.resize(b.v + 1, -1); forced_[b.v] = n; }
     // door exit (walkable point 1.6 m outside the entrance) of opening k
     static V3 doorExit(const Building& B, int k);
 
@@ -74,6 +76,7 @@ private:
 
     BuildingRegistry reg_;
     std::vector<Action> pending_;
+    std::vector<int> forced_;
     std::vector<BuildingNotice> notices_;
     std::vector<int> ammo_;                  // per building: garrison ammo stack (rounds)
     std::vector<uint32_t> orderSerial_;      // per soldier: squad order serial when the building took him over

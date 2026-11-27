@@ -381,6 +381,8 @@ void CityVehicles::setWindow(float ox, float oz, float cell, int gw, int gh, con
         addToWindow(i);
     }
     for (uint32_t i : window_) clearBakedFootprint(all_[i]);
+    for (uint32_t i = 0; i < all_.size(); ++i)   // vehicles cleared by engineers: their baked footprint is ground too
+        if (all_[i].removed) { computeRect(all_[i]); if (all_[i].sx1 >= all_[i].sx0) clearBakedFootprint(all_[i]); }
     solid_ = base_;
     obst_ = base_;
     for (uint32_t i : window_)
@@ -394,6 +396,52 @@ void CityVehicles::setWindow(float ox, float oz, float cell, int gw, int gh, con
                             return true;
                         }),
                         explodeQueue_.end());
+}
+
+void CityVehicles::groundBox(uint32_t i, float& cx, float& cz, float& hx, float& hz, float& yaw) const {
+    const Vehicle& v = all_[i];
+    const VehicleModel& M = models_[v.variant];
+    const F3 ax = rot(v.q, {1, 0, 0});
+    yaw = std::atan2(-ax.z, ax.x);
+    const float mx = 0.5f * (M.bmin[0] + M.bmax[0]), mz = 0.5f * (M.bmin[2] + M.bmax[2]);
+    const F3 c = ld(v.ro) + rot(v.q, {mx, 0.f, mz});
+    cx = c.x; cz = c.z;
+    hx = 0.5f * (M.bmax[0] - M.bmin[0]);
+    hz = 0.5f * (M.bmax[2] - M.bmin[2]);
+}
+
+uint32_t CityVehicles::parkedAt(float x, float z, float maxR) const {
+    uint32_t best = UINT32_MAX;
+    float bd = maxR;
+    for (uint32_t i : window_) {
+        const Vehicle& v = all_[i];
+        if (v.removed || v.active || v.health < -1e8f) continue;
+        float cx, cz, hx, hz, yaw;
+        groundBox(i, cx, cz, hx, hz, yaw);
+        const float c = std::cos(yaw), s = std::sin(yaw), dx = x - cx, dz = z - cz;
+        const float u = std::fabs(dx * c - dz * s) - hx, w = std::fabs(dx * s + dz * c) - hz;
+        const float d = std::hypot(std::max(0.f, u), std::max(0.f, w));
+        if (d < bd || (d == 0.f && bd == 0.f)) { bd = d; best = i; }
+    }
+    return best;
+}
+
+bool CityVehicles::removeVehicle(uint32_t i) {
+    if (i >= all_.size() || all_[i].removed) return false;
+    Vehicle& v = all_[i];
+    if (!v.custom) { v.custom = true; custom_.push_back(i); }   // the baked instance is no longer drawn
+    v.removed = true;
+    v.active = false;
+    v.queued = false;
+    v.health = -1e9f;   // never simulated again (blasts, fuses)
+    explodeQueue_.erase(std::remove(explodeQueue_.begin(), explodeQueue_.end(), i), explodeQueue_.end());
+    if (v.inWindow) {
+        clearBakedFootprint(v);
+        window_.erase(std::remove(window_.begin(), window_.end(), i), window_.end());
+        v.inWindow = false;
+        if (v.sx1 >= v.sx0) { restampSolid(v.sx0, v.sz0, v.sx1, v.sz1, i); markDirty(v.sz0, v.sz1); }
+    }
+    return true;
 }
 
 float CityVehicles::groundAt(float x, float z) const {

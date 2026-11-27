@@ -22,7 +22,7 @@ struct SupplyPoint {
     SupplyKind kind = SupplyKind::Crate;
     V3 pos;
     float yaw = 0.f;
-    std::array<int, 3> stock = {0, 0, 0};     // rounds per AmmoType
+    std::array<int, kAmmoTypes> stock{};      // rounds per AmmoType (Fuel: flamethrower fuel units)
     std::vector<V3> slots;                    // access points (world)
     std::vector<SoldierId> slotUser;          // reservation per slot
     std::vector<float> slotStale;             // s the slot's user has not been resupplying (stale reservations freed)
@@ -46,6 +46,10 @@ public:
     bool canPlaceContainer(const GameContext& ctx, V3 pos, float yaw, const char** why = nullptr) const;
     SupplyId placeContainer(GameContext& ctx, V3 pos, float yaw);       // caller (Commands) charged Economy first
     bool canAirdrop(const GameContext& ctx, V3 pos, const char** why = nullptr) const;
+    // Crate landing spot for a drop requested at pos (owner feedback round 3: crates onto rooftops for snipers): the
+    // clicked surface (street or ANY roof level of a stepped building), snapped within 2.5 m to a flat 1.2 m spot on
+    // that same surface with a walkable access cell next to it. spot.y = surface.
+    bool airdropSpot(const GameContext& ctx, V3 pos, V3& spot, const char** why = nullptr) const;
     SupplyId airdrop(GameContext& ctx, V3 pos);
     // Soldier side.
     SupplyId findNearest(const GameContext& ctx, V3 from, AmmoType type, float maxDist) const;
@@ -64,7 +68,7 @@ public:
     // Soldiers waiting for a slot register here (AI calls reserve() each tick until it succeeds; counted for the UI).
 private:
     SupplyPoint* getMut(SupplyId id);
-    std::array<uint64_t, 3> delivered_{};
+    std::array<uint64_t, kAmmoTypes> delivered_{};
     std::vector<int> waiting_, waitingNow_;
     std::vector<SupplyPoint> points_;
     std::vector<uint32_t> gen_;

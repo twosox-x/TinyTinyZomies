@@ -1,0 +1,405 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct GasUniforms
+{
+    uint4 gdim;
+    int4 gshift;
+    float4 rotP;
+    float4 airP;
+    float4 fireP;
+    float4 miscP;
+    float4 coneA[16];
+    float4 coneB[16];
+    uint4 coneC[16];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Corpse
+{
+    float4 pos;
+    uint4 info;
+};
+
+struct Corpse_1
+{
+    float4 pos;
+    uint4 info;
+};
+
+struct Corpses
+{
+    Corpse_1 corpses[1];
+};
+
+struct Rot
+{
+    uint4 rot[1];
+};
+
+struct Field
+{
+    uint4 field[1];
+};
+
+struct Out
+{
+    uint outW[1];
+};
+
+struct Accum
+{
+    uint accum[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+constant spvUnsafeArray<int2, 4> _132 = spvUnsafeArray<int2, 4>({ int2(0), int2(1, 0), int2(0, 1), int2(1) });
+
+static inline __attribute__((always_inline))
+int2 gasCoord(thread const float2& xz, constant SimUniforms& _58)
+{
+    float2 g = (xz - _58.world.xy) * (_58.world.w / 2.0);
+    return int2(floor(g));
+}
+
+static inline __attribute__((always_inline))
+bool gasInside(thread const int2& g, constant GasUniforms& _212)
+{
+    bool _240 = g.x >= 0;
+    bool _246;
+    if (_240)
+    {
+        _246 = g.y >= 0;
+    }
+    else
+    {
+        _246 = _240;
+    }
+    bool _255;
+    if (_246)
+    {
+        _255 = g.x < int(_212.gdim.x);
+    }
+    else
+    {
+        _255 = _246;
+    }
+    bool _264;
+    if (_255)
+    {
+        _264 = g.y < int(_212.gdim.y);
+    }
+    else
+    {
+        _264 = _255;
+    }
+    return _264;
+}
+
+static inline __attribute__((always_inline))
+uint gasIndex(thread const int2& g, constant GasUniforms& _212)
+{
+    return (uint(g.y) * _212.gdim.x) + uint(g.x);
+}
+
+static inline __attribute__((always_inline))
+float coneCover(thread const float3& p, thread const float& slack, thread uint& owner, constant GasUniforms& _212)
+{
+    float s = 0.0;
+    owner = 0u;
+    for (uint k = 0u; (k < _212.gdim.w) && (k < 16u); k++)
+    {
+        float3 d = p - _212.coneA[k].xyz;
+        float along = dot(d, _212.coneB[k].xyz);
+        bool _299 = along < 0.0;
+        bool _308;
+        if (!_299)
+        {
+            _308 = along > _212.coneA[k].w;
+        }
+        else
+        {
+            _308 = _299;
+        }
+        if (_308)
+        {
+            continue;
+        }
+        float l = length(d);
+        float lat = sqrt(fast::max((l * l) - (along * along), 0.0));
+        float rad = (along * sqrt(fast::max(1.0 - (_212.coneB[k].w * _212.coneB[k].w), 0.0))) / fast::max(_212.coneB[k].w, 0.20000000298023223876953125);
+        if (lat > (rad + slack))
+        {
+            continue;
+        }
+        float t = as_type<float>(_212.coneC[k].y);
+        if (t > s)
+        {
+            s = t;
+            owner = _212.coneC[k].x;
+        }
+    }
+    return s;
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _58)
+{
+    return (uint(c.y) * _58.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+void splatCorpse(thread const float2& xz, thread const float& heightM, constant SimUniforms& _58, device CorpseH& _184)
+{
+    float2 g = ((xz - _58.world.xy) * _58.world.w) - float2(0.5);
+    int2 c0 = int2(floor(g));
+    float2 f = g - float2(c0);
+    spvUnsafeArray<float, 4> _124 = spvUnsafeArray<float, 4>({ (1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y });
+    spvUnsafeArray<float, 4> w = _124;
+    for (int k = 0; k < 4; k++)
+    {
+        int2 c = c0 + _132[k];
+        bool _150 = c.x < 0;
+        bool _157;
+        if (!_150)
+        {
+            _157 = c.y < 0;
+        }
+        else
+        {
+            _157 = _150;
+        }
+        bool _167;
+        if (!_157)
+        {
+            _167 = c.x >= int(_58.grid.x);
+        }
+        else
+        {
+            _167 = _157;
+        }
+        bool _177;
+        if (!_167)
+        {
+            _177 = c.y >= int(_58.grid.y);
+        }
+        else
+        {
+            _177 = _167;
+        }
+        if (_177)
+        {
+            continue;
+        }
+        int2 param = c;
+        int _199 = atomic_fetch_add_explicit((device atomic_int*)&_184.corpseH[cellIndex(param, _58)], int(round((heightM * w[k]) * 1000.0)), memory_order_relaxed);
+    }
+}
+
+kernel void main0(constant SimUniforms& _58 [[buffer(0)]], constant GasUniforms& _212 [[buffer(1)]], device Counters& _383 [[buffer(2)]], device Field& _539 [[buffer(3)]], device Corpses& _403 [[buffer(4)]], device CorpseH& _184 [[buffer(5)]], device Rot& _441 [[buffer(6)]], device Accum& _588 [[buffer(7)]], device Out& _566 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    spvUnsafeArray<float, 1> staticH;
+    if (i >= min(_383.counters[2], uint(_212.miscP.x)))
+    {
+        return;
+    }
+    Corpse cp;
+    cp.pos = _403.corpses[i].pos;
+    cp.info = _403.corpses[i].info;
+    if ((cp.info.z & 1u) == 0u)
+    {
+        return;
+    }
+    uint key = ((as_type<uint>(cp.pos.x) * 2654435761u) ^ as_type<uint>(cp.pos.z)) ^ (cp.info.y * 97u);
+    uint4 r = _441.rot[i];
+    float age = as_type<float>(r.y);
+    float ign = as_type<float>(r.z);
+    float burn = as_type<float>(r.w);
+    if (r.x != key)
+    {
+        age = 0.0;
+        ign = 0.0;
+        burn = 0.0;
+    }
+    float dt = _212.rotP.x;
+    age += dt;
+    float2 param = cp.pos.xz;
+    int2 g = gasCoord(param, _58);
+    int2 param_1 = g;
+    bool inside = gasInside(param_1, _212);
+    float _487;
+    if ((uint(_212.gshift.z) & 1u) != 0u)
+    {
+        _487 = fast::clamp((age - _212.rotP.y) / fast::max(_212.rotP.z, 1.0), 0.0, 1.0);
+    }
+    else
+    {
+        _487 = 0.0;
+    }
+    float rotK = _487;
+    bool _506 = (uint(_212.gshift.z) & 1u) != 0u;
+    bool _513;
+    if (_506)
+    {
+        _513 = age > _212.rotP.y;
+    }
+    else
+    {
+        _513 = _506;
+    }
+    bool rotting = _513;
+    if (inside)
+    {
+        int2 param_2 = g;
+        uint c = gasIndex(param_2, _212);
+        float3 param_3 = cp.pos.xyz + float3(0.0, 0.300000011920928955078125, 0.0);
+        float param_4 = 0.60000002384185791015625;
+        uint param_5;
+        float _533 = coneCover(param_3, param_4, param_5, _212);
+        uint owner = param_5;
+        float spray = _533;
+        float ground = as_type<float>(((device uint*)&_539.field[c])[1u]);
+        if (burn <= 0.0)
+        {
+            ign += (spray + ((ground > 0.0) ? dt : 0.0));
+            if (ign >= _212.fireP.x)
+            {
+                burn = 9.9999997473787516355514526367188e-05;
+                uint _572 = atomic_fetch_add_explicit((device atomic_uint*)&_566.outW[_212.gdim.z + 5u], 1u, memory_order_relaxed);
+            }
+        }
+        if (burn > 0.0)
+        {
+            burn += dt;
+            uint _584 = atomic_fetch_add_explicit((device atomic_uint*)&_566.outW[_212.gdim.z + 1u], 1u, memory_order_relaxed);
+            uint _601 = atomic_fetch_max_explicit((device atomic_uint*)&_588.accum[(4u * c) + 3u], uint(fast::min(_212.airP.w, 60.0) * 256.0), memory_order_relaxed);
+            if (burn >= _212.fireP.y)
+            {
+                cp.info.z &= 4294967294u;
+                _403.corpses[i].pos = cp.pos;
+                _403.corpses[i].info = cp.info;
+                float2 fwd = float2(sin(cp.pos.w), cos(cp.pos.w));
+                float2 param_6 = cp.pos.xz + (fwd * 0.449999988079071044921875);
+                float param_7 = -as_type<float>(cp.info.w);
+                splatCorpse(param_6, param_7, _58, _184);
+                float2 param_8 = cp.pos.xz - (fwd * 0.449999988079071044921875);
+                float param_9 = -as_type<float>(cp.info.w);
+                splatCorpse(param_8, param_9, _58, _184);
+                uint _659 = atomic_fetch_add_explicit((device atomic_uint*)&_566.outW[_212.gdim.z + 0u], 1u, memory_order_relaxed);
+                _441.rot[i] = uint4(0u);
+                return;
+            }
+        }
+        uint _668 = atomic_fetch_add_explicit((device atomic_uint*)&_588.accum[(4u * c) + 1u], 1u, memory_order_relaxed);
+        uint _673 = atomic_fetch_add_explicit((device atomic_uint*)&_566.outW[_212.gdim.z + 3u], 1u, memory_order_relaxed);
+        if (rotting && (burn <= 0.0))
+        {
+            uint _684 = atomic_fetch_add_explicit((device atomic_uint*)&_588.accum[(4u * c) + 2u], 1u, memory_order_relaxed);
+            uint _689 = atomic_fetch_add_explicit((device atomic_uint*)&_566.outW[_212.gdim.z + 2u], 1u, memory_order_relaxed);
+            uint _703 = atomic_fetch_add_explicit((device atomic_uint*)&_588.accum[4u * c], uint((((rotK * _212.rotP.w) * dt) * 65536.0) + 0.5), memory_order_relaxed);
+        }
+    }
+    uint _707;
+    if (burn > 0.0)
+    {
+        _707 = 63u;
+    }
+    else
+    {
+        _707 = uint((rotK * 62.0) + float(rotting));
+    }
+    uint lvl = _707;
+    uint z = (cp.info.z & 67108863u) | (lvl << uint(26));
+    if (z != cp.info.z)
+    {
+        cp.info.z = z;
+        ((device uint*)&_403.corpses[i].info)[2u] = z;
+    }
+    _441.rot[i] = uint4(key, as_type<uint>(age), as_type<uint>(ign), as_type<uint>(burn));
+}
+

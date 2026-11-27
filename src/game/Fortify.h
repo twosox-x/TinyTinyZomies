@@ -51,8 +51,11 @@ public:
     Territory& territory() { return territory_; }
     const Territory& territory() const { return territory_; }
 
-    // BuildWall command: plan + charge + commit. false (msg = reason) when refused; nothing is charged then.
+    // BuildWall / BuildGate command: plan + charge + commit (blueprints for the engineers; ctx.engineers->instantBuild:
+    // built at once, debug / tests). false (msg = reason) when refused; nothing is charged then.
     bool build(AppState& app, GameContext& ctx, const Command& c, Economy& eco, std::string& msg);
+    // Ctrl+Z: removes the unfinished pieces of the newest placement (finished pieces stay) and refunds them.
+    bool undo(GameContext& ctx, Economy& eco, std::string& msg);
     // Container placement rule (FortConfig::containerNeedsTerritory, PROPOSED off).
     bool containerAllowed(const GameContext& ctx, V3 pos, const char** why) const;
 

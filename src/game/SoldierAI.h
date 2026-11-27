@@ -85,6 +85,15 @@ struct AiTuning {                     // behaviour constants (not balance): kept
     int vantageRays = 24;            // azimuths per candidate
     float vantageScan = 3.f;         // s between re-picks while nothing shootable is in sight
     float sniperMargin = 0.4f;       // m: a marksman's line must also clear this far below the aim point (no grazing)
+    // --- target utility (owner feedback round 3: "terrible target prioritisation and awareness"); see scoreTarget()
+    float torsoAim = 1.1f, headAim = 1.55f;   // m above the feet: torso first, the head when a car roof hides the torso
+    float fieldRadius = 60.f;        // m: coarse-field awareness beyond the exact list (rifle / MG; snipers: weapon range)
+    int fieldCandidates = 8;         // nearest field samples (not already in the exact list) scored per perception tick
+    float switchMargin = 2.0f;       // score units a new target must beat the current lock by (hysteresis)
+    float overkillPenalty = 3.0f;    // per squad mate already locked on the same zombie (spread fire)
+    float blockedFactor = 0.3f;      // score factor of a zombie that cannot reach any soldier (gate, wall, wedged by cars)
+    float sidestepRadius = 2.6f;     // m: a soldier with only unshootable threats steps this far for a clear line
+    float sidestepInterval = 2.5f;   // s between sidestep attempts
 };
 
 class SoldierAI {
@@ -94,6 +103,9 @@ public:
     // B3 hospitals: called for wounded soldiers that are Idle; return true when the hook took the soldier over
     // (state / path set by the hook). B1: unset (wounded soldiers keep fighting, slower and less accurate).
     std::function<bool(GameContext&, uint32_t)> medicalSeek;
+    // GAME_DESIGN 14d engineers: called for Idle soldiers with nothing to shoot; true = the soldier is working this tick
+    // (EngineerAI sets his home to the work spot, so the leash walks him there; it requests the work clip after tick()).
+    std::function<bool(GameContext&, uint32_t)> workHook;
 
     // Per tick: NavGrid budget, squad orders -> formation slots, perception (field), decisions, movement, anim requests.
     void tick(GameContext& ctx);
@@ -134,12 +146,30 @@ public:
     uint64_t vantageMoves() const { return vantageMoves_; }
 private:
     uint64_t vantageMoves_ = 0;
-    // Best immediate threat of soldier i from its exact nearest list (visible, scored by distance, closing speed and
-    // pressure on squad mates); n = visible zombies within threatRadius.
-    bool bestThreat(const GameContext& ctx, uint32_t i, V3& pos, V3& vel, float& dist, int& n) const;
+public:
+    // One target candidate of a soldier (exact nearest-list zombie or coarse field sample), scored by scoreTarget().
+    struct Cand {
+        V3 pos, vel;
+        float prone = 0.f, dist = 0.f, score = -1e9f, aimY = -1.f;
+        int density = 0;             // other known zombies within 3 m (MG: dense groups first)
+        bool exact = false, visible = false, hittable = false, blocked = false, onSoldier = false;
+    };
+    // Clear firing line from a soldier standing at `feet` to a zombie standing at z: the aim height (torso, else the
+    // head over a car roof; crawlers low), or < 0 when no line is clear (rounds would stop at static geometry).
+    float aimFor(const NavGrid& nav, V3 feet, V3 z, float prone, float margin) const;
+    uint64_t sidesteps() const { return sidesteps_; }
+private:
+    uint64_t sidesteps_ = 0;
+    // Candidates of soldier i: its exact nearest list (every tick) + (withField) the nearest coarse-field samples out to
+    // fieldRadius (snipers: their own isolated-target search); scored, best first in [0]. Returns the count.
+    int gatherTargets(const GameContext& ctx, uint32_t i, float range, bool withField, Cand* out, int maxOut) const;
+    void scoreTarget(const GameContext& ctx, uint32_t i, Cand& c, float range) const;
+    bool blockedPath(const GameContext& ctx, V3 z, V3 soldier) const;   // a zombie that cannot walk at us (pressing on an obstacle)
+    bool sidestep(GameContext& ctx, uint32_t i, const Cand* cands, int n);   // step to a clear firing line (true: moving)
     const SoldierContact* contactOf(const GameContext& ctx, uint32_t i) const;
     std::vector<int> contactIndex_;
     std::vector<uint8_t> threats_;
+    std::vector<float> sidestepT_;   // s until soldier i may sidestep again
     uint64_t hunts_ = 0;  // soldier slot -> index into horde contacts (rebuilt per tick)
     // Pace of a move: run speed x (sprint when threatened and fresh), walk when tired / wounded / ordered to walk.
     float paceFor(GameContext& ctx, uint32_t i, bool forceRun, bool forceWalk, bool highStakes, bool& running) const;

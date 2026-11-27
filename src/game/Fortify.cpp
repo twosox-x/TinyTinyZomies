@@ -4,6 +4,7 @@
 #include "app/App.h"
 #include "game/Config.h"
 #include "game/Economy.h"
+#include "game/EngineerAI.h"
 #include "game/GameEvents.h"
 #include "game/HordeInterface.h"
 #include "game/Logistics.h"
@@ -43,6 +44,14 @@ WallEnv makeWallEnv(const AppState& app, const GameContext& ctx) {
     if (ctx.logistics)
         for (const SupplyPoint& sp : ctx.logistics->points())
             if (sp.alive && sp.kind == SupplyKind::Container) e.containers.push_back(containerBox(sp));
+    if (ctx.engineers) {   // GAME_DESIGN 14d: construction only within an engineer squad's radius (debug cheat: anywhere)
+        const EngineerAI* E = ctx.engineers;
+        if (!E->instantBuild) {
+            const GameContext* c = &ctx;
+            e.buildable = [E, c](float x, float z) { return E->inRange(*c, x, z); };
+        }
+        e.clearing = E->clearingBoxes();
+    }
     return e;
 }
 
@@ -85,31 +94,57 @@ bool Fortifications::containerAllowed(const GameContext& ctx, V3 pos, const char
 
 bool Fortifications::build(AppState& app, GameContext& ctx, const Command& c, Economy& eco, std::string& msg) {
     std::vector<V3> pts = c.path;
-    const WallPlan plan = walls_.plan(pts, (WallType)std::min<uint8_t>(c.wallType, 1), c.gate, makeWallEnv(app, ctx));
+    const WallEnv env = makeWallEnv(app, ctx);
+    const WallPlan plan = c.type == CommandType::BuildGate ? walls_.planGate(c.pos, c.facing, (WallType)std::min<uint8_t>(c.wallType, 1), env)
+                                                           : walls_.plan(pts, (WallType)std::min<uint8_t>(c.wallType, 1), c.gate, env);
     if (!plan.valid) { msg = plan.reason; return false; }
-    const char* what = c.gate ? "gate" : c.wallType ? "reinforced wall" : "wall";
+    const bool gate = plan.gate;
+    const char* what = gate ? "gate" : c.wallType ? "reinforced wall" : "wall";
     if (!eco.spend(plan.price, what, ctx.time)) { msg = "not enough funding"; return false; }
-    const std::vector<uint32_t> added = walls_.commit(plan);
+    const bool instant = !ctx.engineers || ctx.engineers->instantBuild;
+    const std::vector<uint32_t> added = walls_.commit(plan, instant);
     syncObstacles(app, ctx);
-    char t[96];
-    std::snprintf(t, sizeof(t), "%s built: %.0f m, %zu piece%s ($%d)", c.gate ? "Gate" : c.wallType ? "Reinforced wall" : "Wall", plan.length, added.size(),
-                  added.size() == 1 ? "" : "s", plan.price);
+    char t[128];
+    std::snprintf(t, sizeof(t), "%s %s: %.0f m, %zu piece%s ($%d)", gate ? "Gate" : c.wallType ? "Reinforced wall" : "Wall",
+                  instant ? "built" : "ordered (engineers build it)", plan.length, added.size(), added.size() == 1 ? "" : "s", plan.price);
     msg = t;
     return true;
+}
+
+bool Fortifications::undo(GameContext& ctx, Economy& eco, std::string& msg) {
+    // the newest placement with unfinished parts: its blueprints are removed, a pending gate conversion dropped; refunded
+    uint32_t batch = 0;
+    for (const WallPiece& p : walls_.pieces())
+        if (p.alive && (!p.solid() || p.toGate)) batch = std::max(batch, p.batch);
+    if (!batch) { msg = "nothing to undo (finished walls stay)"; return false; }
+    int refund = 0, n = 0;
+    for (uint32_t i = 0; i < walls_.pieces().size(); ++i) {
+        const WallPiece p = walls_.pieces()[i];
+        if (!p.alive || p.batch != batch) continue;
+        if (p.toGate) { if (walls_.cancel(i)) { refund += walls_.piecePrice(p.type, true); ++n; } }
+        else if (!p.solid() && walls_.cancel(i)) { refund += p.price; ++n; }
+    }
+    if (refund > 0) eco.refund(refund, "construction undone", ctx.time);
+    char t[96];
+    std::snprintf(t, sizeof(t), "Undone: %d unfinished piece%s, $%d refunded", n, n == 1 ? "" : "s", refund);
+    msg = t;
+    return n > 0;
 }
 
 void Fortifications::syncObstacles(AppState& app, GameContext& ctx) {
     CityVehicles& V = app.vehicles;
     bool changed = false;
     // destroyed pieces: unstamp (the rows go up with the next vehicles update: zombies pour through the gap)
+    // (also pieces split by a T junction / gate: re-stamped below with their new extent)
     for (WallPiece& p : walls_.pieces())
-        if (!p.alive && p.obstacle != ~0u) { V.removeObstacle(p.obstacle); p.obstacle = ~0u; --obstacleCount_; changed = true; }
+        if ((!p.alive || p.restamp) && p.obstacle != ~0u) { V.removeObstacle(p.obstacle); p.obstacle = ~0u; --obstacleCount_; changed = true; }
+    for (WallPiece& p : walls_.pieces()) p.restamp = false;
     for (WallNode& n : walls_.nodes())
-        if (!n.alive && n.obstacle != ~0u) { V.removeObstacle(n.obstacle); n.obstacle = ~0u; --obstacleCount_; changed = true; }
-    // new pieces / posts
+        if ((!n.alive || !n.solidDeg) && n.obstacle != ~0u) { V.removeObstacle(n.obstacle); n.obstacle = ~0u; --obstacleCount_; changed = true; }
+    // finished pieces / posts (blueprints are no obstacle until engineers complete them)
     for (uint32_t i = 0; i < walls_.pieces().size(); ++i) {
         WallPiece& p = walls_.pieces()[i];
-        if (!p.alive || p.obstacle != ~0u) continue;
+        if (!p.solid() || p.obstacle != ~0u) continue;
         const Obb b = walls_.pieceBox(i);
         const float y = std::min(walls_.nodes()[p.a].y, walls_.nodes()[p.b].y);
         p.obstacle = V.addObstacle(b.cx, b.cz, b.hx, b.hz, b.yaw, y + b.top);
@@ -118,7 +153,7 @@ void Fortifications::syncObstacles(AppState& app, GameContext& ctx) {
     }
     for (uint32_t n = 0; n < walls_.nodes().size(); ++n) {
         WallNode& nd = walls_.nodes()[n];
-        if (!nd.alive || !nd.degree || nd.obstacle != ~0u) continue;
+        if (!nd.alive || !nd.solidDeg || nd.obstacle != ~0u) continue;
         const Obb b = walls_.postBox(n);
         nd.obstacle = V.addObstacle(b.cx, b.cz, b.hx, b.hz, b.yaw, nd.y + b.top);
         ++obstacleCount_;
@@ -148,11 +183,11 @@ void Fortifications::rebuildMasks(const AppState& app) {
     gateMask_.assign((size_t)gw * gh, 0);
     const auto& P = walls_.pieces();
     for (uint32_t i = 0; i < P.size(); ++i)
-        if (P[i].alive && P[i].gate) forEachObbCell(walls_.pieceBox(i), ox, oz, cs, gw, gh, [&](int x, int z) { gateMask_[(size_t)z * gw + x] = 1; });
+        if (P[i].solid() && P[i].gate) forEachObbCell(walls_.pieceBox(i), ox, oz, cs, gw, gh, [&](int x, int z) { gateMask_[(size_t)z * gw + x] = 1; });
     for (uint32_t i = 0; i < P.size(); ++i)
-        if (P[i].alive && !P[i].gate) forEachObbCell(walls_.pieceBox(i), ox, oz, cs, gw, gh, [&](int x, int z) { gateMask_[(size_t)z * gw + x] = 0; });
+        if (P[i].solid() && !P[i].gate) forEachObbCell(walls_.pieceBox(i), ox, oz, cs, gw, gh, [&](int x, int z) { gateMask_[(size_t)z * gw + x] = 0; });
     for (uint32_t n = 0; n < walls_.nodes().size(); ++n)
-        if (walls_.nodes()[n].alive && walls_.nodes()[n].degree) forEachObbCell(walls_.postBox(n), ox, oz, cs, gw, gh, [&](int x, int z) { gateMask_[(size_t)z * gw + x] = 0; });
+        if (walls_.nodes()[n].alive && walls_.nodes()[n].solidDeg) forEachObbCell(walls_.postBox(n), ox, oz, cs, gw, gh, [&](int x, int z) { gateMask_[(size_t)z * gw + x] = 0; });
     if (!gpuOk_) return;
     // GPU id grid: region slot + 1 (bits 0..11) | wall piece + 1 within one cell of its footprint (bits 12..31)
     std::vector<uint32_t> ids((size_t)gw * gh, 0u);
@@ -163,7 +198,7 @@ void Fortifications::rebuildMasks(const AppState& app) {
                 if (s >= 0 && (uint32_t)s + 1 < TerritoryGpu::kRegionSlots) ids[(size_t)z * gw + x] = (uint32_t)s + 1;
             }
     for (uint32_t i = 0; i < P.size() && i + 1 < TerritoryGpu::kPieceSlots; ++i) {
-        if (!P[i].alive) continue;
+        if (!P[i].solid()) continue;
         Obb b = walls_.pieceBox(i);
         b.hx += cs; b.hz += cs;
         forEachObbCell(b, ox, oz, cs, gw, gh, [&](int x, int z) { uint32_t& v = ids[(size_t)z * gw + x]; v = (v & 0xFFFu) | ((i + 1) << 12); });
@@ -199,7 +234,7 @@ void Fortifications::patchNav(AppState& app, NavGrid& nav) {
     if (runs.empty() || !nav.ready()) return;
     const std::vector<float>& h = V.simHeights();
     const Sandbox& sb = app.sandbox;
-    if (navH_.size() != h.size()) { navHeights(app); nav.build(navH_, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize); return; }
+    if (navH_.size() != h.size()) { navHeights(app); nav.build(navH_, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize); nav.setShotHeights(h); return; }
     uint32_t z0 = ~0u, z1 = 0;
     for (const auto& r : runs) {
         z0 = std::min(z0, r.first); z1 = std::max(z1, r.first + r.second);
@@ -211,6 +246,7 @@ void Fortifications::patchNav(AppState& app, NavGrid& nav) {
         navRows_ += r.second;
     }
     nav.updateRows(navH_, (int)z0, (int)(z1 - z0));   // one local patch (walkability of these rows, islands)
+    nav.updateShotRows(h, (int)z0, (int)(z1 - z0));   // rounds: the zombies' grid (gates block them)
     ++navPatches_;
 }
 
@@ -225,7 +261,7 @@ void Fortifications::tick(AppState& app, GameContext& ctx) {
     });
     // pressure damage from the latest GPU counts (made against the current id grid)
     for (uint32_t i = 0; i < walls_.pieces().size() && i + 1 < pressure_.size(); ++i)
-        if (walls_.pieces()[i].alive) walls_.addPressure(i, (float)pressure_[i + 1], dt);
+        if (walls_.pieces()[i].solid()) walls_.addPressure(i, (float)pressure_[i + 1], dt);
     // breaches
     destroyedScratch_.clear();
     walls_.takeDestroyed(destroyedScratch_);

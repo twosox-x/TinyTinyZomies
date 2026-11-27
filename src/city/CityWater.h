@@ -2,7 +2,7 @@
 // Smooth water surfaces and instanced voxel foliage of the baked city (FORMAT.md 3: WATR, FOLI; foliage.bin).
 //  - CityWater: per tile, 2 m quads of the shore-distance grid at the water level (shaders/city_water.*): depth tint
 //    from the shore distance, foam line, animated ripple normals, Fresnel sky + moon + street-lamp reflections.
-//  - CityFoliage: per tile, instances sorted by 32 m chunk then type; per visible chunk within fadeDist one instanced
+//  - CityFoliage: per tile, instances sorted by 32 m chunk then type; per visible chunk one instanced
 //    draw per type (LOD0 model near, LOD1 beyond lod1Dist), density thinned with distance in the vertex shader,
 //    wind sway (shaders/city_foliage.*).
 // Both are owned by CityRenderer (hooks: init / upload / release / draw).
@@ -48,12 +48,15 @@ public:
     // focus: camera target (RTS pivot); distances are min(eye, focus)
     void draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const float eye[3], const float focus[3], const std::vector<int>& tiles,
               SDL_GPUBuffer* materials, const BoxVisibleFn& visible);
-    // Distances (m, nearer of eye and focus): full model below lod1Dist, simple model beyond; from fadeStart to
-    // fadeDist the density thins to the far set (every farStride-th instance, grown farClump x wider: clumps), which
-    // is all that is drawn beyond fadeDist (no distance limit: foliage never fades to nothing).
-    float lod1Dist = 45.f, fadeStart = 70.f, fadeDist = 150.f;
+    // Distances (m, nearer of eye and focus). The full-detail radius follows the zoom so the whole visible focus area
+    // keeps full foliage: fade start = clamp(fadeZoom x camera distance, fadeStart, fadeStartMax); full model below
+    // lod1Frac x that, simple model beyond; over the next fadeWidth m the density thins (per-instance dither, no popping)
+    // to the far set (every farStride-th instance grown farClump x wider and a little lower with height variation: a
+    // dense, mottled crop surface that keeps the field's coverage), which is all that is drawn beyond (no distance
+    // limit: foliage never fades to nothing).
+    float fadeStart = 100.f, fadeStartMax = 160.f, fadeZoom = 1.1f, fadeWidth = 120.f, lod1Frac = 0.75f;
     int farStride = 8;
-    float farClump = 2.2f;
+    float farClump = 2.8f;   // ~sqrt(farStride): the far set covers the ground like the full set
     bool enabled = true;
     FoliageStats stats;
 

@@ -6,7 +6,8 @@
 // The ground itself (crop rows, wheat, ploughed soil, pasture, forest floor, lake, farmyard gravel, verges) is the
 // road raster (city_core ruralGround). This kit adds the 3D parts:
 //  - woods: dense stands of large trees where ruralGround says 'forest' (noise woods and woodlot parcels), on a
-//    jittered 7 m grid, a few cached models (broad oaks, maples, spruces, pines);
+//    jittered 5.5 m grid, a few cached models (broad oaks, maples, spruces, pines);
+//  - tree lines along the rural roads (5-7.5 m from the carriageway);
 //  - hedgerows: lines of bushy trees on some parcel boundaries (hash of the parcel), on the 1.6 m grass headland;
 //  - fences: post-and-rail along the boundaries of pasture parcels;
 //  - farmsteads (net.plan.farms): farmhouse facing the road, red gambrel barn, silos, an equipment shed.
@@ -177,8 +178,8 @@ function ruralKit(K0) {
     put(farmModel(C, 'shed', 0).mesh, sh[0], -0.008, sh[1], yaw, BV);
     stats.farms++;
   }
-  // ---- woods: jittered 7 m grid
-  const S = 7;
+  // ---- woods: jittered 5.5 m grid (crowns 5.5-8.5 m across: a closed canopy), a third of them spruce / pine
+  const S = 5.5;
   for (let gz = Math.floor(rg.z0 / S); gz * S < rg.z1; ++gz) for (let gx = Math.floor(rg.x0 / S); gx * S < rg.x1; ++gx) {
     const h1 = C.hash2(gx, gz, seed + 401), h2 = C.hash2(gx, gz, seed + 409), h3 = C.hash2(gx, gz, seed + 419);
     const x = (gx + 0.15 + 0.7 * h1) * S, z = (gz + 0.15 + 0.7 * h2) * S;
@@ -189,6 +190,22 @@ function ruralKit(K0) {
     const kind = h3 < 0.3 ? 'spruce' : 'broad', T = treeModel(C, kind, Math.floor(h3 * 97) % 5);
     if (vg < T.rc + 1.5) continue;
     put(T.mesh, x, sink(x, z, T.rc, h1), z, h2 * 6.283, BV); stats.trees++;
+  }
+  // ---- tree lines along the rural roads: a jittered 9 m grid, kept where the point falls 5-7.5 m from the
+  // carriageway (just past the verge), on field / pasture / headland ground; gaps by hash so rows read as planted lines
+  const SR = 9;
+  for (let gz = Math.floor(rg.z0 / SR); gz * SR < rg.z1; ++gz) for (let gx = Math.floor(rg.x0 / SR); gx * SR < rg.x1; ++gx) {
+    const h1 = C.hash2(gx, gz, seed + 461), h2 = C.hash2(gx, gz, seed + 467), h3 = C.hash2(gx, gz, seed + 479);
+    if (h3 > 0.6) continue;
+    const x = (gx + 0.1 + 0.8 * h1) * SR, z = (gz + 0.1 + 0.8 * h2) * SR;
+    if (!inR(x, z) || !C.isRural(net, x, z)) continue;
+    const vg = verge(x, z);
+    if (vg < 5 || vg > 7.5 || nearFarm(x, z, 8)) continue;
+    const g = C.ruralGround(net, x, z, vg);
+    if (!g || !['field', 'pasture', 'headland', 'verge'].includes(g.kind) || C.waterSD(net, x, z) > -8) continue;
+    const T = treeModel(C, h3 < 0.12 ? 'spruce' : h3 < 0.3 ? 'hedge' : 'broad', Math.floor(h3 * 97) % 5);
+    if (vg < T.rc + 1.2) continue;
+    put(T.mesh, x, sink(x, z, T.rc, h1), z, h2 * 6.283, BV); stats.roadTrees = (stats.roadTrees || 0) + 1;
   }
   // ---- parcel boundaries: hedgerows / pasture fences (3 m steps along each boundary line, deduplicated by key)
   const seen = new Set();

@@ -399,25 +399,29 @@ void Renderer::ensureShadowMap(uint32_t size) {
     SDL_GPUDevice* d = gpu_->device();
     if (shadowTex_) SDL_ReleaseGPUTexture(d, shadowTex_);
     SDL_GPUTextureCreateInfo ci{};
-    ci.type = SDL_GPU_TEXTURETYPE_2D;
+    ci.type = SDL_GPU_TEXTURETYPE_2D_ARRAY;   // two layers: the sun at two neighbouring clock keys (cross-faded)
     ci.format = kShadowDepthFormat;
     ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
     ci.width = ci.height = size;
-    ci.layer_count_or_depth = 1;
+    ci.layer_count_or_depth = 2;
     ci.num_levels = 1;
     shadowTex_ = SDL_CreateGPUTexture(d, &ci);
     shadowSize_ = shadowTex_ ? size : 0;
+    layerKey_[0] = layerKey_[1] = -1;
     if (!shadowTex_) { SDL_Log("shadow map %u: %s", size, SDL_GetError()); return; }
     // clear once: the map is bound (never sampled) on frames without a shadow pass
     SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(d);
-    SDL_GPUDepthStencilTargetInfo st{};
-    st.texture = shadowTex_;
-    st.clear_depth = 1.0f;
-    st.load_op = SDL_GPU_LOADOP_CLEAR;
-    st.store_op = SDL_GPU_STOREOP_STORE;
-    st.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-    st.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-    SDL_EndGPURenderPass(SDL_BeginGPURenderPass(cmd, nullptr, 0, &st));
+    for (Uint8 layer = 0; layer < 2; ++layer) {
+        SDL_GPUDepthStencilTargetInfo st{};
+        st.texture = shadowTex_;
+        st.clear_depth = 1.0f;
+        st.load_op = SDL_GPU_LOADOP_CLEAR;
+        st.store_op = SDL_GPU_STOREOP_STORE;
+        st.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        st.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        st.layer = layer;
+        SDL_EndGPURenderPass(SDL_BeginGPURenderPass(cmd, nullptr, 0, &st));
+    }
     SDL_SubmitGPUCommandBuffer(cmd);
 }
 
@@ -430,12 +434,16 @@ bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings&
     if (rs.studioLighting || !rs.shadows || !rs.shadowMap || !shadowTex_) return false;
     const TimeOfDayLight tl = evalTimeOfDay(rs.tod);
     if (tl.color.x + tl.color.y + tl.color.z < 1e-4f) return false;
-    // The shadow direction follows the clock in small steps (1/150 h of game time, ~0.1 deg of sun path; ~0.4 s real
-    // at the default 30 min cycle): a light that rotates every frame re-orients the texel grid every frame, and every
-    // shadow edge crawls. Shading (N.L) keeps the smooth direction; the step is far below a texel of shadow offset.
+    // Smooth sun without crawling edges: a light that rotates every frame re-orients the texel grid every frame and
+    // every shadow edge shimmers, a stepped one jumps. So each map is rendered from a fixed direction, the clock key
+    // k * kShadowKeyH (1/150 h, ~0.1 deg of sun path; ~0.7 s real by day), and the receivers cross-fade between the
+    // maps of the two keys around the clock (shadowBlend). The two keys live in the two layers of the map (key parity);
+    // the frames alternate which layer is re-rendered (re-fitted to the camera, texel-snapped), so the cost stays one
+    // shadow pass per frame and a layer is at most one frame old.
+    const int layer = (int)(shadowFrame_ & 1u);
+    const int key = shadowKeyFor(rs.tod.hours, layer);
     TimeOfDaySettings qt = rs.tod;
-    constexpr float kDirStepH = 1.f / 150.f;
-    qt.hours = std::floor(qt.hours / kDirStepH) * kDirStepH;
+    qt.hours = std::fmod((float)key * kShadowKeyH, 24.f);
     const TimeOfDayLight ql = evalTimeOfDay(qt);
     const V3 L = (ql.moon == tl.moon) ? ql.dir : tl.dir, tgt = cam.target();
     const M4 view = lookAt(L * 500.f, V3{0, 0, 0}, std::fabs(L.y) > 0.99f ? V3{0, 0, 1} : V3{0, 1, 0});
@@ -464,7 +472,7 @@ bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings&
     // size hysteresis: grow at once, shrink only when the fit needs < 3/4 of the current box (rotating / tilting the
     // camera near a step boundary no longer flips the map size, which re-samples every shadow edge)
     auto sticky = [](float want, float& cur) { if (want > cur || want < cur * 0.75f) cur = want; return cur; };
-    const float hx = sticky(stepUp(0.5f * (mxx - mnx) + 3.f), shadowHx_), hy = sticky(stepUp(0.5f * (mxy - mny) + 3.f), shadowHy_);
+    const float hx = sticky(stepUp(0.5f * (mxx - mnx) + 3.f), shadowHx_[layer]), hy = sticky(stepUp(0.5f * (mxy - mny) + 3.f), shadowHy_[layer]);
     const float n = (float)shadowSize_, tx = 2.f * hx / n, ty = 2.f * hy / n;
     const float cx = std::round(0.5f * (mnx + mxx) / tx) * tx, cy = std::round(0.5f * (mny + mxy) / ty) * ty;
     const float zn = std::floor(-dot(L, tgt) / 4.f) * 4.f, zf = zn + 1000.f;   // depth window in 4 m steps (stable depths while panning)   // view-space distance range along -L: 500 m above .. 500 m below the pivot
@@ -476,6 +484,45 @@ bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings&
     lightVP = mul(proj, view);
     if (texelMetres) *texelMetres = std::max(tx, ty);
     return true;
+}
+
+// Auto focus: distance along five view rays (screen centre and a small cross, +-4 % of the height) to the first
+// point below the city's coarse height grid (4 m cells of max heights: roofs, walls, vehicles), marched in 0.5 m steps
+// near the eye growing with distance and refined by bisection; the median of the five (stable at roof edges).
+float Renderer::measureFocus(const Camera& cam, uint32_t w, uint32_t h) const {
+    const float camDist = std::max(1.f, cam.distance());
+    if (!city_) return camDist;
+    const V3 eye = cam.eye();
+    const float W = (float)std::max(1u, w), H = (float)std::max(1u, h), o = 0.04f * H;
+    const float pts[5][2] = {{0, 0}, {o, 0}, {-o, 0}, {0, o}, {0, -o}};
+    float ds[5];
+    for (int k = 0; k < 5; ++k) {
+        V3 g;
+        float dist = camDist;
+        if (cam.screenToGround(W * 0.5f + pts[k][0], H * 0.5f + pts[k][1], W, H, cam.target().y - 50.f, g)) {
+            const V3 dir = normalize(g - eye);
+            const float tMax = camDist * 3.f + 100.f;
+            float t = 0.f, prev = 0.f;
+            bool hit = false;
+            while (t < tMax) {
+                const V3 p = eye + dir * t;
+                if (p.y <= city_->heightAt(p.x, p.z) || p.y < cam.target().y - 0.5f) { hit = true; break; }
+                prev = t;
+                t += std::max(0.5f, t * 0.006f);
+            }
+            if (hit) {
+                for (int it = 0; it < 6; ++it) {
+                    const float m = 0.5f * (prev + t);
+                    const V3 p = eye + dir * m;
+                    if (p.y <= city_->heightAt(p.x, p.z) || p.y < cam.target().y - 0.5f) t = m; else prev = m;
+                }
+                dist = t;
+            }
+        }
+        ds[k] = std::clamp(dist, 2.f, camDist * 3.f + 100.f);
+    }
+    std::sort(ds, ds + 5);
+    return ds[2];
 }
 
 void Renderer::addBlast(float x, float y, float z, float scale) {
@@ -561,11 +608,24 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const TimeOfDayLight tl = evalTimeOfDay(rs.tod);
     const float camDist = cam.distance();
     const bool dof = rs.tiltShift && !rs.studioLighting && rs.dofStrength > 0.f;
-    fu.sunDir = {tl.dir.x, tl.dir.y, tl.dir.z, std::max(1.f, camDist * (1.f + rs.dofFocusOffset))};   // w: thin-lens focus (finishA)
+    // focus: the scene under the screen centre (auto focus, smoothed in log distance), else the pivot
+    float focus = camDist;
+    if (dof && rs.dofAutoFocus && city_) {
+        const float want = measureFocus(cam, w, h);
+        const double dtf = time - focusTime_;
+        if (focusDist_ <= 0.f || dtf <= 0.0 || dtf > 0.5) focusDist_ = want;
+        else {
+            const float k = 1.f - std::exp(-(float)dtf / std::max(0.01f, rs.dofFocusTime));
+            focusDist_ = std::exp(std::log(focusDist_) + (std::log(want) - std::log(focusDist_)) * k);
+        }
+        focusTime_ = time;
+        focus = focusDist_;
+    } else focusDist_ = -1.f;
+    fu.sunDir = {tl.dir.x, tl.dir.y, tl.dir.z, std::max(1.f, focus * (1.f + rs.dofFocusOffset))};   // w: thin-lens focus (finishA)
     fu.sunColor = {tl.color.x, tl.color.y, tl.color.z, tl.exposure * rs.exposure};
-    const RenderSettings::DofAt da = rs.dofAt(camDist);   // zoom-adaptive aperture / max blur / in-focus band
+    const RenderSettings::DofAt da = rs.dofAt(camDist);   // zoom-adaptive aperture / max blur / in-focus band / tilt-shift
     fu.skyColor = {tl.sky.x, tl.sky.y, tl.sky.z, dof ? std::max(1e-3f, da.aperture) : 0.f};   // aperture, 0 = CoC 0
-    fu.dofP = {dof ? da.band : 0.f, 0.f, 0.f, 0.f};
+    fu.dofP = {dof ? da.band : 0.f, dof ? da.tilt : 0.f, std::clamp(rs.dofTiltSharp, 0.f, 0.95f), 0.f};
     dofMaxBlurEff_ = da.maxBlur;
     fu.groundColor = {tl.ground.x, tl.ground.y, tl.ground.z, rs.fogStart * camDist};
     fu.fogColor = {tl.fog.x, tl.fog.y, tl.fog.z, rs.fogDensity};
@@ -573,7 +633,23 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     M4 lightVP;
     float texelM = 0.1f;
     const bool shadowMap = shadowView(cam, (float)w / (float)h, rs, lightVP, &texelM);
-    std::memcpy(fu.shadowVP, lightVP.m, sizeof(fu.shadowVP));
+    const int shLayer = (int)(shadowFrame_ & 1u);
+    if (shadowMap) {
+        layerKey_[shLayer] = shadowKeyFor(rs.tod.hours, shLayer);
+        layerVP_[shLayer] = lightVP;
+    }
+    {   // cross-fade between the maps of the clock keys n and n + 1 (whichever are rendered; see shadowView)
+        const float kh = std::fmod(std::fmod(rs.tod.hours, 24.f) + 24.f, 24.f) / kShadowKeyH;
+        const int n = (int)std::floor(kh) % kShadowKeys, n1 = (n + 1) % kShadowKeys;
+        const float f = kh - std::floor(kh);
+        const bool va = layerKey_[n & 1] == n, vb = layerKey_[n1 & 1] == n1;
+        int la = n & 1, lb = n1 & 1;
+        float wb = f;
+        if (!va || !vb) { la = lb = shLayer; wb = 0.f; }   // a key not rendered yet (clock jump, first frames): this frame's map only
+        std::memcpy(fu.shadowVP, layerVP_[la].m, sizeof(fu.shadowVP));
+        std::memcpy(fu.shadowVP2, layerVP_[lb].m, sizeof(fu.shadowVP2));
+        fu.shadowP2 = {wb, (float)la, (float)lb, 0.f};
+    }
     fu.shadowP = {shadowMap ? 1.f : 0.f, texelM, 3e-5f, std::max(0.25f, rs.shadowSoftness) / (float)std::max(1u, shadowSize_)};
     if (rs.studioLighting) {   // neutral studio close to Zombie Lab's "Neutral" mode (sage backdrop, warm key)
         V3 key = normalize(V3{0.47f, 0.76f, 0.40f});
@@ -600,7 +676,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         auto visible = [&](const PointLight& L) {
             for (auto& q : pl) {
                 float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
-                if ((q[0] * L.x + q[1] * L.y + q[2] * L.z + q[3]) / std::max(n, 1e-6f) < -L.radius) return false;
+                if ((q[0] * L.x + q[1] * L.y + q[2] * L.z + q[3]) / std::max(n, 1e-6f) < -std::fabs(L.radius)) return false;
             }
             return true;
         };
@@ -609,6 +685,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
             if (!visible(L)) { ++fxStats_.lightsCulled; continue; }
             bool merged = false;
             for (PointLight& M : lights) {
+                if (L.radius < 0.f || M.radius < 0.f) continue;   // sharp muzzle lights stay small and separate
                 float dx = L.x - M.x, dz = L.z - M.z;
                 if (dx * dx + dz * dz > 36.f || std::fabs(L.radius - M.radius) > 0.5f * M.radius + 4.f) continue;
                 float wa = M.intensity, wb = L.intensity, ws = std::max(wa + wb, 1e-4f);
@@ -660,6 +737,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         st.store_op = SDL_GPU_STOREOP_STORE;
         st.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
         st.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        st.layer = (Uint8)shLayer;
         SDL_GPURenderPass* sp = SDL_BeginGPURenderPass(cmd, nullptr, 0, &st);
         if (city_) { city_->drawShadow(sp, cmd); shadowDraws_ += city_->shadowDrawCalls(); }
         if (rs.drawBoxes && boxCount_ && pBoxShadow_) {
@@ -882,6 +960,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_EndGPURenderPass(pass);
 
     postProcess(cmd, w, h, rs);
+    ++shadowFrame_;   // the other shadow map layer next frame (shadowView)
     if (target) {
         SDL_GPUBlitInfo bi{};
         bi.source.texture = final_;

@@ -187,7 +187,7 @@ bool SoldierAI::findTarget(const GameContext& ctx, uint32_t i, float range, V3& 
                     for (const Cell& c : hash_)
                         if (c.idx != i && dist2D(P.pos[c.idx], t.pos[k]) < 10.f) { s -= 60.f; break; }
                     if (s >= bestS) continue;
-                    if (ctx.nav && ctx.nav->ready() && !shotClear(*ctx.nav, P.firePos(i), t.pos[k] + V3{0, 1.1f, 0}, tuning.sniperMargin)) continue;
+                    if (ctx.nav && ctx.nav->ready() && aimFor(*ctx.nav, P.firePos(i), t.pos[k], 0.f, tuning.sniperMargin) < 0.f) continue;
                     bestS = s; out = t.pos[k]; any = true;
                 }
             }
@@ -208,33 +208,200 @@ const SoldierContact* SoldierAI::contactOf(const GameContext& ctx, uint32_t i) c
     return (size_t)contactIndex_[i] < cs.size() ? &cs[(size_t)contactIndex_[i]] : nullptr;
 }
 
-bool SoldierAI::bestThreat(const GameContext& ctx, uint32_t i, V3& pos, V3& vel, float& dist, int& n) const {
-    n = 0;
-    const SoldierContact* c = contactOf(ctx, i);
-    if (!c || !c->nNear) return false;
+// ---------------------------------------------------------------------------------------------------------------------
+// Target utility (owner feedback round 3). Every candidate (exact nearest-list zombie, or coarse field sample out to
+// fieldRadius) gets a threat score; the soldier locks the best one he can actually HIT (clear firing line now):
+//   proximity      10 x (1 - d / acquireRange)                         (snipers 4 x: they prefer far isolated targets)
+//   approach       + 5 x min(closing / 2 m/s, 1.5) + 4 x (1 - eta / 8 s) while it closes in on this soldier
+//   on a soldier   + 8 when it is within buddyRadius of a squad mate / any soldier (mutual support), + 3 within mustFight
+//   cannot reach   x blockedFactor when it presses on an obstacle between it and us (gate, wall, wedged between cars)
+//   density        MG + 1.2 per other zombie in its 6 m tile (max 5), rifle + 0.3 (max 3); sniper beyond threatRadius:
+//                  + 3 when alone, - 1 per neighbour
+//   overkill       - overkillPenalty per squad mate already locked on it (- 1 when it is on a soldier)
+// Hysteresis: the current lock is kept unless a hittable candidate beats its score by switchMargin; a lock that is not
+// hittable any more is replaced by any hittable candidate at once (no fixation on a zombie behind a gate).
+bool SoldierAI::blockedPath(const GameContext& ctx, V3 z, V3 soldier) const {
+    if (!ctx.nav || !ctx.nav->ready()) return false;
+    const NavGrid& nav = *ctx.nav;
+    V3 d{soldier.x - z.x, 0, soldier.z - z.z};
+    const float l = std::sqrt(d.x * d.x + d.z * d.z);
+    if (l < 1.6f) return false;
+    d = d * (1.f / l);
+    const V3 side{d.z, 0, -d.x};
+    // an obstacle the zombie cannot step over (> 0.6 m: car, wall, gate) right ahead of it, toward the soldier, that
+    // is also wide (blocks 1.2 m to either side too): pressing on it rather than walking around it
+    auto wall = [&](V3 o) {
+        for (float s = 0.4f; s <= std::min(2.0f, l - 1.f); s += 0.375f)
+            if (nav.shotHeight(o.x + d.x * s, o.z + d.z * s) > z.y + 0.6f) return true;
+        return false;
+    };
+    return wall(z) && wall(z + side * 1.2f) && wall(z - side * 1.2f);
+}
+
+float SoldierAI::aimFor(const NavGrid& nav, V3 feet, V3 z, float prone, float margin) const {
+    const float pr = std::clamp(prone, 0.f, 1.f);
+    const float torso = tuning.torsoAim - (tuning.torsoAim - 0.25f) * pr;   // crawlers: aim low
+    if (shotClear(nav, feet, z + V3{0, torso, 0}, margin)) return torso;
+    if (pr > 0.5f) return -1.f;
+    // the torso is hidden (car bonnet / roof between us): the head over it (rays pass above a car lower than the
+    // line; the GPU hit test takes the capsule's upper part)
+    if (shotClear(nav, feet, z + V3{0, tuning.headAim, 0}, margin * 0.5f)) return tuning.headAim;
+    return -1.f;
+}
+
+void SoldierAI::scoreTarget(const GameContext& ctx, uint32_t i, Cand& c, float range) const {
     const SoldierPool& P = *ctx.soldiers;
-    const V3 p = P.pos[i], eye = P.firePos(i) + V3{0, tuning.eyeHeight, 0};
-    float best = 1e9f;
-    bool found = false;
-    for (uint32_t k = 0; k < c->nNear; ++k) {
-        const V3 z = c->nearPos[k], v = c->nearVel[k];
-        const float d = dist2D(p, z);
-        if (d > tuning.scanRadius) continue;
-        if (ctx.nav && !ctx.nav->lineOfSight(eye, z + V3{0, 1.2f, 0})) continue;
-        if (d <= tuning.threatRadius) ++n;
-        // closing speed toward this soldier (m/s, > 0 approaching)
-        const V3 to = p - z;
-        const float l = std::max(0.1f, std::sqrt(to.x * to.x + to.z * to.z));
-        const float closing = (v.x * to.x + v.z * to.z) / l;
-        float score = d - 1.5f * std::max(0.f, closing);
-        // mutual support: a zombie on a squad mate is as urgent as one on me
-        if (ctx.squads)
-            if (const Squad* s = ctx.squads->get(P.squad[i]))
-                for (const SoldierId& m : s->members)
-                    if (m.index != i && P.valid(m) && P.alive(m.index) && dist2D(P.pos[m.index], z) < tuning.buddyRadius) { score = std::min(score, dist2D(P.pos[m.index], z)); break; }
-        if (score < best) { best = score; pos = z; vel = v; dist = d; found = true; }
+    const V3 p = P.pos[i];
+    const bool sniper = P.cls[i] == SoldierClass::Sniper;
+    c.dist = dist2D(p, c.pos);
+    const float d = c.dist;
+    const V3 to = p - c.pos;
+    const float l = std::max(0.1f, std::sqrt(to.x * to.x + to.z * to.z));
+    const float closing = (c.vel.x * to.x + c.vel.z * to.z) / l;   // m/s toward this soldier
+    float s = (sniper ? 4.f : 10.f) * (1.f - std::clamp(d / std::max(1.f, range), 0.f, 1.f));
+    if (closing > 0.f) {
+        s += 5.f * std::min(closing / 2.f, 1.5f);
+        const float eta = d / std::max(closing, 0.05f);
+        if (eta < 8.f) s += 4.f * (1.f - eta / 8.f);
     }
-    return found;
+    // on a soldier: me (contact range) or anyone within buddyRadius (2 m cell hash: any squad)
+    c.onSoldier = d < 2.0f;
+    if (!c.onSoldier) {
+        const int cx = (int)std::floor(c.pos.x * 0.5f), cz = (int)std::floor(c.pos.z * 0.5f);
+        for (int dz = -1; dz <= 1 && !c.onSoldier; ++dz)
+            for (int dx = -1; dx <= 1 && !c.onSoldier; ++dx) {
+                const uint32_t key = cellKey((float)(cx + dx) * 2.f + 1.f, (float)(cz + dz) * 2.f + 1.f);
+                auto it = std::lower_bound(hash_.begin(), hash_.end(), key, [](const Cell& e, uint32_t k) { return e.key < k; });
+                for (; it != hash_.end() && it->key == key; ++it)
+                    if (it->idx != i && dist2D(P.pos[it->idx], c.pos) < tuning.buddyRadius && std::fabs(P.pos[it->idx].y - c.pos.y) < 2.f) { c.onSoldier = true; break; }
+            }
+    }
+    if (c.onSoldier) s += 8.f;
+    c.blocked = !c.onSoldier && blockedPath(ctx, c.pos, p);
+    if (!c.blocked && d <= tuning.mustFight) s += 3.f;
+    if (c.blocked) s *= tuning.blockedFactor;
+    // density: zombies in its 6 m field tile (both exact and field candidates read the same tile: no flicker)
+    c.density = 0;
+    if (ctx.horde)
+        if (const ZombieFieldTile* t = ctx.horde->field().at(c.pos.x, c.pos.z)) c.density = (int)std::min<uint32_t>(t->count > 0 ? t->count - 1 : 0, 8u);
+    if (P.cls[i] == SoldierClass::MachineGunner) s += 1.2f * (float)std::min(c.density, 5);
+    else if (sniper) { if (d > tuning.threatRadius) s += c.density == 0 ? 3.f : -1.f * (float)std::min(c.density, 5); }
+    else s += 0.3f * (float)std::min(c.density, 3);
+    // overkill: squad mates already locked on this zombie
+    if (ctx.squads)
+        if (const Squad* sq = ctx.squads->get(P.squad[i])) {
+            int n = 0;
+            for (const SoldierId& m : sq->members)
+                if (m.index != i && P.valid(m) && P.alive(m.index) && P.target[m.index].active && dist2D(P.target[m.index].pos, c.pos) < 1.0f) ++n;
+            s -= (c.onSoldier ? 1.f : tuning.overkillPenalty) * (float)n;
+        }
+    c.score = s;
+}
+
+int SoldierAI::gatherTargets(const GameContext& ctx, uint32_t i, float range, bool withField, Cand* out, int maxOut) const {
+    const SoldierPool& P = *ctx.soldiers;
+    const WeaponStats& w = ctx.cfg->weapon[(int)P.cls[i]];
+    const bool sniper = P.cls[i] == SoldierClass::Sniper;
+    const V3 p = P.pos[i], feet = P.firePos(i), eye = feet + V3{0, tuning.eyeHeight, 0};
+    const bool navOk = ctx.nav && ctx.nav->ready();
+    int n = 0;
+    if (const SoldierContact* c = contactOf(ctx, i))
+        for (uint32_t k = 0; k < c->nNear && n < maxOut; ++k) {
+            Cand e;
+            e.pos = c->nearPos[k]; e.vel = c->nearVel[k]; e.prone = c->nearProne[k]; e.exact = true;
+            if (dist2D(p, e.pos) > std::min(range, tuning.scanRadius)) continue;
+            out[n++] = e;
+        }
+    const int nExact = n;
+    if (withField && ctx.horde) {
+        if (sniper) {
+            V3 t;
+            if (n < maxOut && findTarget(ctx, i, range, t)) {
+                bool dup = false;
+                for (int k = 0; k < nExact; ++k) dup |= dist2D(out[k].pos, t) < 1.f;
+                if (!dup) { Cand e; e.pos = t; out[n++] = e; }
+            }
+        } else {
+            // the nearest field samples out to fieldRadius that are not in the exact list (zombies behind the 4 nearest,
+            // groups approaching beyond 24 m): insertion into the K nearest
+            const ZombieField& f = ctx.horde->field();
+            const float R = std::min(range, tuning.fieldRadius);
+            const int K = std::min(tuning.fieldCandidates, maxOut - n);
+            if (f.tilesX && f.tileSize > 0.f && K > 0) {
+                const int i0 = std::max(0, (int)std::floor((p.x - R - f.originX) / f.tileSize)), i1 = std::min((int)f.tilesX - 1, (int)std::floor((p.x + R - f.originX) / f.tileSize));
+                const int j0 = std::max(0, (int)std::floor((p.z - R - f.originZ) / f.tileSize)), j1 = std::min((int)f.tilesZ - 1, (int)std::floor((p.z + R - f.originZ) / f.tileSize));
+                int m = 0;
+                for (int j = j0; j <= j1; ++j)
+                    for (int ti = i0; ti <= i1; ++ti) {
+                        const ZombieFieldTile& t = f.tiles[(size_t)j * f.tilesX + (size_t)ti];
+                        for (uint32_t k = 0; k < t.samples; ++k) {
+                            const float d = dist2D(p, t.pos[k]);
+                            if (d > R) continue;
+                            bool dup = false;
+                            for (int q = 0; q < nExact && !dup; ++q) dup = dist2D(out[q].pos, t.pos[k]) < 1.f;
+                            if (dup) continue;
+                            int at = m < K ? m++ : K;
+                            if (at == K) { if (d >= out[nExact + K - 1].dist) continue; at = K - 1; }
+                            while (at > 0 && out[nExact + at - 1].dist > d) { out[nExact + at] = out[nExact + at - 1]; --at; }
+                            Cand e; e.pos = t.pos[k]; e.dist = d;
+                            out[nExact + at] = e;
+                        }
+                    }
+                n += m;
+            }
+        }
+    }
+    for (int k = 0; k < n; ++k) scoreTarget(ctx, i, out[k], range);
+    std::sort(out, out + n, [](const Cand& a, const Cand& b) { return a.score > b.score; });
+    // visibility (2 m eye) and a clear firing line (torso or head), best first; field candidates only until one is
+    // hittable (cost), exact ones always (threat count, runner choice)
+    bool haveHit = false;
+    for (int k = 0; k < n; ++k) {
+        Cand& e = out[k];
+        if (!e.exact && haveHit) continue;
+        e.visible = !navOk || ctx.nav->lineOfSight(eye, e.pos + V3{0, 1.2f, 0});
+        if (!e.visible && !e.exact) continue;
+        if (e.dist > w.range) continue;
+        e.aimY = navOk ? aimFor(*ctx.nav, feet, e.pos, e.prone, sniper ? tuning.sniperMargin : 0.f) : tuning.torsoAim;
+        e.hittable = e.aimY >= 0.f;
+        haveHit |= e.hittable;
+    }
+    return n;
+}
+
+bool SoldierAI::sidestep(GameContext& ctx, uint32_t i, const Cand* cands, int n) {
+    SoldierPool& P = *ctx.soldiers;
+    if (!ctx.nav || !ctx.nav->ready() || P.post[i] != POST_NONE || P.cls[i] == SoldierClass::Sniper) return false;
+    if (i >= sidestepT_.size() || sidestepT_[i] > 0.f) return false;
+    const Cand* t = nullptr;   // the most urgent zombie in sight (stuck behind cars / around a corner) within 20 m
+    for (int k = 0; k < n && !t; ++k)
+        if (cands[k].exact && cands[k].visible && cands[k].dist <= 20.f) t = &cands[k];
+    if (!t) return false;
+    sidestepT_[i] = tuning.sidestepInterval;
+    const NavGrid& nav = *ctx.nav;
+    const V3 p = P.pos[i];
+    const uint32_t isl = nav.island(p.x, p.z);
+    float bestD = 1e9f;
+    V3 bestQ;
+    for (float r : {1.2f, 2.0f, tuning.sidestepRadius})
+        for (int k = 0; k < 12; ++k) {
+            const float a = (float)k * kPi / 6.f;
+            V3 q{p.x + std::cos(a) * r, 0, p.z + std::sin(a) * r};
+            if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || !nav.walkLine(p, q)) continue;
+            if (dist2D(q, P.home[i]) > tuning.leash - 0.3f) continue;
+            q.y = nav.surface(q.x, q.z);
+            bool crowded = false;
+            for (const Cell& c : hash_) if (c.idx != i && dist2D(P.pos[c.idx], q) < 0.9f) { crowded = true; break; }
+            if (crowded || aimFor(nav, q, t->pos, t->prone, 0.f) < 0.f) continue;
+            const float d = r + 0.3f * dist2D(q, P.home[i]);
+            if (d < bestD) { bestD = d; bestQ = q; }
+        }
+    if (bestD > 1e8f) return false;
+    P.setState(i, SoldierState::Moving);
+    P.phase[i] |= PH_RETURNING;   // not a player order: threats interrupt it, the leash keeps him near his slot
+    startPath(ctx, i, bestQ);
+    ++sidesteps_;
+    return true;
 }
 
 float SoldierAI::paceFor(GameContext& ctx, uint32_t i, bool forceRun, bool forceWalk, bool highStakes, bool& running) const {
@@ -286,7 +453,9 @@ void SoldierAI::steer(GameContext& ctx, uint32_t i, V3 desired) {
     V3 np{p.x + v.x * ctx.dt, p.y, p.z + v.z * ctx.dt};
     if (ctx.nav && ctx.nav->ready()) {
         NavGrid& nav = *ctx.nav;
-        auto ok = [&](V3 q) { return nav.walkLine(p, q) || (!nav.walkable(p.x, p.z) && nav.walkable(q.x, q.z)); };
+        // off-grid recovery (standing on a non-walkable cell: roof edge, a level's rim) only onto the SAME level: a
+        // sniper on a stepped roof never drops to the street / the next level through it
+        auto ok = [&](V3 q) { return nav.walkLine(p, q) || (!nav.walkable(p.x, p.z) && nav.walkable(q.x, q.z) && std::fabs(nav.surface(q.x, q.z) - p.y) < 0.6f); };
         if (!ok(np)) {
             V3 a{np.x, p.y, p.z}, b{p.x, p.y, np.z};
             np = ok(a) ? a : ok(b) ? b : p;
@@ -423,14 +592,16 @@ bool SoldierAI::shotClear(const NavGrid& nav, V3 feet, V3 to, float margin) {
     V3 from = feet + V3{0, 1.4f, 0} + d * 0.5f;   // Combat::muzzleHeight, 0.5 m in front
     float top = -1e9f, end = 0.f;
     for (float s = 0.25f; s <= 1.5f; s += 0.25f) {   // Combat::coverReach
-        const float h = nav.surface(feet.x + d.x * s, feet.z + d.z * s);
+        const float h = nav.shotHeight(feet.x + d.x * s, feet.z + d.z * s);   // the zombies' grid: gates block rounds
         if (h > feet.y + 0.4f) { top = std::max(top, h); end = s; }
     }
     if (top > feet.y + 0.4f && top - feet.y <= 2.8f)   // Combat::coverMaxHeight: fired over
         from = V3{feet.x + d.x * (end + 0.45f), std::max(from.y, top + 0.3f), feet.z + d.z * (end + 0.45f)};
     // margin: the line to a point that much lower must be clear too (long shots grazing a roof edge / parapet: the
     // spread cone would clip it)
-    return nav.lineOfSight(from, to) && (margin <= 0.f || nav.lineOfSight(from, to - V3{0, margin, 0}));
+    // the GPU hit test marches the same grid up to the capsule surface (shotLine): a car next to the zombie that the
+    // line passes below stops the round, one it passes above does not
+    return nav.shotLine(from, to) && (margin <= 0.f || nav.shotLine(from, to - V3{0, margin, 0}));
 }
 
 const SoldierAI::RoofVantages* SoldierAI::roofVantages(const GameContext& ctx, V3 p, float range) {
@@ -630,13 +801,30 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     TargetLock& L = P.target[i];
     const bool perceive = tuning.perceptionStride <= 1 || (ctx.tick + i) % (uint64_t)tuning.perceptionStride == 0;
     const V3 eye = P.firePos(i) + V3{0, tuning.eyeHeight, 0};
+    // candidates: exact nearest list every tick, + the coarse field (24 .. 60 m, zombies behind the 4 nearest) on
+    // perception ticks or when there is no lock; scored and sorted (scoreTarget), hittability tested best first
+    Cand cands[16];
+    const int nc = outside ? 0 : gatherTargets(ctx, i, w.acquireRange, perceive || !L.active, cands, 16);
+    const Cand* best = nullptr;     // best hittable candidate (clear firing line now)
+    const Cand* threat = nullptr;   // best hittable exact zombie that can reach us (threat stops, resupply interrupts)
+    int nThreat = 0;
+    for (int k = 0; k < nc; ++k) {
+        const Cand& e = cands[k];
+        if (e.hittable && !best) best = &e;
+        if (e.hittable && e.exact && !e.blocked && !threat) threat = &e;
+        if (e.exact && e.visible && !e.blocked && e.dist <= tuning.threatRadius) ++nThreat;
+    }
     V3 close, closeVel;
     float closeD = 1e9f;
-    int nThreat = 0;
-    const bool hasThreat = !outside && bestThreat(ctx, i, close, closeVel, closeD, nThreat);
+    const bool hasThreat = threat != nullptr;
+    if (threat) { close = threat->pos; closeVel = threat->vel; closeD = threat->dist; }
     const bool hasClose = hasThreat && closeD <= tuning.threatRadius;
     threats_[i] = (uint8_t)std::min(nThreat, 255);
-    auto lockExact = [&](V3 pos, V3 vel) { L = TargetLock{}; L.active = true; L.exact = true; L.pos = pos; L.vel = vel; };
+    auto lockCand = [&](const Cand& e) {
+        L = TargetLock{}; L.active = true; L.exact = e.exact; L.pos = e.pos; L.vel = e.vel; L.prone = e.prone;
+        L.aimY = e.aimY; L.score = e.score;
+    };
+    auto lockExact = [&](V3, V3) { if (threat) lockCand(*threat); };
     if (L.active) {
         const float d0 = dist2D(P.pos[i], L.pos);
         const SoldierContact* C = contactOf(ctx, i);
@@ -649,29 +837,41 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             if (bk >= 0) { L.pos = C->nearPos[bk]; L.vel = C->nearVel[bk]; L.prone = C->nearProne[bk]; L.age = 0.f; }
             else L.age += dt * (tuning.targetLostTime / tuning.lockLostExact);   // dead or gone: dropped within ~0.2 s
         } else {
-            V3 s;
+            V3 smp;
             L.exact = false; L.vel = {};
-            if (nearestSample(ctx, L.pos, tuning.targetKeepRadius, s)) { L.pos = s; L.age = 0.f; }
+            if (nearestSample(ctx, L.pos, tuning.targetKeepRadius, smp)) { L.pos = smp; L.age = 0.f; }
             else L.age += dt;
         }
         if (perceive && ctx.nav && !ctx.nav->lineOfSight(eye, L.pos + V3{0, 1.2f, 0})) L.age += dt * (float)tuning.perceptionStride;
         const float d = dist2D(P.pos[i], L.pos);
         if (L.age > tuning.targetLostTime || d > w.acquireRange * 1.05f || outside) L.active = false;
-        else if (hasClose && closeD < tuning.switchRatio * d && dist2D(close, L.pos) > 1.f) {
-            const float acq = std::min(L.acquire, w.acquireTime * 0.5f);   // already aiming nearby: quick re-acquire
-            lockExact(close, closeVel);
-            L.acquire = acq;
-            ++P.targetSwitches[i];
+        else {
+            // re-evaluated every tick: the lock's own score (its candidate, else scored directly), hysteresis between
+            // near-equal scores only; an unhittable lock gives way to any hittable candidate at once
+            const Cand* cur = nullptr;
+            for (int k = 0; k < nc && !cur; ++k)
+                if (dist2D(cands[k].pos, L.pos) < (L.exact && cands[k].exact ? 0.3f : 1.2f)) cur = &cands[k];
+            Cand self;
+            if (!cur) {
+                self.pos = L.pos; self.vel = L.vel; self.prone = L.prone; self.exact = L.exact;
+                scoreTarget(ctx, i, self, w.acquireRange);
+                self.aimY = ctx.nav && ctx.nav->ready() ? aimFor(*ctx.nav, P.firePos(i), L.pos, L.prone, P.cls[i] == SoldierClass::Sniper ? tuning.sniperMargin : 0.f) : tuning.torsoAim;
+                self.hittable = self.aimY >= 0.f && self.dist <= w.range;
+                cur = &self;
+            }
+            L.score = cur->score;
+            if (cur->hittable) L.aimY = cur->aimY;
+            if (best && best != cur && dist2D(best->pos, L.pos) > 0.8f && (!cur->hittable || best->score > cur->score + tuning.switchMargin)) {
+                const float acq = std::min(L.acquire, w.acquireTime * 0.5f);   // already aiming nearby: quick re-acquire
+                lockCand(*best);
+                L.acquire = acq;
+                ++P.targetSwitches[i];
+            }
         }
     }
     auto lockNew = [&](bool countSwitch) {
-        if (outside) return false;
-        if (hasThreat && closeD <= w.acquireRange) lockExact(close, closeVel);
-        else {
-            V3 t;
-            if (!findTarget(ctx, i, w.acquireRange, t)) return false;
-            L = TargetLock{}; L.active = true; L.pos = t;
-        }
+        if (outside || !best) return false;
+        lockCand(*best);
         if (countSwitch) ++P.targetSwitches[i];
         return true;
     };
@@ -716,7 +916,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     }
     case SoldierState::Engaging: {
         steer(ctx, i, {});
-        if (!L.active && (perceive || hasClose)) lockNew(true);
+        if (!L.active) lockNew(true);
         if (P.mag[i] <= 0) {
             if (P.reserve[i] > 0) P.setState(i, SoldierState::Reloading);
             else leave(ctx, sup, i);
@@ -728,10 +928,13 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             if (off < tuning.aimTolerance) L.acquire += dt;
             // fire only along a clear firing line (muzzle -> target; a wall / container right in front is fired over,
             // as Combat::fire does): rounds into parked cars were most of the "misses" (b1_ai_threat: 50 of 76)
+            // (torso, else the head over a car roof: zombies wedged between parked cars are killable)
             bool clear = true;
-            if (ctx.nav && ctx.nav->ready())
-                clear = shotClear(*ctx.nav, P.firePos(i), L.pos + V3{0, 1.1f - 0.75f * std::clamp(L.prone, 0.f, 1.f), 0},
-                                  P.cls[i] == SoldierClass::Sniper ? tuning.sniperMargin : 0.f);
+            if (ctx.nav && ctx.nav->ready()) {
+                const float ay = aimFor(*ctx.nav, P.firePos(i), L.pos, L.prone, P.cls[i] == SoldierClass::Sniper ? tuning.sniperMargin : 0.f);
+                clear = ay >= 0.f;
+                if (clear) L.aimY = ay;
+            }
             // a lock that stays blocked (seen from the eye but not shootable: roof edge, parked car) is dropped so a
             // shootable one is picked (snipers also re-pick their roof vantage)
             L.blocked = clear ? 0.f : L.blocked + dt;
@@ -843,11 +1046,14 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         if (std::fabs(off) > 0.05f) P.yaw[i] = wrapPi(P.yaw[i] + std::clamp(off, -tuning.turnRate * 0.5f * dt, tuning.turnRate * 0.5f * dt));
         const int total = P.mag[i] + P.reserve[i];
         const bool low = total < (int)std::ceil(ss.lowAmmoFraction * (float)P.fullLoad(i, cfg));
-        if (P.mag[i] > 0 && (L.active || ((perceive || hasClose) && lockNew(false)))) { P.setState(i, SoldierState::Engaging); break; }
+        if (P.mag[i] > 0 && (L.active || lockNew(false))) { P.setState(i, SoldierState::Engaging); break; }
         if (P.post[i] == POST_FIRING) {   // B3a garrison: holds the window / roof edge (BuildingPlay refills ammo)
             if (P.mag[i] < (int)(w.magazine * tuning.tacticalReloadFraction) && P.reserve[i] > 0) P.setState(i, SoldierState::Reloading);
             break;
         }
+        // zombies in sight but none shootable (wedged between parked cars, around a car): a step or two aside for a
+        // clear line (within the leash of the slot), not more often than sidestepInterval
+        if (P.mag[i] > 0 && sidestep(ctx, i, cands, nc)) break;
         // rooftop marksman: from the middle of a roof the roof itself hides the street. With nothing shootable in
         // sight he moves to the roof-edge vantage that can shoot the most zombies the field knows within range (or,
         // with none known, to the vantage overlooking the most street), re-picked every vantageScan s.
@@ -893,6 +1099,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         }
         if (selfTrip && P.retry[i] <= 0.f) { tryResupply(ctx, sup, i); if (P.state[i] != SoldierState::Idle) break; }
         if (P.wounded[i] && medicalSeek && medicalSeek(ctx, i)) break;
+        if (workHook && workHook(ctx, i)) break;   // GAME_DESIGN 14d engineers: at their work spot (EngineerAI.h)
         break;
     }
     }
@@ -1007,6 +1214,8 @@ void SoldierAI::tick(GameContext& ctx) {
     std::sort(hash_.begin(), hash_.end(), [](const Cell& a, const Cell& b) { return a.key != b.key ? a.key < b.key : a.idx < b.idx; });
     contactIndex_.assign(P.capacity(), -1);
     threats_.resize(P.capacity(), 0);   // last tick's counts until soldier() refreshes them (runner choice)
+    sidestepT_.resize(P.capacity(), 0.f);
+    for (float& t : sidestepT_) t -= ctx.dt;
     if (ctx.horde) {
         const std::vector<SoldierContact>& cs = ctx.horde->contacts();
         for (size_t k = 0; k < cs.size(); ++k) {
