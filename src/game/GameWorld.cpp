@@ -65,6 +65,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
     if (const MilitaryLibrary* lib = render_.library()) {
         animator_.init(*lib);
+        animator_.configure(cfg_);   // fire / reload clip rates matched to the weapon stats
         timingFromLibrary(*lib, deploy_.timing, logistics_);
         SDL_Log("game: deploy timeline from clips: descent %.1f m/s, land %.2f s, recover %.2f s; crate %.1f m/s",
                 deploy_.timing.descentSpeed[0], deploy_.timing.landDuration[0], deploy_.timing.recoverDuration[0], deploy_.timing.crateDescentSpeed);
@@ -167,6 +168,7 @@ void GameWorld::tick(AppState& app) {
         if (!soldiers_.used[i]) continue;
         float root[3] = {0, 0, 0};
         animator_.tick(i, soldiers_.infantry[i], soldiers_.anim[i], ctx_.dt, animEvents_, root);
+        SoldierAnimator::applyRootMotion(soldiers_.pos[i], soldiers_.yaw[i], root);   // turns, para_land offset
     }
     deploy_.onAnimEvents(ctx_);                                // c': touchdown / canopy_ground / weapon_draw of this tick
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)
@@ -197,6 +199,7 @@ void GameWorld::preSim(AppState& app, SDL_GPUCommandBuffer* cmd, double frameDt)
 void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) { horde_.postSim(cmd, app.frameIndex); }
 
 void GameWorld::render(AppState& app, float frameDt) {
+    render_.setSelection(ui_.selection().squads);   // in-world selection rings (WS-B); GameUI draws the screen-space status
     render_.update(app, ctx_, frameDt, (float)(accumulator_ / kTickDt), events_.fx);
 }
 

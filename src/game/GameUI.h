@@ -46,6 +46,7 @@ public:
     void clearForcedPreview() { forced_ = false; tool_ = Tool::Select; }
     // Height-grid pick (street, roof) under a screen point; false when the ray leaves the grid.
     static bool pickGround(const AppState& app, const GameContext& ctx, float sx, float sy, V3& out);
+    static bool worldToScreen(const AppState& app, V3 p, float& sx, float& sy);   // scripts: synthetic mouse input
 private:
     void selectAt(AppState& app, const GameContext& ctx, float x, float y, bool additive, CommandQueue& out);
     void selectBox(AppState& app, const GameContext& ctx, float x0, float y0, float x1, float y1, bool additive, CommandQueue& out);

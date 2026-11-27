@@ -17,11 +17,12 @@
 //
 // expect <sum> <op> <sum>, sum = metric-or-number [(+|-) metric-or-number ...], op in == != >= <= > <. Metrics:
 //   kills kills_soldier kills_explosion kills_other dupes funding spent passive_total reward_total reward_expected
-//   ledger_sum shots soldiers soldiers_alive squads dropped landed refused zombies_live time
+//   ledger_sum shots soldiers soldiers_alive squads dropped landed refused zombies_live time selected tool
 //   squad N size | alive | ammo | ammo_start | mag | reserve | health | parachuted | deploying | dist X Z | maxdist X Z
 //   supply N stock | initial | delivered | landed | users            (supply points in creation order, 1-based)
 //   delivered (all rounds handed out by supply points)
 // Special checks: expect funding_reward_matches_kills | expect ledger_balanced | expect no_duplicate_rewards
+// Input (through the real GameUI path): click left|right X Z, drag left X0 Z0 X1 Z1, key z|x|c|v|b|h|t|tab|esc|1..9.
 // Other verbs: log (prints a status line), camera X Z YAW PITCH DIST, select N.., preview TOOL X Z, preview off,
 // shot FILE.png (screenshot incl. HUD), squadinfo N (prints every member), where [roof|container] (valid spots near the
 // camera pivot), probe X Z [YAW], setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply).

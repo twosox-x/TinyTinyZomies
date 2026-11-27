@@ -33,6 +33,8 @@ at 95   expect ledger_balanced
 at 96   move 1 -17 140                     # move orders (calm street): walk / run, formation at the destination
 at 96   move 2 -25 100 run
 at 120  log
-at 120  expect squad 1 maxdist -17 140 <= 6
-at 120  expect squad 2 maxdist -25 100 <= 6
+at 120  expect squad 1 dist -17 140 <= 5          # mean distance to the order point (wedge formation, 2 m spacing)
+at 120  expect squad 1 maxdist -17 140 <= 8
+at 120  expect squad 2 dist -25 100 <= 5
+at 120  expect squad 2 maxdist -25 100 <= 8
 at 121  end

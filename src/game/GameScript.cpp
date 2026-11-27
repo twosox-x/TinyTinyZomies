@@ -87,6 +87,8 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "landed") { out = (double)w.deploy().soldiersLanded(); return true; }
     if (m == "refused") { out = (double)w.purchasesRefused(); return true; }
     if (m == "time") { out = ctx.time; return true; }
+    if (m == "selected") { out = (double)w.ui().selection().squads.size(); return true; }
+    if (m == "tool") { out = (double)w.ui().tool(); return true; }
     if (m == "zombies_live") { out = w.app() ? (double)w.app()->sim.stats().live : 0.0; return true; }
     if (m == "delivered") { out = 0; for (int t = 0; t < 3; ++t) out += (double)w.logistics().roundsDelivered((AmmoType)t); return true; }
     if (m == "squad") {
@@ -303,6 +305,49 @@ bool GameScript::tick(GameWorld& world, double time) {
             SoldierPool& P = *world.context().soldiers;
             for (const SoldierId& m : s->members)
                 if (P.valid(m) && P.alive(m.index)) { P.mag[m.index] = std::atoi(a[1].c_str()); P.reserve[m.index] = std::atoi(a[2].c_str()); }
+        } else if (L.verb == "click" || L.verb == "drag" || L.verb == "key") {
+            // synthetic input through the real UI path (GameWorld::handleEvent -> GameUI -> Commands):
+            //   click left|right X Z      drag left X0 Z0 X1 Z1      key z|x|c|v|b|h|t|tab|esc|1..9
+            if (!app) { bad("input needs the app"); continue; }
+            auto send = [&](SDL_Event& e) { world.handleEvent(*app, e); };
+            auto screen = [&](float x, float z, float& sx, float& sy) {
+                V3 p{x, 0, z};
+                if (world.context().nav && world.context().nav->ready()) p.y = world.context().nav->surface(x, z);
+                return GameUI::worldToScreen(*app, p, sx, sy);
+            };
+            if (L.verb == "key") {
+                if (a.empty()) { bad("key NAME"); continue; }
+                SDL_Event e{};
+                e.type = SDL_EVENT_KEY_DOWN;
+                const std::string& k = a[0];
+                e.key.key = k == "tab" ? SDLK_TAB : k == "esc" ? SDLK_ESCAPE : (SDL_Keycode)(unsigned char)k[0];
+                send(e);
+                continue;
+            }
+            const bool right = !a.empty() && a[0] == "right";
+            float x0, y0, x1, y1;
+            if (a.size() < 3 || !screen(f(a, 1), f(a, 2), x0, y0)) { bad("click/drag: point not on screen"); continue; }
+            x1 = x0; y1 = y0;
+            if (L.verb == "drag" && (a.size() < 5 || !screen(f(a, 3), f(a, 4), x1, y1))) { bad("drag: end point not on screen"); continue; }
+            V3 picked;
+            if (GameUI::pickGround(*app, world.context(), x0, y0, picked))
+                std::printf("  %s %s at screen (%.0f %.0f) picks (%.1f %.1f %.1f)\n", L.verb.c_str(), right ? "right" : "left", x0, y0, picked.x, picked.y, picked.z);
+            SDL_Event e{};
+            e.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+            e.button.button = right ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT;
+            e.button.x = x0; e.button.y = y0;
+            send(e);
+            if (L.verb == "drag") {
+                SDL_Event m{};
+                m.type = SDL_EVENT_MOUSE_MOTION;
+                m.motion.x = x1; m.motion.y = y1; m.motion.xrel = x1 - x0; m.motion.yrel = y1 - y0;
+                send(m);
+            }
+            SDL_Event u{};
+            u.type = SDL_EVENT_MOUSE_BUTTON_UP;
+            u.button.button = e.button.button;
+            u.button.x = x1; u.button.y = y1;
+            send(u);
         } else if (L.verb == "where") {   // camera pivot, simulated window, a few valid drop points near the pivot
             const GameContext& ctx = world.context();
             if (!app || !ctx.nav || !ctx.nav->ready()) { bad("where: no app / navigation"); continue; }

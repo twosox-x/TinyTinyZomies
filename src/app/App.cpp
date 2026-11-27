@@ -155,6 +155,7 @@ bool App::init() {
         go.script = o.gameScript;
         go.syncReadback = o.gameSync;
         if (!s_.game->init(s_, go)) { SDL_Log("game: init failed"); return false; }
+        s_.showUI = false;   // minimal clutter: the debug panel stays on F1
     }
     if (s_.cityMode && o.headless && o.frames > 0 && o.cityBench == 0) s_.cityRenderer.flush(s_.camera, (float)o.width / (float)o.height);
     return true;

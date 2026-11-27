@@ -45,7 +45,7 @@ bool Logistics::canPlaceContainer(const GameContext& ctx, V3 pos, float yaw, con
     if (!simulatedAt(ctx, pos.x, pos.z)) return no("outside the simulated area");
     const V3 c = local(pos, yaw, kContCx, 0.f);
     float y = 0;
-    if (!flatFootprint(ctx, c, kContHalfX, kContHalfZ, yaw, 0.35f, &y)) return no("blocked: needs a flat 7 x 4.5 m spot");
+    if (!flatFootprint(ctx, c, kContHalfX, kContHalfZ, yaw, 0.4f, &y)) return no("blocked: needs a flat 7 x 4.5 m spot");
     for (const SupplyPoint& p : points_)
         if (p.alive && (p.pos.x - pos.x) * (p.pos.x - pos.x) + (p.pos.z - pos.z) * (p.pos.z - pos.z) < 7.f * 7.f) return no("too close to another supply point");
     int slots = 0;
@@ -92,7 +92,7 @@ bool Logistics::canAirdrop(const GameContext& ctx, V3 pos, const char** why) con
     if (!ctx.nav || !ctx.nav->ready()) return no("no navigation grid");
     if (!simulatedAt(ctx, pos.x, pos.z)) return no("outside the simulated area");
     float y = 0;
-    if (!flatFootprint(ctx, pos, 1.2f, 1.2f, 0.f, 0.3f, &y)) return no("blocked: inside geometry, a vehicle or an edge");
+    if (!flatFootprint(ctx, pos, 0.8f, 0.8f, 0.f, 0.35f, &y)) return no("blocked: inside geometry, a vehicle or an edge");
     float ground = y;
     for (int k = 0; k < 8; ++k) ground = std::min(ground, ctx.nav->surface(pos.x + 8.f * std::cos(k * kPi / 4), pos.z + 8.f * std::sin(k * kPi / 4)));
     if (y - ground > 0.5f && y - ground <= 2.5f) return no("blocked: on a vehicle, wall or obstacle");

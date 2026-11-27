@@ -120,6 +120,13 @@ bool GameUI::pickGround(const AppState& app, const GameContext& ctx, float sx, f
     return true;
 }
 
+bool GameUI::worldToScreen(const AppState& app, V3 p, float& sx, float& sy) {
+    ImVec2 v;
+    if (!project(app, p, v)) return false;
+    sx = v.x; sy = v.y;
+    return true;
+}
+
 void GameUI::notify(const std::string& text, bool bad, double time) {
     if (bad) SDL_Log("game: %s", text.c_str());
     notices_.push_back({text, time, bad});
@@ -403,7 +410,7 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
 void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& out) {
     const BalanceConfig& cfg = *ctx.cfg;
     const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y - 8.f), ImGuiCond_Always, ImVec2(0.5f, 1.f));
+    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 10.f, io.DisplaySize.y - 8.f), ImGuiCond_Always, ImVec2(1.f, 1.f));   // bottom right (selection: bottom left)
     ImGui::Begin("##build", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
                                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     struct B { Tool t; const char* name; const char* key; int price; const char* tip; };
@@ -525,11 +532,7 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
                 dl->AddText(ImVec2(sp.x + w + 4, sp.y - 7), kSand, t);
             }
         }
-    // selection rings at the feet
-    for (const SquadId& id : sel_.squads)
-        if (const Squad* s = ctx.squads->get(id))
-            for (const SoldierId& m : s->members)
-                if (P.valid(m) && P.alive(m.index)) groundCircle(dl, app, P.pos[m.index], 0.6f, IM_COL32(236, 228, 150, 220), 1.5f, 18);
+    // selection rings and the class icon are drawn in the world by GameRender (WS-B); here: number + status pips
     // move-order marker
     if (now_ - orderMarkerT_ < 1.0) {
         const float a = (float)(now_ - orderMarkerT_);
@@ -542,16 +545,15 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
         float top = 0;
         for (const SoldierId& m : s.members) if (P.valid(m) && P.alive(m.index)) top = std::max(top, P.pos[m.index].y);
         ImVec2 sp;
-        if (!project(app, V3{c.x, std::max(c.y, top) + 2.6f, c.z}, sp)) continue;
+        if (!project(app, V3{c.x, std::max(c.y, top) + 2.7f, c.z}, sp)) continue;   // GameRender's class icon height
         const bool sel = sel_.contains(s.id);
-        const ImU32 fill = sel ? IM_COL32(236, 228, 150, 255) : IM_COL32(150, 156, 98, 235), edge = IM_COL32(18, 20, 12, 255);
-        dl->AddLine(ImVec2(sp.x, sp.y + r), ImVec2(sp.x, sp.y + r + 5.f), withAlpha(edge, 0.7f), 1.f);
-        classGlyph(dl, ImVec2(sp.x + 1, sp.y + 1), r, s.type, kShadow, kShadow);
-        classGlyph(dl, sp, r, s.type, fill, edge);
+        // squad number beside the world class icon (rifle / MG / sniper read from the icon shape and colour)
         char num[8];
         std::snprintf(num, sizeof(num), "%u", s.number);
         const ImVec2 ts = ImGui::CalcTextSize(num);
-        dl->AddText(ImVec2(sp.x - ts.x * 0.5f, sp.y - ts.y * 0.5f), edge, num);
+        const float nx = sp.x - r - 6.f - ts.x;
+        dl->AddText(ImVec2(nx + 1, sp.y - ts.y * 0.5f + 1), kShadow, num);
+        dl->AddText(ImVec2(nx, sp.y - ts.y * 0.5f), sel ? IM_COL32(255, 255, 255, 255) : kSand, num);
         // status pips to the right: deploying / under attack / out / low ammo / casualties / resupplying / moving
         float x = sp.x + r + 5.f;
         auto pip = [&](ImU32 col) { dl->AddCircleFilled(ImVec2(x, sp.y), 3.f, col, 8); dl->AddCircle(ImVec2(x, sp.y), 3.f, kShadow, 8, 1.f); x += 8.f; };

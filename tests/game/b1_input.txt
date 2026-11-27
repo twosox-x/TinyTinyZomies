@@ -1,0 +1,27 @@
+# Milestone B1 acceptance: the player's input path (GameUI -> Commands): build-bar hotkeys, placement click with
+# preview validation, click / box selection, right-click move order, right-click cancels a tool, Esc.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_input.txt
+at 0.0  camera -14 120 0.6 0.9 70
+at 0.1  key z                          # rifle squad tool
+at 0.1  expect tool == 1
+at 0.2  expect spent == 0               # (refused placements: b1_resupply.txt and the self-test)
+at 0.3  click left -11 117             # valid street: purchase confirmed
+at 0.5  expect spent == 1000
+at 0.5  expect squads == 1
+at 0.5  expect tool == 0               # the tool closes after a purchase (Shift keeps it)
+at 0.6  key x                          # MG tool ...
+at 0.7  click right -5 102             # ... right click cancels it, no purchase
+at 0.8  expect tool == 0
+at 0.8  expect spent == 1000
+at 22   expect squad 1 deploying == 0
+at 22   click left -11 117             # click a soldier: selects his squad
+at 22.2 expect selected == 1
+at 22.3 key esc
+at 22.4 expect selected == 0
+at 22.5 drag left -22 106 -2 128       # box selection
+at 22.7 expect selected == 1
+at 23   click right -17 140            # move order (right click)
+at 45   log
+at 45   expect squad 1 dist -17 140 <= 5
+at 45   key h                          # halt
+at 46   end

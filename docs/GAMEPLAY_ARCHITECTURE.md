@@ -298,3 +298,36 @@ everyone's new files; others send the line) and `shaders/compiled/` (WS-A and WS
 3. B1 limit: deployment only inside the simulated window (3.6). Persistence architecture comes in B4.
 4. RMB: click = move order, drag = pan (keeps the City Lab rig). Alternative: LMB-select / RMB-order with pan on MMB.
 5. Provisional balance values in `config/balance.json` are UNAPPROVED and labelled so in the HUD.
+
+---
+
+## 5. B1 integration notes (WS-D, 2026-11-27)
+
+**Controls (`ttz --map city --game`).** Build bar (bottom right) or hotkeys: Z rifle squad, X MG squad, C sniper,
+V ammo container (T rotates), B ammo airdrop. LMB places with a live preview (green = valid, red + reason = refused;
+nothing is charged for a refused spot). LMB click / box drag selects squads (Shift adds), 1..9 select squad N, Tab
+cycles, Esc cancels the tool / clears the selection. RMB click = move order (Shift+RMB runs), RMB drag still pans
+(OWNER question 4 kept as proposed), H halts. F1 shows the debug panel (off by default in `--game`).
+
+**Economy.** Base income credited per tick, ledgered once per second; kill rewards per `KillCause` with seq dedupe;
+ring-overflow kills paid anonymously; one-time purchases; no upkeep, no refunds. Explosion kills pay
+`killReward.explosion` (provisional YES to OWNER question 1, UNAPPROVED, set it to 0 to disable).
+
+**Deploy.** `Deploy::plan` validates on the live height grid: flat footprint (inside geometry / building edge refused),
+not on a vehicle / wall / water (0.5–2.5 m above the local ground), rooftop when > 2.5 m (roof must be flat >= 3.6 m
+and hold every member), inside the simulated window. Members land >= 3 m apart on the same island, staggered
+altitudes, descent at the clip's `descentSpeed`; Deploy drives Descending -> Landing -> Recovering (`weapon_draw` or
+the clip duration) -> Forming; SoldierAI forms up and takes over. `Deploy::drops()` feeds the canopy tracks.
+
+**Logistics.** Container (7 x 4.5 m flat footprint, 4 door / side slots) and airdrop crates (descent, land clip,
+collectable only once landed, scatter radius, empty crates dissolve). Finite stock; Combat transfers on `grab` via
+`Logistics::collect` (Logistics never transfers by itself); stale reservations freed after 1 s. **B1: the container
+can be placed anywhere valid** (B2 restricts it to controlled territory).
+
+**Squad flags** have one owner: SoldierAI (GameWorld no longer recomputes them).
+
+**Acceptance scripts** (`tests/game/*.txt`, headless, exit code = failed expectations; see `GameScript.h` for verbs):
+`b1_combat_loop.txt` (5 / 3 / 1 by parachute incl. a rooftop sniper, autonomous fight, ammo use, rewards == kills x
+reward, no duplicates, ledger balanced), `b1_resupply.txt` (container + crate resupply, stock conserved, invalid
+placements refused without charge, move orders), `b1_input.txt` (hotkeys, placement click, click / box selection,
+right-click move, tool cancel). Headless script runs render only the frames that take a `shot` (with the HUD).
