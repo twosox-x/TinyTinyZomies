@@ -43,3 +43,7 @@ Separate files (`assets/military/specialists.*`, `specialist_anims.*`); the Stag
 | Engineer hand tools (sledgehammer, shovel, cutting torch, pry bar, sandbag, gabion panel) + sandbag pile | pending review | n/a | |
 | Flamethrower (2 variants, squad size proposed 2) | pending review | pending review | twin fuel tanks, hood / mask, flame gun with pilot light, procedural hose |
 | Flame FX (stream, smoke, ground fire, pilot, corpse burn) + work FX (sparks, dust, dirt) | n/a | changes requested → pending review (v2) | owner: flame "looks ugly — particles; should be the explosion voxel-volume style" → v2 voxel volume; owner: "still terrible — big blocks with space between them; should be one continuous tongue of flame" → v3 continuous 5 cm voxel tongue; orchestrator: wide end read as a maroon blob → v4 bright yellow-orange rope, red only as a thin tip fringe, smoke above the flame (`fx.flame_tongue`), MILITARY_ANIMS.md §7.5 |
+
+
+## Phase 7B specialists
+Engineer and flamethrower models, animations and flame FX (v4): APPROVED by the owner on 2026-11-28 ("Flamethrower and engineer - approved").
