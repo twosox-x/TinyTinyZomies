@@ -134,12 +134,73 @@ function workerMain() {
     sections.push(['HGT0', hgtSection(H, x0, z0)]);
     if (wgrid) sections.push(['WATR', WK.waterSection(B, C, wgrid, x0, z0)]);
     if (fol.length) sections.push(['FOLI', WK.foliageSection(B, fol, x0, z0)]);
+    const bl = buildingRecords(r.jobs, Bm, i, j);
+    if (bl.length) sections.push(['BLDG', bldgSection(bl)]);
     parentPort.postMessage({ ij: msg.ij, sections, traffic: tr, spawns, ms: Date.now() - t0, foliage: fol.length, water: !!wgrid, tris0: st0.tris0, tris1: st0.tris1, clamped: st0.clamped, props: props.map(p => p.type), pages: pages.size,
       heap: Math.round(process.memoryUsage().heapUsed / 1048576) });
   });
   parentPort.postMessage({ ready: true });
 }
 
+// ---- BLDG (FORMAT.md 3, optional): one record per building the tile owns (gameplay: capture, garrison, hospital,
+// zombie vertical navigation). Footprint = the job's frame (O, e1 along the frontage, e2 into the lot) tightened to the
+// building's own quads above 2.2 m (fences, lawns and yard dressing excluded); flat roof = the upward surface level with
+// the largest area above 2.5 m when it covers >= 35 % of the footprint; doors on the front facade (the street side).
+const BKIND = { shouse: 1, house: 1, row: 2, mid: 3, tower: 4, commercial: 5 };
+function buildingRecords(jobs, Bm, ti, tj) {
+  const out = [], u = V, Pp = Bm.pos;
+  jobs.forEach((J, k) => {
+    if (!(J.q1 > J.q0)) return;
+    const O = J.O, e1 = J.e1, e2 = J.e2;
+    let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9, top = -1e9, ymin = 1e9;
+    const up = [];
+    for (let q = J.q0; q < J.q1; ++q) {
+      const o = q * 12; let qmax = -1e9, qmin = 1e9;
+      for (let c = 0; c < 4; ++c) { const y = Pp[o + c * 3 + 1] * u; qmax = Math.max(qmax, y); qmin = Math.min(qmin, y); }
+      top = Math.max(top, qmax); ymin = Math.min(ymin, qmin);
+      if (qmax < 2.2) continue;
+      for (let c = 0; c < 4; ++c) {
+        const px = Pp[o + c * 3] * u - O[0], pz = Pp[o + c * 3 + 2] * u - O[1];
+        const a = px * e1[0] + pz * e1[1], b = px * e2[0] + pz * e2[1];
+        u0 = Math.min(u0, a); u1 = Math.max(u1, a); v0 = Math.min(v0, b); v1 = Math.max(v1, b);
+      }
+      const vi = q * 4, ny = Bm.nvec ? Bm.nvec[vi * 3 + 1] / (Math.hypot(Bm.nvec[vi * 3], Bm.nvec[vi * 3 + 1], Bm.nvec[vi * 3 + 2]) || 1) : (Bm.nrm[vi] === 0 ? 1 : 0);
+      if (ny > 0.7 && qmin > 2.5) {
+        const ex = (Pp[o + 3] - Pp[o]) * u, ez = (Pp[o + 5] - Pp[o + 2]) * u, fx = (Pp[o + 9] - Pp[o]) * u, fz = (Pp[o + 11] - Pp[o + 2]) * u;
+        up.push([Math.round(qmin * 2) / 2, Math.abs(ex * fz - ez * fx)]);
+      }
+    }
+    const w = u1 - u0, d = v1 - v0;
+    if (!(w >= 3 && d >= 3) || top < 2.5) return;
+    const hist = new Map(); for (const [y, a] of up) hist.set(y, (hist.get(y) || 0) + a);
+    let roofY = 0, best = 0; for (const [y, a] of hist) if (a > best || (a === best && y > roofY)) { best = a; roofY = y; }
+    const house = J.kind === 'shouse';
+    const flat = !house && best >= 0.35 * w * d;
+    const y0 = Math.max(0, Math.min(1, ymin)) < 0.1 ? 0.15 : Math.max(0, Math.min(1, ymin));
+    let floors = J.floors > 0 ? J.floors : 0;
+    if (house) { floors = top - y0 > 8.6 ? 2 : 1; roofY = y0 + floors * 3.0; }
+    else if (!flat) roofY = roofY || Math.min(top, y0 + 3 * Math.max(1, floors));
+    if (!floors) floors = Math.max(1, Math.round((roofY - y0) / 3.3));
+    floors = Math.max(1, Math.min(255, floors));
+    let kind = BKIND[J.kind] || 6; if (kind === 4 && floors <= 12) kind = 3;
+    const ox = O[0] + e1[0] * u0 + e2[0] * v0, oz = O[1] + e1[1] * u0 + e2[1] * v0;
+    const nd = J.kind === 'row' ? Math.max(1, Math.min(4, Math.round(w / 9))) : w > 24 ? 2 : 1;
+    const doors = [];
+    for (let n = 0; n < nd; ++n) { const a = w * (n + 0.5) / nd; doors.push([ox + e1[0] * a, y0, oz + e1[1] * a, -e2[0], -e2[1], Math.min(2.4, w * 0.3)]); }
+    if (kind === 4 && doors.length < 4) doors.push([ox + e1[0] * w * 0.5 + e2[0] * d, y0, oz + e1[1] * w * 0.5 + e2[1] * d, e2[0], e2[1], 2.0]);
+    out.push({ id: (((tj << 8) | ti) << 12 | (k & 4095)) >>> 0, kind, floors, flat, doors, f: [ox, oz, e1[0], e1[1], w, d, y0, roofY, top] });
+  });
+  return out;
+}
+function bldgSection(list) {
+  const RB = 140, w = new B.W(8 + list.length * RB); w.u32(list.length); w.u32(RB);
+  for (const b of list) {
+    w.u32(b.id); w.u8(b.kind); w.u8(b.floors); w.u8(b.flat ? 1 : 0); w.u8(b.doors.length);
+    for (const x of b.f) w.f32(x);
+    for (let n = 0; n < 4; ++n) { const dd = b.doors[n] || [0, 0, 0, 0, 0, 0]; for (const x of dd) w.f32(x); }
+  }
+  return w.done();
+}
 function appendPart(D, S) { for (const v of S.pos) D.pos.push(v); for (const v of S.mat) D.mat.push(v); for (const v of S.nvec) D.nvec.push(v); D.quads += S.quads; }
 function propSection(props, index) {
   const w = new B.W(4 + props.length * 24); w.u32(props.length);

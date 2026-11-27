@@ -23,7 +23,7 @@ sections store as ~94 MB (8x).
 
 ## 1. Common: binary file layout
 
-Optional sections / files (`WATR`, `FOLI`, `foliage.bin`) were added without a version bump: older readers skip them
+Optional sections / files (`WATR`, `FOLI`, `BLDG`, `foliage.bin`) were added without a version bump: older readers skip them
 (unknown tags) and simply draw no water surface / foliage. Every `.bin` starts with a 16-byte header and a section table; sections are 4-byte aligned, in table order.
 
 | offset | type | field |
@@ -197,6 +197,29 @@ Sections, in this order (a section may be absent if empty):
   field parcels: corn one plant per 0.8 m on the 2.4 m crop rows, soy on its 2.0 m rows, wheat clumps over the wheat
   ground, grass tufts on pasture / verges / headlands, reeds at the waterline in 5 m clusters, rocks on the banks, rare
   hay bales. Foliage never sets HGT0 `top` (ground cells keep VEG / OPEN from the raster).
+
+- `BLDG` — optional (added 2026-11-27 for Milestone B3; older readers skip it, older packages have none): one record
+  per building the tile **owns** (City Lab building jobs: suburban houses, row houses, mid-rises, towers, commercial).
+  Header `u32 count, u32 recordBytes` (140), then `count` records:
+
+  | offset | type | field |
+  |---|---|---|
+  | 0 | u32 | id: `((j << 8 | i) << 12) | k` (k = own job index in the tile), unique per package |
+  | 4 | u8 | kind: 1 house (suburban), 2 row house, 3 mid-rise (incl. `tower` jobs <= 12 floors), 4 tower, 5 commercial, 6 other |
+  | 5 | u8 | floors (job storeys; houses: 1 or 2 from the height) |
+  | 6 | u8 | flags: bit 0 = flat (walkable) roof |
+  | 7 | u8 | door count (0..4) |
+  | 8 | f32 x 2 | footprint corner O (x, z): front-left corner of the oriented footprint rectangle |
+  | 16 | f32 x 2 | e1 (x, z): unit axis along the street frontage; e2 (into the lot) = the perpendicular opposite to the door normals |
+  | 24 | f32 x 2 | w (along e1), d (along e2), metres: the job frame tightened to the building's own quads above 2.2 m |
+  | 32 | f32 | y0: ground floor level |
+  | 36 | f32 | roofY: walkable roof level (flat: the upward surface level with the largest area above 2.5 m, it covers >= 35 % of the footprint); pitched: eave = y0 + 3 m x floors |
+  | 40 | f32 | topY: highest point of the building (antennas, tanks) |
+  | 44 | 4 x {f32 x, y, z, nx, nz, width} | doors (unused entries zero): on the front facade (one per ~9 m for row houses, two above 24 m frontage), outward normal; towers add a rear door |
+
+  Doors are placed on the front facade (City Lab's facades put the entrance on the street side); their exact position
+  along the facade is approximate. Windows, firing positions, the stair core and the roof hatch are derived by the
+  engine (`src/game/Buildings.cpp BuildingRegistry::prepare`) against the live height grid.
 
 ## 4. `vehicles.bin` (magic `TTZV`) and `props.bin` (magic `TTZP`)
 
