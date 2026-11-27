@@ -68,6 +68,12 @@ struct SoldierContact {
     uint16_t attackers = 0;   // live walkers / climbers within ThreatConfig.attackReach of the capsule
     uint16_t nearby = 0;      // within 8 m (threat response)
     float nearestDist = 1e9f;
+    // Exact nearest live zombies within the threat radius (HordeBridge::setThreatRadius), any height, nearest first,
+    // positions / velocities of the frame the contact was produced (targeting: aim at real zombies, lead by velocity).
+    static constexpr uint32_t kNear = 4;
+    uint8_t nNear = 0;
+    V3 nearPos[kNear];
+    V3 nearVel[kNear];
 };
 
 // Horde attractor (zombies' flow field source): soldiers, noise. Bounded list (kMaxAttractors; HordeBridge keeps the

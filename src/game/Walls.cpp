@@ -148,7 +148,6 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
     WallPlan P;
     P.type = type; P.gate = gate;
     if (pts.size() < 2) { P.reason = "click to add points, double-click / Enter to confirm"; return P; }
-    const float w = width(type);
     for (size_t k = 0; k + 1 < pts.size(); ++k) {
         const V3 A = pts[k], B = pts[k + 1];
         const float L = std::hypot(B.x - A.x, B.z - A.z);
@@ -177,6 +176,7 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
         if (q.nodeA >= 0 && q.nodeA == q.nodeB) { fail("segment too short (min 2.5 m)"); continue; }
         // footprint samples
         float gmin = 1e9f, gmax = -1e9f;
+        std::vector<float> gs;
         bool outside = false, vehicle = false, container = false;
         const int nu = std::max(2, (int)std::ceil(len / 0.5f)), nv = 2;
         for (int a = 0; a <= nu; ++a)
@@ -184,14 +184,20 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
                 float x, z;
                 box.at(-box.hx + 2.f * box.hx * (float)a / (float)nu, -box.hz + 2.f * box.hz * (float)b / (float)nv, x, z);
                 if (env.simulated && !env.simulated(x, z)) { outside = true; continue; }
+                // the last 0.6 m at each end may overlap a building / vehicle edge: walls butt against facades
+                if (std::fabs(-box.hx + 2.f * box.hx * (float)a / (float)nu) > box.hx - 0.6f) continue;
                 const float g = env.ground ? env.ground(x, z) : 0.f;
                 gmin = std::min(gmin, g); gmax = std::max(gmax, g);
+                gs.push_back(g);
                 if (env.solid && env.solid(x, z) - g > 0.4f) vehicle = true;
                 for (const Obb& c : env.containers) if (c.contains(x, z, 0.15f)) container = true;
             }
         q.y = gmin < 1e8f ? gmin : 0.f;
         if (outside) { fail("outside the simulated area"); continue; }
-        if (gmax - gmin > 0.6f) { fail("blocked by a building, water or a steep step"); continue; }
+        // a building / water / step blocks; a thin pole, bollard or tree in the line does not (the wall swallows it)
+        int high = 0;
+        for (float g : gs) high += g - gmin > 0.6f ? 1 : 0;
+        if (high > 0 && (float)high > 0.2f * (float)gs.size()) { fail("blocked by a building, water or a steep step"); continue; }
         if (vehicle) { fail("a vehicle is in the way"); continue; }
         if (container) { fail("overlaps a supply container"); continue; }
         // existing pieces and posts
@@ -312,7 +318,7 @@ bool Walls::destroy(uint32_t i) {
     if (rubble_.size() > 512) rubble_.erase(rubble_.begin());
     detach(p.a);
     detach(p.b);
-    destroyed_.push_back({i, box.cx, y, box.cz});
+    destroyed_.push_back({i, box.cx, y, box.cz, box});
     changed_ = true;
     return true;
 }

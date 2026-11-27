@@ -1,0 +1,24 @@
+# Owner request: units run by default when it makes sense; stamina limits it; wounded soldiers walk.
+# Auto pace runs (rate-matched run clip), stamina drains while running and recovers at rest; exhausted soldiers walk
+# until recovered; a forced walk order walks; a wounded soldier walks while the others run.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_stamina.txt
+at 0.0  camera -8 117 0.6 0.9 70
+at 0.1  buy rifle -8 117
+at 26   expect squad 1 alive == 5
+at 26   expect squad 1 stamina >= 490
+at 26   move 1 96 117                   # 104 m east, auto pace: run
+at 30   expect squad 1 running >= 4
+at 30   expect squad 1 speed >= 14      # ~3.8 m/s each
+at 42   log
+at 42   expect squad 1 stamina <= 400   # draining while running
+at 90   log
+at 90   expect squad 1 dist 96 117 <= 6
+at 96   expect squad 1 stamina >= 450   # recovered at rest
+at 96   move 1 60 117 walk              # forced walk (Ctrl / Alt + RMB)
+at 99   expect squad 1 running == 0
+at 99   expect squad 1 speed <= 7.5
+at 115  sethealth 1 20 0                # TEST HOOK: member 0 badly wounded
+at 116  expect squad 1 wounded == 1
+at 116  move 1 96 117                   # auto pace: the wounded one walks, the others run
+at 119  expect squad 1 running == 4
+at 120  end

@@ -211,6 +211,11 @@ How it works (details in `src/city/*.h`):
 
 ## Gameplay mode (Phase 7B, in progress)
 
+B2 (walls and territory): N cheap wall (1.6 m), M reinforced wall (2.4 m), J gate (PROPOSED); click points or drag
+a straight run (whole 4 m pieces, Ctrl: 1 m), Enter / double-click builds, Backspace undoes a point, Esc cancels. Ammo
+container: Q / E / mouse wheel rotate 15 deg, T 90 deg; it lands by parachute and plugs perimeter gaps. Acceptance:
+`tests/game/b2_territory.txt`, `b2_gate.txt`, `b2_input.txt`.
+
 `./build/ttz --map city --game` runs the gameplay layer (`src/game/`, docs/GAMEPLAY_ARCHITECTURE.md). Milestone B1 is
 being built: at this step the mode only wires the interfaces (HUD bar, no soldiers yet). Balance values come from
 `config/balance.json` and are **UNAPPROVED**. Headless scenarios: `--game-script FILE` (exit code = failed

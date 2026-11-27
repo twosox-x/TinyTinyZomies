@@ -5,7 +5,7 @@
 //   at 0.0  spawn 600 230 410 25           # zombies: count x z radius (requestSpawn rect)
 //   at 0.5  buy rifle 240 400              # squad purchase + drop at (x, z)  (rifle | mg | sniper)
 //   at 0.5  buy mg 246 404
-//   at 20   move 1 260 380                 # squad number (purchase order, 1-based) to (x, z); "run" suffix runs
+//   at 20   move 1 260 380                 # squad number (purchase order, 1-based) to (x, z); "run" suffix forces a run, "walk" a walk
 //   at 25   stop 1
 //   at 30   airdrop 250 390
 //   at 30   container 236 396 0            # x z yaw
@@ -19,13 +19,18 @@
 //   kills kills_soldier kills_explosion kills_other dupes funding spent passive_total reward_total reward_expected
 //   ledger_sum shots soldiers soldiers_alive squads dropped landed refused zombies_live time selected tool
 //   squad N size | alive | ammo | ammo_start | mag | reserve | health | parachuted | deploying | dist X Z | maxdist X Z
+//     | y (sum of feet heights) | inside (bodies inside geometry) | rooftop (members on a roof) | stamina | running
+//     | wounded | speed (sums over alive members) | engaging | carry | total (mag + reserve + carry) | resupplying
+//     | has_runner        handed_over collected (rounds: runner -> mates, supply -> soldiers)
+//   hits hits_static hit_pct (GPU-resolved rounds; hit_pct = 100 hits / shots) damage (contact damage taken) risen rising stay_dead dropped_weapons bodies
 //   supply N stock | initial | delivered | landed | users            (supply points in creation order, 1-based)
 //   delivered (all rounds handed out by supply points)
 // Special checks: expect funding_reward_matches_kills | expect ledger_balanced | expect no_duplicate_rewards
 // Input (through the real GameUI path): click left|right X Z, drag left X0 Z0 X1 Z1, key z|x|c|v|b|h|t|tab|esc|1..9.
 // Other verbs: log (prints a status line), camera X Z YAW PITCH DIST, select N.., preview TOOL X Z, preview off,
 // shot FILE.png (screenshot incl. HUD), squadinfo N (prints every member), where [roof|container] (valid spots near the
-// camera pivot), probe X Z [YAW], setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply).
+// camera pivot), probe X Z [YAW], heights X Z, setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply),
+// sethealth N HP [MEMBER] (TEST HOOK: wound / kill soldiers), killrunner N (TEST HOOK), key f6 (AI debug overlay).
 //
 // The runner pushes Commands at their tick (deterministic with --game-sync, which waits for each readback in
 // headless runs so GPU latency cannot change outcomes), evaluates expectations, prints a summary and sets the
@@ -38,6 +43,18 @@
 namespace ttz::game {
 
 class GameWorld;
+struct ScriptLine;
+// B2 verbs / metrics (FortScript.cpp): true = handled (err set on a usage error / unknown field).
+//   wall cheap|reinforced|gate|rgate X Z X Z [...]   build a wall polyline (BuildWall command; refused plans cost nothing)
+//   wallrect TYPE X0 Z0 X1 Z1                        closed rectangle (5 points)
+//   wallpreview TYPE X Z X Z [...] | wallpreview off show the tool preview (captures)
+//   damagewall X Z HP | destroywall X Z              TEST HOOKS: damage / destroy the piece nearest (X, Z)
+//   territory                                        print the regions
+// metrics: walls gates walls_destroyed regions territory_area enclosed_area territory_income territory_total obstacles
+//   nav_patches region X Z state|zombies|area (state 0 unsecured / none, 1 uncleared, 2 controlled, 3 threatened)
+//   wall X Z hp|alive|pressure   walkable X Z   same_island X0 Z0 X1 Z1   zombies_rect X0 Z0 X1 Z1 (sync GPU read, tests)
+bool fortVerb(GameWorld& w, const ScriptLine& L, std::string& err);
+bool fortMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
 
 struct ScriptLine {
     double at = 0;

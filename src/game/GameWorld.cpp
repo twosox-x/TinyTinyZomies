@@ -44,7 +44,9 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     if (!horde_.init(app.gpu, app.sim)) return false;
     horde_.setAwarenessRadius(cfg_.threat.awarenessRadius);
     horde_.setAttackReach(cfg_.threat.attackReach);
+    horde_.setThreatRadius(ai_.tuning.scanRadius);   // exact nearest-zombie lists for targeting
     horde_.setSync(opt.syncReadback);
+    fort_.init(app, cfg_);                                     // B2: walls, territory, containers as obstacles
     rebuildNav(app);
     economy_.reset(cfg_);
     ctx_.cfg = &cfg_;
@@ -56,6 +58,8 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     ctx_.economy = &economy_;
     ctx_.logistics = &logistics_;
     ctx_.deploy = &deploy_;
+    ctx_.walls = &fort_.walls();
+    ctx_.territory = &fort_.territory();
     ctx_.events = &events_;
     ctx_.animEvents = &animEvents_;
     if (!opt.script.empty()) {
@@ -63,6 +67,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         SDL_Log("game: script %s", opt.script.c_str());
     }
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
+    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); };
     render_.droppedWeapons = &reanim_.weapons();
     if (const MilitaryLibrary* lib = render_.library()) {
         animator_.init(*lib);
@@ -80,12 +85,13 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
 
 void GameWorld::shutdown(AppState& app) {
     render_.shutdown(app);
+    fort_.shutdown();
     horde_.shutdown();
 }
 
 void GameWorld::rebuildNav(AppState& app) {
     const Sandbox& sb = app.sandbox;
-    const std::vector<float>& h = app.vehicles.simHeights();
+    const std::vector<float>& h = fort_.navHeights(app);   // sim heights, gate passages lowered (B2)
     if (h.size() != (size_t)sb.gridW * (size_t)sb.gridH) return;
     nav_.build(h, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize);
     navOx_ = sb.originX; navOz_ = sb.originZ;
@@ -106,7 +112,7 @@ void GameWorld::applyCommands(AppState& app) {
                 if (Squad* s = squads_.get(id)) {
                     s->order.active = c.type == CommandType::Move;
                     s->order.dest = c.type == CommandType::Move ? c.pos : s->order.dest;
-                    if (c.type == CommandType::Move) { s->order.facing = c.facing; s->order.run = c.run; }
+                    if (c.type == CommandType::Move) { s->order.facing = c.facing; s->order.run = c.run; s->order.walk = c.walk && !c.run; }
                     ++s->order.serial;
                 }
             break;
@@ -130,7 +136,7 @@ void GameWorld::applyCommands(AppState& app) {
         }
         case CommandType::BuyContainer: {
             const char* why = "";
-            if (!logistics_.canPlaceContainer(ctx_, c.pos, c.facing, &why)) { ++refused_; ui_.notify(std::string("Container refused: ") + why, true, ctx_.time); break; }
+            if (!logistics_.canPlaceContainer(ctx_, c.pos, c.facing, &why) || !fort_.containerAllowed(ctx_, c.pos, &why)) { ++refused_; ui_.notify(std::string("Container refused: ") + why, true, ctx_.time); break; }
             if (!economy_.spend(cfg_.economy.containerPrice, "container", ctx_.time)) { ++refused_; ui_.notify("Not enough funding", true, ctx_.time); break; }
             logistics_.placeContainer(ctx_, c.pos, c.facing);
             ui_.notify("Ammo container placed", false, ctx_.time);
@@ -142,6 +148,12 @@ void GameWorld::applyCommands(AppState& app) {
             if (!economy_.spend(cfg_.economy.airdropPrice, "airdrop", ctx_.time)) { ++refused_; ui_.notify("Not enough funding", true, ctx_.time); break; }
             logistics_.airdrop(ctx_, c.pos);
             ui_.notify("Ammo drop inbound", false, ctx_.time);
+            break;
+        }
+        case CommandType::BuildWall: {   // B2: plan (validated) -> charge once -> build; refused plans cost nothing
+            std::string msg;
+            if (!fort_.build(app, ctx_, c, economy_, msg)) { ++refused_; ui_.notify("Wall refused: " + msg, true, ctx_.time); break; }
+            ui_.notify(msg, false, ctx_.time);
             break;
         }
         case CommandType::Spawn:
@@ -182,6 +194,12 @@ void GameWorld::tick(AppState& app) {
     deploy_.onAnimEvents(ctx_);                                // c': touchdown / canopy_ground / weapon_draw of this tick
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)
     logistics_.tick(ctx_);                                     // g
+    fort_.tick(app, ctx_);                                     // g' B2: walls, breaches, obstacles, territory, income rate
+    {
+        std::vector<TerritoryNotice> tn;
+        fort_.takeNotices(tn);
+        for (const TerritoryNotice& n : tn) ui_.notify(n.text, n.bad, ctx_.time);
+    }
     economy_.tick(ctx_);                                       // h
     if (script_.loaded() && !script_.tick(*this, ctx_.time)) finished_ = true;   // i
     ctx_.time += kTickDt;
@@ -193,9 +211,8 @@ void GameWorld::preSim(AppState& app, SDL_GPUCommandBuffer* cmd, double frameDt)
     events_.fx.clear();                                        // FX of every tick of this frame reach the renderer
     // navigation follows the window (moved) and vehicle changes (rows uploaded), at most once per second
     const Sandbox& sb = app.sandbox;
-    if (sb.originX != navOx_ || sb.originZ != navOz_) rebuildNav(app);
-    if (app.vehicles.stats().uploadedRows > 0) navDirty_ = true;
-    if (navDirty_ && ctx_.time - navBuiltAt_ > 1.0) rebuildNav(app);
+    if (sb.originX != navOx_ || sb.originZ != navOz_) { fort_.windowMoved(app); rebuildNav(app); }
+    else fort_.patchNav(app, nav_);   // rows the vehicles / walls changed: local NavGrid patches (B2: no global rebuilds)
     if (!app.paused) {
         accumulator_ += frameDt * app.simSpeed;
         int n = 0;
@@ -205,7 +222,7 @@ void GameWorld::preSim(AppState& app, SDL_GPUCommandBuffer* cmd, double frameDt)
     horde_.preSim(cmd);
 }
 
-void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) { horde_.postSim(cmd, app.frameIndex); }
+void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) { horde_.postSim(cmd, app.frameIndex); fort_.postSim(cmd); }
 
 void GameWorld::render(AppState& app, float frameDt) {
     render_.setSelection(ui_.selection().squads);   // in-world selection rings (WS-B); GameUI draws the screen-space status
@@ -214,6 +231,6 @@ void GameWorld::render(AppState& app, float frameDt) {
 
 void GameWorld::drawUI(AppState& app) { ui_.draw(app, ctx_, commands_); }
 
-void GameWorld::afterSubmit(AppState& app) { horde_.harvest(); }
+void GameWorld::afterSubmit(AppState& app) { horde_.harvest(); fort_.afterSubmit(opt_.syncReadback); }
 
 } // namespace ttz::game

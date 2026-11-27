@@ -412,6 +412,7 @@ void App::frame(double dt) {
         mx = (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) - (float)(keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]);
         mz = (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) - (float)(keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]);
         turn = (float)keys[SDL_SCANCODE_E] - (float)keys[SDL_SCANCODE_Q];
+        if (s.game && s.game->ui().rotatesWithQE()) turn = 0;   // B2: Q / E rotate the container being placed
     }
     float boost = (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT]) ? 2.5f : 1.f;
     if (s.cityMode && s.window && dt > 0) {

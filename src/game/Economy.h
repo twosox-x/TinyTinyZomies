@@ -35,7 +35,11 @@ public:
     uint64_t kills() const { return kills_; }
     uint64_t killsByCause(KillCause c) const { return killsByCause_[(size_t)c]; }
     uint64_t duplicatesDropped() const { return dupes_; }
-    double pendingPassive() const { return passiveAcc_; }   // passive income of the current second (not yet a ledger entry)
+    double pendingPassive() const { return passiveAcc_ + territoryAcc_; }   // passive income of the current second (not yet a ledger entry)
+    // B2: territory income rate (controlled area x rate, Territory::incomePerMin), credited per tick like base income
+    // with its own ledger kind (one entry per second).
+    void setTerritoryRate(double perMin) { territoryRate_ = perMin > 0 ? perMin : 0.0; }
+    double territoryPerMinute() const { return territoryRate_; }
     const std::vector<LedgerEntry>& ledger() const { return ledger_; }
 private:
     void add(double time, LedgerKind kind, double amount, const char* what);
@@ -46,6 +50,7 @@ private:
     std::array<double, 6> byKind_{};
     std::vector<LedgerEntry> ledger_;   // passive income is aggregated into one entry per second
     double passiveAcc_ = 0, passiveAccT_ = 0, now_ = 0;
+    double territoryRate_ = 0, territoryAcc_ = 0;
     // income-rate window: 60 one-second buckets of (passive + kill) income
     std::array<double, 60> bucket_{};
     int64_t bucketSec_ = 0;

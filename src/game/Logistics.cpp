@@ -15,8 +15,7 @@ namespace ttz::game {
 
 namespace {
 constexpr float kPi = 3.14159265f;
-// container_supply footprint (props.json bounds: x -4 .. 3.15, z -2.2 .. 2.25, door socket at +x 4.25)
-constexpr float kContHalfX = 3.6f, kContHalfZ = 2.25f, kContCx = -0.425f;
+// container_supply body: 6.06 x 2.44 m (props.json bounds incl. apron: x -4 .. 3.15, z -2.2 .. 2.25; door socket at +x 4.25)
 constexpr float kCrateHalf = 0.6f;
 
 V3 local(V3 c, float yaw, float u, float v) {
@@ -43,9 +42,10 @@ bool Logistics::canPlaceContainer(const GameContext& ctx, V3 pos, float yaw, con
     auto no = [&](const char* r) { if (why) *why = r; return false; };
     if (!ctx.nav || !ctx.nav->ready()) return no("no navigation grid");
     if (!simulatedAt(ctx, pos.x, pos.z)) return no("outside the simulated area");
-    const V3 c = local(pos, yaw, kContCx, 0.f);
+    // B2: the body (6.1 x 2.5 m) must be flat and free; the apron / door swing may touch walls, so a container can be
+    // set flush against a wall line to plug a gap (GAME_DESIGN 14c: containers wall things off)
     float y = 0;
-    if (!flatFootprint(ctx, c, kContHalfX, kContHalfZ, yaw, 0.4f, &y)) return no("blocked: needs a flat 7 x 4.5 m spot");
+    if (!flatFootprint(ctx, pos, 3.05f, 1.25f, yaw, 0.4f, &y)) return no("blocked: needs a flat 6 x 2.5 m spot (no wall, vehicle or edge)");
     for (const SupplyPoint& p : points_)
         if (p.alive && (p.pos.x - pos.x) * (p.pos.x - pos.x) + (p.pos.z - pos.z) * (p.pos.z - pos.z) < 7.f * 7.f) return no("too close to another supply point");
     int slots = 0;
@@ -74,9 +74,12 @@ SupplyId Logistics::placeContainer(GameContext& ctx, V3 pos, float yaw) {
     if (sp.slots.empty()) sp.slots.push_back(cand[0]);
     sp.slotUser.assign(sp.slots.size(), SoldierId{});
     sp.slotStale.assign(sp.slots.size(), 0.f);
-    sp.landed = true;
-    sp.phase = 2;
-    sp.groundT = 1e9f;
+    // B2 / GAME_DESIGN 14c: the container arrives by parachute (two cargo canopies, heavier descent than a crate) and
+    // becomes usable (and a physical obstacle, Fortifications) once it has landed; it never disappears.
+    sp.landed = false;
+    sp.phase = 0;
+    sp.startAlt = sp.altitude = ctx.cfg ? ctx.cfg->fort.containerAltitude : 40.f;
+    sp.groundT = -1.f;
     sp.initialTotal = sp.total();
     uint32_t idx = (uint32_t)points_.size();
     for (uint32_t i = 0; i < points_.size(); ++i) if (!points_[i].alive) { idx = i; break; }
@@ -199,6 +202,21 @@ void Logistics::tick(GameContext& ctx) {
         if (!p.alive) continue;
         p.phaseT += dt;
         if (p.groundT >= 0 && p.groundT < 1e8f) p.groundT += dt;
+        if (p.kind == SupplyKind::Container && p.phase < 2) {   // B2: container drop (descent -> touchdown -> settle)
+            const FortConfig& F = ctx.cfg->fort;
+            if (p.phase == 0) {
+                p.altitude = std::max(0.f, p.altitude - F.containerDescentSpeed * dt);
+                p.descentT += dt;
+                if (p.altitude <= 0.f) {
+                    p.phase = 1; p.phaseT = 0;
+                    if (ctx.events) { ctx.events->fx.push_back({FxKind::CrateTouch, SoldierId{}, p.pos, {0, 1, 0}}); ctx.events->noise.push_back({p.pos, 0.6f, 30.f, 2.f}); }
+                }
+            } else if (p.phaseT >= F.containerLandDuration) {
+                p.phase = 2; p.phaseT = 0;
+                p.landed = true;
+                p.groundT = 0.f;
+            }
+        }
         if (p.kind == SupplyKind::Crate) {
             if (p.phase == 0) {
                 p.altitude = std::max(0.f, p.altitude - crateDescentSpeed * dt);

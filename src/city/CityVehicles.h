@@ -113,10 +113,26 @@ public:
     void worldCorners(const Vehicle& v, float out[8][3]) const;
     const std::vector<Vehicle>& vehicles() const { return all_; }   // read-only (Military Lab landing spots)
     const VehicleStats& stats() const { return stats_; }
+
+    // Gameplay obstacles (B2 walls, gate / joint posts, supply containers): oriented boxes (centre, half extents, yaw
+    // in the yawQuat convention: local X = (cos yaw, -sin yaw)) whose cells are raised to `top` (absolute height) in
+    // the zombies' obstacle grid on top of the baked heights (not in groundAt / solidAt). They are kept across window
+    // moves; add / remove only mark the rows they cover, which go up with the next update() (event driven).
+    uint32_t addObstacle(float cx, float cz, float halfX, float halfZ, float yaw, float top);
+    void removeObstacle(uint32_t id);
+    uint32_t obstacleCount() const { uint32_t n = 0; for (const GameObstacle& o : gobst_) n += o.alive ? 1 : 0; return n; }
+    // Row runs (first row, count) the last update() uploaded, and a counter bumped by every update() (consumers
+    // such as the soldiers' NavGrid patch the same rows instead of rebuilding).
+    const std::vector<std::pair<uint32_t, uint32_t>>& uploadedRuns() const { return runs_; }
+    uint64_t updateSerial() const { return updateSerial_; }
     void seed(uint32_t s) { rng_ = s ? s : 1u; }
     bool enabled = true;
 
 private:
+    struct GameObstacle { float cx, cz, hx, hz, yaw, top; bool alive; };
+    void stampObstacle(const GameObstacle& o, std::vector<float>& grid) const;
+    std::vector<GameObstacle> gobst_;
+    uint64_t updateSerial_ = 0;
     void wake(uint32_t i);
     void sleep(uint32_t i);
     void blast(uint32_t i, float cx, float cy, float cz, float scale);

@@ -1,0 +1,27 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Territory / wall-pressure counts (B2, TerritoryGpu::postSim, after the frame's last step).
+// ids[cell] (sim grid): bits 0..11 = territory region slot + 1 (0: none), bits 12..31 = wall piece + 1 whose footprint
+// or one-cell ring holds the cell (0: none). out[0, counts.x): live zombies per region slot + 1,
+// out[counts.x, counts.x + counts.y): live zombies per wall piece + 1 (pressing on / climbing it).
+// misc.y = 0: clear (counts.x + counts.y threads); misc.y = 1: one thread per live agent (shared indirect args).
+#include "common.glsl"
+layout(local_size_x = 256) in;   // the per-agent mode shares the 256-wide indirect agent dispatch args
+layout(std430, set = 0, binding = 0) readonly buffer Agents   { Agent agents[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Counters { uint counters[]; };
+layout(std430, set = 0, binding = 2) readonly buffer Ids      { uint ids[]; };
+layout(std430, set = 1, binding = 0) buffer Out { uint outCounts[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint R = counts.x, P = counts.y;
+    if (misc.y == 0u) { if (i < R + P) outCounts[i] = 0u; return; }
+    if (i >= counters[C_LIVE]) return;
+    Agent a = agents[i];
+    if (agentState(a) >= ST_DYING) return;
+    ivec2 c = cellCoord(a.pos.xz);
+    if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) return;
+    uint id = ids[cellIndex(c)];
+    uint r = id & 0xFFFu, p = id >> 12;
+    if (r != 0u && r < R) atomicAdd(outCounts[r], 1u);
+    if (p != 0u && p < P) atomicAdd(outCounts[R + p], 1u);
+}

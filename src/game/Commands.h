@@ -6,7 +6,9 @@
 // Input mapping in --game mode (City Lab RTS rig kept):
 //   LMB click / drag box   : select squads (shift adds); click on empty ground clears
 //   RMB click (< 6 px move): move order for the selection to the ground point (RMB DRAG still pans the camera)
-//   Shift + RMB            : run
+//   RMB                    : auto pace: run when the move is high-stakes and stamina allows, else run unless tired /
+//                            wounded (StaminaConfig); Shift + RMB: force run; Ctrl + RMB (or Alt): walk (quiet, careful)
+//                            [PROPOSED, owner approval pending]
 //   purchase tools (UI)    : LMB places (deploy, container, airdrop) with preview; Esc / RMB cancels the tool
 //   1..9 / Ctrl+1..9       : select / assign control groups (B4 polish)
 #include "game/GameTypes.h"
@@ -15,7 +17,8 @@
 
 namespace ttz::game {
 
-enum class CommandType : uint8_t { Select, Move, Stop, BuySquad, BuyContainer, BuyAirdrop, Spawn /* debug / scripts */ };
+enum class CommandType : uint8_t { Select, Move, Stop, BuySquad, BuyContainer, BuyAirdrop, Spawn /* debug / scripts */,
+                                   BuildWall /* B2: path of snapped points, wallType, gate */ };
 
 struct Command {
     CommandType type = CommandType::Stop;
@@ -23,8 +26,12 @@ struct Command {
     V3 pos;                          // Move / Buy* / Spawn
     float facing = 0.f;
     bool run = false, additive = false;
+    bool walk = false;               // Move: forced walk (Ctrl / Alt + RMB); run = forced run (Shift + RMB); neither = auto
     SquadType squadType = SquadType::Rifle;
     int count = 0;                   // Spawn: zombies (debug / scripted scenarios only)
+    std::vector<V3> path;            // BuildWall: polyline (snapped points)
+    uint8_t wallType = 0;            // BuildWall: WallType (0 cheap 1.6 m, 1 reinforced 2.4 m)
+    bool gate = false;               // BuildWall: gate pieces (PROPOSED)
 };
 
 struct Selection {

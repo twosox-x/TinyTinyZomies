@@ -15,6 +15,7 @@ void Economy::reset(const BalanceConfig& cfg) {
     byKind_.fill(0.0);
     ledger_.clear();
     passiveAcc_ = passiveAccT_ = now_ = 0;
+    territoryRate_ = territoryAcc_ = 0;
     bucket_.fill(0.0);
     bucketSec_ = 0;
     add(0.0, LedgerKind::Start, funding_, "start");
@@ -67,19 +68,22 @@ void Economy::creditAnonymousKills(uint64_t n, double time) {
 
 double Economy::passivePerMinute() const {
     if (!cfg_) return 0.0;
-    return cfg_->economy.baseIncomePerMin;   // + territory (B2: controlled km^2 x territoryIncomePerKm2PerMin)
+    return cfg_->economy.baseIncomePerMin + territoryRate_;   // base + territory (B2: controlled area x rate)
 }
 
 void Economy::tick(GameContext& ctx) {
     now_ = ctx.time + ctx.dt;
-    const double amount = passivePerMinute() / 60.0 * ctx.dt;
+    const double base = (cfg_ ? cfg_->economy.baseIncomePerMin : 0.0) / 60.0 * ctx.dt, terr = territoryRate_ / 60.0 * ctx.dt;
+    const double amount = base + terr;
     funding_ += amount;
-    passiveAcc_ += amount;
+    passiveAcc_ += base;
+    territoryAcc_ += terr;
     passiveAccT_ += ctx.dt;
     addIncome(ctx.time, amount);
     if (passiveAccT_ >= 1.0 - 1e-9) {   // one ledger entry per second of passive income
         add(ctx.time, LedgerKind::PassiveIncome, passiveAcc_, "base income");
-        passiveAcc_ = 0; passiveAccT_ = 0;
+        if (territoryAcc_ > 0) add(ctx.time, LedgerKind::TerritoryIncome, territoryAcc_, "territory income");
+        passiveAcc_ = 0; passiveAccT_ = 0; territoryAcc_ = 0;
     }
 }
 

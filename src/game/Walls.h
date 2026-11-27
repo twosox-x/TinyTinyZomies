@@ -134,7 +134,7 @@ public:
     bool destroy(uint32_t piece);                                    // breach: piece removed, rubble left
     void tick(float dt, const std::function<bool(float, float, float)>& soldierNear);   // ages, gate leaves, rubble
     // Destroyed since the last call (piece index, centre): GameWorld unstamps them, FX, notices, territory.
-    struct Destroyed { uint32_t piece; float x, y, z; };
+    struct Destroyed { uint32_t piece; float x, y, z; Obb box; };
     void takeDestroyed(std::vector<Destroyed>& out) { out.insert(out.end(), destroyed_.begin(), destroyed_.end()); destroyed_.clear(); }
     bool takeChanged() { bool c = changed_; changed_ = false; return c; }   // network changed (build / destroy)
 
@@ -154,6 +154,10 @@ public:
     uint32_t aliveGates() const;
     float totalLength() const;
     int piecePrice(WallType t, bool gate) const;
+
+    // Placement preview of the wall tool (GameUI sets it, the renderer draws ghosts of the valid pieces).
+    WallPlan preview;
+    bool previewOn = false;
 
 private:
     uint32_t addNode(float x, float z, float y);

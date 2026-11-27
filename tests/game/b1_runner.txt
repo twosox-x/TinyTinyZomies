@@ -1,0 +1,22 @@
+# Owner request: one ammo runner per multi-soldier squad. The squad runs low; ONE member fetches ammo from the
+# container (his own need + runnerCarryMagazines for the others, debited from the stock), returns and hands rounds
+# to each squad mate (collect_ammo clip, grab = hand-over) while the others hold. Rounds are conserved. When the
+# runner dies, another member takes over.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_runner.txt
+at 0.0  camera -14 118 0.6 0.9 60
+at 0.1  buy rifle -8 117
+at 0.2  container -26 120 1.57
+at 26   expect squad 1 alive == 5
+at 26   setammo 1 5 10                  # TEST HOOK: 75 rounds left of 1050 (below runnerTrigger)
+at 28   expect squad 1 has_runner == 1
+at 32   expect squad 1 resupplying <= 1 # the others hold position
+at 32   expect squad 1 maxdist -8 117 <= 25
+at 75   log
+at 75   expect handed_over > 0
+at 75   expect squad 1 total == 75 + supply 1 delivered   # conservation (no shooting here)
+at 75   expect collected == supply 1 delivered
+at 80   setammo 1 0 0
+at 82   expect squad 1 has_runner == 1
+at 83   killrunner 1                    # TEST HOOK: the runner dies on the way
+at 86   expect squad 1 has_runner == 1  # another member took over
+at 87   end

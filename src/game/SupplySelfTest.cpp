@@ -135,8 +135,16 @@ int runSupplySelfTest(const BalanceConfig& cfgIn) {
         DropPlan edge = w.deploy.plan(w.ctx, SquadType::Rifle, {37.6f, 0, 45});
         DropPlan car = w.deploy.plan(w.ctx, SquadType::Sniper, {17, 0, 16});
         DropPlan out = w.deploy.plan(w.ctx, SquadType::Rifle, {200, 0, 45});
-        check(!edge.valid && !car.valid && !out.valid, "invalid drops refused: building edge, vehicle, outside the area",
-              std::string(edge.reason) + " / " + car.reason + " / " + out.reason);
+        // a click on a building edge is refused or snapped onto the clicked surface (never below it, never on the edge)
+        bool edgeOk = !edge.valid;
+        if (edge.valid) {
+            edgeOk = true;
+            const float clicked = w.nav.surface(37.6f, 45.f);
+            for (const V3& p : edge.landing) edgeOk &= std::fabs(p.y - clicked) < 1.f && std::fabs(w.nav.surface(p.x, p.z) - p.y) < 0.01f &&
+                                                      flatFootprint(w.ctx, p, 0.6f, 0.6f, 0.f, 0.3f);
+        }
+        check(edgeOk && !car.valid && !out.valid, "invalid drops refused: vehicle, outside the area; a building-edge click snaps onto the clicked surface or is refused",
+              std::string(edge.valid ? "edge snapped" : edge.reason) + " / " + car.reason + " / " + out.reason);
     }
     // ---- deploy timeline: purchase -> descent -> landing -> recovery -> autonomous, exactly 5 / 3 / 1
     {
@@ -186,6 +194,13 @@ int runSupplySelfTest(const BalanceConfig& cfgIn) {
         const bool blocked = !w.lg.canPlaceContainer(w.ctx, {40, 0, 45}, 0.f) && !w.lg.canPlaceContainer(w.ctx, {17, 0, 16}, 0.f);
         check(ok && blocked, "container placement: open street accepted, building / vehicle refused", why);
         SupplyId c = w.lg.placeContainer(w.ctx, {20, 0, 40}, 0.f);
+        {   // B2 / GAME_DESIGN 14c: the container arrives by parachute, usable only once landed
+            V3 sp0;
+            SoldierId f0; f0.index = 99; f0.gen = 1;
+            const bool air = w.lg.get(c) && !w.lg.get(c)->landed && !w.lg.reserve(c, f0, sp0) && w.lg.collect(c, AmmoType::Rifle, 5) == 0;
+            w.run(cfgIn.fort.containerAltitude / cfgIn.fort.containerDescentSpeed + cfgIn.fort.containerLandDuration + 0.5f);
+            check(air && w.lg.get(c) && w.lg.get(c)->landed, "container: parachute descent (not usable in the air), then lands and stays", "");
+        }
         const SupplyPoint* p = w.lg.get(c);
         const int slots = p ? (int)p->slots.size() : 0;
         int got = 0;

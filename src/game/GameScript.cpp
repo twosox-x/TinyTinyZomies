@@ -80,6 +80,17 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     }
     if (m == "ledger_sum") { out = 0; for (const LedgerEntry& e : eco.ledger()) out += e.amount; return true; }
     if (m == "shots") { out = (double)w.combat().roundsFired(); return true; }
+    if (m == "hits") { out = (double)w.horde().stats().hitsOnZombies; return true; }          // rounds that hit a zombie (GPU)
+    if (m == "hit_pct") { const double sh = (double)w.combat().roundsFired(); out = sh > 0 ? 100.0 * (double)w.horde().stats().hitsOnZombies / sh : 0; return true; }
+    if (m == "hits_static") { out = (double)w.horde().stats().hitsOnStatic; return true; }
+    if (m == "risen") { out = (double)w.reanimation().risen(); return true; }                 // dead soldiers risen as zombies
+    if (m == "rising") { out = (double)w.reanimation().rising(); return true; }
+    if (m == "stay_dead") { out = (double)w.reanimation().stayDead(); return true; }
+    if (m == "dropped_weapons") { out = (double)w.reanimation().weapons().size(); return true; }
+    if (m == "handed_over") { out = (double)w.combat().roundsHandedOver(); return true; }
+    if (m == "collected") { out = (double)w.combat().roundsCollected(); return true; }
+    if (m == "damage") { out = w.combat().damageTaken(); return true; }
+    if (m == "bodies") { out = 0; for (uint32_t i = 0; i < P.capacity(); ++i) out += P.used[i] && !P.alive(i) ? 1 : 0; return true; }
     if (m == "soldiers") { out = 0; for (uint32_t i = 0; i < P.capacity(); ++i) out += P.used[i] ? 1 : 0; return true; }
     if (m == "soldiers_alive") { out = (double)P.liveCount(); return true; }
     if (m == "squads") { out = (double)ctx.squads->squads.size(); return true; }
@@ -101,6 +112,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
         out = 0;
         if (fld == "size") { out = (double)s->members.size(); return true; }
         if (fld == "deploying") { out = s->deploying ? 1 : 0; return true; }
+        if (fld == "has_runner") { out = s->runner.valid() && P.valid(s->runner) && P.alive(s->runner.index) ? 1 : 0; return true; }
         if (fld == "ammo_start") { out = s->id.index < w.squadStarts().size() ? w.squadStarts()[s->id.index].ammo : 0; return true; }
         if (fld == "dist" || fld == "maxdist") {
             if (k + 1 >= a.size()) { err = "dist X Z"; return false; }
@@ -126,7 +138,15 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
             else if (fld == "reserve") out += al ? P.reserve[i] : 0;
             else if (fld == "health") out += al ? P.health[i] : 0;
             else if (fld == "parachuted") out += w.deploy().parachuted(m2) ? 1 : 0;
-            else if (fld == "y") out += P.pos[i].y;   // sum of feet heights (one sniper: his height)
+            else if (fld == "y") out += P.pos[i].y;
+            else if (fld == "stamina") out += al ? P.stamina[i] : 0;
+            else if (fld == "carry") out += al ? P.carry[i] : 0;
+            else if (fld == "total") out += al ? P.mag[i] + P.reserve[i] + P.carry[i] : 0;   // rounds incl. the runner's load
+            else if (fld == "resupplying") out += al && (P.state[i] == SoldierState::Resupplying || P.state[i] == SoldierState::Collecting) ? 1 : 0;
+            else if (fld == "running") out += al && P.running[i] ? 1 : 0;
+            else if (fld == "wounded") out += al && P.wounded[i] ? 1 : 0;
+            else if (fld == "speed") out += al ? std::hypot(P.vel[i].x, P.vel[i].z) : 0;
+            else if (fld == "engaging") out += al && P.state[i] == SoldierState::Engaging ? 1 : 0;   // sum of feet heights (one sniper: his height)
             else if (fld == "inside") {               // bodies inside geometry: below the surface, or a wall through the body
                 const NavGrid* nav = w.context().nav;
                 if (!nav || !nav->ready()) continue;
@@ -162,6 +182,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
         else { err = "unknown supply field " + fld; return false; }
         return true;
     }
+    if (fortMetric(w, m, a, k, out, err)) return err.empty();   // B2 metrics (FortScript.cpp)
     err = "unknown metric " + m;
     return false;
 }
@@ -262,6 +283,7 @@ bool GameScript::tick(GameWorld& world, double time) {
                 c.pos = {f(a, 1), 0, f(a, 2)};
                 if (world.context().nav && world.context().nav->ready()) c.pos.y = world.context().nav->surface(c.pos.x, c.pos.z);
                 c.run = a.size() > 3 && a[3] == "run";
+                c.walk = a.size() > 3 && a[3] == "walk";
                 const SoldierPool& P = *world.context().soldiers;
                 V3 cen{}; int n = 0;
                 for (const SoldierId& m : s->members) if (P.valid(m) && P.alive(m.index)) { cen = cen + P.pos[m.index]; ++n; }
@@ -321,6 +343,21 @@ bool GameScript::tick(GameWorld& world, double time) {
                 if (p.alive) std::printf("    supply %s at (%.1f %.1f %.1f) %s stock %d/%d/%d\n", p.kind == SupplyKind::Container ? "container" : "crate", p.pos.x, p.pos.y, p.pos.z,
                                          p.landed ? "landed" : "descending", p.stock[0], p.stock[1], p.stock[2]);
             std::fflush(stdout);
+        } else if (L.verb == "killrunner") {   // TEST HOOK: killrunner N (the squad's current ammo runner dies)
+            const Squad* s = a.empty() ? nullptr : squadN(world, std::atoi(a[0].c_str()));
+            SoldierPool& P = *world.context().soldiers;
+            if (!s || !s->runner.valid() || !P.valid(s->runner)) { bad("killrunner N: no runner"); continue; }
+            P.health[s->runner.index] = 0.f;
+        } else if (L.verb == "sethealth") {   // TEST HOOK (scripts only): sethealth N HP [MEMBER] (0 kills: death, reanimation)
+            const Squad* s = a.size() < 2 ? nullptr : squadN(world, std::atoi(a[0].c_str()));
+            if (!s) { bad("sethealth N HP [MEMBER]"); continue; }
+            SoldierPool& P = *world.context().soldiers;
+            const int only = a.size() > 2 ? std::atoi(a[2].c_str()) : -1;
+            int k = 0;
+            for (const SoldierId& m : s->members) {
+                if (P.valid(m) && P.alive(m.index) && (only < 0 || k == only)) P.health[m.index] = (float)std::atof(a[1].c_str());
+                ++k;
+            }
         } else if (L.verb == "setammo") {   // TEST HOOK (scripts only): put a squad's soldiers at MAG | RESERVE rounds
             const Squad* s = a.size() < 3 ? nullptr : squadN(world, std::atoi(a[0].c_str()));
             if (!s) { bad("setammo N MAG RESERVE"); continue; }
@@ -342,7 +379,7 @@ bool GameScript::tick(GameWorld& world, double time) {
                 SDL_Event e{};
                 e.type = SDL_EVENT_KEY_DOWN;
                 const std::string& k = a[0];
-                e.key.key = k == "tab" ? SDLK_TAB : k == "esc" ? SDLK_ESCAPE : (SDL_Keycode)(unsigned char)k[0];
+                e.key.key = k == "tab" ? SDLK_TAB : k == "esc" ? SDLK_ESCAPE : k == "f6" ? SDLK_F6 : k == "enter" ? SDLK_RETURN : k == "backspace" ? SDLK_BACKSPACE : (SDL_Keycode)(unsigned char)k[0];
                 send(e);
                 continue;
             }
@@ -418,6 +455,8 @@ bool GameScript::tick(GameWorld& world, double time) {
             }
         } else if (L.verb == "expect") {
             expect(world, L);
+        } else if (std::string ferr; fortVerb(world, L, ferr)) {   // B2 verbs (FortScript.cpp)
+            if (!ferr.empty()) bad(ferr.c_str());
         } else bad(("unknown verb " + L.verb).c_str());
     }
     return !ended_;

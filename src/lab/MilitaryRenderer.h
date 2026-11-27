@@ -101,6 +101,8 @@ public:
     void addModel(int model, V3 p, const float q[4], int kind = 1, const float* paint = nullptr);   // raw mesh instance
     void addModelYaw(int model, V3 p, float yaw);
     void addProp(int prop, V3 pos, float yaw, float dissolve = 0.f);
+    // Raw CPU instance of a model (B2 walls: kind 2 = deformed prop with xz / y scale in paint.xy, dissolve in pos.w).
+    void addInstance(int model, const Inst& gi) { if (model >= 0 && model < (int)instBuckets_.size()) instBuckets_[(size_t)model].push_back(gi); }
     // The weapon a death clip dropped, alone, where the clip's weapon track left it at time so.t (the body is gone or
     // drawn with noWeapon). False when the clip has no weapon track.
     bool addDroppedWeapon(const MilPoseInput& so);

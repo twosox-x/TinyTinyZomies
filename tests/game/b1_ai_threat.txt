@@ -1,0 +1,21 @@
+# Owner feedback (B1): soldiers must deal with the zombies around them instead of walking past them, aim at real
+# zombies (exact GPU nearest lists, not 6 m field samples), stop firing at dead ones, and take care of themselves.
+# A rifle squad is ordered east along the street while zombies come from behind (west) and stand ahead on the path:
+# it must fight both groups (any direction, behind parked cars) and still arrive, with an explainable hit rate.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_ai_threat.txt
+at 0.0  camera -8 117 0.6 0.9 70
+at 0.1  buy rifle -8 117
+at 26   expect squad 1 alive == 5
+at 26   move 1 40 117                   # auto pace
+at 26.2 spawn 8 -26 118 2               # behind them
+at 26.4 spawn 8 26 120 3                # ahead, on the way
+at 40   key f6                          # AI debug overlay: target lines (red = exact lock), state, stamina
+at 40   shot ai_threat_fight.png
+at 75   log
+at 75   expect squad 1 alive >= 4
+at 75   expect kills >= 10
+at 75   expect squad 1 dist 40 117 <= 8 # fought its way and arrived
+at 75   expect hit_pct >= 30            # rounds that hit a zombie (GPU-resolved) per round fired
+at 75   expect damage <= 200            # contact damage taken by the whole squad
+at 75   expect funding_reward_matches_kills
+at 76   end

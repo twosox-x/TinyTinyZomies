@@ -12,8 +12,9 @@ layout(local_size_x = 256) in;
 layout(std430, set = 0, binding = 0) readonly buffer NavDir  { vec2 navDir[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Density { vec4 density[]; };
 layout(std430, set = 0, binding = 2) readonly buffer StaticH { float staticH[]; };
-layout(std430, set = 0, binding = 3) readonly buffer CorpseH { int corpseH[]; };
-layout(std430, set = 0, binding = 4) readonly buffer NavDist { float navDist[]; };   // roaming: attractor awareness
+layout(std430, set = 0, binding = 3) readonly buffer NavDist { float navDist[]; };   // roaming: attractor awareness
+// (bound last: unused here, so the used read-only bindings stay contiguous for the MSL / reflection remap)
+layout(std430, set = 0, binding = 4) readonly buffer CorpseH { int corpseH[]; };
 layout(std430, set = 1, binding = 0) buffer Agents    { Agent agents[]; };
 layout(std430, set = 1, binding = 1) buffer CellCount { uint cellCount[]; };
 layout(std430, set = 1, binding = 2) buffer CellLocal { uvec2 cellLocal[]; };
@@ -79,17 +80,21 @@ float densAt(ivec2 c) {
     c = clamp(c, ivec2(0), ivec2(int(grid.x) - 1, int(grid.y) - 1));
     return density[cellIndex(c)].x;
 }
-vec2 separation(vec2 xz) {   // down the crowd-density gradient (mild: wanderers keep a metre or two apart)
+// Down the crowd-density gradient at a few scales (0.75 .. 5 m): wanderers keep a metre or two apart, and a crowd left
+// behind by a faded attractor thins out from its edges instead of standing as a block.
+vec2 separation(vec2 xz) {
     ivec2 c = cellCoord(xz);
     vec2 g = vec2(0.0);
-    for (int k = 1; k <= 2; ++k) {
-        float w = 1.0 / float(k);
-        g.x += (densAt(c + ivec2(k, 0)) - densAt(c - ivec2(k, 0))) * w;
-        g.y += (densAt(c + ivec2(0, k)) - densAt(c - ivec2(0, k))) * w;
+    const int K[4] = int[4](1, 2, 4, 7);
+    const float W[4] = float[4](1.0, 0.5, 0.45, 0.4);
+    for (int j = 0; j < 4; ++j) {
+        int k = K[j];
+        g.x += (densAt(c + ivec2(k, 0)) - densAt(c - ivec2(k, 0))) * W[j];
+        g.y += (densAt(c + ivec2(0, k)) - densAt(c - ivec2(0, k))) * W[j];
     }
     vec2 s = -g * roamQ.x * 0.25;
     float l = length(s);
-    return l > 0.5 ? s * (0.5 / l) : s;
+    return l > 0.6 ? s * (0.6 / l) : s;
 }
 vec2 roamVelocity(vec3 p, float vary, uint seed, uint kind) {
     float t = timeP.y;

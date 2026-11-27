@@ -89,6 +89,9 @@ set(TTZ_GAME_CORE
   src/game/SupplySelfTest.cpp
   src/game/Logistics.cpp
   src/game/Deploy.cpp
+  src/game/Walls.cpp
+  src/game/Territory.cpp
+  src/game/FortSelfTest.cpp
   src/game/Reanimation.cpp
   src/lab/MilitaryAssets.cpp)
 add_executable(ttz
@@ -123,7 +126,11 @@ add_executable(ttz
   src/game/HordeBridgeTest.cpp
   src/game/GameScript.cpp
   src/game/GameUI.cpp
-  src/game/GameRender.cpp)
+  src/game/GameRender.cpp
+  src/game/Fortify.cpp
+  src/game/FortUI.cpp
+  src/game/FortScript.cpp
+  src/game/TerritoryGpu.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
 target_link_libraries(ttz PRIVATE SDL3::SDL3 imgui ttz_zstd)
 target_compile_definitions(ttz PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

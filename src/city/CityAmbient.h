@@ -21,7 +21,7 @@ struct SimParams;
 
 struct AmbientConfig {
     // population
-    float densityPerHa = 220.f;      // zombies per hectare of open ground (before the built-up weighting)
+    float densityPerHa = 400.f;      // zombies per hectare of open ground (before the built-up weighting)
     float singleChance = 0.55f;      // per group: a lone zombie
     float clusterChance = 0.03f;     // per group: a larger cluster (10-24) in a built-up spot; the rest: 2-8
     float edgeWeight = 1.8f;         // 1-4 m from a building (sidewalks, entrances)

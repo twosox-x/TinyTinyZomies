@@ -36,6 +36,7 @@
 #include "game/Deploy.h"
 #include "game/Reanimation.h"
 #include "game/Economy.h"
+#include "game/Fortify.h"
 #include "game/GameEvents.h"
 #include "game/GameRender.h"
 #include "game/GameScript.h"
@@ -92,6 +93,8 @@ public:
     const Deploy& deploy() const { return deploy_; }
     const Logistics& logistics() const { return logistics_; }
     const Economy& economy() const { return economy_; }
+    Fortifications& fort() { return fort_; }                    // B2
+    const Fortifications& fort() const { return fort_; }
     const Reanimation& reanimation() const { return reanim_; }
     struct SquadStart { int ammo = 0; };          // per squad (purchase order): total rounds when the squad was bought
     const std::vector<SquadStart>& squadStarts() const { return squadStarts_; }
@@ -118,6 +121,7 @@ private:
     Economy economy_;
     Logistics logistics_;
     Deploy deploy_;
+    Fortifications fort_;
     Reanimation reanim_;
     CommandQueue commands_;
     std::vector<Command> applying_;

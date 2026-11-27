@@ -55,6 +55,8 @@ struct LogisticsConfig {
     float collectRadius = 1.2f;                               // m from a slot
     float airdropAltitude = 60.f;                             // m above the landing surface
     float airdropScatter = 4.f;                               // m
+    int runnerCarryMagazines = 6;    // ammo runner: magazines of his class carried for squad mates beyond his own load
+    float runnerTrigger = 0.45f;     // squad rounds / full load below which the runner goes (before anyone runs dry)
 };
 
 struct ZombieThreatConfig {          // zombies vs soldiers (HordeBridge)
@@ -96,8 +98,8 @@ struct FortConfig {                  // B2 walls, territory, containers (GAME_DE
     float clearDelay = 3.f;          // s an enclosed region must stay free of zombies before it is controlled
     float lossTime = 20.f;           // s zombies may stay inside a controlled region before ownership is lost (income paused meanwhile)
     bool containerNeedsTerritory = false;   // PROPOSED false: containers also close gaps (14c), so they cannot need territory
-    float containerAltitude = 70.f;  // m above the landing surface
-    float containerDescentSpeed = 6.5f;     // m/s: heavier than a crate (two cargo canopies)
+    float containerAltitude = 40.f;  // m above the landing surface
+    float containerDescentSpeed = 7.f;       // m/s: heavier than a crate (two cargo canopies)
     float containerLandDuration = 1.0f;     // s from touchdown until it is usable
 };
 

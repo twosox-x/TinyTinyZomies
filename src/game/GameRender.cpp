@@ -180,7 +180,7 @@ void GameRender::update(AppState& app, const GameContext& ctx, float frameDt, fl
     if (ctx.logistics) {
         const int container = mil_->findProp("container_supply");
         for (const SupplyPoint& sp : ctx.logistics->points()) {
-            if (sp.kind == SupplyKind::Container) { mil_->addProp(container, sp.pos, sp.yaw); continue; }
+            if (sp.kind == SupplyKind::Container) { if (!extraDraw) mil_->addProp(container, sp.pos, sp.yaw); continue; }   // B2: extraDraw (drop)
             const uint32_t k = sp.id.index;
             if (crates_.size() <= k) crates_.resize(k + 1);
             CrateSeq& cs = crates_[k];
@@ -209,6 +209,7 @@ void GameRender::update(AppState& app, const GameContext& ctx, float frameDt, fl
 
     if (demo_) updateDemo(app, frameDt);
     for (const WorldMarker& m : markers_) mil_->addMarker(m.shape, m.color, m.pos, m.yaw);
+    if (extraDraw) extraDraw(*mil_, fdt);
     mil_->updateFx(fdt);
     mil_->endFrame();
 }

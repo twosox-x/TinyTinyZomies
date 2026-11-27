@@ -171,14 +171,82 @@ bool SoldierAI::findTarget(const GameContext& ctx, uint32_t i, float range, V3& 
     // Line of sight (nearest first); squad mates spread over the visible candidates close to the nearest one.
     V3 vis[K];
     int nv = 0;
-    const V3 eye = p + V3{0, 1.5f, 0};
+    const V3 eye = p + V3{0, tuning.eyeHeight, 0};
+    if (P.cls[i] == SoldierClass::Sniper) {
+        // marksman: isolated zombies (sparse tiles) and those close to other soldiers first, nearest as the tie break
+        float bestS = 1e9f;
+        bool any = false;
+        for (int j = j0; j <= j1; ++j)
+            for (int ti = i0; ti <= i1; ++ti) {
+                const ZombieFieldTile& t = f.tiles[(size_t)j * f.tilesX + (size_t)ti];
+                for (uint32_t k = 0; k < t.samples; ++k) {
+                    const float d = dist2D(p, t.pos[k]);
+                    if (d > range) continue;
+                    float s = d * 0.25f + (t.count > 3 ? 40.f + (float)t.count : 0.f);
+                    for (const Cell& c : hash_)
+                        if (c.idx != i && dist2D(P.pos[c.idx], t.pos[k]) < 10.f) { s -= 60.f; break; }
+                    if (s >= bestS) continue;
+                    if (ctx.nav && !ctx.nav->lineOfSight(eye, t.pos[k] + V3{0, 1.2f, 0})) continue;
+                    bestS = s; out = t.pos[k]; any = true;
+                }
+            }
+        return any;
+    }
     for (int k = 0; k < nc; ++k) {
         if (nv && cd[k] > dist2D(p, vis[0]) + 4.f) break;
-        if (!ctx.nav || ctx.nav->lineOfSight(eye, cand[k] + V3{0, 1.f, 0})) vis[nv++] = cand[k];
+        if (!ctx.nav || ctx.nav->lineOfSight(eye, cand[k] + V3{0, 1.2f, 0})) vis[nv++] = cand[k];
     }
     if (!nv) return false;
-    out = vis[P.slotInSquad[i] % nv];
+    out = vis[P.slotInSquad[i] % std::min(nv, 2)];   // spread fire a little, never onto a far candidate
     return true;
+}
+
+const SoldierContact* SoldierAI::contactOf(const GameContext& ctx, uint32_t i) const {
+    if (!ctx.horde || i >= contactIndex_.size() || contactIndex_[i] < 0) return nullptr;
+    const std::vector<SoldierContact>& cs = ctx.horde->contacts();
+    return (size_t)contactIndex_[i] < cs.size() ? &cs[(size_t)contactIndex_[i]] : nullptr;
+}
+
+bool SoldierAI::bestThreat(const GameContext& ctx, uint32_t i, V3& pos, V3& vel, float& dist, int& n) const {
+    n = 0;
+    const SoldierContact* c = contactOf(ctx, i);
+    if (!c || !c->nNear) return false;
+    const SoldierPool& P = *ctx.soldiers;
+    const V3 p = P.pos[i], eye = p + V3{0, tuning.eyeHeight, 0};
+    float best = 1e9f;
+    bool found = false;
+    for (uint32_t k = 0; k < c->nNear; ++k) {
+        const V3 z = c->nearPos[k], v = c->nearVel[k];
+        const float d = dist2D(p, z);
+        if (d > tuning.scanRadius) continue;
+        if (ctx.nav && !ctx.nav->lineOfSight(eye, z + V3{0, 1.2f, 0})) continue;
+        if (d <= tuning.threatRadius) ++n;
+        // closing speed toward this soldier (m/s, > 0 approaching)
+        const V3 to = p - z;
+        const float l = std::max(0.1f, std::sqrt(to.x * to.x + to.z * to.z));
+        const float closing = (v.x * to.x + v.z * to.z) / l;
+        float score = d - 1.5f * std::max(0.f, closing);
+        // mutual support: a zombie on a squad mate is as urgent as one on me
+        if (ctx.squads)
+            if (const Squad* s = ctx.squads->get(P.squad[i]))
+                for (const SoldierId& m : s->members)
+                    if (m.index != i && P.valid(m) && P.alive(m.index) && dist2D(P.pos[m.index], z) < tuning.buddyRadius) { score = std::min(score, dist2D(P.pos[m.index], z)); break; }
+        if (score < best) { best = score; pos = z; vel = v; dist = d; found = true; }
+    }
+    return found;
+}
+
+float SoldierAI::paceFor(GameContext& ctx, uint32_t i, bool forceRun, bool forceWalk, bool highStakes, bool& running) const {
+    const SoldierPool& P = *ctx.soldiers;
+    const SoldierStats& ss = ctx.cfg->soldier[(int)P.cls[i]];
+    const StaminaConfig& sc = ctx.cfg->stamina;
+    running = false;
+    if (P.wounded[i]) return ss.walkSpeed * 0.85f;            // wounded: walk / limp (B3: toward the infirmary)
+    if (forceWalk && !highStakes) return ss.walkSpeed;
+    if (P.tired[i] && !forceRun) return ss.walkSpeed;          // exhausted: walk until recovered (hysteresis)
+    running = true;
+    if (highStakes && P.stamina[i] > sc.minToRun) return ss.runSpeed * sc.sprintScale;
+    return ss.runSpeed;
 }
 
 void SoldierAI::face(GameContext& ctx, uint32_t i, V3 at) {
@@ -399,50 +467,84 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         }
     }
 
-    // ---- target lock maintenance (hysteresis, GAME_DESIGN 14b: no endless switching)
+    // ---- threats + target lock (exact GPU nearest list within scanRadius, coarse field beyond; hysteresis between
+    //      similar threats only, GAME_DESIGN 14b + owner feedback after B1)
     TargetLock& L = P.target[i];
     const bool perceive = tuning.perceptionStride <= 1 || (ctx.tick + i) % (uint64_t)tuning.perceptionStride == 0;
-    const V3 eye = P.pos[i] + V3{0, 1.5f, 0};
-    V3 close;
-    const bool hasClose = !outside && nearestSample(ctx, P.pos[i], tuning.closeThreat, close);
+    const V3 eye = P.pos[i] + V3{0, tuning.eyeHeight, 0};
+    V3 close, closeVel;
+    float closeD = 1e9f;
+    int nThreat = 0;
+    const bool hasThreat = !outside && bestThreat(ctx, i, close, closeVel, closeD, nThreat);
+    const bool hasClose = hasThreat && closeD <= tuning.threatRadius;
+    threats_[i] = (uint8_t)std::min(nThreat, 255);
+    auto lockExact = [&](V3 pos, V3 vel) { L = TargetLock{}; L.active = true; L.exact = true; L.pos = pos; L.vel = vel; };
     if (L.active) {
-        V3 s;
-        if (nearestSample(ctx, L.pos, tuning.targetKeepRadius, s)) { L.pos = s; L.age = 0.f; }
-        else L.age += dt;
-        if (perceive && ctx.nav && !ctx.nav->lineOfSight(eye, L.pos + V3{0, 1.f, 0})) L.age += dt * (float)tuning.perceptionStride;
+        const float d0 = dist2D(P.pos[i], L.pos);
+        const SoldierContact* C = contactOf(ctx, i);
+        if (L.exact && d0 < tuning.scanRadius - 1.f && C) {
+            // follow the same zombie: the list entry nearest its predicted position
+            const V3 pred = L.pos + L.vel * ctx.dt;
+            float bd = tuning.lockMatch;
+            int bk = -1;
+            for (uint32_t k = 0; k < C->nNear; ++k) { const float d = dist2D(pred, C->nearPos[k]); if (d < bd) { bd = d; bk = (int)k; } }
+            if (bk >= 0) { L.pos = C->nearPos[bk]; L.vel = C->nearVel[bk]; L.age = 0.f; }
+            else L.age += dt * (tuning.targetLostTime / tuning.lockLostExact);   // dead or gone: dropped within ~0.2 s
+        } else {
+            V3 s;
+            L.exact = false; L.vel = {};
+            if (nearestSample(ctx, L.pos, tuning.targetKeepRadius, s)) { L.pos = s; L.age = 0.f; }
+            else L.age += dt;
+        }
+        if (perceive && ctx.nav && !ctx.nav->lineOfSight(eye, L.pos + V3{0, 1.2f, 0})) L.age += dt * (float)tuning.perceptionStride;
         const float d = dist2D(P.pos[i], L.pos);
         if (L.age > tuning.targetLostTime || d > w.acquireRange * 1.05f || outside) L.active = false;
-        else if (hasClose && d > tuning.closeSwitchMinDist && dist2D(P.pos[i], close) < tuning.closeThreat) {
-            L.pos = close; L.age = 0.f; L.acquire = std::min(L.acquire, w.acquireTime * 0.5f);
+        else if (hasClose && closeD < tuning.switchRatio * d && dist2D(close, L.pos) > 1.f) {
+            const float acq = std::min(L.acquire, w.acquireTime * 0.5f);   // already aiming nearby: quick re-acquire
+            lockExact(close, closeVel);
+            L.acquire = acq;
             ++P.targetSwitches[i];
         }
     }
     auto lockNew = [&](bool countSwitch) {
-        V3 t;
-        if (outside || !findTarget(ctx, i, w.acquireRange, t)) return false;
-        L = TargetLock{}; L.active = true; L.pos = t;
+        if (outside) return false;
+        if (hasThreat && closeD <= w.acquireRange) lockExact(close, closeVel);
+        else {
+            V3 t;
+            if (!findTarget(ctx, i, w.acquireRange, t)) return false;
+            L = TargetLock{}; L.active = true; L.pos = t;
+        }
         if (countSwitch) ++P.targetSwitches[i];
         return true;
     };
 
-    const float speedMul = P.wounded[i] ? tuning.woundedSpeed : 1.f;
+    // high-stakes movement: zombies around, under attack, or out of ammo -> sprint while stamina lasts
+    const bool highStakes = hasThreat || P.contactAge[i] < 2.f || P.mag[i] + P.reserve[i] == 0;
     switch (P.state[i]) {
     case SoldierState::Forming:
     case SoldierState::Moving: {
         if (P.state[i] == SoldierState::Forming && dist2D(P.goal[i], P.home[i]) > 0.5f) startPath(ctx, i, P.home[i]);
-        if (P.state[i] == SoldierState::Moving && !tuning.fireOnMove && P.stopCooldown[i] <= 0.f && P.mag[i] > 0 && !outside) {
-            V3 t;   // threat stop: a zombie this close is shot first, then the order resumes (never abandoned)
-            if (nearestSample(ctx, P.pos[i], tuning.moveThreatRadius, t) && (!ctx.nav || ctx.nav->lineOfSight(eye, t + V3{0, 1.f, 0}))) {
-                L = TargetLock{}; L.active = true; L.pos = t;
-                P.resume[i] = SoldierState::Moving;
-                P.setState(i, SoldierState::Engaging);
-                P.stopCooldown[i] = tuning.moveStopMax + tuning.moveStopCooldown;
-                P.vel[i] = {};
-                break;
-            }
+        // threat stop: a visible zombie within threatRadius (any direction) is fought first, then the order resumes
+        // (never abandoned). Within mustFight it always wins; farther ones get at most moveStopMax s per stop.
+        if (!tuning.fireOnMove && P.mag[i] > 0 && !outside && hasClose && (P.stopCooldown[i] <= 0.f || closeD <= tuning.mustFight)) {
+            lockExact(close, closeVel);
+            P.resume[i] = P.state[i];
+            P.setState(i, SoldierState::Engaging);
+            P.stopCooldown[i] = tuning.moveStopCooldown;
+            P.vel[i] = {};
+            break;
         }
-        const bool run = P.state[i] == SoldierState::Moving && sq && sq->order.run && !(P.phase[i] & PH_RETURNING);
-        const int r = followPath(ctx, i, (run ? ss.runSpeed : ss.walkSpeed) * speedMul);
+        if (P.deliverTo[i].valid()) {   // ammo runner walking to a squad mate: follow him, hand over when close
+            const SoldierId m = P.deliverTo[i];
+            if (!P.valid(m) || !P.alive(m.index)) { P.deliverTo[i] = {}; P.setState(i, SoldierState::Idle); break; }
+            const V3 mp = P.pos[m.index];
+            if (dist2D(P.pos[i], mp) < 1.7f) { P.path[i] = PathFollow{}; P.vel[i] = {}; P.setState(i, SoldierState::Collecting); break; }
+            if (dist2D(P.goal[i], mp) > 1.5f) startPath(ctx, i, mp);
+        }
+        const bool ordered = P.state[i] == SoldierState::Moving && sq && !(P.phase[i] & PH_RETURNING);
+        bool running = false;
+        const float pace = paceFor(ctx, i, ordered && sq->order.run, ordered && sq->order.walk, highStakes, running);
+        const int r = followPath(ctx, i, pace);
         if (r == 1) P.setState(i, SoldierState::Idle);
         else if (r == 2) {   // unreachable / stuck after the re-plan: hold here and flag the squad (no endless retries)
             V3 h = P.pos[i];
@@ -471,9 +573,12 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             if (!acquired) P.phase[i] &= (uint8_t)~PH_ACQUIRED;
         } else P.phase[i] &= (uint8_t)~PH_ACQUIRED;
         const bool fromMove = P.resume[i] != SoldierState::Idle;
-        const float threatLimit = fromMove ? tuning.moveThreatRadius + 2.f : 1e9f;
-        const bool threatGone = !L.active || dist2D(P.pos[i], L.pos) > threatLimit;
-        if (P.stateTime[i] >= tuning.engageMinDwell && (threatGone || (P.resume[i] == SoldierState::Moving && P.stateTime[i] > tuning.moveStopMax))) {
+        const float threatLimit = fromMove ? tuning.threatRadius + 2.f : 1e9f;
+        const float dl = L.active ? dist2D(P.pos[i], L.pos) : 1e9f;
+        const bool threatGone = !L.active || dl > threatLimit;
+        // an order resumes after moveStopMax s only while nothing is within mustFight (a close zombie is always fought)
+        const bool capped = fromMove && P.stateTime[i] > tuning.moveStopMax && dl > tuning.mustFight && !(hasClose && closeD <= tuning.mustFight);
+        if (P.stateTime[i] >= tuning.engageMinDwell && (threatGone || capped)) {
             L.active = L.active && !fromMove;
             leave(ctx, sup, i);
         }
@@ -496,8 +601,8 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             P.setState(i, SoldierState::Idle);
             break;
         }
-        if (hasClose && P.mag[i] > 0 && P.stopCooldown[i] <= 0.f) {
-            L = TargetLock{}; L.active = true; L.pos = close;
+        if (hasClose && P.mag[i] > 0 && (P.stopCooldown[i] <= 0.f || closeD <= tuning.mustFight)) {
+            lockExact(close, closeVel);
             P.resume[i] = SoldierState::Resupplying;
             P.setState(i, SoldierState::Engaging);
             P.stopCooldown[i] = tuning.moveStopCooldown;
@@ -509,8 +614,8 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             if (sup.reserve(P.supply[i], P.idOf(i), slot)) { P.phase[i] &= (uint8_t)~PH_WAITING; startPath(ctx, i, slot); }
             else P.retry[i] = tuning.supplyRetry;
         }
-        const bool outOfAmmo = P.mag[i] + P.reserve[i] == 0;
-        const int r = followPath(ctx, i, (outOfAmmo ? ss.runSpeed : ss.walkSpeed) * speedMul);
+        bool running = false;
+        const int r = followPath(ctx, i, paceFor(ctx, i, false, false, highStakes, running));
         if (P.phase[i] & PH_WAITING) { if (r != 0) { P.path[i].points.clear(); P.path[i].failed = false; steer(ctx, i, {}); } break; }
         if (r == 1) P.setState(i, SoldierState::Collecting);
         else if (r == 2) {
@@ -525,9 +630,22 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         P.vel[i] = {};
         V3 sp;
         if (P.supply[i].valid() && sup.position(P.supply[i], sp)) face(ctx, i, sp);
+        else if (P.deliverTo[i].valid() && P.valid(P.deliverTo[i])) face(ctx, i, P.pos[P.deliverTo[i].index]);
+        if (P.deliverTo[i].valid()) {   // hand-over to a squad mate (the grab event moved the rounds)
+            if (P.stateTime[i] >= tuning.collectTime) { P.deliverTo[i] = {}; P.setState(i, SoldierState::Idle); }
+            break;
+        }
         if (P.stateTime[i] >= tuning.collectTime) {
             const int total = P.mag[i] + P.reserve[i], full = P.fullLoad(i, cfg);
-            const bool more = (P.phase[i] & PH_GRABBED) && total < full && P.supply[i].valid() && sup.stock(P.supply[i], ammoOf(P.cls[i])) > 0;
+            int cap = 0;   // runner: what his squad mates miss, at most runnerCarryMagazines (Combat::grab takes the same)
+            if (P.runner[i] && sq) {
+                int mates = 0;
+                for (const SoldierId& m : sq->members)
+                    if (m.index != i && P.valid(m) && P.alive(m.index) && P.cls[m.index] == P.cls[i]) mates += std::max(0, P.fullLoad(m.index, cfg) - P.mag[m.index] - P.reserve[m.index]);
+                cap = std::min(cfg.logistics.runnerCarryMagazines * w.magazine, mates);
+            }
+            const bool more = (P.phase[i] & PH_GRABBED) && (total < full || P.carry[i] < cap) && P.supply[i].valid() && sup.stock(P.supply[i], ammoOf(P.cls[i])) > 0;
+            if (!more && P.runner[i] == 1) P.runner[i] = 2;   // loaded: back to the squad to hand it out
             if (more) { P.stateTime[i] = 0.f; P.phase[i] = 0; ++P.stateChanges[i]; }   // another collect cycle
             else {
                 dropSupply(ctx, sup, i);
@@ -555,10 +673,32 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             break;
         }
         if (P.mag[i] < (int)(w.magazine * tuning.tacticalReloadFraction) && P.reserve[i] > 0) { P.setState(i, SoldierState::Reloading); break; }
-        if (low && P.retry[i] <= 0.f) { tryResupply(ctx, sup, i); if (P.state[i] != SoldierState::Idle) break; }
+        // multi-soldier squads: the ammo runner fetches for everyone; a member goes himself only when dry and no runner
+        bool selfTrip = low;
+        if (sq && sq->members.size() > 1 && !P.runner[i]) {
+            const bool runnerAlive = sq->runner.valid() && P.valid(sq->runner) && P.alive(sq->runner.index);
+            int others = 0;
+            for (const SoldierId& m : sq->members) others += m.index != i && P.valid(m) && P.alive(m.index) ? 1 : 0;
+            selfTrip = total == 0 && (!runnerAlive || others == 0);
+            if (others == 0) selfTrip = low;
+        }
+        if (selfTrip && P.retry[i] <= 0.f) { tryResupply(ctx, sup, i); if (P.state[i] != SoldierState::Idle) break; }
         if (P.wounded[i] && medicalSeek && medicalSeek(ctx, i)) break;
         break;
     }
+    }
+
+    // ---- stamina: running drains it (sprinting faster), walking and standing recover it; tired = walk until resumeRun
+    {
+        const StaminaConfig& sc = cfg.stamina;
+        const float v = std::sqrt(P.vel[i].x * P.vel[i].x + P.vel[i].z * P.vel[i].z);
+        const bool run = v > ss.walkSpeed * 1.3f;
+        if (run) P.stamina[i] -= sc.drainRun * dt * (v > ss.runSpeed * 1.05f ? 1.5f : 1.f);
+        else P.stamina[i] += (v > 0.05f ? sc.regenWalk : sc.regenRest) * dt;
+        P.stamina[i] = std::clamp(P.stamina[i], 0.f, sc.max);
+        if (P.stamina[i] < sc.minToRun) P.tired[i] = 1;
+        else if (P.stamina[i] >= sc.resumeRun) P.tired[i] = 0;
+        P.running[i] = run ? 1 : 0;
     }
 
     // ---- animation request for the resulting state
@@ -585,6 +725,66 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+void SoldierAI::ammoRunners(GameContext& ctx, SupplyAccess& sup) {
+    SoldierPool& P = *ctx.soldiers;
+    const BalanceConfig& cfg = *ctx.cfg;
+    for (Squad& s : ctx.squads->squads) {
+        if (s.members.size() < 2) continue;   // the sniper resupplies himself
+        if (s.runner.valid() && (!P.valid(s.runner) || !P.alive(s.runner.index))) s.runner = {};   // dead: rotate
+        int total = 0, full = 0, alive = 0;
+        for (const SoldierId& m : s.members)
+            if (P.valid(m) && P.alive(m.index) && !deployState(P.state[m.index])) { total += P.mag[m.index] + P.reserve[m.index] + P.carry[m.index]; full += P.fullLoad(m.index, cfg); ++alive; }
+        if (alive < 2) { if (s.runner.valid()) { P.runner[s.runner.index] = 0; s.runner = {}; } continue; }
+        if (!s.runner.valid()) {
+            if ((float)total >= cfg.logistics.runnerTrigger * (float)full) continue;
+            bool travelling = false;   // not while the squad follows a move order
+            for (const SoldierId& m : s.members)
+                travelling |= P.valid(m) && P.alive(m.index) && P.state[m.index] == SoldierState::Moving && !(P.phase[m.index] & PH_RETURNING);
+            if (travelling) continue;
+            // the member least engaged (fewest visible threats), not mid-reload / collect / hit
+            int best = -1, bestT = 1 << 30;
+            for (const SoldierId& m : s.members) {
+                if (!P.valid(m) || !P.alive(m.index)) continue;
+                const SoldierState st = P.state[m.index];
+                if (st != SoldierState::Idle && st != SoldierState::Engaging) continue;
+                const int t = threats_[m.index] * 4 + (st == SoldierState::Engaging ? 1 : 0);
+                if (t < bestT) { bestT = t; best = (int)m.index; }
+            }
+            if (best < 0) continue;
+            const uint32_t r = (uint32_t)best;
+            const SupplyId sp = sup.findNearest(ctx, P.pos[r], ammoOf(P.cls[r]), cfg.soldier[(int)P.cls[r]].resupplySearchRadius);
+            if (!sp.valid()) continue;   // nothing reachable: members fall back to their own (critical) trips
+            s.runner = P.idOf(r);
+            P.runner[r] = 1;
+            P.target[r].active = false;
+            P.resume[r] = SoldierState::Idle;
+            P.setState(r, SoldierState::Idle);
+            P.retry[r] = 0.f;
+            tryResupply(ctx, sup, r);
+            continue;
+        }
+        const uint32_t r = s.runner.index;
+        if (P.runner[r] == 1 && P.state[r] == SoldierState::Idle && P.retry[r] <= 0.f && P.carry[r] == 0) tryResupply(ctx, sup, r);
+        if (P.runner[r] != 2 || P.deliverTo[r].valid() || P.state[r] != SoldierState::Idle) continue;
+        // handing out: the nearest squad mate missing at least half a magazine
+        const int mag = cfg.weapon[(int)P.cls[r]].magazine;
+        int best = -1;
+        float bd = 1e9f;
+        for (const SoldierId& m : s.members) {
+            if (m.index == r || !P.valid(m) || !P.alive(m.index) || P.cls[m.index] != P.cls[r]) continue;
+            const int need = P.fullLoad(m.index, cfg) - P.mag[m.index] - P.reserve[m.index];
+            if (need < mag / 2) continue;
+            const float d = dist2D(P.pos[r], P.pos[m.index]);
+            if (d < bd) { bd = d; best = (int)m.index; }
+        }
+        if (best < 0 || P.carry[r] <= 0) { P.runner[r] = 0; s.runner = {}; continue; }   // done (leftover stays with him)
+        P.deliverTo[r] = P.idOf((uint32_t)best);
+        P.setState(r, SoldierState::Moving);
+        P.phase[r] |= PH_RETURNING;
+        startPath(ctx, r, P.pos[(uint32_t)best]);
+    }
+}
+
 void SoldierAI::tick(GameContext& ctx) {
     if (!ctx.soldiers || !ctx.squads || !ctx.cfg) return;
     SoldierPool& P = *ctx.soldiers;
@@ -595,7 +795,17 @@ void SoldierAI::tick(GameContext& ctx) {
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
         if (P.alive(i) && P.state[i] != SoldierState::Descending) hash_.push_back({cellKey(P.pos[i].x, P.pos[i].z), i});
     std::sort(hash_.begin(), hash_.end(), [](const Cell& a, const Cell& b) { return a.key != b.key ? a.key < b.key : a.idx < b.idx; });
+    contactIndex_.assign(P.capacity(), -1);
+    threats_.resize(P.capacity(), 0);   // last tick's counts until soldier() refreshes them (runner choice)
+    if (ctx.horde) {
+        const std::vector<SoldierContact>& cs = ctx.horde->contacts();
+        for (size_t k = 0; k < cs.size(); ++k) {
+            const uint32_t i = cs[k].packedId & 0xFFFFu;
+            if (i < P.capacity() && P.used[i] && (P.gen[i] & 0xFFFFu) == (cs[k].packedId >> 16)) contactIndex_[i] = (int)k;
+        }
+    }
     squadOrders(ctx, sup);
+    ammoRunners(ctx, sup);
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
         if (P.used[i]) soldier(ctx, sup, i);
     // Squad status flags (UI markers, GAME_DESIGN 14b).

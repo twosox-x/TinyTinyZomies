@@ -14,6 +14,7 @@
 #include "game/SoldierAnim.h"
 #include "lab/MilitaryRenderer.h"
 
+#include <functional>
 #include <vector>
 
 namespace ttz {
@@ -45,6 +46,9 @@ public:
     std::vector<WorldMarker>& markers() { return markers_; }   // drawn every frame until the caller changes them
     bool classIcons = true;            // class icon above every squad
     bool soldierRings = false;         // faint ring under every soldier (not only the selected squads)
+    // B2 (walls, gates, rubble, containers with their cargo canopies, wall previews): drawn by Fortifications
+    // through this hook between beginFrame and endFrame (frame dt).
+    std::function<void(MilitaryRenderer&, float)> extraDraw;
     // Tracer cadence per SoldierClass (rifle, MG, sniper): every N-th round of a soldier draws a tracer (0: none).
     // The sniper's is a thin, faint streak (suppressed rifle).
     int tracerEvery[3] = {3, 1, 1};

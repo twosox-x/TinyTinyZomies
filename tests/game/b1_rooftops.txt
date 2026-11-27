@@ -10,8 +10,10 @@ at 0.3  buy sniper 0 76                 # low building (16.7 m)
 at 0.4  buy sniper 24 92                # 36 m roof
 at 0.5  key c                           # sniper tool, placed with a click on a roof (UI pick)
 at 0.6  click left -40 92               # 48 m roof
+at 0.7  camera 16 100 0.6 1.1 420      # look at the tower from above (its roof is above the old view)
 at 0.7  key c
 at 0.8  click left 16 100               # tower roof (137.5 m)
+at 0.9  camera -14 120 0.6 0.9 250
 at 1.0  expect squads == 6
 at 1.0  expect refused == 0
 at 1.0  expect spent == 4200
@@ -26,7 +28,9 @@ at 30   expect squad 4 y >= 35.4
 at 30   expect squad 5 y >= 47.7
 at 30   expect squad 6 y >= 137
 at 30   expect squad 1 parachuted + squad 2 parachuted + squad 3 parachuted + squad 4 parachuted + squad 5 parachuted + squad 6 parachuted == 6
+at 30   camera -45 112 0.6 0.95 45
 at 30   shot rooftops_landed.png
+at 30.1 camera -14 120 0.6 0.9 250
 at 75   log
 at 75   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop + squad 6 rooftop == 6
 at 75   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside + squad 6 inside == 0

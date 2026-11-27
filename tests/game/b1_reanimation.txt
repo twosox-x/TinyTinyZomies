@@ -1,0 +1,28 @@
+# GAME_DESIGN 14c (owner decision): dead soldiers rise again as tougher zombies, not instantly. A soldier is killed
+# (test hook); his body lies dead for reanimation.delayMin..delayMax s, gets up (riseTime) without his weapon (it
+# stays on the ground), and is replaced by ONE zombie-soldier agent (olive jacket / cap, zombie skin, glowing eyes,
+# health x healthMul) in the GPU horde: no duplicate soldier entity remains. His squad mates fight it; the kill pays
+# the normal reward (deduplicated).
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_reanimation.txt
+at 0.0  camera -11 117 0.6 0.9 40
+at 0.1  buy rifle -11 117
+at 26   expect squad 1 alive == 5
+at 26   setammo 1 0 0                   # nobody shoots yet: watch the rise undisturbed
+at 26.1 sethealth 1 0 0                 # TEST HOOK: member 0 dies
+at 28   expect bodies == 1
+at 28   expect soldiers == 5
+at 30   shot reanim_dead.png
+at 33.9 expect risen == 0               # not instant: at least delayMin (8 s) after the death clip
+at 52   log
+at 52   expect risen == 1               # delayMax 20 s + rise 1.6 s after the death clip (~1.5 s)
+at 52   expect soldiers == 4            # the soldier entity is gone (the zombie took its place)
+at 52   expect bodies == 0
+at 52   expect dropped_weapons == 1     # his weapon stays on the ground
+at 52.2 shot reanim_risen.png
+at 53   setammo 1 30 60                 # squad mates may now fight the zombie soldier
+at 80   log
+at 80   expect kills >= 1
+at 80   expect funding_reward_matches_kills
+at 80   expect no_duplicate_rewards
+at 80   expect hits >= 3                # a risen soldier takes several hits (health x 3) unless a headshot lands
+at 81   end

@@ -1,0 +1,52 @@
+# Milestone B2 acceptance: wall construction (cost, refusal without charge), open perimeter -> no territory, irregular
+# closed perimeter -> region, zombies inside -> uncleared (no income) until a squad clears it -> controlled + income,
+# zombie pressure on walls (GPU counts), a breach removes the region, soldier navigation is patched (inside and outside
+# connected again) and zombies pour in, an ammo container (parachute) closes the gap again.
+# City seed1, default window (pivot -17 117); the compound sits on the road at x -22 .. -1, z 125 .. 133. Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b2_territory.txt
+at 0.1  camera -12 129 0.5 0.95 60
+at 0.1  wall cheap -22 125 -6 125 -1 129 -6 133 -22 133   # irregular perimeter (pointed east end), west side left open
+at 0.5  expect walls == 12
+at 0.5  expect regions == 0                            # open perimeter: no territory ...
+at 0.5  expect territory_income == 0                   # ... and no income
+at 0.5  expect spent == 480                            # 12 pieces x $40
+at 0.6  wall cheap -36 100 -36 120                     # through buildings: refused, nothing charged
+at 0.8  expect spent == 480
+at 0.8  expect refused == 1
+at 0.8  expect nav_patches > 0                         # soldiers' navigation patched locally (no global rebuild)
+at 1.0  spawn 10 -14 129 2.5                           # zombies inside the future compound
+at 2.0  wall cheap -22 133 -22 125                     # close the perimeter
+at 2.5  expect walls == 14
+at 2.5  expect regions == 1
+at 2.5  expect same_island -14 129 4 129 == 0          # soldiers: inside and outside no longer connected
+at 3.5  territory
+at 3.5  expect region -14 129 state == 1               # enclosed, uncleared ...
+at 3.5  expect region -14 129 zombies > 0              # ... zombies inside (GPU count) ...
+at 3.5  expect territory_income == 0                   # ... no income until cleared
+at 3.6  buy rifle -14 129                              # a squad drops inside and clears it
+at 34   territory
+at 34   expect region -14 129 zombies == 0
+at 34   expect region -14 129 state == 2               # controlled
+at 34   expect territory_income > 0
+at 36   expect territory_total > 0                     # income credited through the ledger
+at 36   expect ledger_balanced
+at 36   shot b2_controlled.png
+at 37   spawn 90 2 128.5 1.5                           # a crowd east of the tip, drawn by the squad inside
+at 50   territory
+at 50   expect wall -2.25 128 pressure > 3             # zombies pressing on the tip (GPU wall count)
+at 50   expect walls_destroyed + 600 - wall -2.25 128 hp > 0   # pressure damages walls (or already breached one)
+at 50   shot b2_pressure.png
+at 51   destroywall -2.25 128                          # TEST HOOK: breach the south-east tip piece
+at 51.2 expect walls_destroyed >= 1
+at 52   expect regions == 0                            # breach: the region is gone (open to the horde)
+at 52   expect territory_income == 0
+at 52   expect same_island -14 129 4 129 == 1          # navigation patched: inside and outside connected again
+at 55   expect zombies_rect -21 126 -7 132 > 0         # zombies pour in
+at 55   shot b2_breach.png
+at 56   container -1.1 126.6 -0.675                    # plug the gap: container flush against the wall line
+at 56.2 expect supply 1 landed == 0                    # under its cargo canopies
+at 65   expect supply 1 landed == 1
+at 66   territory
+at 66   expect regions == 1                            # the container closes the perimeter again
+at 66   shot b2_container.png
+at 67   end

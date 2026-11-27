@@ -57,7 +57,12 @@ B1 architecture with explicit ownership, and compilable interface headers under 
   path (`CityRenderer::drawExternal`). Distance LOD (pose rate, small gear), frustum cull per soldier. Caps:
   1,280 soldiers, 28,672 parts, 8,192 CPU instances.
 - FX: CPU pool (≤ 4,000) of voxel flashes / tracers / casings / puffs / dust at the **posed** muzzle (CPU forward
-  kinematics), up to 4 flash point lights. Parachute sequences for soldier (street, rooftop with canopy clamp) and
+  kinematics), up to 4 flash point lights. Game rounds (after B1 feedback): flash + tracer per `FxKind::Shot` along the
+  real shot ray (`GameRender::shotFx` -> `MilitaryRenderer::fxShotRay`; tracer cadence `GameRender::tracerEvery` =
+  rifle 3, MG 1, sniper 1 (faint)); the streak ends where the GPU resolved the round (`HordeBridge::hitResults`,
+  per-shooter queue order). Flashes / tracers are emissive by day and night, scene-pass only, and keep a minimum
+  angular size (~2-3 px) at RTS distance. LODs (city chunks, instances, foliage, soldiers) measure from the nearer of
+  the eye and the camera focus (RTS pivot); props / foliage are never distance-culled (coarse LODs instead). Parachute sequences for soldier (street, rooftop with canopy clamp) and
   cargo crate, canopy voxel dissolve after `canopy_ground` (2.5 s hold + 2.5 s).
 - **All of this is private to `MilitaryLab`** (one 1,445-line class: scene, UI and renderer mixed). The renderer hooks
   are single `std::function`s on `Renderer` (`extPrepare / extDraw / extShadowDraw`), so lab and game are exclusive.
@@ -251,6 +256,40 @@ block: count, mean flow, pressure; integrated on the CPU or a coarse GPU grid), 
 the full window arrives (spawn from the aggregate, park into it); (4) optionally two GPU windows (camera + action).
 Costs and risks to be measured before the proposal goes to the owner.
 
+### 3.6b Ambient population and roaming (owner feedback after B1: "no condensed tiny hordes")
+
+Status: implemented, values **UNAPPROVED** (`config/balance.json` `"ambient"`, mirrored in `SimParams::roam*`).
+
+- **Placement** (`src/city/CityAmbient.*`, CPU, once per window and per newly visited 48 m block): open cells of the
+  window's static heights weighted by distance to the nearest wall (chamfer: sidewalks / entrances 1–4 m most, streets
+  and plazas normal, open ground > 25 m little) × local building coverage (40 m box: built-up blocks hold more);
+  groups: singles (55 %), 2–8 (42 %), clusters of 10–24 in the most built-up spots (3 %). Count = `densityPerHa` ×
+  open hectares, or `--count` exactly. Uploaded once as points (`CrowdSim::requestSpawnPoints`, `sim_spawn` point
+  mode, `spawnPts` buffer = capacity × 16 B). `--game` always uses it; plain `--map city` has it as the last scenario.
+  Newly visited blocks are populated on window moves only for a density-driven population (`--count N` stays exact,
+  so the B1 scripts' "no zombies" runs are unchanged).
+- **State** (no extra buffer): alert memory 0..15 in `info.z` bits 28..31 (free; health / sever / blood unchanged).
+  Archetype (wanderer / lurker / crawler) is a hash of the look bits (no storage). Parked agents keep both.
+- **Awareness** (`sim_predict`): an agent is *aware* when the nav distance of its cell is below the awareness gate
+  (or any finite distance when no gate is set, i.e. scenario goals) — the same test `nav_dir` uses to zero the flow,
+  so awareness and flow agree. Aware → alert = 15 and the unchanged pursuit path (flow field, crowd density speed:
+  pressure, accumulation, climbing untouched). Not aware → alert decays stochastically to 0 over `alertMemory` s;
+  the desired velocity blends from the last pursuit heading to the wander velocity at a rate that grows as alert
+  falls (keeps streaming to the last known source for a few seconds, then drifts back to wandering — no snapping).
+  `predict` binds `navDist` (read-only, binding 3; `corpseH` moved to 4 so used bindings stay contiguous).
+- **Wandering**: own heading from smooth per-agent value noise + a slowly drifting divergence-free field (curl of
+  plane waves, ~70 m: neighbours drift together loosely, and having no sinks it never gathers people into clumps);
+  pauses / shuffling in place (value noise gate, `pauseFraction`), staggered speeds; wall probes at 0.9 / 2.1 m with a
+  per-agent turning side (walls deflect wanderers along streets and sidewalks; the window border turns them back);
+  mild separation down the multi-scale density gradient (0.75–5 m). Lurkers (12 %) walk to the nearest wall within
+  4.5 m and stand facing it; crawlers (3 %) lie prone while calm (`sim_finalize`) and get up when alerted.
+- Cost: a few extra reads per idle agent per step (no new pass, no new buffer in the step except `navDist` binding).
+- Self-test section *[R] ambient roaming* (`TTZ_SELFTEST_ROAM=1` alone, `TTZ_SELFTEST_NO_ROAM=1` skips): placement
+  density and group mix; after 60 s idle nearest-neighbour median > 1.2 m, no cluster > 45 (1.5 m linkage), most
+  move > 3 m, nobody in buildings / alerted, lurkers at walls, crawlers prone; a noise source (30 m gate) pulls the
+  zombies within reach only; alert persists after it fades, then the crowd disperses (core count halves, no clump)
+  and alert returns to 0. Headless shots: `tests/game/roam_ambient.txt` (script verb `noise X Z RADIUS DURATION`).
+
 ### 3.7 Determinism and tests
 
 - Fixed ticks, seeded per-entity RNG (`pcg`), commands applied at tick boundaries in order. The only nondeterminism is
@@ -331,3 +370,114 @@ can be placed anywhere valid** (B2 restricts it to controlled territory).
 reward, no duplicates, ledger balanced), `b1_resupply.txt` (container + crate resupply, stock conserved, invalid
 placements refused without charge, move orders), `b1_input.txt` (hotkeys, placement click, click / box selection,
 right-click move, tool cancel). Headless script runs render only the frames that take a `shot` (with the HUD).
+
+---
+
+## 6. Milestone B2: walls, containers, territory (2026-11-27)
+
+**Modules.** `Walls` (CPU: network of nodes + 4 m pieces, snapping, placement validation, joints, health, pressure,
+breaches, rubble), `Territory` (CPU: raster, flood fill, regions, states, income), `TerritoryGpu` +
+`shaders/game_territory.comp` (GPU counts), `Fortifications` (`Fortify.*`: integration, obstacles, nav patches,
+drawing), `FortUI.cpp` (wall tool, overlay, HUD; part of GameUI), `FortScript.cpp` (script verbs / metrics),
+`FortSelfTest.cpp` (self-test section *walls / territory*). Shared files got small additive hooks only:
+`CityVehicles` (obstacle API), `GameRender::extraDraw`, `MilitaryRenderer::addInstance`, `GameContext::{walls,
+territory}`, `Command::{path, wallType, gate}`, `Economy::setTerritoryRate`, `FortConfig` in `Config`, App (Q / E do
+not turn the camera while a container is being placed).
+
+**Walls.** A drawn leg of length L becomes n = round(L / 4) pieces of the approved 4 m straight (or gate) asset,
+uniformly scaled by L / 4n (xz scale, deformed-prop path of `city.vert`; the collision footprint uses the same scale).
+Nodes snap to existing joints (1.5 m) or the 1 m grid; a drag snaps its length to whole 4 m pieces (Ctrl: 1 m).
+Joint asset per node: 1 piece end cap, 2 bent (> 8 deg) corner, 2 straight nothing, 3 T, 4+ X (tallest type wins);
+every connected node also gets a square collision post. Validation samples each footprint every 0.5 m: inside the
+window, no building / water / step > 0.6 m (base heights), no parked vehicle, no supply container, no overlap with
+pieces / posts, joints >= 35 deg; the last 0.6 m of a piece may overlap a facade (walls butt against buildings).
+Health per piece (`fort.wallHealth`). Pressure: `game_territory` counts live zombies in each piece's footprint plus
+a one-cell ring; damage = (count - `pressureThreshold`) x `damagePerZombie` per s. A destroyed piece becomes rubble (the
+piece dissolves, a flattened heap stays), dust FX, a noise event, a notice, and its obstacle is removed.
+
+**Collision (zombies) and navigation (soldiers).** `CityVehicles::addObstacle / removeObstacle`: oriented boxes raised
+to their absolute top height in the zombies' obstacle grid (`obst_` -> `simH_`) on top of the baked heights, kept
+across window moves; add / remove mark only the rows they cover, uploaded with the next `update()` (event driven).
+Zombies collide, flow around, pile up and climb corpse piles exactly as against any static height (sim_solve /
+climb rules unchanged): 1.6 m lets piles get over, 2.4 m mostly stops them. Soldiers: `NavGrid::updateRows` over the
+span of the rows `CityVehicles` uploaded that frame (`uploadedRuns()`), replacing the former global rebuild at most
+once a second on vehicle changes; the only full rebuild left is on window moves. Containers are stamped when they
+land and never removed.
+
+**Gates (PROPOSED, GAME_DESIGN 5).** A gate piece is stamped like a wall (zombies blocked), counts as closed for
+territory, and its passage cells (gate footprint minus wall / post cells) are lowered to the ground in the NavGrid
+copy of the heights (`Fortifications::navHeights`), so soldiers path through it. The leaves open (visual) while a
+soldier is within 5 m.
+
+**Territory.** Rebuilt on events only (build, destroy, container landed): structures (pieces + 0.2 m, posts,
+landed containers) and environment-blocked cells (base height > street level + 0.9 m: buildings, water; cached per
+world cell while the window covers them, so regions persist when it moves away) are rasterised into a world 1 m grid
+over the structures' bounding box + 4 m; 4-connected flood from the border = outside; each remaining component that
+touches a player structure and is >= `minRegionArea` is a region. Regions inherit id / state by majority overlap
+(merge = worst state, split = parent's). Counts: the id grid (window cells: region slot + 1 | (piece + 1) << 12) is
+uploaded through the frame's command buffer when the raster, the walls or the window change; every 3rd frame one
+atomic per live agent; 3-slot readback, versioned (stale counts dropped). Regions the window does not cover keep
+their last state. States: uncleared (count unknown or > 0), controlled (0 for `clearDelay` s), threatened (zombies in
+a controlled region: income paused; after `lossTime` s back to uncleared), breached (the region opens: removed, notice).
+Income: controlled m2 x `incomePerHectarePerMin` / 10,000, ledgered once a second as `TerritoryIncome`.
+
+**Containers.** Bought as before; they now descend under two scaled cargo canopies (`fort.containerAltitude`,
+`containerDescentSpeed`; touchdown dust + noise), usable and stamped as an obstacle on landing, never removed. The
+placement check covers the body (6.1 x 2.5 m), so a container can sit flush against a wall line and plug a gap. Q / E /
+mouse wheel rotate by 15 deg while placing, T by 90 deg.
+
+**Tests.** Self-test *walls / territory* (22 checks, CPU). Scripts: `tests/game/b2_territory.txt`,
+`tests/game/b2_gate.txt` (see their headers).
+
+## 7. B1 owner feedback fixes (2026-11-27, PROPOSED; values UNAPPROVED in `config/balance.json`)
+
+**Rooftop drops (`Deploy::plan`, `GameUI::pickGround`).** What was wrong: the pick ray started on a fixed y = 90 m plane
+(towers rise to 147 m: a start inside a tower picked a point behind its roof); the roof rule demanded a 3.6 m square
+flat within 0.3 m (parapets / roof fixtures refused most roofs: 4 of 290 probes near the default view were valid
+rooftops); the canopy drift (3-7 m) was never checked against buildings (a soldier dropping next to a tower descended
+through its facade), and narrow slots between towers counted as street. Now: the ray marches from the eye; a landing
+spot is a walkable island cell with a 1.2 m footprint flat within 0.3 m and no wall / parapet > 1.5 m within 1.5 m;
+a click near an edge / on a parapet snaps to the nearest landing spot on the SAME surface within 2.5 m (never below
+it); squad members land on the same island only; landing height = surface at the final spot; enclosed spots (> 80 %
+of 16 directions walled within 14 m: courtyards, gaps between towers) are refused; the descent drift is chosen so the
+canopy path is clear of the height grid (else a vertical descent); committed root motion never moves a body off its
+walkable surface. Test `tests/game/b1_rooftops.txt` (6 snipers on roofs 17-147 m, two through the UI pick).
+
+**Reanimation (`Reanimation.{h,cpp}`, GAME_DESIGN 14c).** Dead -> random delay (8-20 s) -> rise (cross-fade from the
+held death pose to standing, 1.6 s, weapon left on the ground as a `DroppedWeapon`, drawn by
+`MilitaryRenderer::addDroppedWeapon`) -> soldier slot released -> one GPU walker via `HordeInterface::spawnZombie`
+(`CrowdSim::requestSpawnZombie`: the existing spawn pass, one request per step; `forcedLook.w` = start health,
+`forcedLook.z = 2` keeps a random facing) with the zombie-soldier look (`zombieSoldierLook`: beanie in olive as the
+cap, open jacket in olive, olive trousers, black boots, torn sleeve, greener skin; zombie eyes and gait) and
+health x 3. Kills pay through the normal kill ring. Limitation: the spawn pass only places agents on open ground, so a
+soldier who died on a roof stays dead (roof agents: B3). Test `tests/game/b1_reanimation.txt`.
+
+**Threat-driven soldier AI (`SoldierAI`, `game_contacts.comp`).** What was wrong: targets came from the coarse 6 m
+field (the first 4 walkers that happened to be written per tile, 2-3 frames old), so soldiers aimed at a tile sample
+and kept "locking an area" (a lock re-associated to any sample within 2.5 m, so it outlived the zombie); a moving
+soldier only reacted to zombies within 5 m, at most 3 s, then ignored threats for 4 s ("reach the destination
+first"); LOS was cast from 1.5 m so a parked car hid a zombie; squad mates spread over far candidates by slot index.
+Now `game_contacts` also writes each soldier's 4 nearest live zombies within 24 m (exact positions + velocities of
+the step, any height; tile rings over the field counts, empty tiles skipped, bounded scan) into a readback region;
+`SoldierContact::nearPos/nearVel`. Every tick each soldier scores the visible ones (distance, closing speed, zombies on
+a squad mate = mutual support), locks the ZOMBIE (exact lock follows the list entry nearest its predicted position;
+gone from the list = dead -> dropped in 0.2 s), aims led by its velocity, switches when a threat is < 0.6 x the lock
+distance. A visible zombie within 12 m (360 deg, 2 m eye) interrupts moves / formation / resupply; within 8 m it is
+always fought, farther ones for at most moveStopMax s per stop, then the order resumes. Beyond 24 m the field is used
+(snipers: isolated tiles and zombies near other soldiers first). F6 = AI debug overlay (target lines red = exact,
+amber = field; state, ammo, stamina). Test `tests/game/b1_ai_threat.txt`.
+
+**Stamina / pace.** Auto pace runs (sprint x1.15 when threatened, under attack or out of ammo), stamina drains while
+running and recovers walking / standing; below 15 the soldier walks until 40; wounded soldiers walk (they fall
+behind; the squad does not wait: B3 medics). Controls (PROPOSED, owner approval): RMB = auto, Shift + RMB = force run,
+Ctrl / Alt + RMB = walk. Stamina shown as a thin line under each health bar. Test `tests/game/b1_stamina.txt`.
+
+**Ammo runner.** Multi-soldier squads below `logistics.runnerTrigger` of their full load send ONE member (fewest
+visible threats) to the nearest supply point; he collects his own need plus what his mates miss (at most
+`runnerCarryMagazines` magazines, debited from the stock), returns and hands rounds to each mate (collect_ammo clip,
+grab event = transfer). Others hold; a member goes himself only when completely dry and no runner is alive; a dead
+runner is replaced. Rounds are conserved (supply decrease = soldiers' increase incl. the runner's load). Test
+`tests/game/b1_runner.txt`.
+
+**Ranges.** MG 55 m (dense close-mid), rifle 60 m (mid), sniper 220 m (accuracy 0.99, spread 0.12 deg, headshot 0.7,
+noise radius 12 m). Test `tests/game/b1_sniper.txt`.

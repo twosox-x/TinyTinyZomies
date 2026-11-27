@@ -10,6 +10,7 @@
 #include "game/Logistics.h"
 #include "game/NavGrid.h"
 #include "game/Soldiers.h"
+#include "game/Walls.h"
 #include "imgui.h"
 
 #include <SDL3/SDL.h>
@@ -221,11 +222,27 @@ void GameUI::placeAt(AppState& app, const GameContext& ctx, V3 p, CommandQueue& 
 
 bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out) {
     if (!ctx.soldiers || !ctx.squads) return false;
+    if (tool_ == Tool::BuildWall && wallEvent(app, ctx, e, out)) return true;   // B2 wall tool (FortUI.cpp)
+    if (tool_ == Tool::PlaceContainer && e.type == SDL_EVENT_MOUSE_WHEEL && e.wheel.y != 0.f) {   // B2: rotate 15 deg
+        containerYaw_ = std::fmod(containerYaw_ + (e.wheel.y > 0 ? 1.f : -1.f) * kPi / 12.f + 2.f * kPi, 2.f * kPi);
+        return true;
+    }
     switch (e.type) {
     case SDL_EVENT_KEY_DOWN: {
         if (e.key.repeat) return false;
         const SDL_Keycode k = e.key.key;
         auto toggle = [&](Tool t) { tool_ = tool_ == t ? Tool::Select : t; forced_ = false; return true; };
+        if (k == SDLK_N || k == SDLK_M || k == SDLK_J) {   // B2: cheap wall / reinforced wall / gate (PROPOSED)
+            const uint8_t t = k == SDLK_M ? 1 : 0;
+            const bool g = k == SDLK_J;
+            if (tool_ == Tool::BuildWall && wallType_ == t && wallGate_ == g) { tool_ = Tool::Select; wallPts_.clear(); }
+            else setWallMode(t, g);
+            return true;
+        }
+        if ((k == SDLK_Q || k == SDLK_E) && tool_ == Tool::PlaceContainer) {   // B2: 15 deg steps (T: 90)
+            containerYaw_ = std::fmod(containerYaw_ + (k == SDLK_E ? 1.f : -1.f) * kPi / 12.f + 2.f * kPi, 2.f * kPi);
+            return true;
+        }
         if (k == SDLK_Z) return toggle(Tool::BuyRifle);
         if (k == SDLK_X) return toggle(Tool::BuyMG);
         if (k == SDLK_C) return toggle(Tool::BuySniper);
@@ -259,6 +276,7 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
             if (!sel_.squads.empty()) { Command c; c.type = CommandType::Select; out.push(c); sel_.squads.clear(); return true; }
             return false;
         }
+        if (k == SDLK_F6) { aiDebug = !aiDebug; return true; }   // AI debug overlay
         if (k == SDLK_R || k == SDLK_G || k == SDLK_F) return true;   // sandbox reset / debug toggles are off in --game
         return false;
     }
@@ -318,6 +336,7 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
                             if (ctx.nav && ctx.nav->ready()) c.pos.y = ctx.nav->surface(c.pos.x, c.pos.z);
                             c.facing = facing;
                             c.run = shiftHeld();
+                            c.walk = (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_ALT)) != 0;
                             out.push(c);
                         }
                         orderMarker_ = p;
@@ -360,6 +379,7 @@ void GameUI::draw(AppState& app, const GameContext& ctx, CommandQueue& out) {
     drawBuildBar(app, ctx, out);
     drawSelection(app, ctx, out);
     drawNotices(app, ctx);
+    if (aiDebug) drawAiDebug(app, ctx);
     if (boxing_) {
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         dl->AddRectFilled(ImVec2(std::min(boxX0_, boxX1_), std::min(boxY0_, boxY1_)), ImVec2(std::max(boxX0_, boxX1_), std::max(boxY0_, boxY1_)),
@@ -396,7 +416,7 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
     ImGui::SameLine(0, 18);
     ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kDim), "TERRITORY");
     ImGui::SameLine();
-    ImGui::TextDisabled("B2");
+    drawTerritoryHud(ctx);   // B2 (FortUI.cpp)
     ImGui::SameLine(0, 18);
     ImGui::Text("%02d:%02d", t / 60, t % 60);
     if (!ctx.cfg->approved()) {
@@ -418,7 +438,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
         {Tool::BuyRifle, "Rifle squad", "Z", cfg.squad[0].price, "5 riflemen. General purpose: clearing and defence."},
         {Tool::BuyMG, "MG squad", "X", cfg.squad[1].price, "3 machine gunners. Sustained fire against dense hordes. Loud, high ammo use."},
         {Tool::BuySniper, "Sniper", "C", cfg.squad[2].price, "1 suppressed sniper. Quiet removal of isolated zombies; rooftops."},
-        {Tool::PlaceContainer, "Ammo container", "V", cfg.economy.containerPrice, "Central ammunition container (finite stock). Soldiers walk to it to refill.\nB1: placed anywhere valid (territory rules come with B2). T rotates."},
+        {Tool::PlaceContainer, "Ammo container", "V", cfg.economy.containerPrice, "Central ammunition container (finite stock). Soldiers walk to it to refill.\nArrives by parachute, never disappears and blocks zombies like a wall piece.\nQ / E / mouse wheel rotate 15 deg, T 90 deg."},
         {Tool::Airdrop, "Ammo drop", "B", cfg.economy.airdropPrice, "Airdrop crate by parachute near your units (finite stock)."},
     };
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -444,6 +464,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
         else { dl->AddRectFilled(ImVec2(ic.x - 5, ic.y - 1), ImVec2(ic.x + 5, ic.y + 7), fc, 1.f); dl->AddCircle(ImVec2(ic.x, ic.y - 4), 6.f, fc, 12, 1.5f); }
         ImGui::PopID();
     }
+    drawWallButtons(ctx);   // B2 (FortUI.cpp)
     ImGui::End();
 }
 
@@ -495,9 +516,14 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             const float x1 = x0 + bw + 8.f;
             dl->AddRectFilled(ImVec2(x1, y), ImVec2(x1 + bw, y + bh), IM_COL32(10, 10, 8, 220));
             dl->AddRectFilled(ImVec2(x1, y), ImVec2(x1 + bw * am, y + bh), am > cfg.soldier[c].lowAmmoFraction ? kBlue : am > 0 ? kAmber : kBad);
-            char txt[48];
+            if (!dead) {   // stamina: a thin line under the health bar (subtle; amber while exhausted)
+                const float stf = std::clamp(P.stamina[i] / std::max(1.f, cfg.stamina.max), 0.f, 1.f);
+                dl->AddRectFilled(ImVec2(x0, y + bh + 1.f), ImVec2(x0 + bw * stf, y + bh + 2.5f), P.tired[i] ? kAmber : IM_COL32(200, 200, 170, 150));
+            }
+            char txt[80];
             if (dead) std::snprintf(txt, sizeof(txt), "KIA");
-            else std::snprintf(txt, sizeof(txt), "%d|%d %s", P.mag[i], P.reserve[i], stateName(P.state[i]));
+            else std::snprintf(txt, sizeof(txt), "%d|%d %s%s%s", P.mag[i], P.reserve[i], stateName(P.state[i]), P.runner[i] ? " (ammo runner)" : "",
+                               P.wounded[i] ? " (wounded)" : "");
             dl->AddText(ImVec2(x1 + bw + 6.f, q.y), dead ? kBad : kDim, txt);
             ImGui::NewLine();
         }
@@ -509,6 +535,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
 
 void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
     if (!ctx.squads || !ctx.soldiers) return;
+    drawTerritory(app, ctx);   // B2: subtle perimeter outline, region labels, breaches, damaged walls (FortUI.cpp)
     const SoldierPool& P = *ctx.soldiers;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     const float dist = app.camera.distance();
@@ -583,6 +610,8 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
 }
 
 void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
+    if (ctx.walls) ctx.walls->previewOn = false;
+    if (tool_ == Tool::BuildWall) { drawWallPreview(app, ctx); return; }   // B2 (FortUI.cpp)
     if (tool_ == Tool::Select || !ctx.deploy || !ctx.logistics) return;
     V3 p;
     if (forced_) p = forcedPos_;
@@ -615,7 +644,7 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
         if (vis) { dl->AddQuadFilled(q[0], q[1], q[2], q[3], withAlpha(ok ? kOk : kBad, 0.18f)); dl->AddQuad(q[0], q[1], q[2], q[3], ok ? kOk : kBad, 2.f); }
         ImVec2 door;
         if (project(app, {p.x + 4.3f * cs, p.y + 0.08f, p.z - 4.3f * sn}, door)) dl->AddCircleFilled(door, 3.f, ok ? kOk : kBad, 8);
-        std::snprintf(label, sizeof(label), "Ammo container  $%d  [T rotate]", price);
+        std::snprintf(label, sizeof(label), "Ammo container  $%d  [Q/E/wheel rotate]", price);
     } else {
         ok = ctx.logistics->canAirdrop(ctx, p, &why);
         price = ctx.cfg->economy.airdropPrice;
@@ -664,6 +693,31 @@ void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
             dl->AddRectFilled(ImVec2(x - 8, y - 3), ImVec2(x + ts.x + 8, y + ts.y + 3), kPanel, 3.f);
             dl->AddText(ImVec2(x, y), kAmber, t);
         }
+    }
+}
+
+void GameUI::drawAiDebug(AppState& app, const GameContext& ctx) {
+    if (!ctx.soldiers) return;
+    const SoldierPool& P = *ctx.soldiers;
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
+        if (!P.used[i] || !P.alive(i)) continue;
+        ImVec2 s;
+        if (!project(app, P.pos[i] + V3{0, 1.9f, 0}, s)) continue;
+        const TargetLock& L = P.target[i];
+        if (L.active) {   // red: exact lock on a real zombie (GPU nearest list); amber: coarse field sample
+            ImVec2 t;
+            const bool firing = (P.phase[i] & PH_ACQUIRED) != 0;
+            if (project(app, L.pos + V3{0, 1.1f, 0}, t)) {
+                const ImU32 c = L.exact ? IM_COL32(255, 70, 50, firing ? 230 : 120) : IM_COL32(255, 190, 60, firing ? 230 : 120);
+                dl->AddLine(s, t, c, firing ? 2.f : 1.f);
+                dl->AddCircle(t, 5.f, c, 10, 1.5f);
+            }
+        }
+        char txt[64];
+        std::snprintf(txt, sizeof(txt), "%s %d/%d st%.0f%s", stateName(P.state[i]), P.mag[i], P.reserve[i], P.stamina[i], P.wounded[i] ? " W" : "");
+        dl->AddText(ImVec2(s.x + 6, s.y - 6), IM_COL32(0, 0, 0, 200), txt);
+        dl->AddText(ImVec2(s.x + 5, s.y - 7), IM_COL32(230, 235, 200, 255), txt);
     }
 }
 

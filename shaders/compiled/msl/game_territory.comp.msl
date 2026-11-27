@@ -1,0 +1,173 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
+};
+
+struct Out
+{
+    uint outCounts[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct Ids
+{
+    uint ids[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _47)
+{
+    float2 g = (xz - _47.world.xy) * _47.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_47.grid.x) - 1, int(_47.grid.y) - 1));
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _47)
+{
+    return (uint(c.y) * _47.grid.x) + uint(c.x);
+}
+
+kernel void main0(constant SimUniforms& _47 [[buffer(0)]], device Agents& _142 [[buffer(1)]], device Counters& _130 [[buffer(2)]], device Ids& _211 [[buffer(3)]], device Out& _122 [[buffer(4)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    uint R = _47.counts.x;
+    uint P = _47.counts.y;
+    if (_47.misc.y == 0u)
+    {
+        if (i < (R + P))
+        {
+            _122.outCounts[i] = 0u;
+        }
+        return;
+    }
+    if (i >= _130.counters[0])
+    {
+        return;
+    }
+    Agent a;
+    a.pos = _142.agents[i].pos;
+    a.vel = _142.agents[i].vel;
+    a.prev = _142.agents[i].prev;
+    a.dirs = _142.agents[i].dirs;
+    a.info = _142.agents[i].info;
+    Agent param = a;
+    if (agentState(param) >= 3u)
+    {
+        return;
+    }
+    float2 param_1 = a.pos.xz;
+    int2 c = cellCoord(param_1, _47);
+    bool _176 = c.x < 0;
+    bool _183;
+    if (!_176)
+    {
+        _183 = c.y < 0;
+    }
+    else
+    {
+        _183 = _176;
+    }
+    bool _193;
+    if (!_183)
+    {
+        _193 = c.x >= int(_47.grid.x);
+    }
+    else
+    {
+        _193 = _183;
+    }
+    bool _203;
+    if (!_193)
+    {
+        _203 = c.y >= int(_47.grid.y);
+    }
+    else
+    {
+        _203 = _193;
+    }
+    if (_203)
+    {
+        return;
+    }
+    int2 param_2 = c;
+    uint id = _211.ids[cellIndex(param_2, _47)];
+    uint r = id & 4095u;
+    uint p = id >> uint(12);
+    if ((r != 0u) && (r < R))
+    {
+        uint _235 = atomic_fetch_add_explicit((device atomic_uint*)&_122.outCounts[r], 1u, memory_order_relaxed);
+    }
+    if ((p != 0u) && (p < P))
+    {
+        uint _248 = atomic_fetch_add_explicit((device atomic_uint*)&_122.outCounts[R + p], 1u, memory_order_relaxed);
+    }
+}
+

@@ -97,6 +97,14 @@ void FakeHorde::rebuildField() {
             c.nearestDist = std::min(c.nearestDist, d);
             if (d <= s.radius + attackReach) ++c.attackers;
             if (d <= 8.f) ++c.nearby;
+            if (d <= threatRadius) {   // exact nearest list (same contract as game_contacts.comp)
+                float dd[SoldierContact::kNear];
+                for (uint32_t q = 0; q < c.nNear; ++q) dd[q] = std::hypot(c.nearPos[q].x - s.pos.x, c.nearPos[q].z - s.pos.z);
+                int j = c.nNear < SoldierContact::kNear ? (int)c.nNear++ : (int)SoldierContact::kNear;
+                if (j == (int)SoldierContact::kNear) { if (d >= dd[j - 1]) continue; j = (int)SoldierContact::kNear - 1; }
+                while (j > 0 && dd[j - 1] > d) { c.nearPos[j] = c.nearPos[j - 1]; c.nearVel[j] = c.nearVel[j - 1]; dd[j] = dd[j - 1]; --j; }
+                c.nearPos[j] = z.pos; c.nearVel[j] = {}; dd[j] = d;
+            }
         }
         contacts_.push_back(c);
     }

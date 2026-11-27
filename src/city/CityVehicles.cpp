@@ -316,6 +316,51 @@ void CityVehicles::restampSolid(int x0, int z0, int x1, int z1, uint32_t except)
         stamp(o, solid_, nullptr, 0.25f);
         stamp(o, obst_, nullptr, 0.f);
     }
+    const float rx0 = ox_ + x0 * cell_, rz0 = oz_ + z0 * cell_, rx1 = ox_ + (x1 + 1) * cell_, rz1 = oz_ + (z1 + 1) * cell_;
+    for (const GameObstacle& g : gobst_) {
+        const float r = std::sqrt(g.hx * g.hx + g.hz * g.hz) + cell_;
+        if (g.alive && g.cx + r >= rx0 && g.cx - r <= rx1 && g.cz + r >= rz0 && g.cz - r <= rz1) stampObstacle(g, obst_);
+    }
+}
+
+void CityVehicles::stampObstacle(const GameObstacle& o, std::vector<float>& grid) const {
+    // sampled every half cell (game::forEachObbCell uses the same rule for its masks)
+    const float step = 0.5f * cell_, c = std::cos(o.yaw), s = std::sin(o.yaw);
+    const int nu = std::max(1, (int)std::ceil(2.f * o.hx / step)), nv = std::max(1, (int)std::ceil(2.f * o.hz / step));
+    for (int i = 0; i <= nu; ++i)
+        for (int j = 0; j <= nv; ++j) {
+            const float u = -o.hx + 2.f * o.hx * (float)i / (float)nu, v = -o.hz + 2.f * o.hz * (float)j / (float)nv;
+            const float x = o.cx + u * c + v * s, z = o.cz - u * s + v * c;
+            const int cx = (int)std::floor((x - ox_) / cell_), cz = (int)std::floor((z - oz_) / cell_);
+            if (cx < 0 || cz < 0 || cx >= gw_ || cz >= gh_) continue;
+            float& g = grid[(size_t)cz * gw_ + cx];
+            g = std::max(g, o.top);
+        }
+}
+
+uint32_t CityVehicles::addObstacle(float cx, float cz, float halfX, float halfZ, float yaw, float top) {
+    uint32_t id = (uint32_t)gobst_.size();
+    for (uint32_t i = 0; i < gobst_.size(); ++i) if (!gobst_[i].alive) { id = i; break; }
+    const GameObstacle o{cx, cz, halfX, halfZ, yaw, top, true};
+    if (id == gobst_.size()) gobst_.push_back(o); else gobst_[id] = o;
+    if (gw_ > 0 && !obst_.empty()) {
+        stampObstacle(o, obst_);
+        const float r = std::sqrt(halfX * halfX + halfZ * halfZ) + cell_;
+        markDirty((int)std::floor((cz - r - oz_) / cell_), (int)std::floor((cz + r - oz_) / cell_));
+    }
+    return id;
+}
+
+void CityVehicles::removeObstacle(uint32_t id) {
+    if (id >= gobst_.size() || !gobst_[id].alive) return;
+    GameObstacle& o = gobst_[id];
+    o.alive = false;
+    if (gw_ <= 0 || obst_.empty()) return;
+    const float r = std::sqrt(o.hx * o.hx + o.hz * o.hz) + cell_;
+    const int x0 = (int)std::floor((o.cx - r - ox_) / cell_), x1 = (int)std::floor((o.cx + r - ox_) / cell_);
+    const int z0 = (int)std::floor((o.cz - r - oz_) / cell_), z1 = (int)std::floor((o.cz + r - oz_) / cell_);
+    restampSolid(x0, z0, x1, z1, UINT32_MAX);   // base + parked vehicles + the remaining obstacles in the rectangle
+    markDirty(z0, z1);
 }
 
 void CityVehicles::setWindow(float ox, float oz, float cell, int gw, int gh, const std::vector<float>& heights) {
@@ -340,6 +385,7 @@ void CityVehicles::setWindow(float ox, float oz, float cell, int gw, int gh, con
     obst_ = base_;
     for (uint32_t i : window_)
         if (!all_[i].active) { stamp(all_[i], solid_, nullptr, 0.25f); stamp(all_[i], obst_, nullptr, 0.f); }
+    for (const GameObstacle& g : gobst_) if (g.alive) stampObstacle(g, obst_);
     simH_ = base_;
     rowDirty_.assign((size_t)gh_, 1);
     explodeQueue_.erase(std::remove_if(explodeQueue_.begin(), explodeQueue_.end(), [&](uint32_t i) {
@@ -568,12 +614,13 @@ void CityVehicles::integrate(uint32_t i, float h) {
 
 void CityVehicles::update(SDL_GPUCommandBuffer* cmd, float dt, CrowdSim& sim, const std::function<void(float, float, float, float)>& onBlast) {
     stats_.uploadedRows = 0;
+    ++updateSerial_;
     stats_.uploadBytes = 0;
     stats_.substeps = 0;
     const double tick = 1000.0 / (double)SDL_GetPerformanceFrequency();
     uint64_t tA = SDL_GetPerformanceCounter();
     auto lap = [&](float& out) { uint64_t t = SDL_GetPerformanceCounter(); out = (float)((t - tA) * tick); tA = t; };
-    if (!enabled || gw_ <= 0) { sim.takeExplosionLog(); return; }
+    if (!enabled || gw_ <= 0) { sim.takeExplosionLog(); runs_.clear(); return; }
     // 1. blasts accepted by the simulation since the last frame
     for (const CrowdSim::ExplosionEvent& e : sim.takeExplosionLog())
         for (uint32_t i : window_) blast(i, e.x, e.y, e.z, e.scale);

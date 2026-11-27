@@ -73,6 +73,7 @@ public:
     void setAwarenessRadius(float m) { awareness_ = m; }   // attractor reach when Attractor::awareness == 0
     void setAttackReach(float m) { attackReach_ = m; }      // capsule surface to zombie centre
     void setNearbyRadius(float m) { nearbyRadius_ = m; }    // SoldierContact::nearby
+    void setThreatRadius(float m) { threatRadius_ = m; }    // SoldierContact::nearPos (exact nearest zombies)
     // Tests / --game-sync only: harvest() waits for the GPU (deterministic latency). Never in normal play.
     void setSync(bool on) { sync_ = on; }
 
@@ -106,7 +107,8 @@ private:
     uint64_t hitResultsFrame_ = 0, harvested_ = 0;
     uint64_t lastKillSeq_ = 0, killsOverflowed_ = 0;
     Stats st_;
-    float awareness_ = 60.f, attackReach_ = 0.9f, nearbyRadius_ = 8.f, gate_ = 0.f;
+    float awareness_ = 60.f, attackReach_ = 0.9f, nearbyRadius_ = 8.f, gate_ = 0.f, threatRadius_ = 24.f;
+    uint32_t rbNear_ = 0;          // readback slot offset of the exact nearest-zombie lists
     bool sync_ = false, seedsDirty_ = false;
     uint32_t prevStamped_ = 0;     // soldier cells stamped last frame (cleared before the new stamp)
     uint32_t tilesX_ = 0, tilesZ_ = 0;
@@ -115,7 +117,7 @@ private:
     // soldierCell, navSeed)
     SDL_GPUComputePipeline *pStamp_ = nullptr, *pHits_ = nullptr, *pAttract_ = nullptr, *pField_ = nullptr, *pContacts_ = nullptr;
     SDL_GPUBuffer *hitReq_ = nullptr, *hitRes_ = nullptr, *stamped_ = nullptr, *attrBuf_ = nullptr, *fieldBuf_ = nullptr,
-                  *contactBuf_ = nullptr;
+                  *contactBuf_ = nullptr, *nearBuf_ = nullptr;
     SDL_GPUTransferBuffer* upload_ = nullptr;   // cycled each frame: soldiers | hits | attractors
 
     // this frame (preSim -> postSim)

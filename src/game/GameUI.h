@@ -28,7 +28,7 @@ struct AppState;
 
 namespace ttz::game {
 
-enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop };
+enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop, BuildWall /* B2 */ };
 
 struct UiNotice { std::string text; double time = 0; bool bad = false; };
 
@@ -47,6 +47,13 @@ public:
     // Height-grid pick (street, roof) under a screen point; false when the ray leaves the grid.
     static bool pickGround(const AppState& app, const GameContext& ctx, float sx, float sy, V3& out);
     static bool worldToScreen(const AppState& app, V3 p, float& sx, float& sy);   // scripts: synthetic mouse input
+    // ---- B2 wall tool (FortUI.cpp): N cheap wall, M reinforced wall, J gate (PROPOSED). Click adds points (snapped to
+    // the 1 m grid / existing joints), drag = straight run in whole 4 m pieces (Ctrl: 1 m steps), Enter / double-click /
+    // closing the loop confirms, Backspace undoes a point, Esc cancels. Container: Q / E / wheel rotate 15 deg, T 90.
+    bool rotatesWithQE() const { return tool_ == Tool::PlaceContainer; }
+    void setWallMode(uint8_t type, bool gate) { tool_ = Tool::BuildWall; wallType_ = type; wallGate_ = gate; wallPts_.clear(); forced_ = false; }
+    void forceWallPreview(const std::vector<V3>& pts, uint8_t type, bool gate);   // scripts / captures
+    float containerYaw() const { return containerYaw_; }
 private:
     void selectAt(AppState& app, const GameContext& ctx, float x, float y, bool additive, CommandQueue& out);
     void selectBox(AppState& app, const GameContext& ctx, float x0, float y0, float x1, float y1, bool additive, CommandQueue& out);
@@ -57,6 +64,19 @@ private:
     void drawMarkers(AppState& app, const GameContext& ctx);
     void drawPreview(AppState& app, const GameContext& ctx);
     void drawNotices(AppState& app, const GameContext& ctx);
+    // B2 (FortUI.cpp)
+    bool wallEvent(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out);
+    void confirmWall(const AppState& app, const GameContext& ctx, CommandQueue& out);
+    void drawWallPreview(AppState& app, const GameContext& ctx);
+    void drawTerritory(AppState& app, const GameContext& ctx);
+    void drawTerritoryHud(const GameContext& ctx);
+    void drawWallButtons(const GameContext& ctx);
+    uint8_t wallType_ = 0;
+    bool wallGate_ = false;
+    std::vector<V3> wallPts_;
+    bool wallDown_ = false, wallDragging_ = false;
+    float wallDownX_ = 0, wallDownY_ = 0;
+    void drawAiDebug(AppState& app, const GameContext& ctx);   // F6: what each soldier thinks (target line, state, stamina)
 
     Selection sel_;
     Tool tool_ = Tool::Select;
@@ -66,6 +86,9 @@ private:
     float boxX0_ = 0, boxY0_ = 0, boxX1_ = 0, boxY1_ = 0;
     float containerYaw_ = 0.f;
     bool forced_ = false;
+public:
+    bool aiDebug = false;            // F6 overlay (scripts: "key f6"); public so tests / screenshots can turn it on
+private:
     V3 forcedPos_;
     V3 orderMarker_;
     double orderMarkerT_ = -100;

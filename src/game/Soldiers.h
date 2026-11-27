@@ -22,6 +22,8 @@ struct TargetLock {                  // a point the soldier aims at (the GPU dec
     V3 pos;                          // last associated field sample (re-associated to the nearest sample each refresh)
     float age = 0.f;                 // s since the last association; dropped after a timeout (no flip-flopping)
     float acquire = 0.f;             // s spent acquiring (WeaponStats.acquireTime before the first shot)
+    bool exact = false;              // pos / vel follow one real zombie (GPU nearest list), not a coarse field sample
+    V3 vel;                          // its velocity (aim lead)
 };
 
 struct SoldierPool {
@@ -68,6 +70,9 @@ struct SoldierPool {
     std::vector<float> stamina;      // SoldierAI: 0..StaminaConfig.max, drains while running, recovers otherwise
     std::vector<uint8_t> tired;      // SoldierAI: stamina ran low; walks until it recovered to resumeRun (hysteresis)
     std::vector<uint8_t> running;    // SoldierAI: moved at run speed this tick (UI, tests)
+    std::vector<int> carry;          // ammo runner: rounds carried for squad mates (not his own reserve)
+    std::vector<uint8_t> runner;     // ammo runner role: 0 none, 1 on the way to / at a supply point, 2 handing out
+    std::vector<SoldierId> deliverTo;// ammo runner: the squad mate he is walking to / handing rounds to
     std::vector<uint8_t> unarmed;    // Reanimation: the weapon lies on the ground (rising body drawn without it)
 
     SoldierId spawn(SoldierClass c, int infantryIndex, SquadId sq, int slot, V3 p, float yawRad, uint32_t seed);
@@ -97,7 +102,8 @@ struct MoveOrder {
     bool active = false;
     V3 dest;
     float facing = 0.f;              // formation facing at the destination (rad)
-    bool run = false;
+    bool run = false;                // forced run (Shift + RMB)
+    bool walk = false;               // forced walk (Ctrl / Alt + RMB); neither: auto pace (SoldierAI::paceFor)
     uint32_t serial = 0;             // increments on every new order (AI notices a fresh order)
 };
 
@@ -115,6 +121,7 @@ struct Squad {
     float anchorFacing = 0.f;
     uint32_t seenSerial = 0;         // last order serial turned into formation slots
     bool stuck = false;              // a member gave up a path (holds where it is; UI warning)
+    SoldierId runner;                // ammo runner of the squad (multi-soldier squads), invalid: none
 };
 
 struct SquadList {

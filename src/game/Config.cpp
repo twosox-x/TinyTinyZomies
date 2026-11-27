@@ -68,6 +68,7 @@ bool BalanceConfig::load(const std::string& path, std::string* error) {
     num(l, "containerSlots", logistics.containerSlots); num(l, "crateSlots", logistics.crateSlots);
     num(l, "collectRadius", logistics.collectRadius); num(l, "airdropAltitude", logistics.airdropAltitude);
     num(l, "airdropScatter", logistics.airdropScatter);
+    num(l, "runnerCarryMagazines", logistics.runnerCarryMagazines); num(l, "runnerTrigger", logistics.runnerTrigger);
     const json::Value& t = root["threat"];
     num(t, "attackReach", threat.attackReach); num(t, "damagePerSecond", threat.damagePerSecond);
     num(t, "awarenessRadius", threat.awarenessRadius); num(t, "soldierAttraction", threat.soldierAttraction);

@@ -26,6 +26,7 @@ constexpr uint32_t kRbKills = 0, kKillBytes = kGameKillWords * 4;
 constexpr uint32_t kRbHits = kRbKills + kKillBytes, kHitResBytes = kMaxHitsPerTick * 8;
 constexpr uint32_t kRbContacts = kRbHits + kHitResBytes, kContactBytes = kMaxGpuSoldiers * 16;
 constexpr uint32_t kRbField = kRbContacts + kContactBytes;
+constexpr uint32_t kNearBytesPerSoldier = 8 * 16;   // 4 x (pos, dist) + 4 x (vel) (game_contacts.comp)
 uint32_t fieldBytes(uint32_t tiles) { return tiles * 4 + tiles * kFieldSamples * 16; }
 double msSince(uint64_t t0) { return (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency(); }
 } // namespace
@@ -49,14 +50,16 @@ bool HordeBridge::init(GpuContext& gpu, CrowdSim& sim) {
     attrBuf_ = gpu.createBuffer(kStorage, kMaxAttractors * 32, "gameAttractors");
     fieldBuf_ = gpu.createBuffer(kStorage, fieldBytes(tiles), "gameField");
     contactBuf_ = gpu.createBuffer(kStorage, kContactBytes, "gameContacts");
+    nearBuf_ = gpu.createBuffer(kStorage, kMaxGpuSoldiers * kNearBytesPerSoldier, "gameNear");
+    rbNear_ = kRbField + fieldBytes(tiles);
     SDL_GPUTransferBufferCreateInfo up{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, kUpBytes, 0};
     upload_ = SDL_CreateGPUTransferBuffer(gpu.device(), &up);
     for (Slot& s : ring_) {
-        SDL_GPUTransferBufferCreateInfo dn{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, kRbField + fieldBytes(tiles), 0};
+        SDL_GPUTransferBufferCreateInfo dn{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, kRbField + fieldBytes(tiles) + kMaxGpuSoldiers * kNearBytesPerSoldier, 0};
         s.tb = SDL_CreateGPUTransferBuffer(gpu.device(), &dn);
         if (!s.tb) { shutdown(); return false; }
     }
-    if (!hitReq_ || !hitRes_ || !stamped_ || !attrBuf_ || !fieldBuf_ || !contactBuf_ || !upload_) { shutdown(); return false; }
+    if (!hitReq_ || !hitRes_ || !stamped_ || !attrBuf_ || !fieldBuf_ || !contactBuf_ || !nearBuf_ || !upload_) { shutdown(); return false; }
     std::vector<uint32_t> none(kMaxGpuSoldiers, kGameNoSeed);
     gpu.uploadNow(stamped_, none.data(), kMaxGpuSoldiers * 4);
     std::vector<uint32_t> zero(tiles, 0u);
@@ -79,7 +82,7 @@ void HordeBridge::shutdown() {
         }
         if (upload_) SDL_ReleaseGPUTransferBuffer(d, upload_);
         upload_ = nullptr;
-        SDL_GPUBuffer** bufs[] = {&hitReq_, &hitRes_, &stamped_, &attrBuf_, &fieldBuf_, &contactBuf_};
+        SDL_GPUBuffer** bufs[] = {&hitReq_, &hitRes_, &stamped_, &attrBuf_, &fieldBuf_, &contactBuf_, &nearBuf_};
         for (auto b : bufs) gpu_->releaseBuffer(*b);
         SDL_GPUComputePipeline** pipes[] = {&pStamp_, &pHits_, &pAttract_, &pField_, &pContacts_};
         for (auto p : pipes) {
@@ -235,9 +238,9 @@ void HordeBridge::postSim(SDL_GPUCommandBuffer* cmd, uint64_t frameIndex) {
         dispatchIndirect(Dispatch{cmd, pField_, {sim_->agents(), sim_->counters()}, {fieldBuf_}, &u, U}, sim_->indirect(), I_AGENT_DISPATCH * 4);
         if (frameSoldiers_) {
             u.misc.y = 0; u.misc.z = frameSoldiers_;
-            u.extraP.x = attackReach_; u.extraP.y = nearbyRadius_;
+            u.extraP.x = attackReach_; u.extraP.y = nearbyRadius_; u.extraP.z = threatRadius_;
             dispatch(Dispatch{cmd, pContacts_, {sim_->gameSolid(), sim_->agents(), sim_->cellStart(), sim_->cellCount(), sim_->counters(), fieldBuf_},
-                              {contactBuf_}, &u, U},
+                              {contactBuf_, nearBuf_}, &u, U},
                      groups(frameSoldiers_, 64));
         }
     }
@@ -259,6 +262,7 @@ void HordeBridge::postSim(SDL_GPUCommandBuffer* cmd, uint64_t frameIndex) {
     if (grid) {
         get(contactBuf_, frameSoldiers_ * 16, kRbContacts);
         get(fieldBuf_, fieldBytes(tiles), kRbField);
+        get(nearBuf_, frameSoldiers_ * kNearBytesPerSoldier, rbNear_);
     }
     SDL_EndGPUCopyPass(cp);
     sim_->fillBuffer(cmd, sim_->gameIO(), 0, 1, 0u);   // records copied: the ring restarts (seq counter continues)
@@ -343,6 +347,15 @@ void HordeBridge::parseSlot(int si) {
             c.attackers = (uint16_t)std::min<uint32_t>(w[0], 0xFFFFu);
             c.nearby = (uint16_t)std::min<uint32_t>(w[1], 0xFFFFu);
             std::memcpy(&c.nearestDist, &w[2], 4);
+            float nb[32];
+            std::memcpy(nb, b + rbNear_ + i * kNearBytesPerSoldier, sizeof(nb));
+            c.nNear = 0;
+            for (uint32_t q = 0; q < SoldierContact::kNear; ++q) {
+                if (!(nb[q * 4 + 3] < 1e8f)) break;
+                c.nearPos[c.nNear] = {nb[q * 4], nb[q * 4 + 1], nb[q * 4 + 2]};
+                c.nearVel[c.nNear] = {nb[16 + q * 4], 0.f, nb[16 + q * 4 + 1]};
+                ++c.nNear;
+            }
         }
         const uint32_t tiles = s.tilesX * s.tilesZ;
         field_.frame = s.frame;

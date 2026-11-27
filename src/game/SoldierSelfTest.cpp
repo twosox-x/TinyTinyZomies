@@ -88,7 +88,7 @@ struct TestWorld {
     }
     int totalAmmo(SquadId id) const {
         int n = 0;
-        for (const SoldierId& m : squads.get(id)->members) n += pool.mag[m.index] + pool.reserve[m.index];
+        for (const SoldierId& m : squads.get(id)->members) n += pool.mag[m.index] + pool.reserve[m.index] + pool.carry[m.index];
         return n;
     }
     void order(SquadId id, V3 dest, float facing = 0.f, bool run = false) {
@@ -293,8 +293,10 @@ int runSoldierSelfTest(const BalanceConfig& cfg) {
         check(far > 8.f && d2(w.pool.pos[i], home) < 1.f && w.pool.state[i] == SoldierState::Idle && w.supply.reservations(sp) == 0,
               "after collecting the soldier returns to its slot and frees the reservation", fmt("%.2f m from home", d2(w.pool.pos[i], home)));
     }
-    {   // five soldiers share one 1-slot crate: queue, no deadlock, stock conserved
-        TestWorld w(cfg);
+    {   // five soldiers resupplied from one 1-slot crate (ammo runner fetches for the squad), stock conserved
+        BalanceConfig big = cfg;
+        big.logistics.runnerCarryMagazines = 40;   // enough for the whole squad in one trip
+        TestWorld w(big);
         SquadId s = SoldierAI::spawnLanded(w.ctx, SquadType::Rifle, {20, 0, 30}, 0, 8);
         w.run(1.f);
         for (const SoldierId& m : w.squads.get(s)->members) { w.pool.mag[m.index] = 0; w.pool.reserve[m.index] = 20; }
@@ -304,7 +306,7 @@ int runSoldierSelfTest(const BalanceConfig& cfg) {
         w.run(150.f);
         for (const SoldierId& m : w.squads.get(s)->members) full += w.pool.mag[m.index] + w.pool.reserve[m.index] == w.pool.fullLoad(m.index, cfg) ? 1 : 0;
         check(full == 5 && w.totalAmmo(s) - before == 5000 - w.supply.stock(sp, AmmoType::Rifle) && w.supply.reservations(sp) == 0,
-              "five soldiers share a one-slot supply point without deadlock (queue + retry)", fmt("%.0f of 5 full, refused reservations %.0f", full, (double)w.supply.reserveRefused));
+              "five soldiers resupplied from a one-slot supply point (ammo runner, no deadlock, conserved)", fmt("%.0f of 5 full, refused reservations %.0f", full, (double)w.supply.reserveRefused));
     }
 
     // ---- player move order takes priority over autonomy
@@ -386,6 +388,7 @@ int runSoldierSelfTest(const BalanceConfig& cfg) {
     {   // no progress at all (soldier cannot advance): stuckTime -> one re-plan -> hold + flag, never an endless loop
         BalanceConfig slow = cfg;
         slow.soldier[(int)SoldierClass::Sniper].walkSpeed = 0.f;
+        slow.soldier[(int)SoldierClass::Sniper].runSpeed = 0.f;
         TestWorld w(slow);
         SquadId s = SoldierAI::spawnLanded(w.ctx, SquadType::Sniper, {10, 0, 10}, 0, 23);
         w.run(1.f);

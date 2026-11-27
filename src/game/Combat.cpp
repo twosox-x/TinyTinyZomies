@@ -30,7 +30,8 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
     if (synthetic) ++syntheticRounds_;
     const V3 fw{std::sin(P.yaw[i]), 0, std::cos(P.yaw[i])};
     const V3 origin = P.pos[i] + V3{0, muzzleHeight, 0} + fw * 0.5f;
-    const V3 aim = P.target[i].pos + V3{0, aimHeight, 0};
+    // exact locks: lead the zombie along its velocity (readback latency + flight time); field locks: the sample point
+    const V3 aim = P.target[i].pos + P.target[i].vel * aimLead + V3{0, aimHeight, 0};
     // Accuracy: cone = spreadDeg / accuracy (accuracy 1 -> spreadDeg), wider while wounded.
     const float cone = w.spreadDeg / std::max(0.1f, w.accuracy) * (P.wounded[i] ? 1.5f : 1.f);
     const V3 dir = spreadDir(aim - origin, cone, P.rng[i]);
@@ -70,10 +71,32 @@ void Combat::reload(GameContext& ctx, uint32_t i) {
 void Combat::grab(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     SoldierPool& P = *ctx.soldiers;
     P.phase[i] |= PH_GRABBED;
+    if (P.deliverTo[i].valid()) {   // ammo runner hand-over: carried rounds -> the squad mate's reserve (conserved)
+        const SoldierId m = P.deliverTo[i];
+        if (P.valid(m) && P.alive(m.index)) {
+            const int need = std::max(0, P.fullLoad(m.index, *ctx.cfg) - P.mag[m.index] - P.reserve[m.index]);
+            const int n = std::min(need, P.carry[i]);
+            P.carry[i] -= n; P.reserve[m.index] += n;
+            handedOver_ += (uint64_t)n;
+        }
+        return;
+    }
     if (!P.supply[i].valid()) return;
-    const int missing = P.fullLoad(i, *ctx.cfg) - P.mag[i] - P.reserve[i];
-    const int n = missing > 0 ? sup.collect(P.supply[i], ammoOf(P.cls[i]), missing) : 0;
-    P.reserve[i] += n;
+    const int missing = std::max(0, P.fullLoad(i, *ctx.cfg) - P.mag[i] - P.reserve[i]);
+    int extra = 0;
+    if (P.runner[i]) {   // the runner carries what his squad mates miss, at most runnerCarryMagazines magazines
+        int mates = 0;
+        if (ctx.squads)
+            if (const Squad* s = ctx.squads->get(P.squad[i]))
+                for (const SoldierId& m : s->members)
+                    if (m.index != i && P.valid(m) && P.alive(m.index) && P.cls[m.index] == P.cls[i])
+                        mates += std::max(0, P.fullLoad(m.index, *ctx.cfg) - P.mag[m.index] - P.reserve[m.index]);
+        extra = std::max(0, std::min(ctx.cfg->logistics.runnerCarryMagazines * ctx.cfg->weapon[(int)P.cls[i]].magazine, mates) - P.carry[i]);
+    }
+    const int n = missing + extra > 0 ? sup.collect(P.supply[i], ammoOf(P.cls[i]), missing + extra) : 0;
+    const int own = std::min(n, missing);
+    P.reserve[i] += own;
+    P.carry[i] += n - own;   // the runner's load for his squad mates
     collected_ += (uint64_t)n;
 }
 

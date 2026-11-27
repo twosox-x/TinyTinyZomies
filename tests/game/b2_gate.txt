@@ -1,0 +1,28 @@
+# Milestone B2: gate (PROPOSED, owner approval pending). A gate closes the perimeter for territory and blocks zombies,
+# but the soldiers' navigation passes it: a squad inside walks out through it. Compound on the road x -22 .. -6,
+# z 125 .. 133 (default window), gate = the east side. Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b2_gate.txt
+at 0.1  camera -12 129 0.3 0.95 50
+at 0.1  wall reinforced -6 125 -22 125 -22 133 -6 133  # 2.4 m walls, east side open
+at 0.5  expect walls == 10
+at 0.5  expect regions == 0
+at 0.5  expect same_island -14 129 0 129 == 1
+at 0.6  wallpreview gate -6 133 -6 125                 # tool preview (capture)
+at 0.7  shot b2_gate_preview.png
+at 0.8  wallpreview off
+at 1.0  wall gate -6 133 -6 125                        # two gate pieces close it
+at 1.5  expect gates == 2
+at 1.5  expect regions == 1                            # a gate counts as closed
+at 2.0  expect same_island -14 129 0 129 == 1          # soldiers: inside and outside connected through the gate
+at 2.1  buy rifle -14 129                              # squad inside
+at 2.2  spawn 20 -1 129 1.5                            # zombies outside the gate
+at 22   territory
+at 22   expect zombies_rect -21 126 -7 132 == 0        # the gate keeps the zombies out
+at 22   expect region -14 129 zombies == 0
+at 22   expect squad 1 alive >= 1
+at 22   shot b2_gate.png
+at 23   move 1 2 129                                   # walk out through the gate
+at 45   log
+at 45   expect squad 1 dist 2 129 <= 8
+at 45   shot b2_gate_out.png
+at 46   end

@@ -18,6 +18,8 @@ class SoldierAnimator;
 class Economy;
 class Logistics;
 class Deploy;
+class Walls;
+class Territory;
 
 struct GameContext {
     const BalanceConfig* cfg = nullptr;
@@ -29,6 +31,8 @@ struct GameContext {
     Economy* economy = nullptr;
     Logistics* logistics = nullptr;
     Deploy* deploy = nullptr;
+    Walls* walls = nullptr;                         // B2 (Fortifications)
+    Territory* territory = nullptr;                 // B2 (Fortifications)
     TickEvents* events = nullptr;
     std::vector<AnimEvent>* animEvents = nullptr;   // clip events crossed this tick (SoldierAnimator::tick)
     double time = 0.0;                              // game time (s), advances kTickDt per tick

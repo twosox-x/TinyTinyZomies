@@ -346,7 +346,7 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
 
     // 2. predict + histogram
     dispatch(D(pClear_, {}, {cellCount_}), groups(cells + 1, 256));
-    dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, corpseH_, navDist_[0]},
+    dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, navDist_[0], corpseH_},
                        {agentsA_, cellCount_, cellLocal_, counters_, particles_, gibs_, gore_, gameIO_}),
                      indirect_, I_AGENT_DISPATCH * 4);
 

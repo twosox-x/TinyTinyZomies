@@ -29,6 +29,7 @@ public:
     float hitCooldown = 3.f;                   // s between hit reactions of one soldier (no constant interruptions)
     float collectTime = 3.2f;                  // s, collect_ammo clip (grab at 1.25 s)
     float muzzleHeight = 1.4f, aimHeight = 1.1f;
+    float aimLead = 0.12f;           // s: lead along an exact lock's velocity (SoldierAI exact locks)
     float noiseMergeRadius = 8.f;
     uint32_t maxAttractors = kMaxAttractors;
 
@@ -41,6 +42,7 @@ public:
     uint64_t syntheticRounds() const { return syntheticRounds_; }
     uint64_t reloads() const { return reloads_; }
     uint64_t roundsCollected() const { return collected_; }
+    uint64_t roundsHandedOver() const { return handedOver_; }   // ammo runner -> squad mates
     uint64_t soldierKills() const { return kills_; }
     double damageTaken() const { return damageTaken_; }
     const std::vector<Attractor>& attractors() const { return attractors_; }
@@ -49,7 +51,7 @@ private:
     void fire(GameContext& ctx, uint32_t i, bool synthetic);
     void reload(GameContext& ctx, uint32_t i);
     void grab(GameContext& ctx, SupplyAccess& sup, uint32_t i);
-    uint64_t syntheticRounds_ = 0, reloads_ = 0, collected_ = 0, kills_ = 0;
+    uint64_t syntheticRounds_ = 0, reloads_ = 0, collected_ = 0, kills_ = 0, handedOver_ = 0;
     double damageTaken_ = 0;
     std::vector<HitRequest> hits_;
     std::vector<HordeSoldier> upload_;

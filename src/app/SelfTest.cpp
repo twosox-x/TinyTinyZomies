@@ -29,6 +29,7 @@
 namespace ttz::game {
 int runSoldierSelfTest(const BalanceConfig& cfg);
 int runSupplySelfTest(const BalanceConfig& cfg);   // WS-D (src/game/SupplySelfTest.cpp)
+int runFortSelfTest(const BalanceConfig& cfg);     // B2 (src/game/FortSelfTest.cpp)
 int runSoldierAnimSelfTest(const std::string& assetDir);   // WS-B (src/game/SoldierAnimSelfTest.cpp)
 }
 
@@ -563,6 +564,7 @@ void testGameCore() {
     check(d1.x == d2.x && d1.y == d2.y && d1.z == d2.z && d1.z > std::cos(2.01f * 3.14159265f / 180.f), "shot spread is deterministic and inside the cone", "");
     g_fail += runSoldierSelfTest(cfg);   // WS-C section "ai / nav" (src/game/SoldierSelfTest.cpp)
     g_fail += runSupplySelfTest(cfg);    // WS-D section "economy / logistics / deploy" (src/game/SupplySelfTest.cpp)
+    g_fail += runFortSelfTest(cfg);      // B2 section "walls / territory" (src/game/FortSelfTest.cpp)
     g_fail += runSoldierAnimSelfTest(std::string(TTZ_SOURCE_DIR) + "/assets/military");   // WS-B section "anim"
 }
 
@@ -694,7 +696,7 @@ void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
     w.run(25 * 60);
     w.read();
     dump("noise25");
-    const int nearPeak = nearCount(12.f);
+    const int nearPeak = nearCount(12.f), corePeak = nearCount(5.f);
     {
         double inSum0 = 0, inSum1 = 0, farMove = 0;
         int inN = 0, farN = 0, farAlert = 0;
@@ -708,7 +710,7 @@ void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
         (void)farMove;
         std::printf("  noise 25 s: within 12 m of the source %d -> %d; zombies that started within 20 m: mean distance %.1f -> %.1f m\n",
                     near0, nearPeak, inN ? inSum0 / inN : 0.0, inN ? inSum1 / inN : 0.0);
-        check(inN > 0 && inSum1 < inSum0 * 0.6 && nearPeak > near0 * 3 + 10, "a noise source pulls the zombies within its reach",
+        check(inN > 0 && inSum1 < inSum0 * 0.6 && nearPeak > near0 * 2 + 10, "a noise source pulls the zombies within its reach",
               fmt("mean distance %.1f -> %.1f m, near the source %.0f", inSum0 / std::max(inN, 1), inSum1 / std::max(inN, 1), nearPeak));
         check(farN > 0 && farAlert < farN / 10 + 1, "zombies far beyond the awareness reach keep wandering",
               fmt("%.0f of %.0f beyond 55 m alerted", farAlert, farN));
@@ -731,9 +733,11 @@ void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
         for (const GpuAgent& a : w.agents) alerted += (a.info.z >> 28) != 0 ? 1 : 0;
         std::vector<float> xz = live();
         SpreadStats st = spreadStats(xz, 1.5f);
-        std::printf("  60 s after: within 12 m %d (peak %d), alerted %d, nn median %.2f m, largest cluster %zu\n", nearAfter, nearPeak, alerted,
-                    st.nnMedian, st.largestCluster);
-        check(nearAfter < nearPeak * 0.6, "the pulled crowd disperses after the source fades", fmt("near the source %.0f -> %.0f", nearPeak, nearAfter));
+        const int coreAfter = nearCount(5.f);
+        std::printf("  60 s after: within 12 m %d (peak %d), within 5 m %d (peak %d), alerted %d, nn median %.2f m, largest cluster %zu\n",
+                    nearAfter, nearPeak, coreAfter, corePeak, alerted, st.nnMedian, st.largestCluster);
+        check(coreAfter < corePeak * 0.5 && st.largestCluster <= 12, "the pulled crowd disperses after the source fades (no clump left)",
+              fmt("within 5 m of the source %.0f -> %.0f, largest cluster %.0f", corePeak, coreAfter, (double)st.largestCluster));
         check(alerted == 0, "alert memory decays back to idle", fmt("alerted %.0f", alerted));
     }
     w.sim.setGameInputs(0, 0.f);

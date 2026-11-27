@@ -19,6 +19,7 @@ public:
     float speed = 1.0f;              // m/s toward the nearest soldier within `awareness`
     float awareness = 60.f;
     float radius = 0.3f, height = 1.8f;
+    float threatRadius = 24.f;       // SoldierContact::nearPos radius (HordeBridge::setThreatRadius)
     float attackReach = 0.9f;        // soldier capsule surface to zombie centre (ThreatConfig.attackReach)
     bool immortal = false;           // rounds hit but never kill (magazine / reload tests)
     const NavGrid* nav = nullptr;    // optional: rounds stopped by buildings, zombies stay on walkable cells
