@@ -171,6 +171,14 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
   - **B3:** buildings and vertical play.
   - **B4:** noise, pressure, persistence, full UI, stress tests and polish.
 
+## 14c. Owner decisions 2026-11-27 (APPROVED)
+- Right mouse: a click is a move order, a drag pans the camera.
+- Explosion kills pay a kill reward. The value is provisional.
+- Dead soldiers rise again as tougher zombies (harder to kill). This is not instant: they lie dead first, then get up.
+- Empty supply crates disappear.
+- Ammo containers never disappear and can be used to wall things off: they are physical obstacles. They rotate during placement and arrive by parachute.
+
 ## 15. Progress and known limitations
+- 2026-11-27: Milestone B1 playable (combat loop). Owner feedback: weapon tracers and brighter muzzle flashes; trees and props must not vanish when zoomed out; LOD near the focus area is too aggressive; sniper roof drops fail and a sniper landed inside a building; zombies should roam realistically instead of standing in tight clumps.
 - 2026-11-27: Stage A approved by the owner. Stage B started on branch phase7b-gameplay.
 - 2026-11-26: Stage A started. Building the Military Asset Lab and the model set. No gameplay implemented.
