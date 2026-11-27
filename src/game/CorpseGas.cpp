@@ -41,7 +41,6 @@ bool CorpseGas::init(GpuContext& gpu, CrowdSim& sim) {
     cell_ = p.cellSize * (float)kDiv;
     pCorpse_ = gpu.loadCompute("game_gas_corpse", 256);
     pField_ = gpu.loadCompute("game_gas_field", 16);
-    pAgents_ = gpu.loadCompute("game_gas_agents", 256);
     field_[0] = gpu.createBuffer(kStorage, cells_ * 16, "gasFieldA");
     field_[1] = gpu.createBuffer(kStorage, cells_ * 16, "gasFieldB");
     accum_ = gpu.createBuffer(kStorage, cells_ * 16, "gasAccum");
@@ -52,7 +51,7 @@ bool CorpseGas::init(GpuContext& gpu, CrowdSim& sim) {
         SDL_GPUTransferBufferCreateInfo dn{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, (cells_ + kStatWords) * 4, 0};
         s.tb = SDL_CreateGPUTransferBuffer(gpu.device(), &dn);
     }
-    if (!pCorpse_ || !pField_ || !pAgents_ || !field_[0] || !field_[1] || !accum_ || !out_ || !list_ || !rot_buf_ || !ring_[2].tb) {
+    if (!pCorpse_ || !pField_ || !field_[0] || !field_[1] || !accum_ || !out_ || !list_ || !rot_buf_ || !ring_[2].tb) {
         SDL_Log("corpse gas: init failed (pipelines / buffers)");
         shutdown();
         return false;
@@ -76,7 +75,7 @@ void CorpseGas::shutdown() {
     SDL_WaitForGPUIdle(d);
     for (Slot& s : ring_) { if (s.tb) SDL_ReleaseGPUTransferBuffer(d, s.tb); s = Slot{}; }
     for (SDL_GPUBuffer** b : {&field_[0], &field_[1], &accum_, &out_, &list_, &rot_buf_}) gpu_->releaseBuffer(*b);
-    for (SDL_GPUComputePipeline** p : {&pCorpse_, &pField_, &pAgents_}) { if (*p) SDL_ReleaseGPUComputePipeline(d, *p); *p = nullptr; }
+    for (SDL_GPUComputePipeline** p : {&pCorpse_, &pField_}) { if (*p) SDL_ReleaseGPUComputePipeline(d, *p); *p = nullptr; }
     gpu_ = nullptr;
 }
 
@@ -134,13 +133,8 @@ void CorpseGas::postSim(SDL_GPUCommandBuffer* cmd) {
     SDL_PushGPUComputeUniformData(cmd, 1, &u, sizeof(u));
     dispatch(Dispatch{cmd, pField_, {sim_->staticHeight(), field_[cur_]}, {field_[1 - cur_], accum_, out_, list_}, &su, U}, (gw_ + 15) / 16, (gh_ + 15) / 16);
     cur_ = 1 - cur_;
-    // 3. zombies in cones / ground fire -> damage queue (indices of the last step's sort, consumed by the next predict)
-    static const bool noAgents = SDL_getenv("TTZ_GAS_NO_AGENTS") != nullptr;   // DEBUG (temporary)
-    if (sim_->cellGridValid() && sim_->gameIO() && !noAgents) {
-        SDL_PushGPUComputeUniformData(cmd, 1, &u, sizeof(u));
-        dispatchIndirect(Dispatch{cmd, pAgents_, {sim_->agents(), sim_->counters(), field_[cur_]}, {sim_->gameIO(), out_}, &su, U},
-                         sim_->indirect(), I_AGENT_DISPATCH * 4);
-    }
+    // (zombie damage: FlameAI::coneRays through HordeBridge's hit path; a GPU pass writing the damage queue directly
+    //  crashed lavapipe in the city game after flame kills and was removed, see docs 11)
     ++updates_;
     // 4. readback (async ring)
     if (sinceReadback_ < kReadbackEvery && !sync_) return;
@@ -235,7 +229,7 @@ bool CorpseGas::findPile(V3 c, float r, int minCorpses, float minGas, V3& out, i
     return found;
 }
 
-int CorpseGas::corpsesNear(V3 c, float r) const {
+int CorpseGas::corpsesNear(V3 c, float r, bool unlitOnly) const {
     if (!have_) return 0;
     int n = 0;
     const int i0 = std::max(0, (int)std::floor((c.x - r - ox_) / cell_)), i1 = std::min((int)gw_ - 1, (int)std::floor((c.x + r - ox_) / cell_));
@@ -243,7 +237,8 @@ int CorpseGas::corpsesNear(V3 c, float r) const {
     for (int j = j0; j <= j1; ++j)
         for (int i = i0; i <= i1; ++i) {
             const float x = ox_ + ((float)i + 0.5f) * cell_ - c.x, z = oz_ + ((float)j + 0.5f) * cell_ - c.z;
-            if (x * x + z * z <= r * r) n += (int)(cpu_[(size_t)j * gw_ + (size_t)i] >> 16 & 0xFFu);
+            const uint32_t v = cpu_[(size_t)j * gw_ + (size_t)i];
+            if (x * x + z * z <= r * r && !(unlitOnly && (v >> 8 & 0xFFu))) n += (int)(v >> 16 & 0xFFu);
         }
     return n;
 }

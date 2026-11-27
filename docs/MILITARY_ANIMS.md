@@ -338,20 +338,29 @@ voxels keep their own trajectory (so a sweep draws a curved stream).
 
 ### 7.5 FX (manifest `fx`, voxel style consistent with the volumetric explosions)
 
-- `flame_volume` (**revised after owner feedback: no particles**): the flame jet is a **voxelised density volume in the
-  same style as the explosion / wreck volumes** (`shaders/include/fx_volume.glsl`, `fx_volume_frag.glsl`): sampled at
-  the centres of the world-aligned **0.25 m voxel grid** (0.5 m far, same LOD rule), a cell is drawn as a solid cube
-  where `density > 0`, coloured with `fireColour(k)` (HDR, emissive) plus the per-voxel ±6 % jitter of fx_volume_frag.
-  Density = `max_i (1 − |q − c_i| / r_i) + 0.7 · (0.6 · vnoise(2.2 q, scrolling up 4 m/s) + 0.3 · vnoise(5 q, 7 m/s)) − thr`.
-  The centreline `c_i` (22 samples) is the ballistic path of fuel emitted at `t − age_i` from the nozzle pose **at that
-  time** (14 m/s, drag 0.6, gravity 5 m/s², life 0.55 s, so ~7–8 m reach with a droop; a sweep bends the column),
-  clamped 0.15 m above the ground (splash); radius grows 0.10 → 0.55 m with √(age/life); `thr = 0.05 + 0.35 k²`
-  erodes the tip, `k = age/life` (+ toward the rim) drives the colour white-yellow → orange → red → dark ember. After
-  `life` the column continues as **smoke voxels** (dark grey, rising 1.4 m/s, drifting with `FX_WIND`, radius → 0.95 m,
-  1.3 s, higher threshold so it breaks up). Proposed engine form: FX volume **kind 3** (flame jet) whose uniforms carry
-  the centreline points (or emitter pose + sweep rate) and age; bounds = centreline AABB + r. Data:
-  `fx.flame_volume`. (`fx.flame_stream`, the first particle draft, is kept only for reference and marked superseded.)
-- `ground_fire`: pools on the **0.25 m voxel grid of the explosion volumes**, 1–4 voxel flickering columns, burn 7 s
+- `flame_tongue` (**v3, owner feedback: "one continuous tongue of flame", no blocks with gaps, no particles**):
+  the jet is a **gap-free voxel volume at character scale: 5 cm world-aligned voxels**, exact-size cubes, face-shaded and
+  emissive (top 1.0, sides 0.78–0.86, bottom 0.62 × HDR `fireColour`).
+  - **Path:** centreline = ballistic path of fuel emitted at `t − age` from the nozzle pose **at that time** (14 m/s, drag
+    0.6, gravity 5 m/s², life 0.55 s → ~7 m, drooping; a sweep bends the tongue), 40 samples, kept ≥ 0.6 r above the
+    ground (it splashes and runs along the ground).
+  - **Shape:** tapered tube, `r = 0.035 + 0.385 k^1.4 + 0.12 · smooth((k − 0.7)/0.3)` m with `k = age/life` (thin at
+    the nozzle, widening, a rolling bulge at the tip). With `s` = distance to the centreline / r: the **core `s ≤ 0.6` is
+    always filled** (shrinks only in the last 25 % of the tip), so the tongue is continuous; outside it a voxel is
+    filled when `1 − s + a(k) · n > 0`, `n = 0.65 vnoise(9 q, scrolling up 9 m/s) + 0.35 vnoise(20 q, 16 m/s)`,
+    `a(k) = 0.75 · (0.35 + 0.65 smooth((k − 0.35)/0.65))`: **noise only on the outer edge**, calm near the nozzle,
+    rolling at the tip.
+  - **Colour:** `kk = 0.2 k + s (0.6 + 0.4 k) + 0.3 k² ± 4 %`: white-yellow core → yellow → orange → red edge, the tip
+    redder (ramp in `fx.flame_tongue.ramp`).
+  - **Smoke:** continues the column from 0.85 life at 10 cm voxels (life 1.1 s, rises 1.6 m/s, `FX_WIND` drift,
+    radius → 0.28 m, 0.9 s, core 0.15 + strong noise and a 0.45 threshold so it stays thin and broken), dark grey, lit (not emissive).
+  - **Engine (proposal):** FX volume kind 3 (flame jet): the centreline points + radii (or the emitter pose history) and
+    age as uniforms; DDA through the 5 cm grid inside the tube AABB as `fx_volume_frag.glsl` does. Only surface voxels
+    are visible, so the Lab draws the surface cells as one instanced mesh.
+  - Superseded drafts kept in the manifest for reference: `fx.flame_stream` (v1 particles), `fx.flame_volume` (v2 0.25 m
+    volume).
+- `ground_fire`: v3 uses the same 5 cm flame voxels: every point where the jet reaches the ground makes a pool (radius
+  0.45 m, flame height 0.55 m × (1 − d) × flicker noise, yellow base → red top); first draft: pools on the 0.25 m grid, 1–4 voxel flickering columns, burn 7 s
   + 2 s fade, dark smoke column per pool; proposed engine form: FX volume **kind 2** in `fx_volume.glsl` (disc density ×
   flicker noise, like `wreckDensity` but low). Gameplay hook: corpses inside a pool burn (`corpse_burn`: char tint 3 s,
   then the voxel dissolve of §2.3.3 over 2.5 s, ash decal) and stop their rot gas; zombies inside take burn damage.

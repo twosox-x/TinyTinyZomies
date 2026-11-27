@@ -3,6 +3,7 @@
 
 #include "game/Config.h"
 #include "game/Deploy.h"
+#include "game/HordeInterface.h"
 #include "game/NavGrid.h"
 #include "game/SoldierAnim.h"
 #include "game/Soldiers.h"
@@ -73,6 +74,11 @@ bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim) {
     FlameCone c;
     c.origin = origin; c.dir = d; c.range = w.range; c.coneDeg = F.coneDeg; c.seconds = secs; c.shooterPacked = P.idOf(i).packed();
     if (ctx.gas) ctx.gas->queueFlame(c);
+    if (ctx.horde) {   // zombies in the cone: 15 rays through the bullet-hit path (first zombie per ray, credited)
+        std::vector<HitRequest> hits;
+        coneRays(c, F.zombieDps, (uint32_t)sprays_, hits);
+        ctx.horde->queueHits(hits);
+    }
     if (ctx.events) {
         ctx.events->fx.push_back(FxEvent{FxKind::Flame, P.idOf(i), origin, d});
         if (now - noiseAt_[i] > 1.0) {   // loud, but one noise source per second per flamethrower
@@ -84,6 +90,24 @@ bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim) {
         }
     }
     return true;
+}
+
+void FlameAI::coneRays(const FlameCone& c, float zombieDps, uint32_t pattern, std::vector<HitRequest>& out) {
+    const V3 d = c.dir;
+    const V3 t = std::fabs(d.y) < 0.99f ? normalize(cross(d, V3{0, 1, 0})) : V3{1, 0, 0};
+    const V3 b = cross(d, t);
+    auto ray = [&](float ang, float phi) {
+        const float ca = std::cos(ang), sa = std::sin(ang);
+        HitRequest h;
+        h.origin = c.origin; h.dir = normalize(d * ca + t * (sa * std::cos(phi)) + b * (sa * std::sin(phi)));
+        h.maxDist = c.range; h.damage = zombieDps * c.seconds; h.shooterPacked = c.shooterPacked; h.flags = 2u;   // quiet: small puff
+        out.push_back(h);
+    };
+    const float A = c.coneDeg * 3.14159265f / 180.f;
+    const float rot = (float)(pattern % 7u) * 0.9f;   // the pattern rotates between sprays: no blind lanes
+    ray(0.f, 0.f);
+    for (int k = 0; k < 6; ++k) ray(A * 0.5f, rot + (float)k * 1.0472f);
+    for (int k = 0; k < 8; ++k) ray(A * 0.95f, rot + 0.39f + (float)k * 0.7854f);
 }
 
 bool FlameAI::burning(SquadId s) const { return s.index < mem_.size() && mem_[s.index].gen == s.gen && mem_[s.index].phase > 0; }
@@ -159,6 +183,8 @@ void FlameAI::tick(GameContext& ctx) {
         if (m.phase == 0) continue;
         // approach / spray: members standing (not fighting) within range spray the pile, sweeping across it
         const float reach = w.range * 0.92f;
+        // fuel economy: once every body at the pile is alight, stop spraying and let it burn (re-light if one is left)
+        const bool needFire = ctx.gas->corpsesNear(m.target, 2.3f, true) > 0;
         bool anySpray = false, arrived = true, anyBlocked = false;
         for (const SoldierId& id : s.members) {
             if (!P.valid(id) || !P.alive(id.index)) continue;
@@ -177,8 +203,9 @@ void FlameAI::tick(GameContext& ctx) {
             const float want = std::atan2(tgt.x - P.pos[i].x, tgt.z - P.pos[i].z);
             P.yaw[i] = SoldierAnimator::turnToward(P.yaw[i], want, 7.f * ctx.dt);
             P.vel[i] = {};
-            if (ctx.animator) ctx.animator->request(P.anim[i], AnimAction::Fire);
+            if (ctx.animator) ctx.animator->request(P.anim[i], needFire ? AnimAction::Fire : AnimAction::Aim);
             float err = std::remainder(want - P.yaw[i], 6.2831853f);
+            if (!needFire) { anySpray = true; continue; }   // burning: hold, facing the pile
             if (std::fabs(err) < 0.35f && (last_[i] < 0.0 || ctx.time - last_[i] >= w.fireInterval - 1e-4)) {
                 const uint64_t b0 = blocked_;
                 anySpray |= spray(ctx, i, aim);

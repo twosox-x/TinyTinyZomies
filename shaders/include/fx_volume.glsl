@@ -117,18 +117,20 @@ void wreckBox(vec3 c, float len, out vec3 lo, out vec3 hi) {
 // fxB.x m, drooping and widening, pooling on the ground (~1.25 m below the nozzle); kind 3 = ground-fire pool (radius fxB.x)
 const float FLAME_DROOP = 0.55;       // m of droop at the end of a 9 m stream (scales with reach^2)
 vec3 flameDir(int i) { float y = fxC[i].z, p = fxC[i].w; return vec3(sin(y) * cos(p), sin(p), cos(y) * cos(p)); }
-float flameRadius(float s) { return 0.07 + 0.15 * s; }
+// jet radius along the path: a thin rope near the nozzle, widening, then rolling open at the tip (u = s / reach)
+float flameRadius(float s, float L) { float u = s / max(L, 0.5); return 0.035 + 0.05 * s + 0.55 * smoothstep(0.62, 1.0, u) * min(L / 9.0, 1.0); }
+float flameRadiusMax(float L) { return flameRadius(L, L) + 0.25; }
 vec3 flameCentre(vec3 o, vec3 d, float L, float s) {
     vec3 c = o + d * s;
     c.y -= FLAME_DROOP * (s * s) / 81.0;
-    c.y = max(c.y, o.y - 1.25 + 0.2);   // the burning fuel runs along the ground
+    c.y = max(c.y, o.y - 1.25 + 0.12);  // the burning fuel runs along the ground
     return c;
 }
 void streamBox(vec3 o, vec3 d, float L, out vec3 lo, out vec3 hi) {
     vec3 e = flameCentre(o, d, L, L);
-    float r = flameRadius(L) * 1.5 + 0.6;
+    float r = flameRadiusMax(L) * 1.35 + 0.15;
     lo = min(o, e) - vec3(r, r, r);
-    hi = max(o, e) + vec3(r, r + 1.2, r);   // + rising soot at the tip
+    hi = max(o, e) + vec3(r, r + 0.9, r);   // + the tip rolling up into smoke
     lo.y = max(lo.y, o.y - 1.45);
 }
 void poolBox(vec3 c, float R, out vec3 lo, out vec3 hi) {

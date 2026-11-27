@@ -2396,7 +2396,7 @@ function authorFlamerExtra(add) {
   add(cls, "burn_ground", { duration: 3.2, loop: true, stream: "flame", events: [], gen: t => {
     const sw = 0.5 * Math.sin(t / 3.2 * Math.PI * 2), i = Math.floor(t * 20);
     const torso = [AT[0] + 0.3, AT[1] + sw, AT[2]];
-    const S = spec(torso, [0.25 + 0.06 * hnoise(i, 1), -0.3 + 0.03 * hnoise(i, 2), 0.02 * hnoise(i, 3), -0.3]);
+    const S = spec(torso, [0.25 + 0.06 * hnoise(i, 1), -0.12 + 0.03 * hnoise(i, 2), 0.02 * hnoise(i, 3), -0.3]);
     S.head = [A.head[0] + 0.35, A.head[1] + 0.4 * sw, 0]; return S; } });
 }
 /* ---- FX spec (specialists): voxel flame stream, ground fire, smoke, work FX ---- */
@@ -2414,7 +2414,20 @@ const FX_SPEC2 = {
     snap: "positions snapped to a 0.06 m world grid when drawing (reads as voxels, not sprites)",
     endOfLife: "each flame voxel becomes a smoke voxel (below) at its last position; if it hits the ground (y <= 0) or a wall first it becomes a ground_fire seed at the hit point",
   },
+  flame_tongue: {
+    look: "v3 (owner: one continuous tongue of flame): gap-free 5 cm world-aligned voxels (character scale), exact-size cubes, a solid tapered core along the bent jet path, noise only on the outer edge and the widening rolling tip; emissive with face shading (top 1.0, sides 0.78-0.86, bottom 0.62)",
+    voxel: 0.05, samples: 40, speed: 14.0, gravity: 5.0, drag: 0.6, life: 0.55,
+    radius: [0.035, 0.42], tipBulge: 0.12, core: 0.6, edgeNoise: 0.75,
+    shape: "s = distance to the centreline / r(age); filled if s <= core (always; the core shrinks only in the last 25 % of the tip) or 1 - s + edgeNoise(k) * n > 0, n = 0.65 vnoise(9 q, scroll 9 m/s up) + 0.35 vnoise(20 q, 16 m/s); edgeNoise(k) = edgeNoise * (0.35 + 0.65 smooth((k - 0.35) / 0.65)) (calm at the nozzle, rolling at the tip)",
+    radiusLaw: "r = r0 + (r1 - r0) k^1.4 + tipBulge * smooth((k - 0.7) / 0.3), k = age / life",
+    centreline: "ballistic path of fuel emitted at t - age from the nozzle pose at that time (speed, drag, gravity), 40 samples; held >= 0.6 r above the ground (it splashes and runs along the ground)",
+    colour: "ramp(kk), kk = 0.2 k + s (0.6 + 0.4 k) + 0.3 k^2 +- 4 % per-voxel jitter: white-yellow core -> orange -> red edge, the tip redder; HDR gain 1 + 0.2 (1 - kk) (fireColour of fx_volume_frag.glsl in the engine)",
+    ramp: [[0.0, "#fff6d0"], [0.18, "#ffe27a"], [0.38, "#ffb340"], [0.58, "#ff7a1e"], [0.78, "#d9421a"], [0.92, "#8a2410"]],
+    smoke: { voxel: 0.1, life: 0.9, rise: 1.6, radius: 0.28, color: ["#2a2623", "#3d3833"], note: "continues the column from 0.85 life, same field rules but core 0.15, noise 0.9 and a 0.45 threshold: thin, broken wisps; lit not emissive in the engine" },
+    engine: "proposed FX volume kind 3 (flame jet): centreline points + radii (or emitter pose history) and age as uniforms; ray-march the 5 cm grid inside the tube's AABB like fx_volume (same DDA), surface cube faces shaded",
+  },
   flame_volume: {
+    superseded: "v2 (0.25 m volume) replaced by flame_tongue (v3, owner feedback)",
     look: "voxelised density volume like the explosions (shaders/include/fx_volume.glsl / fx_volume_frag.glsl): world-aligned 0.25 m voxel grid (0.5 m far, same LOD rule), cells drawn where density > 0, colour = fireColour(k)",
     voxel: 0.25, samples: 22, speed: 14.0, gravity: 5.0, drag: 0.6, life: 0.55, radius: [0.1, 0.55], noiseAmp: 0.7, threshold: 0.05,
     smokeLife: 1.3, smokeRise: 1.4, smokeRadius: 0.95, smokeThreshold: 0.35, smokeColor: ["#2e2a27", "#4a443e"],
@@ -2426,8 +2439,9 @@ const FX_SPEC2 = {
   },
   flame_smoke: { size: [0.18, 0.45], color: [["0", "#4a423b"], ["1", "#7a746c"]], alpha: [0.8, 0.0], rise: 1.3, drift: "FX_WIND (0.55, 0, 0.25) m/s, as the volume smoke", life: 1.4, every: 3, note: "one smoke voxel per 3 flame voxels" },
   ground_fire: {
+    v3: "drawn with the flame_tongue voxels (5 cm): every point where the jet reaches the ground makes a pool of radius pool.radius; column height pool.height * (1 - d) * flicker noise; same colour ramp (base yellow, top red)",
     seeds: "flame voxels hitting the ground merge into pools on a 0.25 m world grid (the explosion / building voxel size)",
-    pool: { cell: 0.25, radiusGrow: "0.25 m per 6 seeds, max 1.25 m", heightVoxels: [1, 4], flicker: "column height = 1 + floor(3 * noise(cell, 6 Hz))", life: 7.0, fadeOut: 2.0 },
+    pool: { radius: 0.45, height: 0.55, cell: 0.05, radiusGrow: "0.25 m per 6 seeds, max 1.25 m", heightVoxels: [1, 4], flicker: "column height = 1 + floor(3 * noise(cell, 6 Hz))", life: 7.0, fadeOut: 2.0 },
     color: "same fireColour ramp, column base k = 0.2, top k = 0.85; embers (#ff6a1e, 0.06 m) at the base for the last 2 s",
     smoke: { perPool: 1, column: "dark smoke voxels 0.25 m rising 1.5 m/s, 4-6 m high, drift FX_WIND", color: "#2f2a26" },
     engine: "proposed FX volume kind 2 (ground fire) in fx_volume.glsl: origin = pool centre, B.x = radius, B.w = strength (seeds), B.z seed; density = disc * flicker noise, like wreckDensity but low",
@@ -2895,57 +2909,105 @@ function vnoise3(x, y, z, sd) {
   const x0 = lerp(lerp(h(i, j, k), h(i + 1, j, k), u), lerp(h(i, j + 1, k), h(i + 1, j + 1, k), u), v), x1 = lerp(lerp(h(i, j, k + 1), h(i + 1, j, k + 1), u), lerp(h(i, j + 1, k + 1), h(i + 1, j + 1, k + 1), u), v);
   return lerp(x0, x1, w) * 2 - 1;
 }
-function flameCentreline(a, clip, t, stopAt) {
-  const F = FX2.flame_volume, out = [], n = F.samples, start = (clip.events || []).find(e => e.type === "flame_start");
-  for (let i = 0; i <= n; i++) {
-    const age = (i / n) * (F.life + F.smokeLife), te = t - age;
+// v3 (owner: "one continuous tongue of flame"): character-scale 5 cm voxels, gap-free. The jet is a tapered solid core
+// along the bent centreline (always filled) with noise only on the outer edge and on the widening, rolling tip; colour
+// white-yellow core -> orange -> red edge (by radial position and age), then smoke (10 cm voxels). Drawn as one
+// InstancedMesh of exact 5 cm cubes (surface voxels only, so it is cheap), face-shaded emissive.
+const FLAME_MAX = 120000;
+const flameGeo = (() => { const g = new THREE.BoxGeometry(1, 1, 1), n = g.attributes.normal.array, col = new Float32Array(n.length);
+  for (let i = 0; i < n.length; i += 3) { const sh = n[i + 1] > 0.5 ? 1.0 : n[i + 1] < -0.5 ? 0.62 : (Math.abs(n[i]) > 0.5 ? 0.86 : 0.78); col[i] = col[i + 1] = col[i + 2] = sh; }
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); return g; })();
+const flameMesh = new THREE.InstancedMesh(flameGeo, new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), FLAME_MAX);
+flameMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(FLAME_MAX * 3), 3); flameMesh.count = 0; flameMesh.frustumCulled = false; scene.add(flameMesh);
+let flameN = 0; const fM = new THREE.Matrix4(), fC = new THREE.Color();
+function flameVox(x, y, z, size, hex, gain) {
+  if (flameN >= FLAME_MAX) return; fM.makeScale(size, size, size); fM.setPosition(x, y, z); flameMesh.setMatrixAt(flameN, fM);
+  fC.set(hex).convertSRGBToLinear(); if (gain) fC.multiplyScalar(gain); flameMesh.setColorAt(flameN, fC); flameN++;
+}
+function vnoise3(x, y, z, sd) {
+  const i = Math.floor(x), j = Math.floor(y), k = Math.floor(z), fx = x - i, fy = y - j, fz = z - k, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+  const h = (a, b, c) => hash3(a, b, c, sd);
+  const x0 = lerp(lerp(h(i, j, k), h(i + 1, j, k), u), lerp(h(i, j + 1, k), h(i + 1, j + 1, k), u), v), x1 = lerp(lerp(h(i, j, k + 1), h(i + 1, j, k + 1), u), lerp(h(i, j + 1, k + 1), h(i + 1, j + 1, k + 1), u), v);
+  return lerp(x0, x1, w) * 2 - 1;
+}
+// centreline: ballistic path of fuel emitted at t - age from the nozzle pose at that time (bends with the sweep)
+function flameCentreline(a, clip, t, stopAt, n0, ageMax, ageMin) {
+  const F = FX2.flame_tongue, out = [], start = (clip.events || []).find(e => e.type === "flame_start");
+  for (let i = 0; i <= n0; i++) {
+    const age = ageMin + (i / n0) * (ageMax - ageMin), te = t - age;
     if (!clip.loop && start && te < start.t) break;
     if (stopAt !== undefined && te > stopAt) continue;
     const em = nozzleAt(a, clip, te), ta = Math.min(age, F.life), dr = (1 - Math.exp(-F.drag * ta)) / F.drag;
     let p = [em.p[0] + em.d[0] * F.speed * dr, em.p[1] + em.d[1] * F.speed * dr - 0.5 * F.gravity * ta * ta, em.p[2] + em.d[2] * F.speed * dr];
-    if (p[1] < 0.15) p[1] = 0.15;                                  // the jet splashes along the ground
-    if (age > F.life) { const sa = age - F.life; p = [p[0] + 0.55 * sa, p[1] + F.smokeRise * sa, p[2] + 0.25 * sa]; }
-    const k = age / F.life, r = age <= F.life ? lerp(F.radius[0], F.radius[1], Math.sqrt(k)) : lerp(F.radius[1], F.smokeRadius, (age - F.life) / F.smokeLife);
-    out.push({ p, r, age, smoke: age > F.life });
+    const k = Math.min(1, age / F.life);
+    let r = F.radius[0] + (F.radius[1] - F.radius[0]) * Math.pow(k, 1.4) + F.tipBulge * smooth((k - 0.7) / 0.3);
+    if (p[1] < r * 0.6) p[1] = r * 0.6;                                      // splash: rides along the ground
+    if (age > F.life) { const sa = age - F.life; p = [p[0] + 0.55 * sa, p[1] + F.smoke.rise * sa, p[2] + 0.25 * sa]; r = lerp(r, F.smoke.radius, Math.min(1, sa / F.smoke.life)); }
+    out.push({ p, r, age, k });
   }
   return out;
 }
-function drawFlame(a, clip, t, stopAt) {
-  const F = FX2.flame_volume, C = flameCentreline(a, clip, t, stopAt); if (C.length < 2) return [];
-  const v = F.voxel, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-  for (const c of C) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], c.p[k] - c.r * 1.6); hi[k] = Math.max(hi[k], c.p[k] + c.r * 1.6); }
-  lo[1] = Math.max(0, lo[1]);
-  const seed = 17 + (a.outer.id % 97);
-  for (let x = Math.floor(lo[0] / v); x <= Math.floor(hi[0] / v); x++) for (let y = Math.floor(lo[1] / v); y <= Math.floor(hi[1] / v); y++) for (let z = Math.floor(lo[2] / v); z <= Math.floor(hi[2] / v); z++) {
-    const q = [(x + 0.5) * v, (y + 0.5) * v, (z + 0.5) * v];
-    let best = -1, bc = null;
-    for (const c of C) { const d = Math.hypot(q[0] - c.p[0], q[1] - c.p[1], q[2] - c.p[2]); const sh = 1 - d / c.r; if (sh > best) { best = sh; bc = c; } }
-    if (best < -0.7) continue;
-    const n = vnoise3(q[0] * 2.2, q[1] * 2.2 - t * 4.0, q[2] * 2.2, seed) * 0.6 + vnoise3(q[0] * 5, q[1] * 5 - t * 7, q[2] * 5, seed + 1) * 0.3;
-    const k = bc.age / F.life, thr = bc.smoke ? F.smokeThreshold + 0.5 * (bc.age - F.life) / F.smokeLife : F.threshold + 0.35 * k * k;
-    if (best + F.noiseAmp * n - thr <= 0) continue;
-    const jit = hash3(x, y, z, seed + 5);
-    // drawn at 0.94 v: the hairline seams show the voxel grid (the engine shades faces; the preview material is unlit)
-    if (bc.smoke) fxCube(new THREE.Vector3(q[0], q[1], q[2]), v * 0.94, jit < 0.5 ? F.smokeColor[0] : F.smokeColor[1], 1);
-    else { const kk = Math.min(1, k + (1 - best) * 0.35 + (jit - 0.5) * 0.12); fxCube(new THREE.Vector3(q[0], q[1], q[2]), v * 0.94, rampColor(F.ramp, kk), 1); }
+// rasterise a tube (polyline with per-point radius) into voxel cells: cell -> { s: normalised distance, age }
+function tubeCells(C, v, cellMap) {
+  for (let i = 0; i < C.length - 1; i++) {
+    const A = C[i], B = C[i + 1], rm = Math.max(A.r, B.r) * 1.5 + v;
+    const lo = [0, 1, 2].map(k => Math.floor((Math.min(A.p[k], B.p[k]) - rm) / v)), hi = [0, 1, 2].map(k => Math.floor((Math.max(A.p[k], B.p[k]) + rm) / v));
+    const ab = vsub(B.p, A.p), L2 = Math.max(1e-9, vdot(ab, ab));
+    for (let x = lo[0]; x <= hi[0]; x++) for (let y = Math.max(0, lo[1]); y <= hi[1]; y++) for (let z = lo[2]; z <= hi[2]; z++) {
+      const q = [(x + 0.5) * v, (y + 0.5) * v, (z + 0.5) * v], u = clamp01(vdot(vsub(q, A.p), ab) / L2), c = vadd(A.p, vscale(ab, u));
+      const r = lerp(A.r, B.r, u), sN = vlen(vsub(q, c)) / r; if (sN > 1.5) continue;
+      const key = x + "," + y + "," + z, o = cellMap.get(key);
+      if (!o || sN < o.s) cellMap.set(key, { s: sN, age: lerp(A.age, B.age, u), k: lerp(A.k, B.k, u), x, y, z });
+    }
   }
+}
+function drawTongueCells(cells, v, t, seed, smoke) {
+  const F = FX2.flame_tongue, filled = new Set();
+  for (const [key, c] of cells) {
+    const q = [(c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v];
+    // solid core (always filled); noise only beyond the core radius, stronger toward the rolling tip
+    const edgeAmp = smoke ? 0.9 : F.edgeNoise * (0.35 + 0.65 * smooth((c.k - 0.35) / 0.65));
+    const n = 0.65 * vnoise3(q[0] * 9, q[1] * 9 - t * 9, q[2] * 9, seed) + 0.35 * vnoise3(q[0] * 20, q[1] * 20 - t * 16, q[2] * 20, seed + 1);
+    const core = smoke ? 0.15 : F.core * (1 - 0.6 * smooth((c.k - 0.75) / 0.25));
+    if (c.s <= core || 1 - c.s + edgeAmp * n - (smoke ? 0.45 : 0) > 0) { c.on = true; filled.add(key); }
+  }
+  for (const [key, c] of cells) {
+    if (!c.on) continue;
+    // surface voxels only (a cube with an empty 6-neighbour); interior cubes are never visible
+    if (filled.has((c.x + 1) + "," + c.y + "," + c.z) && filled.has((c.x - 1) + "," + c.y + "," + c.z) && filled.has(c.x + "," + (c.y + 1) + "," + c.z) && filled.has(c.x + "," + (c.y - 1) + "," + c.z) && filled.has(c.x + "," + c.y + "," + (c.z + 1)) && filled.has(c.x + "," + c.y + "," + (c.z - 1))) continue;
+    const jit = hash3(c.x, c.y, c.z, seed + 5);
+    if (smoke) { flameVox((c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v, v, jit < 0.5 ? F.smoke.color[0] : F.smoke.color[1], 1); continue; }
+    const kk = clamp01(0.2 * c.k + Math.min(1, c.s) * (0.6 + 0.4 * c.k) + 0.3 * c.k * c.k + (jit - 0.5) * 0.08);   // radial: core -> edge, plus age
+    flameVox((c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v, v, rampColor(F.ramp, kk), 1.0 + 0.2 * (1 - kk));
+  }
+}
+function drawFlame(a, clip, t, stopAt) {
+  const F = FX2.flame_tongue, seed = 17 + (a.outer.id % 97);
+  const C = flameCentreline(a, clip, t, stopAt, F.samples, F.life, 0); if (C.length < 2) return [];
+  const cells = new Map(); tubeCells(C, F.voxel, cells); drawTongueCells(cells, F.voxel, t, seed, false);
+  const S = flameCentreline(a, clip, t, stopAt, 14, F.life + F.smoke.life, F.life * 0.85);
+  if (S.length > 1) { const sc = new Map(); tubeCells(S, F.smoke.voxel, sc); drawTongueCells(sc, F.smoke.voxel, t, seed + 9, true); }
   return [];
 }
-function drawGroundFire(a, clip, t) {   // pools on a 0.25 m grid where the stream reached the ground during the last 2 s
-  const cells = new Map(), S = FX2.flame_stream;
+function drawGroundFire(a, clip, t) {   // burning fuel on the ground: low continuous flame tongues at 5 cm voxels + smoke
+  const F = FX2.flame_tongue, G = FX2.ground_fire, pts = [];
   for (let k = 0; k < 40; k++) {
     const te = t - k * 0.05; if (te < 0 && !clip.loop) break;
-    const em = nozzleAt(a, clip, te), v = (S.speed[0] + S.speed[1]) / 2, g = S.gravity, L = S.life[1];
-    // ballistic hit time (drag-free estimate is fine for the preview): y(t) = p.y + d.y v t - g t^2 / 2 = 0
-    const A = 0.5 * g, B = -em.d[1] * v, C = -em.p[1], tt = (-B + Math.sqrt(Math.max(0, B * B - 4 * A * C))) / (2 * A);
-    if (tt > L) continue;
-    const dr = (1 - Math.exp(-S.drag * tt)) / S.drag, x = em.p[0] + em.d[0] * v * dr, z = em.p[2] + em.d[2] * v * dr;
-    for (const [dx, dz] of [[0, 0], [0.25, 0], [-0.25, 0], [0, 0.25], [0, -0.25]]) { const key = Math.round((x + dx) / 0.25) + "," + Math.round((z + dz) / 0.25); cells.set(key, (cells.get(key) || 0) + (dx || dz ? 0.5 : 1)); }
+    const em = nozzleAt(a, clip, te), v = F.speed, A = 0.5 * F.gravity, B = -em.d[1] * v, Cc = -em.p[1], tt = (-B + Math.sqrt(Math.max(0, B * B - 4 * A * Cc))) / (2 * A);
+    if (tt > F.life) continue;
+    const dr = (1 - Math.exp(-F.drag * tt)) / F.drag; pts.push([em.p[0] + em.d[0] * v * dr, em.p[2] + em.d[2] * v * dr]);
   }
-  for (const [key, w] of cells) {
-    const [i, k] = key.split(",").map(Number), fl = Math.floor(t * 6), hgt = Math.min(4, 1 + Math.floor(3 * hash3(i, k, fl, 31) * Math.min(1, w / 3)));
-    for (let y = 0; y < hgt; y++) fxCube(new THREE.Vector3(i * 0.25, 0.125 + y * 0.25, k * 0.25), 0.25, rampColor(FX2.flame_stream.color.ramp, 0.25 + 0.6 * y / 4 + 0.1 * hash3(i, k, y + fl, 5)), 0.95);
-    if (hash3(i, k, 0, 9) < 0.35) for (let y = 0; y < 5; y++) { const sy = ((t * 1.5 + y * 0.9 + hash3(i, k, y, 3) * 4) % 5.0); fxCube(new THREE.Vector3(i * 0.25 + 0.55 * sy * 0.2, 1.0 + sy, k * 0.25 + 0.25 * sy * 0.2), 0.25, "#2f2a26", 0.75 * (1 - sy / 5)); }
+  if (!pts.length) return;
+  const vx = F.voxel, cells = new Map(), R = G.pool.radius, seed = 41;
+  for (const [px, pz] of pts) for (let x = Math.floor((px - R) / vx); x <= Math.floor((px + R) / vx); x++) for (let z = Math.floor((pz - R) / vx); z <= Math.floor((pz + R) / vx); z++) {
+    const d = Math.hypot((x + 0.5) * vx - px, (z + 0.5) * vx - pz) / R; if (d > 1) continue;
+    const key = x + "," + z, o = cells.get(key); if (!o || d < o) cells.set(key, d);
+  }
+  for (const [key, d] of cells) {
+    const [x, z] = key.split(",").map(Number), h = G.pool.height * (1 - d) * (0.55 + 0.45 * (0.5 + 0.5 * vnoise3(x * vx * 4, t * 5, z * vx * 4, seed)));
+    const ny = Math.max(1, Math.round(h / vx));
+    for (let y = 0; y < ny; y++) { if (y > 0 && y < ny - 1 && d < 0.9) { const inner = cells.get((x + 1) + "," + z) !== undefined && cells.get((x - 1) + "," + z) !== undefined && cells.get(x + "," + (z + 1)) !== undefined && cells.get(x + "," + (z - 1)) !== undefined; if (inner) continue; }
+      const kk = clamp01(0.2 + 0.75 * y / Math.max(1, ny) + 0.3 * d + (hash3(x, y, z, 3) - 0.5) * 0.1); flameVox((x + 0.5) * vx, (y + 0.5) * vx, (z + 0.5) * vx, vx, rampColor(F.ramp, kk), 1 + 0.5 * (1 - kk)); }
   }
 }
 function drawFx2(a, clip, t) {
@@ -3123,7 +3185,7 @@ function animUpdate(dt) {
   if (state.mode !== "anim") return;
   if (anim.playing) anim.t += dt * anim.speed;
   const T = anim.t;
-  fxUsed = 0;
+  fxUsed = 0; flameN = 0;
   if (anim.scene === "classes") {
     for (const a of actors) {
       const clip = CLIP[a.cls + "/" + anim.action];
@@ -3167,11 +3229,13 @@ function animUpdate(dt) {
     }
   }
   for (let i = fxUsed; i < fxPool.length; i++) fxPool[i].visible = false;
+  flameMesh.count = flameN; flameMesh.instanceMatrix.needsUpdate = true; if (flameMesh.instanceColor) flameMesh.instanceColor.needsUpdate = true;
   updateAnimInfo();
 }
 function frameAnim() {
   if (anim.scene === "classes") {
     const b = new THREE.Box3(); for (const a of actors) b.expandByObject(a.outer); b.expandByPoint(new THREE.Vector3(0, 0, 2.2)); b.expandByPoint(new THREE.Vector3(0, 0, -1));
+    if (actors.some(a => a.cls === "flamer") && CLIP["flamer/" + anim.action] && (CLIP["flamer/" + anim.action].stream || anim.action === "ignite" || anim.action === "stop")) b.expandByPoint(new THREE.Vector3(0, 0.3, 6.5));   // the jet
     frame(b, 1.05);
   } else if (anim.scene === "para") {
     camera.fov = 32; controls.target.set(0, 9, 0); camera.position.set(14, 22, 42); camera.near = 0.5; camera.far = 600; camera.updateProjectionMatrix(); controls.update();

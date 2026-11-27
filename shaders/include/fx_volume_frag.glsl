@@ -103,28 +103,57 @@ float wreckDensity(vec3 q, vec3 c, float len, float t, float k, float seed, out 
     return ds;
 }
 
-// Flame stream (kind 2): a tapered, drooping, turbulent tube of burning fuel from the nozzle; white-yellow core near the
-// nozzle cooling to orange / red along it, eroding at the tip into rising soot; strength k fades it in / out (erosion).
+// Flame jet (kind 2), owner feedback round 2: ONE continuous tongue of fire from the nozzle at character voxel scale
+// (5 cm up close). The density is a solid tapered tube along the drooping jet path whose core is always filled (no
+// threshold holes inside); turbulence only shapes the outer edge, and at the widening tip, where the rope rolls open,
+// curls and breaks into licking flames and then soot. White-yellow core -> orange -> red edge. Strength k (fade in /
+// out) shrinks the tube instead of eroding holes into it.
 float streamDensity(vec3 q, vec3 o, vec3 d, float L, float t, float k, float seed, out vec3 mat) {
     mat = vec3(0.0);
     float s = dot(q - o, d);
-    if (s < 0.0 || s > L + 1.0) return -1.0;
-    vec3 c = flameCentre(o, d, L, s);
-    float r = flameRadius(s);
+    if (s < -0.05 || s > L + 0.9) return -1.0;
+    float u = s / max(L, 0.5);
+    vec3 c = flameCentre(o, d, L, min(s, L));
+    float tip = smoothstep(0.62, 1.0, u);
+    c.y += 0.35 * tip * tip + 0.5 * max(u - 1.0, 0.0);        // the rolling tip lifts (buoyancy)
+    float r = flameRadius(min(s, L), L) * mix(0.35, 1.0, k);
     vec3 dq = q - c;
-    float u = s / L;
-    // soot: above the tip, rising and drifting
-    float rise = max(dq.y, 0.0);
-    float f = 1.0 - length(vec3(dq.x, dq.y * (rise > 0.0 ? 0.8 : 1.3), dq.z)) / r;
-    float thr = 0.12 + 0.9 * (1.0 - k) + 0.75 * smoothstep(0.75, 1.1, u);
-    if (f + 0.6 < thr) return -1.0;
-    float n = fbm(q * 1.7 + vec3(seed, seed * 0.37, seed * 1.3) - d * t * 9.0 - vec3(0.0, t * 2.5, 0.0));
-    float dens = f + 0.6 * n - thr;
+    float f = 1.0 - length(dq) / r;                            // 1 at the axis, 0 at the nominal edge
+    float amp = 0.28 + 0.55 * tip;                             // edge turbulence; much stronger where the tip breaks up
+    if (f + amp < 0.0) return -1.0;
+    // noise scrolls down the jet (fast) and swirls; only the outer part of the tube feels it
+    float n = fbm(q * (2.6 - 1.2 * tip) + vec3(seed, seed * 0.37, seed * 1.3) - d * t * 11.0 - vec3(0.0, t * 1.8, 0.0));
+    float edge = 1.0 - smoothstep(0.25, 0.65, f);              // 0 in the core: always solid
+    float dens = f + amp * n * edge + 0.02 - 0.55 * smoothstep(1.0, 1.25, u) * (0.5 + 0.5 * n);
+    if (u > 1.0) dens -= 0.4 * (u - 1.0) / 0.12;              // beyond the reach: licking flames fade out
     if (dens <= 0.0) return dens;
-    float T = clamp(1.05 - 0.85 * u + 0.35 * n + 0.45 * f - 0.25 * smoothstep(0.0, 0.8, rise / r), 0.0, 1.0);
-    if (u > 0.8 && rise > 0.35 * r) T = min(T, 0.04 + 0.2 * n);   // tip: cooled into soot
-    mat = vec3(T, 0.0, 1.0);
+    float T = clamp(0.32 + 0.8 * f - 0.4 * u + 0.18 * n - 0.35 * tip * (1.0 - f), 0.0, 1.0);
+    if (tip > 0.5 && dq.y > 0.45 * r && f < 0.35) T = min(T, 0.05 * n + 0.03);   // rolling top of the tip: soot
+    mat = vec3(T, 0.0, 0.85);
     return dens;
+}
+// Ray interval through the jet's bent tube (cylinder around nozzle -> end, inflated for droop / tip lift / edge noise).
+bool streamRayInterval(vec3 o, vec3 d, float L, vec3 ro, vec3 rd, out float ta, out float tb) {
+    ta = 0.0; tb = 0.0;
+    float R = flameRadiusMax(L) * 1.3 + FLAME_DROOP * (L * L) / 81.0 + 0.45;
+    vec3 oc = ro - o;
+    vec3 rp = rd - d * dot(rd, d), op = oc - d * dot(oc, d);
+    float A2 = dot(rp, rp), B2 = dot(op, rp), C2 = dot(op, op) - R * R;
+    float x = -1e30, y = 1e30;
+    if (A2 < 1e-8) { if (C2 > 0.0) return false; }
+    else {
+        float disc = B2 * B2 - A2 * C2;
+        if (disc <= 0.0) return false;
+        float sq = sqrt(disc);
+        x = (-B2 - sq) / A2; y = (-B2 + sq) / A2;
+    }
+    float dd = dot(rd, d), s0 = dot(oc, d);
+    if (abs(dd) > 1e-6) {
+        float a = (-0.3 - s0) / dd, b = (L + 1.2 - s0) / dd;
+        x = max(x, min(a, b)); y = min(y, max(a, b));
+    } else if (s0 < -0.3 || s0 > L + 1.2) return false;
+    ta = x; tb = y;
+    return y > x;
 }
 // Ground-fire pool (kind 3): low flame tongues over burning fuel / bodies, thin dark smoke wisps eroding by ~4 m.
 float poolDensity(vec3 q, vec3 c, float R, float t, float k, float seed, out vec3 mat) {
@@ -214,9 +243,18 @@ void main() {
     if (mpp > 0.0) {
         float want = dist * mpp * fxC[i].x;
         v = want <= 0.25 ? 0.25 : (want <= 0.5 ? 0.5 : 1.0);
+        if (kind == 2) v = want <= 0.05 ? 0.05 : (want <= 0.1 ? 0.1 : (want <= 0.25 ? 0.25 : 0.5));   // jet: gear-scale voxels
     }
     else v = dist > 110.0 ? 0.5 : 0.25;
     int maxSteps = int(fxC[i].y);
+    if (kind == 2) {   // thin tube around the jet path: walk only that interval (bounded cost at 5 cm voxels)
+        float sa, sb;
+        if (!streamRayInterval(A.xyz, fdir, B.x, ro, rd, sa, sb)) discard;
+        if (sa > t0) { t0 = sa; vec3 a = abs(rd); axis0 = a.x >= a.y && a.x >= a.z ? 0 : (a.y >= a.z ? 1 : 2); }
+        t1 = min(t1, sb);
+        if (t1 <= t0) discard;
+        maxSteps *= 3;
+    }
     if ((t1 - t0) / v > 0.94 * float(maxSteps) && v < 1.0) v *= 2.0;
     vec3 p = ro + rd * (t0 + 1e-4);
     ivec3 cell = ivec3(floor(p / v));

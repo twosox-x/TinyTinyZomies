@@ -11,8 +11,8 @@
 //   * gas field   (game_gas_field.comp, one thread per gas cell, ping-pong): follows window moves (shift), diffusion
 //     (buildings hold no gas), emission, decay, fire burns gas off; ground fire ages, flame cones light the cells they
 //     cover (contained: never spreads). Packed CPU readback (gas, fire, corpses, rotting per cell) + render list.
-//   * flame damage (game_gas_agents.comp, one thread per live zombie): cone / ground-fire damage through the existing
-//     bullet-damage queue (HordeBridge gameIO), credited to the flamethrower -> kills, rewards, gore unchanged.
+//   * zombie flame damage is NOT here: FlameAI::coneRays queues hit rays over each cone through HordeBridge (credited,
+//     existing kill / reward / gore path). Ground fire does not damage zombies (PROPOSED follow-up).
 //
 // Updates run in GameWorld::postSim (after the last horde step of a frame, like HordeBridge's field passes) with the
 // simulation time elapsed since the last update (pause / sim speed respected). Readback is async (ring of 3, every
@@ -71,7 +71,7 @@ public:
     float gasAt(float x, float z) const { return at(x, z).gas; }
     // Best burn target (most corpses, rotting / gas weighted) within r of c; false when nothing worth a trip.
     bool findPile(V3 c, float r, int minCorpses, float minGas, V3& out, int* corpses = nullptr) const;
-    int corpsesNear(V3 c, float r) const;            // corpses (readback) in gas cells whose centre is within r
+    int corpsesNear(V3 c, float r, bool unlitOnly = false) const;   // corpses (readback) in gas cells within r (unlit: cells not on fire)
     struct Stats { uint32_t burned = 0, burning = 0, rotting = 0, corpses = 0, flamed = 0, ignited = 0; float maxGas = 0, totalGas = 0; int fireCells = 0, gasCells = 0; };
     const Stats& stats() const { return stats_; }
     uint64_t readbacks() const { return readbacks_; }
@@ -103,7 +103,7 @@ private:
     CrowdSim* sim_ = nullptr;
     const RotConfig* rot_ = nullptr;
     const FlameConfig* flame_ = nullptr;
-    SDL_GPUComputePipeline *pCorpse_ = nullptr, *pField_ = nullptr, *pAgents_ = nullptr;
+    SDL_GPUComputePipeline *pCorpse_ = nullptr, *pField_ = nullptr;
     SDL_GPUBuffer *field_[2] = {nullptr, nullptr}, *accum_ = nullptr, *out_ = nullptr, *list_ = nullptr, *rot_buf_ = nullptr;
     uint32_t gw_ = 0, gh_ = 0, cells_ = 0, corpseCap_ = 0;
     int cur_ = 0;

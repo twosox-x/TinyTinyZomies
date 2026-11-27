@@ -14,7 +14,7 @@
 #define GAS_STAT_BURNING 1u     // per update: corpses burning now
 #define GAS_STAT_ROTTING 2u     // per update: rotting corpses in the window
 #define GAS_STAT_CORPSES 3u     // per update: corpses in the window
-#define GAS_STAT_FLAMED 4u      // per update: zombies taking fire damage
+#define GAS_STAT_FLAMED 4u      // reserved (zombie flame damage goes through HordeBridge hit rays, FlameAI::coneRays)
 #define GAS_STAT_IGNITED 5u     // corpses ignited (session total)
 #define GAS_STAT_WORDS 16u
 layout(std140, set = 2, binding = 1) uniform GasUniforms {

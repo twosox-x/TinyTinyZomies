@@ -248,14 +248,21 @@ int selfTestCorpseGas(GpuContext& gpu, const SimParams& base) {
         const uint32_t live0 = r.counters[C_LIVE];
         const uint32_t shooter = (5u & 0xFFFFu) | (2u << 16);
         const V3 from{z0.x - 6.f, 1.25f, z0.z};
-        r.seconds(3.f, [&] { r.gas.queueFlame(coneAt(from, {z0.x, 0.9f, z0.z}, 1.f / 30.f, shooter)); });
+        uint32_t pat = 0;
+        r.seconds(6.f, [&] {
+            const FlameCone c = coneAt(from, {z0.x, 0.9f, z0.z}, 1.f / 30.f, shooter);
+            r.gas.queueFlame(c);
+            std::vector<HitRequest> hits;
+            FlameAI::coneRays(c, cfg.flame.zombieDps, pat++, hits);
+            r.bridge.queueHits(hits);
+        });
         r.seconds(1.f);
         r.read();
         std::vector<KillEvent> k2;
         r.bridge.takeKills(k2);
         int credited = 0;
         for (const KillEvent& k : k2) credited += k.shooterPacked == shooter ? 1 : 0;
-        check(live0 >= 6 && r.counters[C_LIVE] + 5 <= live0 && credited >= 5, "flame kills zombies in the cone (kills credited to the flamethrower)",
+        check(live0 >= 6 && r.counters[C_LIVE] + 4 <= live0 && credited >= 4, "flame kills zombies in the cone (kills credited to the flamethrower; hit push moves some out of reach)",
               fmt("live %.0f -> %.0f, %.0f kills credited", live0, r.counters[C_LIVE], credited));
     }
     r.gas.shutdown();

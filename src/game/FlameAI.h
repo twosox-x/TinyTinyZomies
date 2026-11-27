@@ -19,6 +19,7 @@
 #include "game/CorpseGas.h"
 #include "game/GameContext.h"
 #include "game/GameEvents.h"
+#include "game/HordeInterface.h"
 
 #include <vector>
 
@@ -35,6 +36,9 @@ public:
     bool spray(GameContext& ctx, uint32_t i, V3 aim);
     std::vector<NoiseEvent>& noise() { return noise_; }  // loud spray noise (GameWorld -> Combat::addNoise), drained per tick
     static void usePlaceholderAssets(DeployTiming& t);    // flamethrower = rifleman variants / clip timings
+    // Zombie damage of one cone: 15 hit rays over the cone (centre, 6 at half angle, 8 at the rim; pattern rotates per
+    // spray), each zombieDps x c.seconds, flag quiet, credited to the shooter (HordeBridge hit path: first zombie per ray).
+    static void coneRays(const FlameCone& c, float zombieDps, uint32_t pattern, std::vector<HitRequest>& out);
 
     uint64_t sprays() const { return sprays_; }
     uint64_t blocked() const { return blocked_; }

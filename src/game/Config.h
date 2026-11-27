@@ -181,7 +181,7 @@ struct FlameConfig {
     float coneDeg = 18.f;            // half angle of the flame cone
     float zombieDps = 1.6f;          // zombie health / s inside the cone (a zombie spawns with 1.0)
     float groundFireTime = 4.f;      // s a sprayed 2 m cell keeps burning (contained: fire never spreads)
-    float groundFireDps = 0.5f;      // zombie health / s standing in ground fire
+    float groundFireDps = 0.5f;      // zombie health / s standing in ground fire (PROPOSED, not applied yet: see docs 11)
     float corpseIgnite = 0.6f;       // s of spray / ground fire a corpse needs to ignite
     float corpseBurnTime = 4.f;      // s a burning corpse burns before it is gone (removed from the corpse field and list)
     float seekRadius = 35.f;         // m: leash around the squad's post where it seeks rotting piles / gas on its own

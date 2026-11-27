@@ -730,7 +730,7 @@ drain through the door once the soldiers leave. Script `tests/game/b3b_vertical.
 
 Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h,cpp}` (draw, game binary only),
 `FlameAI.{h,cpp}` (flamethrower behaviour), `CorpseGasTest.cpp` (self-test), shaders `game_gas_corpse.comp`,
-`game_gas_field.comp`, `game_gas_agents.comp`, `gas.vert` / `gas.frag`, `include/gas.glsl`; config `rot` / `flame` plus
+`game_gas_field.comp`, `gas.vert` / `gas.frag`, `include/gas.glsl`; config `rot` / `flame` plus
 `weapons|soldiers|squads.flamethrower` and `logistics.*Stock.fuel` in `config/balance.json`.
 
 - **Data.** Per corpse slot an own `uvec4` (key = position hash, age, ignition, burn time): the 32 B corpse record stays
@@ -741,9 +741,11 @@ Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h
   corpse pass (indirect over `C_CORPSES`: age, rot emission ramping over `rot.ramp`, counts, ignition by flame cones /
   ground fire, burning, removal = alive bit cleared + negative height splat like `sim_corpse_blast`) -> field pass
   (diffusion with buildings as reflecting walls, emission, decay, fire burns gas off, ground fire ages, flame cones
-  light the cells they cover; contained: fire never spreads) -> agents pass (zombies in a cone / in ground fire get
-  damage through HordeBridge's bullet-damage queue, credited to the flamethrower: deaths, kill records, rewards and
-  gore are the existing path). Packed readback (gas, fire, corpses, rotting per cell + stats), async ring of 3,
+  light the cells they cover; contained: fire never spreads). Zombie damage: `FlameAI::coneRays` queues 15 hit rays
+  per spray over the cone (pattern rotating per spray, `flame.zombieDps` x spray time each, quiet flag) through
+  HordeBridge's bullet path (credited: deaths, kill records, rewards, gore unchanged). A GPU pass writing the
+  damage queue directly from the cones / ground fire crashed lavapipe in the city game right after flame kills (not
+  in the arena self-test; cause not found) and was removed: ground fire does not hurt zombies yet (PROPOSED). Packed readback (gas, fire, corpses, rotting per cell + stats), async ring of 3,
   every 0.25 s.
 - **Gameplay.** `CorpseGas::tick` (after Combat): soldiers standing in gas above `rot.damageThreshold` lose
   `damagePerSecond x level` hp/s (capped), the squad gets `SQ_GAS` (green status pip, "in gas" in the selection

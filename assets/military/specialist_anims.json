@@ -344,7 +344,66 @@
    "snap": "positions snapped to a 0.06 m world grid when drawing (reads as voxels, not sprites)",
    "endOfLife": "each flame voxel becomes a smoke voxel (below) at its last position; if it hits the ground (y <= 0) or a wall first it becomes a ground_fire seed at the hit point"
   },
+  "flame_tongue": {
+   "look": "v3 (owner: one continuous tongue of flame): gap-free 5 cm world-aligned voxels (character scale), exact-size cubes, a solid tapered core along the bent jet path, noise only on the outer edge and the widening rolling tip; emissive with face shading (top 1.0, sides 0.78-0.86, bottom 0.62)",
+   "voxel": 0.05,
+   "samples": 40,
+   "speed": 14,
+   "gravity": 5,
+   "drag": 0.6,
+   "life": 0.55,
+   "radius": [
+    0.035,
+    0.42
+   ],
+   "tipBulge": 0.12,
+   "core": 0.6,
+   "edgeNoise": 0.75,
+   "shape": "s = distance to the centreline / r(age); filled if s <= core (always; the core shrinks only in the last 25 % of the tip) or 1 - s + edgeNoise(k) * n > 0, n = 0.65 vnoise(9 q, scroll 9 m/s up) + 0.35 vnoise(20 q, 16 m/s); edgeNoise(k) = edgeNoise * (0.35 + 0.65 smooth((k - 0.35) / 0.65)) (calm at the nozzle, rolling at the tip)",
+   "radiusLaw": "r = r0 + (r1 - r0) k^1.4 + tipBulge * smooth((k - 0.7) / 0.3), k = age / life",
+   "centreline": "ballistic path of fuel emitted at t - age from the nozzle pose at that time (speed, drag, gravity), 40 samples; held >= 0.6 r above the ground (it splashes and runs along the ground)",
+   "colour": "ramp(kk), kk = 0.2 k + s (0.6 + 0.4 k) + 0.3 k^2 +- 4 % per-voxel jitter: white-yellow core -> orange -> red edge, the tip redder; HDR gain 1 + 0.2 (1 - kk) (fireColour of fx_volume_frag.glsl in the engine)",
+   "ramp": [
+    [
+     0,
+     "#fff6d0"
+    ],
+    [
+     0.18,
+     "#ffe27a"
+    ],
+    [
+     0.38,
+     "#ffb340"
+    ],
+    [
+     0.58,
+     "#ff7a1e"
+    ],
+    [
+     0.78,
+     "#d9421a"
+    ],
+    [
+     0.92,
+     "#8a2410"
+    ]
+   ],
+   "smoke": {
+    "voxel": 0.1,
+    "life": 0.9,
+    "rise": 1.6,
+    "radius": 0.28,
+    "color": [
+     "#2a2623",
+     "#3d3833"
+    ],
+    "note": "continues the column from 0.85 life, same field rules but core 0.15, noise 0.9 and a 0.45 threshold: thin, broken wisps; lit not emissive in the engine"
+   },
+   "engine": "proposed FX volume kind 3 (flame jet): centreline points + radii (or emitter pose history) and age as uniforms; ray-march the 5 cm grid inside the tube's AABB like fx_volume (same DDA), surface cube faces shaded"
+  },
   "flame_volume": {
+   "superseded": "v2 (0.25 m volume) replaced by flame_tongue (v3, owner feedback)",
    "look": "voxelised density volume like the explosions (shaders/include/fx_volume.glsl / fx_volume_frag.glsl): world-aligned 0.25 m voxel grid (0.5 m far, same LOD rule), cells drawn where density > 0, colour = fireColour(k)",
    "voxel": 0.25,
    "samples": 22,
@@ -419,9 +478,12 @@
    "note": "one smoke voxel per 3 flame voxels"
   },
   "ground_fire": {
+   "v3": "drawn with the flame_tongue voxels (5 cm): every point where the jet reaches the ground makes a pool of radius pool.radius; column height pool.height * (1 - d) * flicker noise; same colour ramp (base yellow, top red)",
    "seeds": "flame voxels hitting the ground merge into pools on a 0.25 m world grid (the explosion / building voxel size)",
    "pool": {
-    "cell": 0.25,
+    "radius": 0.45,
+    "height": 0.55,
+    "cell": 0.05,
     "radiusGrow": "0.25 m per 6 seeds, max 1.25 m",
     "heightVoxels": [
      1,
@@ -3017,7 +3079,7 @@
     }
    ],
    "check": {
-    "supportError": 0.0677,
+    "supportError": 0.0376,
     "minY": -0.045,
     "footSlide": 0
    }
