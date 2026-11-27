@@ -123,6 +123,7 @@ struct Squad {
     uint32_t seenSerial = 0;         // last order serial turned into formation slots
     bool stuck = false;              // a member gave up a path (holds where it is; UI warning)
     SoldierId runner;                // ammo runner of the squad (multi-soldier squads), invalid: none
+    float runnerGrace = 0.f;         // s after a runner died during which members wait for a replacement
 };
 
 struct SquadList {

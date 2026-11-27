@@ -4,6 +4,7 @@
 #include "app/App.h"
 #include "game/GameWorld.h"
 #include "game/NavGrid.h"
+#include "game/HordeInterface.h"
 
 #include <SDL3/SDL.h>
 #include <cmath>
@@ -453,6 +454,16 @@ bool GameScript::tick(GameWorld& world, double time) {
                 }
                 std::printf("\n");
             }
+        } else if (L.verb == "fieldsamples") {   // debug: zombie field samples within R of X Z (+ static height there)
+            const GameContext& ctx = world.context();
+            if (!ctx.horde || a.size() < 3) { bad("fieldsamples X Z R"); continue; }
+            const ZombieField& fz = ctx.horde->field();
+            const float x = f(a, 0), z = f(a, 1), r = f(a, 2);
+            for (const ZombieFieldTile& t : fz.tiles)
+                for (uint32_t k = 0; k < t.samples; ++k)
+                    if (std::hypot(t.pos[k].x - x, t.pos[k].z - z) <= r)
+                        std::printf("    zombie sample (%.2f %.2f %.2f) surface %.2f walkable %d\n", t.pos[k].x, t.pos[k].y, t.pos[k].z,
+                                    ctx.nav ? ctx.nav->surface(t.pos[k].x, t.pos[k].z) : 0.f, ctx.nav ? (int)ctx.nav->walkable(t.pos[k].x, t.pos[k].z) : 0);
         } else if (L.verb == "expect") {
             expect(world, L);
         } else if (std::string ferr; fortVerb(world, L, ferr)) {   // B2 verbs (FortScript.cpp)

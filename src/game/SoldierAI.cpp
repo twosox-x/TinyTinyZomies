@@ -569,7 +569,22 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             face(ctx, i, L.pos);
             const float d = dist2D(P.pos[i], L.pos), off = std::fabs(wrapPi(yawTo(P.pos[i], L.pos) - P.yaw[i]));
             if (off < tuning.aimTolerance) L.acquire += dt;
-            const bool acquired = L.acquire >= w.acquireTime && d <= w.range && !outside;
+            // fire only along a clear firing line (muzzle -> target; a wall / container right in front is fired over,
+            // as Combat::fire does): rounds into parked cars were most of the "misses" (b1_ai_threat: 50 of 76)
+            bool clear = true;
+            if (ctx.nav && ctx.nav->ready()) {
+                V3 from = P.pos[i] + V3{0, 1.4f, 0};
+                const V3 to = L.pos + V3{0, 1.1f, 0};
+                const V3 dir = normalize(V3{to.x - from.x, 0, to.z - from.z});
+                float top = -1e9f, end = 0.f;
+                for (float s = 0.25f; s <= 1.5f; s += 0.25f) {
+                    const float h = ctx.nav->surface(P.pos[i].x + dir.x * s, P.pos[i].z + dir.z * s);
+                    if (h > P.pos[i].y + 0.4f) { top = std::max(top, h); end = s; }
+                }
+                if (top > P.pos[i].y + 0.4f && top - P.pos[i].y <= 2.8f) from = V3{P.pos[i].x + dir.x * (end + 0.45f), std::max(from.y, top + 0.3f), P.pos[i].z + dir.z * (end + 0.45f)};
+                clear = ctx.nav->lineOfSight(from, to);
+            }
+            const bool acquired = L.acquire >= w.acquireTime && d <= w.range && !outside && clear;
             if (acquired && !(P.phase[i] & PH_ACQUIRED)) { P.phase[i] |= PH_ACQUIRED; P.fireCooldown[i] = -1.f; }   // Combat arms the clock
             if (!acquired) P.phase[i] &= (uint8_t)~PH_ACQUIRED;
         } else P.phase[i] &= (uint8_t)~PH_ACQUIRED;
@@ -688,6 +703,21 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
                 V3 edge = last - dir * 0.6f;
                 if (dist2D(edge, p) < 0.6f) edge = p;
                 edge.y = nav.surface(edge.x, edge.z);
+                // better: the nearest spot of this roof (within 25 m) that actually sees the target over the roof edge
+                const V3 aimAt = t + V3{0, 1.2f, 0};
+                if (!nav.lineOfSight(p + V3{0, tuning.eyeHeight, 0}, aimAt)) {
+                    float best = 1e9f;
+                    for (float dz = -25.f; dz <= 25.f; dz += 1.5f)
+                        for (float dx = -25.f; dx <= 25.f; dx += 1.5f) {
+                            const float d = std::sqrt(dx * dx + dz * dz);
+                            if (d > 25.f || d >= best) continue;
+                            const V3 q{p.x + dx, 0, p.z + dz};
+                            if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || std::fabs(nav.surface(q.x, q.z) - p.y) > 0.6f) continue;
+                            const V3 qe{q.x, nav.surface(q.x, q.z) + tuning.eyeHeight, q.z};
+                            if (!nav.lineOfSight(qe, aimAt)) continue;
+                            best = d; edge = V3{q.x, nav.surface(q.x, q.z), q.z};
+                        }
+                }
                 if (dist2D(edge, P.home[i]) > 1.0f && nav.walkable(edge.x, edge.z)) {
                     P.home[i] = edge; P.homeYaw[i] = yawTo(edge, t);
                     if (dist2D(edge, p) > 0.8f) { P.setState(i, SoldierState::Moving); P.phase[i] |= PH_RETURNING; startPath(ctx, i, edge); break; }
@@ -727,7 +757,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             const bool runnerAlive = sq->runner.valid() && P.valid(sq->runner) && P.alive(sq->runner.index);
             int others = 0;
             for (const SoldierId& m : sq->members) others += m.index != i && P.valid(m) && P.alive(m.index) ? 1 : 0;
-            selfTrip = total == 0 && (!runnerAlive || others == 0);
+            selfTrip = total == 0 && ((!runnerAlive && sq->runnerGrace <= 0.f) || others == 0);
             if (others == 0) selfTrip = low;
         }
         if (selfTrip && P.retry[i] <= 0.f) { tryResupply(ctx, sup, i); if (P.state[i] != SoldierState::Idle) break; }
@@ -778,7 +808,8 @@ void SoldierAI::ammoRunners(GameContext& ctx, SupplyAccess& sup) {
     const BalanceConfig& cfg = *ctx.cfg;
     for (Squad& s : ctx.squads->squads) {
         if (s.members.size() < 2) continue;   // the sniper resupplies himself
-        if (s.runner.valid() && (!P.valid(s.runner) || !P.alive(s.runner.index))) s.runner = {};   // dead: rotate
+        s.runnerGrace = std::max(0.f, s.runnerGrace - ctx.dt);
+        if (s.runner.valid() && (!P.valid(s.runner) || !P.alive(s.runner.index) || P.health[s.runner.index] <= 0.f)) { s.runner = {}; s.runnerGrace = 2.f; }   // dead: rotate
         int total = 0, full = 0, alive = 0;
         for (const SoldierId& m : s.members)
             if (P.valid(m) && P.alive(m.index) && !deployState(P.state[m.index])) { total += P.mag[m.index] + P.reserve[m.index] + P.carry[m.index]; full += P.fullLoad(m.index, cfg); ++alive; }

@@ -30,7 +30,8 @@
 // Other verbs: log (prints a status line), camera X Z YAW PITCH DIST, select N.., preview TOOL X Z, preview off,
 // shot FILE.png (screenshot incl. HUD), squadinfo N (prints every member), where [roof|container] (valid spots near the
 // camera pivot), probe X Z [YAW], heights X Z, setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply),
-// sethealth N HP [MEMBER] (TEST HOOK: wound / kill soldiers), killrunner N (TEST HOOK), key f6 (AI debug overlay).
+// sethealth N HP [MEMBER] (TEST HOOK: wound / kill soldiers), killrunner N (TEST HOOK), key f6 (AI debug overlay),
+// fieldsamples X Z R (debug: zombie field samples near a point).
 //
 // The runner pushes Commands at their tick (deterministic with --game-sync, which waits for each readback in
 // headless runs so GPU latency cannot change outcomes), evaluates expectations, prints a summary and sets the
