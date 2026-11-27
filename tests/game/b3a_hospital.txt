@@ -4,8 +4,9 @@
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3a_hospital.txt
 at 0.1  bselect 24 93.2
 at 0.1  buy rifle 20 118
+at 0.2  bzombies 3                         # B3b reports zombies inside from the start (re-baked map: the squad lands
+                                           # within the capture radius of the door and would capture before t = 24)
 at 24   expect landed == 5
-at 24   bzombies 3                         # B3b reports zombies inside: capture is contested
 at 24   bdoor 1
 at 38   expect building capture == 3       # contested
 at 38   expect building progress == 0

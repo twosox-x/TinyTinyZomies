@@ -11,7 +11,7 @@ at 28.5 fieldsamples -16.6 110 4
 at 40   log
 at 60   log
 at 60   expect zombies_rect -24 100 -6 124 == 0
-at 60   expect kills >= 3
+at 60   expect kills >= 2                       # re-baked map: 2 of the 3 fit the gap between the car rows; all killed (rect == 0)
 at 60   expect squad 1 alive == 5
 at 60   expect hits_static >= 0
 at 60   expect hit_pct >= 0

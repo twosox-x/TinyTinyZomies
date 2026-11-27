@@ -16,7 +16,7 @@ at 95   log
 at 95   expect squad 1 alive + squad 2 alive >= 7
 at 95   expect kills >= 45
 at 95   expect hit_pct >= 35
-at 95   expect switches <= 90
+at 95   expect switches <= 140                 # ~2 per zombie: 57 zombies now all spawn (kerb spawns; was 90 with ~28)
 at 95   expect damage <= 400
 at 95   expect hits_static >= 0
 at 95   expect shots >= 0
