@@ -12,16 +12,43 @@
 //   attract  : each tick, horde attractors = alive soldiers on the ground (+ recent noise events, aged).
 #include "game/GameContext.h"
 #include "game/HordeInterface.h"
+#include "game/SupplyAccess.h"
 
 namespace ttz::game {
 
+// Event sync and its fallback: rounds, magazine refills and supply grabs happen on the animator's clip events
+// (`muzzle_flash`, `mag_in`, `grab`). Without an animator (ctx.animator == nullptr: headless tests) or when the clip
+// never reports the event (missing clip, stub animator), a watchdog produces the same effect from the weapon stats
+// so gameplay never stalls: rounds every fireInterval, mag_in at 62 % of reloadTime, grab at 39 % of collectTime.
+// The watchdog waits 2.5 x fireInterval (+0.25 s) / 1.5 x reloadTime when an animator is present, so real events
+// always win and nothing is counted twice (PH_RELOADED / PH_GRABBED make each transfer once per clip).
 class Combat {
 public:
+    SupplyAccess* supply = nullptr;            // null: ctx.logistics (LogisticsSupply); tests: FakeSupply
+    bool forceSyntheticEvents = false;         // ignore the animator's events (debug)
+    float hitCooldown = 3.f;                   // s between hit reactions of one soldier (no constant interruptions)
+    float collectTime = 3.2f;                  // s, collect_ammo clip (grab at 1.25 s)
+    float muzzleHeight = 1.4f, aimHeight = 1.1f;
+    float noiseMergeRadius = 8.f;
+    uint32_t maxAttractors = kMaxAttractors;
+
     void tick(GameContext& ctx);               // after SoldierAI and SoldierAnimator::tick (events of this tick)
     // Helpers exposed for tests.
     static V3 spreadDir(V3 dir, float spreadDeg, uint32_t& rng);
     uint64_t roundsFired() const { return roundsFired_; }
+    uint64_t syntheticRounds() const { return syntheticRounds_; }
+    uint64_t reloads() const { return reloads_; }
+    uint64_t roundsCollected() const { return collected_; }
+    uint64_t soldierKills() const { return kills_; }
+    double damageTaken() const { return damageTaken_; }
+    const std::vector<Attractor>& attractors() const { return attractors_; }
 private:
+    LogisticsSupply logisticsSupply_;
+    void fire(GameContext& ctx, uint32_t i, bool synthetic);
+    void reload(GameContext& ctx, uint32_t i);
+    void grab(GameContext& ctx, SupplyAccess& sup, uint32_t i);
+    uint64_t syntheticRounds_ = 0, reloads_ = 0, collected_ = 0, kills_ = 0;
+    double damageTaken_ = 0;
     std::vector<HitRequest> hits_;
     std::vector<HordeSoldier> upload_;
     std::vector<Attractor> attractors_;

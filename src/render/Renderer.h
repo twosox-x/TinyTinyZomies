@@ -117,7 +117,7 @@ public:
     // Baked city: moon-shadow height field computed from the city height grid (CityWorld), street-lamp lights,
     // and the tile renderer drawn inside the scene pass.
     void setShadowField(const std::vector<float>& field);
-    void setLights(const std::vector<PointLight>& lights) { sandbox_.lights = lights; }
+    void setLights(const std::vector<PointLight>& lights);   // + every extension's lights callback (below)
     // Moving simulation window (city): grid origin of the gore / shadow fields and the moon-shadow buffer to use
     // (owned by the caller; null = the renderer's own field).
     void setSimWindow(float originX, float originZ, SDL_GPUBuffer* shadowField) {
@@ -154,6 +154,7 @@ public:
     uint32_t zombieIndexCount() const { return zombieIndexCount_; }
     // Synchronous screenshot of the last rendered frame (PNG).
     bool saveScreenshot(const std::string& path);
+    SDL_GPUTexture* finalTexture() const { return final_; }   // the image saveScreenshot reads (headless HUD overlays draw into it)
     int msaaSamples() const;
 
 private:
@@ -217,6 +218,20 @@ public:
     std::function<void(SDL_GPUCommandBuffer*)> extPrepare;
     std::function<void(SDL_GPURenderPass*, SDL_GPUCommandBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer*)> extDraw;
     std::function<void(SDL_GPURenderPass*, SDL_GPUCommandBuffer*)> extShadowDraw;   // casters into the shadow pass (depth only)
+    // Several clients at once (Military lab, game soldiers, ...): each registers its own set; called in registration
+    // order after the single legacy hooks above. lights: appends point lights when the App sets the frame's lights.
+    struct Extension {
+        std::function<void(SDL_GPUCommandBuffer*)> prepare;
+        std::function<void(SDL_GPURenderPass*, SDL_GPUCommandBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer*)> draw;
+        std::function<void(SDL_GPURenderPass*, SDL_GPUCommandBuffer*)> shadowDraw;
+        std::function<void(std::vector<PointLight>&)> lights;
+    };
+    int addExtension(Extension e);    // returns an id for removeExtension
+    void removeExtension(int id);
+private:
+    std::vector<std::pair<int, Extension>> exts_;
+    int nextExt_ = 1;
+public:
     bool skipCharacterPrepare_ = false;   // benchmark: prepare recorded separately for timing
 };
 

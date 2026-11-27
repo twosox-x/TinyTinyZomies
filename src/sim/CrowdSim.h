@@ -62,6 +62,31 @@ public:
     void setExtraReadback(SDL_GPUBuffer* buf, uint32_t bytes) { extraBuf_ = buf; extraBytes_ = bytes; extra_.assign(bytes / 4, 0); }
     const std::vector<uint32_t>& extraReadback() const { return extra_; }
 
+    // ---- frame fences (CrowdSim owns the per-frame fence; other async consumers release slots by frame number) ----
+    uint64_t submittedFrames() const { return submitted_; }       // frames handed to onFrameSubmitted so far
+    uint64_t recordingFrame() const { return submitted_ + 1; }    // id of the frame being recorded now
+    uint64_t lastCompletedFrame() const { return completed_; }    // every frame <= this one has finished on the GPU
+    void pollFences();                                            // non-blocking; also done by recordStatsReadback
+
+    // ---- gameplay coupling (src/game/HordeBridge; docs/GAMEPLAY_ARCHITECTURE.md 3.3). Inactive (flags 0) by default.
+    void setGameInputs(uint32_t flags, float awarenessGate) { gameFlags_ = flags; gameGate_ = awarenessGate; }
+    uint32_t gameFlags() const { return gameFlags_; }
+    // cellStart / cellCount / agents() describe the same sorted order from the end of a step until the next
+    // step's scatter, unless the window moved or the sim was reset since (then cellGridValid() is false).
+    bool cellGridValid() const { return gridValid_; }
+    SDL_GPUBuffer* cellStart() const { return cellStart_; }
+    SDL_GPUBuffer* cellCount() const { return cellCount_; }
+    // gameIO: kill ring (uint header[kGameKillHeader] + GpuKillRecord[kGameKillCap]) at word 0, then from word
+    // kGameKillWords uint[4 * cap] of queued bullet damage per agent (damage 1/65536, flags | count << 4, shooter, dir)
+    SDL_GPUBuffer* gameIO() const { return gameIO_; }
+    // gameSolid: GpuSoldier[kGameMaxSoldiers] at word 0, then from word kGameSoldierWords uint[2 * cells] of
+    // soldier index + 1 per cell (two layers)
+    SDL_GPUBuffer* gameSolid() const { return gameSolid_; }
+    SDL_GPUBuffer* navSeed() const { return navSeed_; }             // uint[cells]: float bits of the source distance
+    SimUniforms uniforms() const { return baseUniforms(); }         // world / grid / params of the next step
+    // Fill `count` uints of buf at word offset `offset` with value (recorded into cmd).
+    void fillBuffer(SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* buf, uint32_t offset, uint32_t count, uint32_t value);
+
     SimParams& params() { return p_; }
     double simTime() const { return simTime_; }
     uint64_t stepIndex() const { return stepIndex_; }
@@ -114,14 +139,18 @@ private:
                            *pPredict_ = nullptr, *pScanLocal_ = nullptr, *pScanBlocks_ = nullptr, *pScanAdd_ = nullptr,
                            *pScatter_ = nullptr, *pCommitSort_ = nullptr, *pSolve_ = nullptr, *pFinalize_ = nullptr,
                            *pDensity_ = nullptr, *pNavRelax_ = nullptr, *pNavDir_ = nullptr, *pDrawArgs_ = nullptr,
-                           *pGore_ = nullptr, *pShift_ = nullptr, *pRelocate_ = nullptr;
+                           *pGore_ = nullptr, *pShift_ = nullptr, *pRelocate_ = nullptr, *pFill_ = nullptr;
 
     SDL_GPUBuffer *agentsA_ = nullptr, *agentsB_ = nullptr, *posP_ = nullptr, *posQ_ = nullptr, *prevS_ = nullptr,
                   *contactAux_ = nullptr, *cellLocal_ = nullptr, *cellCount_ = nullptr, *cellStart_ = nullptr,
                   *blockSums_ = nullptr, *density_ = nullptr, *staticH_ = nullptr, *corpseH_ = nullptr,
                   *navDist_[2] = {nullptr, nullptr}, *navDir_ = nullptr, *corpses_ = nullptr, *counters_ = nullptr,
                   *indirect_ = nullptr, *particles_ = nullptr, *particleList_ = nullptr, *gibs_ = nullptr, *gore_ = nullptr,
-                  *decals_ = nullptr, *park_[2] = {nullptr, nullptr}, *parkCnt_ = nullptr, *shiftScratch_ = nullptr;
+                  *decals_ = nullptr, *park_[2] = {nullptr, nullptr}, *parkCnt_ = nullptr, *shiftScratch_ = nullptr,
+                  *gameIO_ = nullptr, *gameSolid_ = nullptr, *navSeed_ = nullptr;
+    uint32_t gameFlags_ = 0;
+    float gameGate_ = 0.f;
+    bool gridValid_ = false;
     SDL_GPUTransferBuffer* staticTB_ = nullptr;   // dynamic obstacle rows (uploadStaticRowRuns)
     int parkIn_ = 0;
     uint32_t parkCapacity_ = 0;
@@ -138,8 +167,12 @@ private:
     uint64_t stepIndex_ = 0;
     uint32_t spawnSeed_ = 1;
 
-    struct Readback { SDL_GPUTransferBuffer* tb = nullptr; SDL_GPUFence* fence = nullptr; bool recorded = false; uint64_t frame = 0; };
+    struct Readback { SDL_GPUTransferBuffer* tb = nullptr; uint64_t submitId = 0; bool recorded = false; uint64_t frame = 0; };
     std::array<Readback, 3> rb_{};
+    struct FrameFence { SDL_GPUFence* fence = nullptr; uint64_t id = 0; };
+    std::array<FrameFence, 8> fences_{};   // oldest first
+    uint32_t nFences_ = 0;
+    uint64_t submitted_ = 0, completed_ = 0;
     int rbRecordSlot_ = -1;
     uint64_t frameCounter_ = 0;
     SimStats stats_;

@@ -1,0 +1,150 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+};
+
+struct Attr
+{
+    float4 posR;
+    float4 info;
+};
+
+struct Attr_1
+{
+    float4 posR;
+    float4 info;
+};
+
+struct Attrs
+{
+    Attr_1 attrs[1];
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct NavSeed
+{
+    uint navSeed[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _32)
+{
+    float2 g = (xz - _32.world.xy) * _32.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_32.grid.x) - 1, int(_32.grid.y) - 1));
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _32)
+{
+    return (uint(c.y) * _32.grid.x) + uint(c.x);
+}
+
+kernel void main0(constant SimUniforms& _32 [[buffer(0)]], device Attrs& _118 [[buffer(1)]], device StaticH& _218 [[buffer(2)]], device NavSeed& _235 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint k = gl_GlobalInvocationID.y;
+    uint side = _32.misc.z;
+    uint t = gl_GlobalInvocationID.x;
+    bool _98 = k >= _32.counts.x;
+    bool _107;
+    if (!_98)
+    {
+        _107 = t >= (side * side);
+    }
+    else
+    {
+        _107 = _98;
+    }
+    if (_107)
+    {
+        return;
+    }
+    Attr at;
+    at.posR = _118.attrs[k].posR;
+    at.info = _118.attrs[k].info;
+    float2 param = at.posR.xz;
+    int2 c0 = cellCoord(param, _32) - int2(int(side / 2u));
+    int2 c = c0 + int2(int(t % side), int(t / side));
+    bool _153 = c.x < 0;
+    bool _160;
+    if (!_153)
+    {
+        _160 = c.y < 0;
+    }
+    else
+    {
+        _160 = _153;
+    }
+    bool _170;
+    if (!_160)
+    {
+        _170 = c.x >= int(_32.grid.x);
+    }
+    else
+    {
+        _170 = _160;
+    }
+    bool _180;
+    if (!_170)
+    {
+        _180 = c.y >= int(_32.grid.y);
+    }
+    else
+    {
+        _180 = _170;
+    }
+    if (_180)
+    {
+        return;
+    }
+    float2 center = _32.world.xy + ((float2(c) + float2(0.5)) * _32.world.z);
+    float d = distance(center, at.posR.xz);
+    if (d > at.posR.w)
+    {
+        return;
+    }
+    int2 param_1 = c;
+    uint id = cellIndex(param_1, _32);
+    if (_218.staticH[id] > (at.posR.y + _32.moveP.w))
+    {
+        return;
+    }
+    uint _245 = atomic_fetch_min_explicit((device atomic_uint*)&_235.navSeed[id], as_type<uint>(fast::max(at.info.x + d, 0.0)), memory_order_relaxed);
+}
+

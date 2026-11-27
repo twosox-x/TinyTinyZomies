@@ -1,6 +1,6 @@
 {
   "status": "UNAPPROVED",
-  "note": "Provisional playtest values (GAME_DESIGN.md 2, 14b). None of these numbers is approved by the owner.",
+  "note": "Provisional playtest values (GAME_DESIGN.md 2, 14b). None of these numbers is approved by the owner. killReward.explosion > 0 is a provisional YES to OWNER question 1 (explosion kills pay); set it to 0 to pay soldier kills only.",
   "weapons": {
     "rifleman": { "damage": 0.6, "headshotChance": 0.15, "range": 45, "accuracy": 0.8, "spreadDeg": 1.5, "fireInterval": 0.3,
                   "magazine": 30, "reserve": 180, "reloadTime": 2.4, "noise": 1.0, "noiseRadius": 80, "acquireTime": 0.4, "acquireRange": 50 },
@@ -20,7 +20,7 @@
     "sniper": { "size": 1, "price": 700,  "formationSpacing": 0.0 }
   },
   "economy": { "startFunding": 5000, "baseIncomePerMin": 300, "territoryIncomePerKm2PerMin": 0,
-               "killReward": { "soldier": 5, "explosion": 0, "other": 0 }, "containerPrice": 1500, "airdropPrice": 400 },
+               "killReward": { "soldier": 5, "explosion": 5, "other": 0 }, "containerPrice": 1500, "airdropPrice": 400 },
   "logistics": { "containerStock": { "rifle": 3000, "mg": 2000, "sniper": 300 }, "crateStock": { "rifle": 600, "mg": 400, "sniper": 60 },
                  "containerSlots": 4, "crateSlots": 2, "collectRadius": 1.2, "airdropAltitude": 60, "airdropScatter": 4 },
   "threat": { "attackReach": 0.9, "damagePerSecond": 12, "awarenessRadius": 60, "soldierAttraction": 1.0 }

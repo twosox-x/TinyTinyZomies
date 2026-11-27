@@ -83,8 +83,11 @@ set(TTZ_GAME_CORE
   src/game/SoldierAnim.cpp
   src/game/SoldierAI.cpp
   src/game/Combat.cpp
+  src/game/FakeHorde.cpp
+  src/game/SoldierSelfTest.cpp
   src/game/Logistics.cpp
-  src/game/Deploy.cpp)
+  src/game/Deploy.cpp
+  src/lab/MilitaryAssets.cpp)
 add_executable(ttz
   src/main.cpp
   src/app/App.cpp
@@ -108,11 +111,12 @@ add_executable(ttz
   src/city/CityVehicles.cpp
   src/debug/DebugUI.cpp
   src/debug/Profiler.cpp
-  src/lab/MilitaryAssets.cpp
   src/lab/MilitaryLab.cpp
+  src/lab/MilitaryRenderer.cpp
   ${TTZ_GAME_CORE}
   src/game/GameWorld.cpp
   src/game/HordeBridge.cpp
+  src/game/HordeBridgeTest.cpp
   src/game/GameScript.cpp
   src/game/GameUI.cpp
   src/game/GameRender.cpp)
@@ -159,6 +163,8 @@ add_executable(ttz_selftest
   src/city/CityAssetFormat.cpp
   src/city/CityWorld.cpp
   src/city/CityVehicles.cpp
+  src/game/HordeBridge.cpp
+  src/game/HordeBridgeTest.cpp
   ${TTZ_GAME_CORE})
 target_include_directories(ttz_selftest PRIVATE src)
 target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3 ttz_zstd)

@@ -8,6 +8,7 @@
 #define TTZ_GORE_SPAWN
 #include "gore.glsl"
 layout(local_size_x = 256) in;
+
 layout(std430, set = 0, binding = 0) readonly buffer NavDir  { vec2 navDir[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Density { vec4 density[]; };
 layout(std430, set = 0, binding = 2) readonly buffer StaticH { float staticH[]; };
@@ -19,6 +20,9 @@ layout(std430, set = 1, binding = 3) buffer Counters  { uint counters[]; };
 layout(std430, set = 1, binding = 4) buffer Particles { Particle particles[]; };
 layout(std430, set = 1, binding = 5) buffer Gibs      { Gib gibs[]; };
 layout(std430, set = 1, binding = 6) buffer GoreCnt   { uint gore[]; };
+// gameplay coupling (GAME_HITS): bullet damage queued by game_hits (uint x4 per agent: damage 1/65536,
+// flags | hit count << 4, shooter, packed direction), kill ring (header + 8 uints per record)
+layout(std430, set = 1, binding = 7) buffer GameIO { uint gameIO[]; };   // kill ring, then hit damage (GAME_HIT_BASE)
 #include "gore_write.glsl"
 #include "fields.glsl"
 
@@ -77,6 +81,53 @@ void main() {
     vec2 tumble = (st == ST_FALL || st == ST_DYING) ? a.dirs.xy : vec2(0.0);   // roll angle, roll rate
     float vary = agentVary(a);  // stable per-agent [0,1)
     uint lx = agentLookX(a), ly = a.info.y;
+    const uint st0 = st;
+    const bool game = (gameFlags() & GAME_HITS) != 0u;
+    uint shooter = 0u;
+    bool shot = false;
+
+    // ---- bullet hits (game mode): the same health / blood / sever / DYING path as blasts, with small parameters --
+    if (game) {
+        uvec4 h = uvec4(gameIO[GAME_HIT_BASE + 4u * i], gameIO[GAME_HIT_BASE + 4u * i + 1u], gameIO[GAME_HIT_BASE + 4u * i + 2u], gameIO[GAME_HIT_BASE + 4u * i + 3u]);
+        if (h.y != 0u) {
+            gameIO[GAME_HIT_BASE + 4u * i] = 0u; gameIO[GAME_HIT_BASE + 4u * i + 1u] = 0u; gameIO[GAME_HIT_BASE + 4u * i + 2u] = 0u; gameIO[GAME_HIT_BASE + 4u * i + 3u] = 0u;
+            if (st < ST_DYING) {
+                shot = true;
+                shooter = h.z;
+                float dmg = float(h.x) * (1.0 / 65536.0);
+                float nHits = float(max(h.y >> 4, 1u));
+                bool head = (h.y & 1u) != 0u, quiet = (h.y & 2u) != 0u;
+                vec3 dir = unpackSnorm4x8(h.w).xyz;
+                dir = length(dir) > 1e-3 ? normalize(dir) : vec3(0.0, 0.0, 1.0);
+                health -= dmg;
+                v.xz += dir.xz * min(0.35 * nHits * (0.5 + dmg / nHits), 2.0);   // small push along the rounds
+                if (health <= 0.0) { st = ST_DYING; timer = 0.0; }
+                if (goreP.w > 0.5) {
+                    float bh = bodyHeight(a.pos.w);
+                    vec3 hp = p + vec3(0.0, head ? bh * 0.92 : bh * 0.62, 0.0);
+                    spawnBlood(hp, dir * 1.4 + v * 0.3, 0.9, min((quiet ? 1.5 : 3.0) * nHits, 12.0), rng);   // small puff
+                    blood = min(blood + (dmg / nHits > 0.8 ? 2u : 1u), 3u);
+                    uint add = 0u;
+                    if (head) add |= severWithChildren(0u);   // headshot: the head comes off ("no head: dead")
+                    float k = goreP.y * clamp(dmg / nHits - 0.3, 0.0, 1.2) * (1.0 + 0.5 * float(lookBits(ly, 8u, 2u)));
+                    const uint CANDH[6] = uint[6](2u, 3u, 4u, 5u, 6u, 8u);
+                    const float PROBH[6] = float[6](0.10, 0.22, 0.10, 0.22, 0.08, 0.08);
+                    for (int c = 0; c < 6; ++c) {   // heavy rounds take limbs (legless survivors crawl)
+                        if (((sev | add) & (1u << CANDH[c])) != 0u) continue;
+                        if (rand01(rng) < k * PROBH[c] * min(nHits, 3.0)) add |= severWithChildren(CANDH[c]);
+                    }
+                    add &= ~sev;
+                    if (add != 0u) {
+                        if ((add & 3u) != 0u) { health = min(health, 0.0); st = ST_DYING; timer = 0.0; }   // no head: dead
+                        blowOff(add, p, v + dir * 1.5, a.dirs.z, 0.25, lx, ly, blood, rng);
+                        atomicAdd(gore[G_SEVERED], bitCount(add));
+                        sev |= add;
+                    }
+                } else if (head) { health = min(health, 0.0); st = ST_DYING; timer = 0.0; }
+                if (st == ST_DYING) tumble.y += (rand01(rng) - 0.5) * 4.0;
+            }
+        }
+    }
 
     // ---- explosions (only agents inside a radius do extra work) ------------
     for (uint e = 0u; e < counts.y; ++e) {
@@ -160,6 +211,25 @@ void main() {
     a.info.x = st | agentLookX(a);
     a.info.z = packAgentZ(health, sev, blood);
     agents[i] = a;
+
+    // ---- kill record (game mode): exactly one thread sees an agent's alive -> DYING transition ----------------
+    if (game && st0 < ST_DYING && st == ST_DYING) {
+        uint seq = atomicAdd(gameIO[1], 1u) + 1u;
+        uint slot = atomicAdd(gameIO[0], 1u);
+        if (slot < GAME_KILL_CAP) {
+            uint b = GAME_KILL_HEADER + slot * 8u;
+            gameIO[b] = seq;
+            gameIO[b + 1u] = shot ? 0u : (counts.y > 0u ? 1u : 2u);   // KillCause: Soldier / Explosion / Other
+            gameIO[b + 2u] = shot ? shooter : 0u;
+            gameIO[b + 3u] = 0u;
+            gameIO[b + 4u] = floatBitsToUint(p.x);
+            gameIO[b + 5u] = floatBitsToUint(p.y);
+            gameIO[b + 6u] = floatBitsToUint(p.z);
+            gameIO[b + 7u] = 0u;
+        } else {
+            atomicAdd(gameIO[2], 1u);   // overflow: counted, rewarded anonymously by the game
+        }
+    }
 
     uint cell = cellIndex(cellCoord(p.xz));
     cellLocal[i] = uvec2(cell, atomicAdd(cellCount[cell], 1u));

@@ -11,6 +11,7 @@
 // built-in placeholder library (zombie module combos for the infantry bodies, simple voxel props) so the lab and
 // its review workflow run before the authored assets exist.
 #include "city/CityAsset.h"
+#include "render/Math.h"
 
 #include <array>
 #include <cstdint>
@@ -138,6 +139,28 @@ private:
 
 // Visible-face voxel mesher (one quad per exposed voxel face, explicit indices), model space in metres:
 // (v - pivot) * voxel. Material ids = palette index.
+// ---- clip playback (CPU, shared by the lab and the game's SoldierAnimator: ONE implementation) -------------------
+// Cross-fade per the anims.json transition table (phase-matched locomotion), root motion committed when a finished
+// one-shot root-motion clip is left (or a looping one wraps). Events are crossed by the playhead (also across wraps).
+struct MilPlayback {
+    int clip = 0;                     // MilInfantry::clips index
+    float t = 0.f, rate = 1.f;
+    int prevClip = -1;                // cross-fade source (keeps playing underneath for blendDur)
+    float prevT = 0.f, blend = 0.f, blendDur = 0.f;
+    float prevDelta[4] = {0, 0, 0, 0};   // root motion already committed while the previous clip still blends out
+};
+struct MilAdvance {                   // what one milAdvance step did
+    const MilKeyClip* key = nullptr;  // authored clip of the current clip (nullptr: none)
+    float prev = 0.f;                 // playhead before the step
+    bool wrapped = false;             // a looping clip wrapped during the step
+    bool crossed(float et, float now) const { return wrapped ? (et > prev || et <= now) : (et > prev && et <= now); }
+};
+// pos / yaw: the agent frame that root motion moves (world, or a local accumulator starting at 0 / 0).
+void milCommitRootMotion(V3& pos, float& yaw, const MilKeyClip& k);
+void milSwitchClip(const MilitaryLibrary& lib, const MilInfantry& inf, MilPlayback& p, V3& pos, float& yaw, int clip);
+MilAdvance milAdvance(const MilitaryLibrary& lib, const MilInfantry& inf, MilPlayback& p, V3& pos, float& yaw, float step);
+int milClipByAction(const MilInfantry& inf, const char* action);   // exact name first, then substring; -1 none
+
 CityMesh meshVoxelModel(const MilVoxelModel& m);
 void eulerXYZToQuat(const float e[3], float q[4]);   // q = qx * qy * qz (zombie_pose.glsl qeulerXYZ)
 

@@ -142,4 +142,15 @@ vec2 decodeDesired(float e) {
 
 float bodyHeight(float prone) { return mix(agentP.y, agentP.z, clamp(prone, 0.0, 1.0)); }
 
+// ---- gameplay coupling (src/game/HordeBridge): goreQ.z = awareness gate (m, 0 off), goreQ.w = GAME_* flags ----
+#define GAME_HITS     1u   // sim_predict applies queued bullet damage and appends kill records
+#define GAME_SOLDIERS 2u   // sim_solve keeps zombies out of soldier capsules
+#define GAME_SEEDS    4u   // nav_relax seeds attractor sources
+#define GAME_NO_SEED  0xFFFFFFFFu
+#define GAME_KILL_HEADER 16u
+#define GAME_KILL_CAP    1024u
+#define GAME_HIT_BASE    (GAME_KILL_HEADER + GAME_KILL_CAP * 8u)   // gameIO: kill ring, then 4 uints per agent
+#define GAME_CELL_BASE   16384u                                    // gameSolid: 2048 soldiers x 8 uints, then cells
+uint gameFlags() { return uint(goreQ.w); }
+
 #endif

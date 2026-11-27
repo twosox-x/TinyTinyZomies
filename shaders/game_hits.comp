@@ -1,0 +1,108 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Ray-cast rounds (HordeBridge::preSim, before the frame's first step). One thread per HitRequest:
+// 2D DDA (Amanatides-Woo) over the sim cells along the ray; each visited cell tests the vertical capsules of the
+// live agents in its 3x3 neighbourhood (cell lists of the last step: agents may have moved into a neighbour since
+// the histogram) and stops at static geometry above the ray (buildings, vehicles). The first capsule hit takes the
+// damage through atomics in gameIO[GAME_HIT_BASE + 4 * agent] (consumed by the next sim_predict).
+// results[2 * h]: 0 miss / 1 zombie / 2 static, results[2 * h + 1]: float bits of the hit distance.
+#include "common.glsl"
+layout(local_size_x = 64) in;
+struct Hit { vec4 o; vec4 d; uvec4 info; };   // origin + max distance, dir + damage, x shooter, y flags
+layout(std430, set = 0, binding = 0) readonly buffer Hits      { Hit hits[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Agents    { Agent agents[]; };
+layout(std430, set = 0, binding = 2) readonly buffer CellStart { uint cellStart[]; };
+layout(std430, set = 0, binding = 3) readonly buffer CellCount { uint cellCount[]; };
+layout(std430, set = 0, binding = 4) readonly buffer StaticH   { float staticH[]; };
+layout(std430, set = 0, binding = 5) readonly buffer Counters  { uint counters[]; };
+layout(std430, set = 1, binding = 0) buffer GameIO    { uint gameIO[]; };   // hit damage from GAME_HIT_BASE
+layout(std430, set = 1, binding = 1) buffer Results   { uint results[]; };
+
+// entry distance of the ray into a vertical capsule-like cylinder [y0, y1] of radius r, or -1
+float rayCylinder(vec3 o, vec3 d, vec3 base, float h, float r, float tMax) {
+    vec2 oc = o.xz - base.xz;
+    float a = dot(d.xz, d.xz);
+    float lo = 0.0, hi = tMax;
+    if (a < 1e-8) {
+        if (dot(oc, oc) > r * r) return -1.0;
+    } else {
+        float b = dot(oc, d.xz), c = dot(oc, oc) - r * r;
+        float disc = b * b - a * c;
+        if (disc < 0.0) return -1.0;
+        float s = sqrt(disc);
+        lo = max(lo, (-b - s) / a);
+        hi = min(hi, (-b + s) / a);
+    }
+    if (abs(d.y) < 1e-6) {
+        if (o.y < base.y || o.y > base.y + h) return -1.0;
+    } else {
+        float ta = (base.y - o.y) / d.y, tb = (base.y + h - o.y) / d.y;
+        lo = max(lo, min(ta, tb));
+        hi = min(hi, max(ta, tb));
+    }
+    return lo <= hi ? lo : -1.0;
+}
+
+void main() {
+    uint h = gl_GlobalInvocationID.x;
+    if (h >= misc.z) return;
+    Hit req = hits[h];
+    vec3 o = req.o.xyz, d = normalize(req.d.xyz);
+    float tMax = req.o.w;
+    const float R = agentP.x;
+    const uint live = counters[C_LIVE];
+    uint maxN = misc.x;
+
+    // DDA setup in cell units (xz), parametrised by the 3D distance t
+    vec2 g = (o.xz - world.xy) * world.w;
+    ivec2 c = ivec2(floor(g));
+    vec2 dg = d.xz * world.w;   // cells per metre of t
+    ivec2 stp = ivec2(dg.x > 0.0 ? 1 : -1, dg.y > 0.0 ? 1 : -1);
+    vec2 tDelta = vec2(abs(dg.x) > 1e-9 ? 1.0 / abs(dg.x) : 1e30, abs(dg.y) > 1e-9 ? 1.0 / abs(dg.y) : 1e30);
+    vec2 frac = g - vec2(c);
+    vec2 tNext = vec2(dg.x > 0.0 ? (1.0 - frac.x) : frac.x, dg.y > 0.0 ? (1.0 - frac.y) : frac.y) * tDelta;
+    float tEnter = 0.0;
+    float best = 1e30;
+    uint bestK = 0xFFFFFFFFu;
+    uint kind = 0u;
+    float tHit = tMax;
+    for (int iter = 0; iter < 2048; ++iter) {
+        if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) break;   // left the window
+        if (tEnter > tMax || tEnter > best + world.z * 1.5) break;                      // nothing closer can follow
+        float tExit = min(min(tNext.x, tNext.y), tMax);
+        // static geometry above the ray in this cell stops the round
+        float yLow = o.y + d.y * (d.y < 0.0 ? tExit : tEnter);
+        if (staticH[cellIndex(c)] > yLow && staticH[cellIndex(c)] > 0.0) {
+            if (best > tEnter) { kind = 2u; tHit = tEnter; bestK = 0xFFFFFFFFu; best = tEnter; }
+            break;
+        }
+        uint visited = 0u;
+        for (int oy = -1; oy <= 1; ++oy)
+        for (int ox = -1; ox <= 1; ++ox) {
+            ivec2 cc = c + ivec2(ox, oy);
+            if (cc.x < 0 || cc.y < 0 || cc.x >= int(grid.x) || cc.y >= int(grid.y)) continue;
+            uint cid = cellIndex(cc);
+            uint s = cellStart[cid], e = min(s + cellCount[cid], live);
+            for (uint k = s; k < e; ++k) {
+                if (++visited > maxN) break;
+                Agent a = agents[k];
+                if (agentState(a) >= ST_DYING) continue;   // rounds pass through falling bodies
+                float t = rayCylinder(o, d, a.pos.xyz, bodyHeight(a.pos.w), R, tMax);
+                if (t >= 0.0 && t < best) { best = t; bestK = k; kind = 1u; tHit = t; }
+            }
+        }
+        tEnter = tExit;
+        if (tEnter >= tMax) break;
+        if (tNext.x < tNext.y) { tNext.x += tDelta.x; c.x += stp.x; } else { tNext.y += tDelta.y; c.y += stp.y; }
+    }
+    if (kind == 1u) {
+        uint b = GAME_HIT_BASE + 4u * bestK;
+        atomicAdd(gameIO[b], uint(clamp(req.d.w, 0.0, 60.0) * 65536.0 + 0.5));
+        atomicOr(gameIO[b + 1u], req.info.y & 3u);
+        atomicAdd(gameIO[b + 1u], 16u);
+        atomicMax(gameIO[b + 2u], req.info.x);
+        atomicExchange(gameIO[b + 3u], packSnorm4x8(vec4(d, 0.0)));
+    }
+    results[2u * h] = kind;
+    results[2u * h + 1u] = floatBitsToUint(tHit);
+}

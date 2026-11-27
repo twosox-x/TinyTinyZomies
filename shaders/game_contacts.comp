@@ -1,0 +1,71 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Zombies pressing on soldiers (HordeBridge::postSim, after game_field). One thread per soldier:
+// attackers = live walkers / climbers whose centre is within reach of the capsule surface (5 x 5 cells, exact),
+// nearestDist = nearest of those cells (else of the tile samples around), nearby = walkers in the tiles whose centre
+// lies within the nearby radius (coarse, from game_field).
+// out[4 * s]: attackers, nearby, float bits of nearestDist, packed id.  extraP is reused: x reach, y nearby radius.
+#include "common.glsl"
+layout(local_size_x = 64) in;
+layout(std430, set = 0, binding = 0) readonly buffer GameSolid { uint gameSolid[]; };   // 8 uints per soldier from word 0
+layout(std430, set = 0, binding = 1) readonly buffer Agents    { Agent agents[]; };
+layout(std430, set = 0, binding = 2) readonly buffer CellStart { uint cellStart[]; };
+layout(std430, set = 0, binding = 3) readonly buffer CellCount { uint cellCount[]; };
+layout(std430, set = 0, binding = 4) readonly buffer Counters  { uint counters[]; };
+layout(std430, set = 0, binding = 5) readonly buffer Field     { uint field[]; };
+layout(std430, set = 1, binding = 0) buffer Contacts { uint contacts[]; };
+void main() {
+    uint s = gl_GlobalInvocationID.x;
+    if (s >= misc.z) return;
+    vec4 soP = uintBitsToFloat(uvec4(gameSolid[8u * s], gameSolid[8u * s + 1u], gameSolid[8u * s + 2u], gameSolid[8u * s + 3u]));
+    vec4 soI = uintBitsToFloat(uvec4(gameSolid[8u * s + 4u], gameSolid[8u * s + 5u], gameSolid[8u * s + 6u], gameSolid[8u * s + 7u]));
+    const float reach = extraP.x, nearR = extraP.y;
+    const uint live = counters[C_LIVE];
+    vec3 sp = soP.xyz;
+    uint attackers = 0u, nearby = 0u;
+    float nearest = 1e9;
+    vec2 g = (sp.xz - world.xy) * world.w;
+    bool inside = all(greaterThanEqual(g, vec2(0.0))) && all(lessThan(g, vec2(grid.xy)));
+    if (inside) {
+        ivec2 c = ivec2(floor(g));
+        for (int dy = -2; dy <= 2; ++dy)
+        for (int dx = -2; dx <= 2; ++dx) {
+            ivec2 cc = c + ivec2(dx, dy);
+            if (cc.x < 0 || cc.y < 0 || cc.x >= int(grid.x) || cc.y >= int(grid.y)) continue;
+            uint cid = cellIndex(cc);
+            uint b = cellStart[cid], e = min(b + cellCount[cid], live);
+            for (uint k = b; k < e && k < b + 64u; ++k) {
+                Agent a = agents[k];
+                uint st = agentState(a);
+                if (st >= ST_DYING) continue;
+                if (a.pos.y > sp.y + soI.x + 0.3 || a.pos.y + bodyHeight(a.pos.w) < sp.y - 0.3) continue;
+                float dist = distance(a.pos.xz, sp.xz);
+                nearest = min(nearest, dist);
+                if (st <= ST_CLIMB && dist - soP.w <= reach) ++attackers;
+            }
+        }
+        // nearby: coarse tiles (6 m) whose centre is within the radius
+        uint T = counts.z, tx = counts.x, tz = (T + tx - 1u) / max(tx, 1u);
+        float tileM = world.z * 8.0;
+        ivec2 tc = ivec2(floor((sp.xz - world.xy) / tileM));
+        int rr = int(ceil(nearR / tileM));
+        for (int dy = -rr; dy <= rr; ++dy)
+        for (int dx = -rr; dx <= rr; ++dx) {
+            ivec2 t = tc + ivec2(dx, dy);
+            if (t.x < 0 || t.y < 0 || t.x >= int(tx) || t.y >= int(tz)) continue;
+            vec2 centre = world.xy + (vec2(t) + 0.5) * tileM;
+            uint ti = uint(t.y) * tx + uint(t.x);
+            uint n = field[ti];
+            if (distance(centre, sp.xz) <= nearR) nearby += n;
+            if (nearest > 1e8 && n > 0u)
+                for (uint q = 0u; q < min(n, 4u); ++q) {
+                    uint b = T + ti * 16u + q * 4u;
+                    nearest = min(nearest, distance(vec2(uintBitsToFloat(field[b]), uintBitsToFloat(field[b + 2u])), sp.xz));
+                }
+        }
+    }
+    contacts[4u * s] = attackers;
+    contacts[4u * s + 1u] = nearby;
+    contacts[4u * s + 2u] = floatBitsToUint(nearest);
+    contacts[4u * s + 3u] = floatBitsToUint(soI.z);
+}

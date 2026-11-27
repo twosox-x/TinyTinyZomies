@@ -15,6 +15,8 @@
 
 namespace ttz::game {
 
+struct BalanceConfig;
+
 struct TargetLock {                  // a point the soldier aims at (the GPU decides which zombie a round hits)
     bool active = false;
     V3 pos;                          // last associated field sample (re-associated to the nearest sample each refresh)
@@ -46,8 +48,35 @@ struct SoldierPool {
     std::vector<uint32_t> rng;       // deterministic per-soldier stream
     // --- animation (playback state; poses are sampled per render frame by the renderer)
     std::vector<AnimPlayback> anim;
+    // --- AI bookkeeping (WS-C; written by SoldierAI unless noted)
+    std::vector<uint8_t> equipped;   // health / mag / reserve set from the balance config (equip())
+    std::vector<float> maxHealth;
+    std::vector<V3> home;            // guard position (formation slot of the squad anchor / last order)
+    std::vector<float> homeYaw;
+    std::vector<uint32_t> orderSerial;   // squad order serial this soldier has taken over
+    std::vector<SoldierState> resume;    // state to resume after a threat stop (Moving / Resupplying), Idle: none
+    std::vector<float> stuckTime;
+    std::vector<V3> progressPos;
+    std::vector<uint8_t> repaths;    // re-plans of the current path (stuck recovery: one, then hold)
+    std::vector<uint8_t> phase;      // per-state progress bits (PH_*), cleared on every state change
+    std::vector<float> hitCooldown, contactAge;   // Combat: hit reaction cooldown, s since last zombie contact
+    std::vector<float> retry;        // AI: s until the next resupply search / reservation retry
+    std::vector<float> stopCooldown; // AI: s until a moving soldier may stop again for a close threat
+    std::vector<V3> goal;            // AI: destination of the current path (home, supply slot, queue point)
+    std::vector<uint8_t> wounded;    // health below SoldierPool::woundedFraction (slower, wider spread)
+    std::vector<uint32_t> targetSwitches, stateChanges, rounds;   // diagnostics (tests, UI)
 
     SoldierId spawn(SoldierClass c, int infantryIndex, SquadId sq, int slot, V3 p, float yawRad, uint32_t seed);
+    // Health, full magazine and reserve from the config (Deploy calls it on purchase; SoldierAI equips any soldier
+    // it meets unequipped, so an omitted call cannot leave a soldier at health 0).
+    void equip(uint32_t i, const BalanceConfig& cfg);
+    // The only way states change (resets stateTime / phase, counts transitions for the oscillation tests).
+    void setState(uint32_t i, SoldierState s) {
+        if (state[i] == s) return;
+        state[i] = s; stateTime[i] = 0.f; phase[i] = 0; ++stateChanges[i];
+    }
+    int fullLoad(uint32_t i, const BalanceConfig& cfg) const;     // magazine + reserve of the class weapon
+    float woundedFraction = 0.35f;   // behaviour constant: health / max below which a soldier counts as wounded
     void release(SoldierId id);      // body removed: slot reusable (generation increments)
     bool valid(SoldierId id) const { return id.index < gen.size() && used[id.index] && gen[id.index] == id.gen; }
     SoldierId idOf(uint32_t index) const { SoldierId s; s.index = index; s.gen = gen[index]; return s; }
@@ -57,6 +86,8 @@ struct SoldierPool {
 private:
     std::vector<uint32_t> free_;
 };
+
+enum SoldierPhase : uint8_t { PH_RELOADED = 1, PH_GRABBED = 2, PH_WAITING = 4, PH_RETURNING = 8, PH_ACQUIRED = 16 };
 
 struct MoveOrder {
     bool active = false;
@@ -74,6 +105,12 @@ struct Squad {
     uint32_t flags = 0;              // SquadFlags (recomputed each tick)
     uint32_t number = 0;             // display number (1, 2, ...) per type, for the marker / list
     bool deploying = true;
+    // --- WS-C (SoldierAI)
+    bool hasAnchor = false;          // anchor: where the squad holds (last order destination, else landing centroid)
+    V3 anchor;
+    float anchorFacing = 0.f;
+    uint32_t seenSerial = 0;         // last order serial turned into formation slots
+    bool stuck = false;              // a member gave up a path (holds where it is; UI warning)
 };
 
 struct SquadList {

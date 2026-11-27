@@ -1,0 +1,321 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+};
+
+struct GameSolid
+{
+    uint gameSolid[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct Field
+{
+    uint field[1];
+};
+
+struct Contacts
+{
+    uint contacts[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _49)
+{
+    return (uint(c.y) * _49.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+float bodyHeight(thread const float& prone, constant SimUniforms& _49)
+{
+    return mix(_49.agentP.y, _49.agentP.z, fast::clamp(prone, 0.0, 1.0));
+}
+
+kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96 [[buffer(1)]], device Agents& _312 [[buffer(2)]], device CellStart& _273 [[buffer(3)]], device CellCount& _282 [[buffer(4)]], device Counters& _157 [[buffer(5)]], device Field& _519 [[buffer(6)]], device Contacts& _585 [[buffer(7)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint s = gl_GlobalInvocationID.x;
+    if (s >= _49.misc.z)
+    {
+        return;
+    }
+    float4 soP = as_type<float4>(uint4(_96.gameSolid[8u * s], _96.gameSolid[(8u * s) + 1u], _96.gameSolid[(8u * s) + 2u], _96.gameSolid[(8u * s) + 3u]));
+    float4 soI = as_type<float4>(uint4(_96.gameSolid[(8u * s) + 4u], _96.gameSolid[(8u * s) + 5u], _96.gameSolid[(8u * s) + 6u], _96.gameSolid[(8u * s) + 7u]));
+    float reach = _49.extraP.x;
+    float nearR = _49.extraP.y;
+    uint live = _157.counters[0];
+    float3 sp = soP.xyz;
+    uint attackers = 0u;
+    uint nearby = 0u;
+    float nearest = 1000000000.0;
+    float2 g = (sp.xz - _49.world.xy) * _49.world.w;
+    bool _188 = all(g >= float2(0.0));
+    bool _200;
+    if (_188)
+    {
+        _200 = all(g < float2(_49.grid.xy));
+    }
+    else
+    {
+        _200 = _188;
+    }
+    bool inside = _200;
+    if (inside)
+    {
+        int2 c = int2(floor(g));
+        Agent a;
+        for (int dy = -2; dy <= 2; dy++)
+        {
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int2 cc = c + int2(dx, dy);
+                bool _234 = cc.x < 0;
+                bool _241;
+                if (!_234)
+                {
+                    _241 = cc.y < 0;
+                }
+                else
+                {
+                    _241 = _234;
+                }
+                bool _251;
+                if (!_241)
+                {
+                    _251 = cc.x >= int(_49.grid.x);
+                }
+                else
+                {
+                    _251 = _241;
+                }
+                bool _261;
+                if (!_251)
+                {
+                    _261 = cc.y >= int(_49.grid.y);
+                }
+                else
+                {
+                    _261 = _251;
+                }
+                if (_261)
+                {
+                    continue;
+                }
+                int2 param = cc;
+                uint cid = cellIndex(param, _49);
+                uint b = _273.cellStart[cid];
+                uint e = min((b + _282.cellCount[cid]), live);
+                uint k = b;
+                for (;;)
+                {
+                    bool _298 = k < e;
+                    bool _306;
+                    if (_298)
+                    {
+                        _306 = k < (b + 64u);
+                    }
+                    else
+                    {
+                        _306 = _298;
+                    }
+                    if (_306)
+                    {
+                        a.pos = _312.agents[k].pos;
+                        a.vel = _312.agents[k].vel;
+                        a.prev = _312.agents[k].prev;
+                        a.dirs = _312.agents[k].dirs;
+                        a.info = _312.agents[k].info;
+                        Agent param_1 = a;
+                        uint st = agentState(param_1);
+                        if (st >= 3u)
+                        {
+                            uint _390 = k;
+                            k = _390 + uint(1);
+                            continue;
+                        }
+                        bool _346 = a.pos.y > ((sp.y + soI.x) + 0.300000011920928955078125);
+                        bool _361;
+                        if (!_346)
+                        {
+                            float param_2 = a.pos.w;
+                            _361 = (a.pos.y + bodyHeight(param_2, _49)) < (sp.y - 0.300000011920928955078125);
+                        }
+                        else
+                        {
+                            _361 = _346;
+                        }
+                        if (_361)
+                        {
+                            uint _390 = k;
+                            k = _390 + uint(1);
+                            continue;
+                        }
+                        float dist = distance(a.pos.xz, sp.xz);
+                        nearest = fast::min(nearest, dist);
+                        bool _376 = st <= 1u;
+                        bool _385;
+                        if (_376)
+                        {
+                            _385 = (dist - soP.w) <= reach;
+                        }
+                        else
+                        {
+                            _385 = _376;
+                        }
+                        if (_385)
+                        {
+                            attackers++;
+                        }
+                        uint _390 = k;
+                        k = _390 + uint(1);
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+        uint T = _49.counts.z;
+        uint tx = _49.counts.x;
+        uint tz = ((T + tx) - 1u) / max(tx, 1u);
+        float tileM = _49.world.z * 8.0;
+        int2 tc = int2(floor((sp.xz - _49.world.xy) / float2(tileM)));
+        int rr = int(ceil(nearR / tileM));
+        int _436 = -rr;
+        for (int dy_1 = _436; dy_1 <= rr; dy_1++)
+        {
+            int _447 = -rr;
+            for (int dx_1 = _447; dx_1 <= rr; dx_1++)
+            {
+                int2 t = tc + int2(dx_1, dy_1);
+                bool _464 = t.x < 0;
+                bool _471;
+                if (!_464)
+                {
+                    _471 = t.y < 0;
+                }
+                else
+                {
+                    _471 = _464;
+                }
+                bool _480;
+                if (!_471)
+                {
+                    _480 = t.x >= int(tx);
+                }
+                else
+                {
+                    _480 = _471;
+                }
+                bool _489;
+                if (!_480)
+                {
+                    _489 = t.y >= int(tz);
+                }
+                else
+                {
+                    _489 = _480;
+                }
+                if (_489)
+                {
+                    continue;
+                }
+                float2 centre = _49.world.xy + ((float2(t) + float2(0.5)) * tileM);
+                uint ti = (uint(t.y) * tx) + uint(t.x);
+                uint n = _519.field[ti];
+                if (distance(centre, sp.xz) <= nearR)
+                {
+                    nearby += n;
+                }
+                if ((nearest > 100000000.0) && (n > 0u))
+                {
+                    for (uint q = 0u; q < min(n, 4u); q++)
+                    {
+                        uint b_1 = (T + (ti * 16u)) + (q * 4u);
+                        nearest = fast::min(nearest, distance(float2(as_type<float>(_519.field[b_1]), as_type<float>(_519.field[b_1 + 2u])), sp.xz));
+                    }
+                }
+            }
+        }
+    }
+    _585.contacts[4u * s] = attackers;
+    _585.contacts[(4u * s) + 1u] = nearby;
+    _585.contacts[(4u * s) + 2u] = as_type<uint>(nearest);
+    _585.contacts[(4u * s) + 3u] = as_type<uint>(soI.z);
+}
+

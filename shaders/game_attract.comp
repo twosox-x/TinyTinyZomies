@@ -1,0 +1,29 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Attractor sources for nav_relax (HordeBridge::preSim, after navSeed was filled with GAME_NO_SEED).
+// One workgroup row per attractor (gl_GlobalInvocationID.y); x walks the cells of its footprint box
+// (misc.z cells wide). Seed = offset + distance to the attractor (the flow inside the footprint points at it);
+// offset = gate - awareness, so that nav distance > gate <=> beyond this source's awareness radius.
+// Cells that are solid at the attractor's height (walls, vehicles) are not seeded.
+#include "common.glsl"
+layout(local_size_x = 64) in;
+struct Attr { vec4 posR; vec4 info; };   // feet xyz + footprint radius; x seed offset (m)
+layout(std430, set = 0, binding = 0) readonly buffer Attrs { Attr attrs[]; };
+layout(std430, set = 0, binding = 1) readonly buffer StaticH { float staticH[]; };
+layout(std430, set = 1, binding = 0) buffer NavSeed { uint navSeed[]; };
+void main() {
+    uint k = gl_GlobalInvocationID.y;
+    uint side = misc.z;
+    uint t = gl_GlobalInvocationID.x;
+    if (k >= counts.x || t >= side * side) return;
+    Attr at = attrs[k];
+    ivec2 c0 = cellCoord(at.posR.xz) - ivec2(int(side / 2u));
+    ivec2 c = c0 + ivec2(int(t % side), int(t / side));
+    if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) return;
+    vec2 center = world.xy + (vec2(c) + 0.5) * world.z;
+    float d = distance(center, at.posR.xz);
+    if (d > at.posR.w) return;
+    uint id = cellIndex(c);
+    if (staticH[id] > at.posR.y + moveP.w) return;
+    atomicMin(navSeed[id], floatBitsToUint(max(at.info.x + d, 0.0)));   // positive floats order like uints
+}

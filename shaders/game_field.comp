@@ -1,0 +1,31 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Coarse zombie field for target acquisition (HordeBridge::postSim, after the frame's last step).
+// The window in tiles of 8 x 8 sim cells (6 m); field[0, T): live walker count per tile,
+// field[T + 16 * t ...]: up to 4 sample positions (xyz, w = 1) of walkers in tile t.
+// misc.y = 0: clear the counts (T threads); misc.y = 1: one thread per live agent (shared indirect args).
+// counts.x = tiles per row, counts.z = T.
+#include "common.glsl"
+layout(local_size_x = 256) in;   // the per-agent mode shares the 256-wide indirect agent dispatch args
+layout(std430, set = 0, binding = 0) readonly buffer Agents   { Agent agents[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Counters { uint counters[]; };
+layout(std430, set = 1, binding = 0) buffer Field { uint field[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    uint T = counts.z;
+    if (misc.y == 0u) { if (i < T) field[i] = 0u; return; }
+    if (i >= counters[C_LIVE]) return;
+    Agent a = agents[i];
+    if (agentState(a) >= ST_DYING) return;
+    ivec2 c = cellCoord(a.pos.xz);
+    uint t = uint(c.y / 8) * counts.x + uint(c.x / 8);
+    if (t >= T) return;
+    uint k = atomicAdd(field[t], 1u);
+    if (k < 4u) {
+        uint b = T + t * 16u + k * 4u;
+        field[b] = floatBitsToUint(a.pos.x);
+        field[b + 1u] = floatBitsToUint(a.pos.y);
+        field[b + 2u] = floatBitsToUint(a.pos.z);
+        field[b + 3u] = floatBitsToUint(1.0);
+    }
+}

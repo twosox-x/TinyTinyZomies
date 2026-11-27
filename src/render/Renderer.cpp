@@ -517,6 +517,21 @@ uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* 
     return n;
 }
 
+void Renderer::setLights(const std::vector<PointLight>& lights) {
+    sandbox_.lights = lights;
+    for (auto& [id, e] : exts_) if (e.lights) e.lights(sandbox_.lights);
+}
+
+int Renderer::addExtension(Extension e) {
+    exts_.push_back({nextExt_, std::move(e)});
+    return nextExt_++;
+}
+
+void Renderer::removeExtension(int id) {
+    for (size_t i = 0; i < exts_.size(); ++i)
+        if (exts_[i].first == id) { exts_.erase(exts_.begin() + (long)i); return; }
+}
+
 void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
                       const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars, uint32_t outW,
                       uint32_t outH) {
@@ -525,6 +540,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const bool modular = chars && rs.characterModel == 1;
     if (modular && !skipCharacterPrepare_) prepareCharacters(cmd, w, h, cam, sim, time, rs, chars);
     if (extPrepare) extPrepare(cmd);
+    for (auto& [id, e] : exts_) if (e.prepare) e.prepare(cmd);
     FrameUniforms fu{};
     M4 vp = mul(cam.proj((float)w / (float)h), cam.view());
     std::memcpy(fu.viewProj, vp.m, sizeof(fu.viewProj));
@@ -648,6 +664,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         }
         if (modular) { chars->drawShadow(cmd, sp, sim, time, rs.chars); shadowDraws_ += chars->drawCalls(rs.chars); }
         if (extShadowDraw) extShadowDraw(sp, cmd);
+        for (auto& [id, e] : exts_) if (e.shadowDraw) e.shadowDraw(sp, cmd);
         SDL_EndGPURenderPass(sp);
     }
     SDL_PushGPUVertexUniformData(cmd, 0, &fu, sizeof(fu));
@@ -832,6 +849,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     SDL_GPUTextureSamplerBinding pal{palette_, nearest_};
     if (modular) { chars->setShadowField(shadow()); chars->draw(cmd, pass, sim, time, rs.chars); }
     if (extDraw) extDraw(pass, cmd, sim.decals(), shadow(), sim.corpseHeight());
+    for (auto& [id, e] : exts_) if (e.draw) e.draw(pass, cmd, sim.decals(), shadow(), sim.corpseHeight());
     if (!modular && rs.drawCorpses) {
         SDL_BindGPUGraphicsPipeline(pass, pCorpse_);
         SDL_BindGPUVertexBuffers(pass, 0, &zvb, 1);

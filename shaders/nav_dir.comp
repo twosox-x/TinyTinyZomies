@@ -17,7 +17,9 @@ void main() {
     uint id = cellIndex(c);
     float d0 = dist[id];
     vec2 dir = vec2(0.0);
-    if (d0 < BIG * 0.5) {
+    // awareness gate (game mode): sources are offset so that d0 > gate means "farther than this source's awareness
+    // radius" for every source: those zombies get no flow and wander instead of crossing the city
+    if (d0 < BIG * 0.5 && !(goreQ.z > 0.0 && d0 > goreQ.z)) {
         if (d0 <= 0.0) {
             // inside a goal: arrived, stop and mill (a sink direction would crush arrivals into a mound)
             dir = vec2(0.0);

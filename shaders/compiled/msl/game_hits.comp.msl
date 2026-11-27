@@ -1,0 +1,429 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+};
+
+struct Hit
+{
+    float4 o;
+    float4 d;
+    uint4 info;
+};
+
+struct Hit_1
+{
+    float4 o;
+    float4 d;
+    uint4 info;
+};
+
+struct Hits
+{
+    Hit_1 hits[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct GameIO
+{
+    uint gameIO[1];
+};
+
+struct Results
+{
+    uint results[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _60)
+{
+    return (uint(c.y) * _60.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+float bodyHeight(thread const float& prone, constant SimUniforms& _60)
+{
+    return mix(_60.agentP.y, _60.agentP.z, fast::clamp(prone, 0.0, 1.0));
+}
+
+static inline __attribute__((always_inline))
+float rayCylinder(thread const float3& o, thread const float3& d, thread const float3& base, thread const float& h, thread const float& r, thread const float& tMax)
+{
+    float2 oc = o.xz - base.xz;
+    float a = dot(d.xz, d.xz);
+    float lo = 0.0;
+    float hi = tMax;
+    if (a < 9.9999999392252902907785028219223e-09)
+    {
+        if (dot(oc, oc) > (r * r))
+        {
+            return -1.0;
+        }
+    }
+    else
+    {
+        float b = dot(oc, d.xz);
+        float c = dot(oc, oc) - (r * r);
+        float disc = (b * b) - (a * c);
+        if (disc < 0.0)
+        {
+            return -1.0;
+        }
+        float s = sqrt(disc);
+        lo = fast::max(lo, ((-b) - s) / a);
+        hi = fast::min(hi, ((-b) + s) / a);
+    }
+    if (abs(d.y) < 9.9999999747524270787835121154785e-07)
+    {
+        bool _177 = o.y < base.y;
+        bool _188;
+        if (!_177)
+        {
+            _188 = o.y > (base.y + h);
+        }
+        else
+        {
+            _188 = _177;
+        }
+        if (_188)
+        {
+            return -1.0;
+        }
+    }
+    else
+    {
+        float ta = (base.y - o.y) / d.y;
+        float tb = ((base.y + h) - o.y) / d.y;
+        lo = fast::max(lo, fast::min(ta, tb));
+        hi = fast::min(hi, fast::max(ta, tb));
+    }
+    return (lo <= hi) ? lo : (-1.0);
+}
+
+kernel void main0(constant SimUniforms& _60 [[buffer(0)]], device Hits& _252 [[buffer(1)]], device Agents& _610 [[buffer(2)]], device CellStart& _572 [[buffer(3)]], device CellCount& _581 [[buffer(4)]], device StaticH& _481 [[buffer(5)]], device Counters& _287 [[buffer(6)]], device GameIO& _721 [[buffer(7)]], device Results& _765 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint h = gl_GlobalInvocationID.x;
+    if (h >= _60.misc.z)
+    {
+        return;
+    }
+    Hit req;
+    req.o = _252.hits[h].o;
+    req.d = _252.hits[h].d;
+    req.info = _252.hits[h].info;
+    float3 o = req.o.xyz;
+    float3 d = fast::normalize(req.d.xyz);
+    float tMax = req.o.w;
+    float R = _60.agentP.x;
+    uint live = _287.counters[0];
+    uint maxN = _60.misc.x;
+    float2 g = (o.xz - _60.world.xy) * _60.world.w;
+    int2 c = int2(floor(g));
+    float2 dg = d.xz * _60.world.w;
+    int2 stp = int2((dg.x > 0.0) ? 1 : (-1), (dg.y > 0.0) ? 1 : (-1));
+    float _331;
+    if (abs(dg.x) > 9.999999717180685365747194737196e-10)
+    {
+        _331 = 1.0 / abs(dg.x);
+    }
+    else
+    {
+        _331 = 1000000015047466219876688855040.0;
+    }
+    float _345;
+    if (abs(dg.y) > 9.999999717180685365747194737196e-10)
+    {
+        _345 = 1.0 / abs(dg.y);
+    }
+    else
+    {
+        _345 = 1000000015047466219876688855040.0;
+    }
+    float2 tDelta = float2(_331, _345);
+    float2 frac = g - float2(c);
+    float _364;
+    if (dg.x > 0.0)
+    {
+        _364 = 1.0 - frac.x;
+    }
+    else
+    {
+        _364 = frac.x;
+    }
+    float _377;
+    if (dg.y > 0.0)
+    {
+        _377 = 1.0 - frac.y;
+    }
+    else
+    {
+        _377 = frac.y;
+    }
+    float2 tNext = float2(_364, _377) * tDelta;
+    float tEnter = 0.0;
+    float best = 1000000015047466219876688855040.0;
+    uint bestK = 4294967295u;
+    uint kind = 0u;
+    float tHit = tMax;
+    Agent a;
+    for (int iter = 0; iter < 2048; iter++)
+    {
+        bool _408 = c.x < 0;
+        bool _415;
+        if (!_408)
+        {
+            _415 = c.y < 0;
+        }
+        else
+        {
+            _415 = _408;
+        }
+        bool _425;
+        if (!_415)
+        {
+            _425 = c.x >= int(_60.grid.x);
+        }
+        else
+        {
+            _425 = _415;
+        }
+        bool _435;
+        if (!_425)
+        {
+            _435 = c.y >= int(_60.grid.y);
+        }
+        else
+        {
+            _435 = _425;
+        }
+        if (_435)
+        {
+            break;
+        }
+        bool _441 = tEnter > tMax;
+        bool _453;
+        if (!_441)
+        {
+            _453 = tEnter > (best + (_60.world.z * 1.5));
+        }
+        else
+        {
+            _453 = _441;
+        }
+        if (_453)
+        {
+            break;
+        }
+        float tExit = fast::min(fast::min(tNext.x, tNext.y), tMax);
+        float yLow = o.y + (d.y * ((d.y < 0.0) ? tExit : tEnter));
+        int2 param = c;
+        bool _488 = _481.staticH[cellIndex(param, _60)] > yLow;
+        bool _497;
+        if (_488)
+        {
+            int2 param_1 = c;
+            _497 = _481.staticH[cellIndex(param_1, _60)] > 0.0;
+        }
+        else
+        {
+            _497 = _488;
+        }
+        if (_497)
+        {
+            if (best > tEnter)
+            {
+                kind = 2u;
+                tHit = tEnter;
+                bestK = 4294967295u;
+                best = tEnter;
+            }
+            break;
+        }
+        uint visited = 0u;
+        for (int oy = -1; oy <= 1; oy++)
+        {
+            for (int ox = -1; ox <= 1; ox++)
+            {
+                int2 cc = c + int2(ox, oy);
+                bool _533 = cc.x < 0;
+                bool _540;
+                if (!_533)
+                {
+                    _540 = cc.y < 0;
+                }
+                else
+                {
+                    _540 = _533;
+                }
+                bool _550;
+                if (!_540)
+                {
+                    _550 = cc.x >= int(_60.grid.x);
+                }
+                else
+                {
+                    _550 = _540;
+                }
+                bool _560;
+                if (!_550)
+                {
+                    _560 = cc.y >= int(_60.grid.y);
+                }
+                else
+                {
+                    _560 = _550;
+                }
+                if (_560)
+                {
+                    continue;
+                }
+                int2 param_2 = cc;
+                uint cid = cellIndex(param_2, _60);
+                uint s = _572.cellStart[cid];
+                uint e = min((s + _581.cellCount[cid]), live);
+                for (uint k = s; k < e; k++)
+                {
+                    uint _598 = visited;
+                    uint _599 = _598 + uint(1);
+                    visited = _599;
+                    if (_599 > maxN)
+                    {
+                        break;
+                    }
+                    a.pos = _610.agents[k].pos;
+                    a.vel = _610.agents[k].vel;
+                    a.prev = _610.agents[k].prev;
+                    a.dirs = _610.agents[k].dirs;
+                    a.info = _610.agents[k].info;
+                    Agent param_3 = a;
+                    if (agentState(param_3) >= 3u)
+                    {
+                        continue;
+                    }
+                    float param_4 = a.pos.w;
+                    float3 param_5 = o;
+                    float3 param_6 = d;
+                    float3 param_7 = a.pos.xyz;
+                    float param_8 = bodyHeight(param_4, _60);
+                    float param_9 = R;
+                    float param_10 = tMax;
+                    float t = rayCylinder(param_5, param_6, param_7, param_8, param_9, param_10);
+                    if ((t >= 0.0) && (t < best))
+                    {
+                        best = t;
+                        bestK = k;
+                        kind = 1u;
+                        tHit = t;
+                    }
+                }
+            }
+        }
+        tEnter = tExit;
+        if (tEnter >= tMax)
+        {
+            break;
+        }
+        if (tNext.x < tNext.y)
+        {
+            tNext.x += tDelta.x;
+            c.x += stp.x;
+        }
+        else
+        {
+            tNext.y += tDelta.y;
+            c.y += stp.y;
+        }
+    }
+    if (kind == 1u)
+    {
+        uint b = 8208u + (4u * bestK);
+        uint _733 = atomic_fetch_add_explicit((device atomic_uint*)&_721.gameIO[b], uint((fast::clamp(req.d.w, 0.0, 60.0) * 65536.0) + 0.5), memory_order_relaxed);
+        uint _740 = atomic_fetch_or_explicit((device atomic_uint*)&_721.gameIO[b + 1u], req.info.y & 3u, memory_order_relaxed);
+        uint _745 = atomic_fetch_add_explicit((device atomic_uint*)&_721.gameIO[b + 1u], 16u, memory_order_relaxed);
+        uint _751 = atomic_fetch_max_explicit((device atomic_uint*)&_721.gameIO[b + 2u], req.info.x, memory_order_relaxed);
+        uint _761 = atomic_exchange_explicit((device atomic_uint*)&_721.gameIO[b + 3u], pack_float_to_snorm4x8(float4(d, 0.0)), memory_order_relaxed);
+    }
+    _765.results[2u * h] = kind;
+    _765.results[(2u * h) + 1u] = as_type<uint>(tHit);
+}
+

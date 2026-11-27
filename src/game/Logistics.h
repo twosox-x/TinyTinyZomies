@@ -25,9 +25,19 @@ struct SupplyPoint {
     std::array<int, 3> stock = {0, 0, 0};     // rounds per AmmoType
     std::vector<V3> slots;                    // access points (world)
     std::vector<SoldierId> slotUser;          // reservation per slot
+    std::vector<float> slotStale;             // s the slot's user has not been resupplying (stale reservations freed)
     bool landed = true;                       // airdrop crates: false while descending
     float descentT = 0.f, altitude = 0.f;     // crate descent (renderer reads these for the canopy / crate tracks)
     float emptyFor = 0.f;
+    // WS-D additions (additive): crate drop timeline for the renderer, lifetime
+    bool alive = true;                        // false: removed (empty crate dissolved); slot reusable
+    float startAlt = 0.f;                     // crate: altitude at release (m above pos.y)
+    int phase = 0;                            // crate: 0 descent, 1 land clip, 2 on the ground (container: 2)
+    float phaseT = 0.f;                       // s in the current phase
+    float groundT = -1.f;                     // s since the cargo canopy settled (dissolve clock), -1 not yet
+    float dissolve = 0.f;                     // 0 visible .. 1 gone (empty crates fade out)
+    int initialTotal = 0;                     // rounds at creation (UI: stock bar)
+    int total() const { return stock[0] + stock[1] + stock[2]; }
 };
 
 class Logistics {
@@ -45,7 +55,17 @@ public:
     void tick(GameContext& ctx);                                        // crate descents, landing events, cleanup
     const std::vector<SupplyPoint>& points() const { return points_; }
     const SupplyPoint* get(SupplyId id) const;
+    // WS-D additions (additive)
+    float crateDescentSpeed = 5.f, crateLandDuration = 1.5f;     // crate/descent, crate/land (GameWorld sets them from the clips)
+    float emptyCrateLinger = 20.f, emptyCrateDissolve = 3.f;     // s: empty crates stay as props, then dissolve
+    void reset() { points_.clear(); gen_.clear(); }
+    int queued(SupplyId sp) const;                                // soldiers waiting (reservation refused) last tick
+    uint64_t roundsDelivered(AmmoType t) const { return delivered_[(size_t)t]; }
+    // Soldiers waiting for a slot register here (AI calls reserve() each tick until it succeeds; counted for the UI).
 private:
+    SupplyPoint* getMut(SupplyId id);
+    std::array<uint64_t, 3> delivered_{};
+    std::vector<int> waiting_, waitingNow_;
     std::vector<SupplyPoint> points_;
     std::vector<uint32_t> gen_;
 };

@@ -66,4 +66,34 @@ enum : uint32_t { I_AGENT_DISPATCH = 0, I_CORPSE_DISPATCH = 4, I_ZOMBIE_DRAW = 8
 constexpr uint32_t FLAG_VERTICAL = 1u;
 constexpr uint32_t FLAG_CORPSES = 2u;
 
+// ---- gameplay coupling (src/game/HordeBridge, docs/GAMEPLAY_ARCHITECTURE.md 3.3) ----------------------------------
+// SimUniforms.goreQ.z = awareness gate (nav distance beyond which the flow is zeroed, 0 = off),
+// SimUniforms.goreQ.w = GAME_* flags (as a float). All zero unless a HordeBridge drives the sim: the showcase is unchanged.
+enum : uint32_t { GAME_HITS = 1u, GAME_SOLDIERS = 2u, GAME_SEEDS = 4u };
+constexpr uint32_t kGameMaxSoldiers = 2048;   // == game::kMaxGpuSoldiers
+constexpr uint32_t kGameKillCap = 1024;       // kill records per readback (== game::kMaxKillsPerFrame)
+constexpr uint32_t kGameKillHeader = 16;      // uints: [0] records this readback, [1] session seq, [2] overflow total
+constexpr uint32_t kGameNoSeed = 0xFFFFFFFFu; // navSeed: no attractor source in this cell
+// SDL3 GPU allows 8 read-only + 8 read-write storage buffers per compute stage, so the coupling buffers are merged:
+//   gameIO    (uint): [0, kGameKillWords) kill ring (header + records), then 4 uints per agent of queued bullet damage
+//   gameSolid (uint): [0, kGameSoldierWords) GpuSoldier[kGameMaxSoldiers], then 2 layers x cells soldier index + 1
+constexpr uint32_t kGameKillWords = kGameKillHeader + kGameKillCap * 8;
+constexpr uint32_t kGameSoldierWords = kGameMaxSoldiers * 8;
+struct GpuSoldier {         // 32 bytes: feet xyz + capsule radius, x height, y attraction, z packed id
+    Vec4 posR;
+    Vec4 info;
+};
+static_assert(sizeof(GpuSoldier) == 32);
+struct GpuHitRequest {      // 48 bytes: origin + max distance, unit dir + damage, x shooter, y flags
+    Vec4 o;
+    Vec4 d;
+    UVec4 info;
+};
+static_assert(sizeof(GpuHitRequest) == 48);
+struct GpuKillRecord {      // 32 bytes: x seq (1-based, session), y cause, z shooter; pos xyz
+    UVec4 a;
+    Vec4 p;
+};
+static_assert(sizeof(GpuKillRecord) == 32);
+
 } // namespace ttz

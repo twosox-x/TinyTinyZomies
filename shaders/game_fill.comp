@@ -1,0 +1,9 @@
+#version 450
+// Fill a range of a uint buffer with a value (gameplay coupling: clears / resets recorded into the frame).
+layout(local_size_x = 256) in;
+layout(std430, set = 1, binding = 0) buffer Data { uint data[]; };
+layout(std140, set = 2, binding = 0) uniform FillU { uvec4 fill; };   // x word offset, y count, z value
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i < fill.y) data[fill.x + i] = fill.z;
+}

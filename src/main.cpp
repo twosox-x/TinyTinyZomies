@@ -150,6 +150,8 @@ int main(int argc, char** argv) {
     }
     if (!o.lab.empty() && o.lab != "military") { SDL_Log("unknown lab %s (available: military)", o.lab.c_str()); return 2; }
     if (o.game && !o.lab.empty()) { SDL_Log("--game and --lab are separate modes"); return 2; }
+    // headless game scripts: deterministic 1/60 s frame pacing until the script's `end` (exit code = failed expectations)
+    if (!o.gameScript.empty() && o.headless && o.frames < 0) o.frames = 1 << 30;
     if (bench) return ttz::runBenchmarks(b);
     if (selftest) {
         if (!SDL_Init(SDL_INIT_VIDEO)) { SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen"); SDL_Init(SDL_INIT_VIDEO); }

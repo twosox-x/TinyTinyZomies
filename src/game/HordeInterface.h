@@ -70,8 +70,12 @@ struct SoldierContact {
     float nearestDist = 1e9f;
 };
 
-// Horde attractor (zombies' flow field source): soldiers, noise. Bounded list; HordeBridge merges / ages them.
-struct Attractor { V3 pos; float strength = 1.f, radius = 2.f; };
+// Horde attractor (zombies' flow field source): soldiers, noise. Bounded list (kMaxAttractors; HordeBridge keeps the
+// strongest). Zombies whose path distance to it is within awareness x strength steer towards it; zombies beyond the
+// reach of every attractor get no flow and wander. radius: footprint seeded around pos (0.75..8 m).
+// awareness 0: the bridge default (ZombieThreatConfig.awarenessRadius via HordeBridge::setAwarenessRadius).
+struct Attractor { V3 pos; float strength = 1.f, radius = 2.f, awareness = 0.f; };
+constexpr uint32_t kMaxAttractors = 256;
 
 class HordeInterface {
 public:

@@ -5,6 +5,7 @@
 #include "game/Combat.h"
 #include "game/Config.h"
 #include "game/Economy.h"
+#include "game/HordeBridge.h"
 #include "game/Soldiers.h"
 
 #include "render/CharacterRenderer.h"
@@ -23,6 +24,10 @@
 #include <unordered_map>
 #include <cstring>
 #include <vector>
+
+namespace ttz::game {
+int runSoldierSelfTest(const BalanceConfig& cfg);
+}
 
 namespace ttz {
 namespace {
@@ -553,12 +558,15 @@ void testGameCore() {
     uint32_t r1 = 7, r2 = 7;
     V3 d1 = Combat::spreadDir({0, 0, 1}, 2.f, r1), d2 = Combat::spreadDir({0, 0, 1}, 2.f, r2);
     check(d1.x == d2.x && d1.y == d2.y && d1.z == d2.z && d1.z > std::cos(2.01f * 3.14159265f / 180.f), "shot spread is deterministic and inside the cone", "");
+    g_fail += runSoldierSelfTest(cfg);   // WS-C section "ai / nav" (src/game/SoldierSelfTest.cpp)
 }
 
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     auto t0 = std::chrono::steady_clock::now();
     testGameCore();
     if (std::getenv("TTZ_SELFTEST_GAME")) return g_fail ? 1 : 0;   // only the gameplay core
+    if (!std::getenv("TTZ_SELFTEST_NO_HORDE")) g_fail += game::selfTestHordeBridge(gpu, params);   // combat GPU (WS-A)
+    if (std::getenv("TTZ_SELFTEST_HORDE")) return g_fail ? 1 : 0;   // only gameplay core + combat GPU
     World w;
     w.gpu = &gpu;
     w.p = params;

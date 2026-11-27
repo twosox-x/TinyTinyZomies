@@ -1,0 +1,25 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Soldier colliders for sim_solve (HordeBridge::preSim). misc.y = 0: clear the cells stamped last tick
+// (misc.z = previous soldier count); misc.y = 1: stamp soldier index + 1 into its cell (misc.z = soldier count),
+// first free of two layers. Soldiers outside the window are not stamped.
+#include "common.glsl"
+layout(local_size_x = 64) in;
+// gameSolid: 8 uints per soldier (feet xyz, radius, ...) from word 0, soldier cells from GAME_CELL_BASE
+layout(std430, set = 1, binding = 0) buffer GameSolid { uint gameSolid[]; };
+layout(std430, set = 1, binding = 1) buffer Stamped { uint stamped[]; };
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= misc.z) return;
+    if (misc.y == 0u) {
+        uint c = stamped[i];
+        if (c < grid.z) { gameSolid[GAME_CELL_BASE + c] = 0u; gameSolid[GAME_CELL_BASE + grid.z + c] = 0u; }
+        stamped[i] = GAME_NO_SEED;
+        return;
+    }
+    vec2 g = (vec2(uintBitsToFloat(gameSolid[i * 8u]), uintBitsToFloat(gameSolid[i * 8u + 2u])) - world.xy) * world.w;
+    if (any(lessThan(g, vec2(0.0))) || any(greaterThanEqual(g, vec2(grid.xy)))) { stamped[i] = GAME_NO_SEED; return; }
+    uint c = cellIndex(ivec2(floor(g)));
+    if (atomicCompSwap(gameSolid[GAME_CELL_BASE + c], 0u, i + 1u) != 0u) atomicCompSwap(gameSolid[GAME_CELL_BASE + grid.z + c], 0u, i + 1u);
+    stamped[i] = c;
+}

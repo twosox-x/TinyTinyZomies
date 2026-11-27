@@ -1,5 +1,7 @@
-// Soldier / squad storage (WS-C). Implemented: slot allocation (needed by every workstream's tests).
+// Soldier / squad storage (WS-C): SoA slots with generation-checked handles, equipment from the balance config.
 #include "game/Soldiers.h"
+
+#include "game/Config.h"
 
 namespace ttz::game {
 
@@ -12,12 +14,32 @@ SoldierId SoldierPool::spawn(SoldierClass c, int infantryIndex, SquadId sq, int 
         pos.emplace_back(); vel.emplace_back(); yaw.push_back(0); path.emplace_back();
         health.push_back(0); mag.push_back(0); reserve.push_back(0); target.emplace_back(); fireCooldown.push_back(0);
         state.push_back(SoldierState::Idle); stateTime.push_back(0); supply.emplace_back(); rng.push_back(0); anim.emplace_back();
+        equipped.push_back(0); maxHealth.push_back(0); home.emplace_back(); homeYaw.push_back(0); orderSerial.push_back(0);
+        resume.push_back(SoldierState::Idle); stuckTime.push_back(0); progressPos.emplace_back(); repaths.push_back(0);
+        phase.push_back(0); hitCooldown.push_back(0); contactAge.push_back(1e9f); retry.push_back(0); wounded.push_back(0); stopCooldown.push_back(0); goal.emplace_back();
+        targetSwitches.push_back(0); stateChanges.push_back(0); rounds.push_back(0);
     }
     used[i] = 1; cls[i] = c; infantry[i] = (uint16_t)infantryIndex; squad[i] = sq; slotInSquad[i] = (uint8_t)slot;
     pos[i] = p; vel[i] = {}; yaw[i] = yawRad; path[i] = {}; health[i] = 0; mag[i] = 0; reserve[i] = 0; target[i] = {};
     fireCooldown[i] = 0; state[i] = SoldierState::Descending; stateTime[i] = 0; supply[i] = {}; rng[i] = pcg(seed ^ (i * 2654435761u));
     anim[i] = {};
+    equipped[i] = 0; maxHealth[i] = 0; home[i] = p; homeYaw[i] = yawRad; orderSerial[i] = 0; resume[i] = SoldierState::Idle;
+    stuckTime[i] = 0; progressPos[i] = p; repaths[i] = 0; phase[i] = 0; hitCooldown[i] = 0; contactAge[i] = 1e9f; retry[i] = 0; stopCooldown[i] = 0; goal[i] = p;
+    wounded[i] = 0; targetSwitches[i] = 0; stateChanges[i] = 0; rounds[i] = 0;
     return idOf(i);
+}
+
+void SoldierPool::equip(uint32_t i, const BalanceConfig& cfg) {
+    const int c = (int)cls[i];
+    maxHealth[i] = health[i] = cfg.soldier[c].health;
+    mag[i] = cfg.weapon[c].magazine;
+    reserve[i] = cfg.weapon[c].reserve;
+    equipped[i] = 1;
+}
+
+int SoldierPool::fullLoad(uint32_t i, const BalanceConfig& cfg) const {
+    const WeaponStats& w = cfg.weapon[(int)cls[i]];
+    return w.magazine + w.reserve;
 }
 
 void SoldierPool::release(SoldierId id) {

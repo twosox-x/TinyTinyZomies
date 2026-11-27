@@ -11,6 +11,7 @@ layout(local_size_x = 16, local_size_y = 16) in;
 layout(std430, set = 0, binding = 0) readonly buffer StaticH { float staticH[]; };
 layout(std430, set = 0, binding = 1) readonly buffer CorpseH { int corpseH[]; };
 layout(std430, set = 0, binding = 2) readonly buffer Density { vec4 density[]; };
+layout(std430, set = 0, binding = 3) readonly buffer NavSeed { uint navSeed[]; };   // GAME_SEEDS: attractor sources
 layout(std430, set = 1, binding = 0) buffer Dist { float dist[]; };
 #include "fields.glsl"
 const float BIG = 1.0e7;
@@ -43,6 +44,10 @@ void main() {
     vec2 center = world.xy + (vec2(c) + 0.5) * world.z;
     for (uint g = 0u; g < counts.x; ++g) {
         if (goals[g].w > 0.5 && distance(center, goals[g].xz) < navP.w) { dist[id] = 0.0; return; }
+    }
+    if ((gameFlags() & GAME_SEEDS) != 0u) {   // attractor source (soldier, noise): distance offset by its awareness
+        uint sd = navSeed[id];
+        if (sd != GAME_NO_SEED) { dist[id] = uintBitsToFloat(sd); return; }
     }
     float cost = cellCost(c);
     if (cost < 0.0) { dist[id] = BIG; return; }

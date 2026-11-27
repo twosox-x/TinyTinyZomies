@@ -1,0 +1,26 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct FillU
+{
+    uint4 fill;
+};
+
+struct Data
+{
+    uint data[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(256u, 1u, 1u);
+
+kernel void main0(constant FillU& _20 [[buffer(0)]], device Data& _34 [[buffer(1)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    uint i = gl_GlobalInvocationID.x;
+    if (i < _20.fill.y)
+    {
+        _34.data[_20.fill.x + i] = _20.fill.z;
+    }
+}
+

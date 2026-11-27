@@ -10,6 +10,7 @@
 #include "sim/Look.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 
@@ -125,6 +126,18 @@ bool App::init() {
         ii.ColorTargetFormat = swapFmt;
         ii.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
         ImGui_ImplSDLGPU3_Init(&ii);
+    } else if (o.game) {   // headless --game: ImGui without a platform backend, drawn into script screenshots (HUD captures)
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGui::GetIO().IniFilename = nullptr;
+        ImGui::GetIO().DisplaySize = ImVec2((float)o.width, (float)o.height);
+        ImGui::StyleColorsDark();
+        ImGui_ImplSDLGPU3_InitInfo ii{};
+        ii.Device = s_.gpu.device();
+        ii.ColorTargetFormat = swapFmt;   // == the renderer's final colour target (R8G8B8A8)
+        ii.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+        ImGui_ImplSDLGPU3_Init(&ii);
+        headlessImGui_ = true;
     }
     s_.scenario = std::clamp(o.scenario, 0, (int)s_.sandbox.scenarios.size() - 1);
     if (o.showcase >= 0) loadShowcase(o.showcase);
@@ -547,11 +560,38 @@ void App::frame(double dt) {
             SDL_EndGPURenderPass(rp);
         }
     }
+    std::string gameShot;   // --game-script `shot`: the frame with its HUD (headless: ImGui drawn into the final image)
+    if (s.game) gameShot = s.game->takeScriptShot();
+    if (!s.window && headlessImGui_ && s.game && !gameShot.empty() && s.renderer.finalTexture()) {
+        ImGuiIO& io = ImGui::GetIO();
+        io.DisplaySize = ImVec2((float)outW, (float)outH);
+        io.DeltaTime = (float)std::max(1e-3, dt);
+        io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX);
+        ImGui_ImplSDLGPU3_NewFrame();
+        ImGui::NewFrame();
+        s.game->drawUI(s);
+        ImGui::Render();
+        ImDrawData* dd = ImGui::GetDrawData();
+        if (dd->DisplaySize.x > 0) {
+            ImGui_ImplSDLGPU3_PrepareDrawData(dd, cmd);
+            SDL_GPUColorTargetInfo ct{};
+            ct.texture = s.renderer.finalTexture();
+            ct.load_op = SDL_GPU_LOADOP_LOAD;
+            ct.store_op = SDL_GPU_STOREOP_STORE;
+            SDL_GPURenderPass* rp = SDL_BeginGPURenderPass(cmd, &ct, 1, nullptr);
+            ImGui_ImplSDLGPU3_RenderDrawData(dd, cmd, rp);
+            SDL_EndGPURenderPass(rp);
+        }
+    }
     s.cpuUI.add(nowMs() - t3);
     SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
     s.sim.onFrameSubmitted(fence);
     if (s.game) {
         s.game->afterSubmit(s);
+        if (!gameShot.empty()) {   // windowed: the 3D image only (the HUD is on the swapchain)
+            SDL_WaitForGPUIdle(s.gpu.device());
+            s.renderer.saveScreenshot(gameShot);
+        }
         if (s.game->finished()) { s.exitCode = s.game->exitCode(); s.quit = true; }   // --game-script ended
     }
     // Without a swapchain nothing paces the CPU: keep headless runs to one frame in flight.
@@ -831,6 +871,10 @@ void App::shutdown() {
         ImGui_ImplSDLGPU3_Shutdown();
         ImGui_ImplSDL3_Shutdown();
         ImGui::DestroyContext();
+    } else if (headlessImGui_ && ImGui::GetCurrentContext()) {
+        ImGui_ImplSDLGPU3_Shutdown();
+        ImGui::DestroyContext();
+        headlessImGui_ = false;
     }
     if (s_.lab) {
         s_.renderer.extPrepare = nullptr;

@@ -150,6 +150,7 @@ private:
     void frame(double dt);
     AppState s_;
     bool initCity();
+    bool headlessImGui_ = false;   // --game headless: ImGui context for HUD screenshots
     void applyCameraRig();
     void cityBenchStep();
     void printCityBench();

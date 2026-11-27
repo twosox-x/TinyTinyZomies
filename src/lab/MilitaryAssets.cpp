@@ -661,4 +661,57 @@ bool MilitaryLibrary::load(const std::string& dir, float bodyVoxel) {
     return true;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// clip playback (moved from MilitaryLab: same arithmetic, the lab's review captures depend on it)
+void milCommitRootMotion(V3& pos, float& yaw, const MilKeyClip& k) {   // root-motion clip finished: move the agent
+    float c = std::cos(yaw), s = std::sin(yaw);
+    pos = pos + V3{k.delta[0] * c + k.delta[2] * s, k.delta[1], -k.delta[0] * s + k.delta[2] * c};
+    yaw += k.delta[3];
+}
+
+void milSwitchClip(const MilitaryLibrary& lib, const MilInfantry& inf, MilPlayback& so, V3& pos, float& yaw, int clip) {
+    if (clip == so.clip || clip < 0 || clip >= (int)inf.clips.size()) return;
+    const MilClip* old = so.clip >= 0 && so.clip < (int)inf.clips.size() ? &inf.clips[(size_t)so.clip] : nullptr;
+    const MilClip& nw = inf.clips[(size_t)clip];
+    bool sync = false;
+    float dur = old ? lib.transitionTime(old->name, nw.name, sync) : 0.f;
+    for (float& v : so.prevDelta) v = 0.f;
+    if (old && old->keyClip >= 0) {   // a finished one-shot root-motion clip: commit its displacement first
+        const MilKeyClip& k = lib.keyClips[(size_t)old->keyClip];
+        if (k.rootMotion && !k.loop && so.t >= k.duration - 1e-3f) { milCommitRootMotion(pos, yaw, k); std::memcpy(so.prevDelta, k.delta, sizeof(k.delta)); }
+    }
+    float phase = old && old->length > 0 ? so.t / old->length : 0.f;
+    so.prevClip = so.clip; so.prevT = so.t; so.blend = 0.f; so.blendDur = old ? dur : 0.f;
+    so.clip = clip;
+    so.t = sync ? std::fmod(phase, 1.f) * nw.length : 0.f;   // locomotion: phase-matched (same foot)
+}
+
+MilAdvance milAdvance(const MilitaryLibrary& lib, const MilInfantry& inf, MilPlayback& so, V3& pos, float& yaw, float step) {
+    MilAdvance r;
+    if (so.clip < 0 || so.clip >= (int)inf.clips.size()) return r;
+    const MilClip& c = inf.clips[(size_t)so.clip];
+    float len = std::max(1.f / 30.f, c.length);
+    r.prev = so.t;
+    so.t += step * so.rate;
+    if (so.t > len) { if (c.loop) { so.t = std::fmod(so.t, len); r.wrapped = true; } else so.t = len; }
+    if (so.prevClip >= 0) {   // cross-fade: the previous clip keeps playing underneath
+        so.blend += step * so.rate;
+        const MilClip& pc = inf.clips[(size_t)so.prevClip];
+        so.prevT += step * so.rate;
+        if (so.prevT > pc.length) so.prevT = pc.loop ? std::fmod(so.prevT, std::max(1.f / 30.f, pc.length)) : pc.length;
+        if (so.blend >= so.blendDur) { so.prevClip = -1; so.blendDur = 0.f; }
+    }
+    if (c.keyClip < 0) return r;
+    r.key = &lib.keyClips[(size_t)c.keyClip];
+    if (r.key->rootMotion && r.wrapped) milCommitRootMotion(pos, yaw, *r.key);   // looping root motion: displacement per cycle
+    return r;
+}
+
+int milClipByAction(const MilInfantry& inf, const char* action) {
+    for (size_t i = 0; i < inf.clips.size(); ++i) if (inf.clips[i].available && inf.clips[i].name == action) return (int)i;
+    for (size_t i = 0; i < inf.clips.size(); ++i)
+        if (inf.clips[i].available && inf.clips[i].name.find(action) != std::string::npos) return (int)i;
+    return -1;
+}
+
 } // namespace ttz

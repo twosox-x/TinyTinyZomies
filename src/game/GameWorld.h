@@ -82,10 +82,26 @@ public:
     CommandQueue& commands() { return commands_; }
     const BalanceConfig& config() const { return cfg_; }
     uint64_t ticks() const { return ctx_.tick; }
+    // WS-D additions (additive): script / UI access
+    AppState* app() { return app_; }
+    GameUI& ui() { return ui_; }
+    const Combat& combat() const { return combat_; }
+    const HordeBridge& horde() const { return horde_; }
+    const Deploy& deploy() const { return deploy_; }
+    const Logistics& logistics() const { return logistics_; }
+    const Economy& economy() const { return economy_; }
+    struct SquadStart { int ammo = 0; };          // per squad (purchase order): total rounds when the squad was bought
+    const std::vector<SquadStart>& squadStarts() const { return squadStarts_; }
+    uint64_t purchasesRefused() const { return refused_; }
+    double tickCpuMs() const { return tickMs_; }
+    std::string takeScriptShot() { return script_.takeShot(); }
+    const GameScript& script() const { return script_; }
 
 private:
     void tick(AppState& app);
     void applyCommands(AppState& app);
+    void updateSquadFlags();
+    void rebuildNav(AppState& app);
 
     GameOptions opt_;
     BalanceConfig cfg_;
@@ -109,6 +125,12 @@ private:
     GameContext ctx_;
     double accumulator_ = 0.0;
     bool finished_ = false;
+    AppState* app_ = nullptr;
+    std::vector<SquadStart> squadStarts_;
+    uint64_t refused_ = 0, overflowSeen_ = 0;
+    float navOx_ = 1e9f, navOz_ = 1e9f;
+    bool navDirty_ = false;
+    double navBuiltAt_ = -1e9, tickMs_ = 0;
 };
 
 } // namespace ttz::game

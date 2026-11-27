@@ -20,7 +20,7 @@ bool CrowdSim::createPipelines() {
         {&pScanBlocks_, "scan_blocks"}, {&pScanAdd_, "scan_add"}, {&pScatter_, "sim_scatter"},
         {&pCommitSort_, "sim_commit_sort"}, {&pSolve_, "sim_solve"}, {&pFinalize_, "sim_finalize"},
         {&pDensity_, "sim_density"}, {&pNavRelax_, "nav_relax"}, {&pNavDir_, "nav_dir"}, {&pDrawArgs_, "sim_draw_args"},
-        {&pGore_, "gore_update"}, {&pShift_, "grid_shift"}, {&pRelocate_, "sim_relocate"}};
+        {&pGore_, "gore_update"}, {&pShift_, "grid_shift"}, {&pRelocate_, "sim_relocate"}, {&pFill_, "game_fill"}};
     for (auto& e : list) {
         // every per-agent pass shares the 256-wide indirect dispatch args
         *e.p = gpu_->loadCompute(e.n, (std::string(e.n).rfind("nav_", 0) == 0 || std::string(e.n) == "grid_shift") ? 16 : (std::string(e.n).find("commit") != std::string::npos || std::string(e.n) == "sim_draw_args") ? 1 : 256);
@@ -68,6 +68,15 @@ bool CrowdSim::init(GpuContext& gpu, const SimParams& p, const Sandbox& sb) {
     park_[0] = mk(parkCapacity_ * sizeof(GpuAgent), "parkedA");
     park_[1] = mk(parkCapacity_ * sizeof(GpuAgent), "parkedB");
     parkCnt_ = mk(16, "parkCounts");
+    // gameplay coupling (HordeBridge): always bound, inactive unless setGameInputs() enables it
+    gameIO_ = mk((kGameKillWords + cap * 4) * 4, "gameIO");
+    gameSolid_ = mk((kGameSoldierWords + 2 * cells) * 4, "gameSolid");
+    navSeed_ = mk(cells * 4, "navSeed");
+    {
+        std::vector<uint32_t> z((size_t)std::max<uint32_t>(kGameKillWords + cap * 4, kGameSoldierWords + 2 * cells), 0u);
+        gpu_->uploadNow(gameIO_, z.data(), (kGameKillWords + cap * 4) * 4);   // kill seq starts at 0 once per session
+        gpu_->uploadNow(gameSolid_, z.data(), (kGameSoldierWords + 2 * cells) * 4);
+    }
     for (auto& r : rb_) {
         SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, C_COUNT * 4 + 256 + 32 + 16, 0};
         r.tb = SDL_CreateGPUTransferBuffer(gpu_->device(), &tci);
@@ -82,20 +91,22 @@ void CrowdSim::shutdown() {
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
     for (auto& r : rb_) {
-        if (r.fence) SDL_ReleaseGPUFence(d, r.fence);
         if (r.tb) SDL_ReleaseGPUTransferBuffer(d, r.tb);
         r = {};
     }
+    for (uint32_t i = 0; i < nFences_; ++i) SDL_ReleaseGPUFence(d, fences_[i].fence);
+    nFences_ = 0;
     if (staticTB_) SDL_ReleaseGPUTransferBuffer(d, staticTB_);
     staticTB_ = nullptr;
     SDL_GPUBuffer** bufs[] = {&agentsA_, &agentsB_, &posP_, &posQ_, &prevS_, &contactAux_, &cellLocal_, &cellCount_,
                               &cellStart_, &blockSums_, &density_, &staticH_, &corpseH_, &navDist_[0], &navDist_[1],
                               &navDir_, &corpses_, &counters_, &indirect_, &particles_, &particleList_, &gibs_, &gore_, &decals_,
-                              &park_[0], &park_[1], &parkCnt_, &shiftScratch_};
+                              &park_[0], &park_[1], &parkCnt_, &shiftScratch_,
+                              &gameIO_, &gameSolid_, &navSeed_};
     for (auto b : bufs) gpu_->releaseBuffer(*b);
     SDL_GPUComputePipeline** pipes[] = {&pSpawn_, &pCorpseBlast_, &pCommitAppend_, &pClear_, &pPredict_, &pScanLocal_,
                                         &pScanBlocks_, &pScanAdd_, &pScatter_, &pCommitSort_, &pSolve_, &pFinalize_,
-                                        &pDensity_, &pNavRelax_, &pNavDir_, &pDrawArgs_, &pGore_, &pShift_, &pRelocate_};
+                                        &pDensity_, &pNavRelax_, &pNavDir_, &pDrawArgs_, &pGore_, &pShift_, &pRelocate_, &pFill_};
     for (auto p : pipes) {
         if (*p) SDL_ReleaseGPUComputePipeline(d, *p);
         *p = nullptr;
@@ -122,6 +133,16 @@ void CrowdSim::reset(const Sandbox& sb) {
     gpu_->uploadNow(indirect_, ind, sizeof(ind));
     gpu_->uploadNow(parkCnt_, zeros.data(), 16);
     parkIn_ = 0;
+    {   // gameplay coupling: no pending damage, no soldiers, no seeds; the kill seq counter (header[1]) continues
+        const uint32_t cap = (uint32_t)p_.agentCapacity;
+        std::vector<uint32_t> z((size_t)std::max<uint32_t>(cap * 4, 2 * cells), 0u);
+        gpu_->uploadNow(gameIO_, z.data(), 4);                                      // pending kill records dropped
+        gpu_->uploadNow(gameIO_, z.data(), cap * 16, kGameKillWords * 4);           // no queued damage
+        gpu_->uploadNow(gameSolid_, z.data(), 2 * cells * 4, kGameSoldierWords * 4);   // no soldier cells
+        std::vector<uint32_t> none(cells, kGameNoSeed);
+        gpu_->uploadNow(navSeed_, none.data(), cells * 4);
+    }
+    gridValid_ = false;
     clearGore();
     pendingSpawns_.clear();
     pendingExplosions_.clear();
@@ -245,7 +266,7 @@ SimUniforms CrowdSim::baseUniforms() const {
     u.lookB = {p_.lookSkeletal, p_.lookMissing, 0.f, 0.f};
     u.goreP = {p_.bloodAmount, p_.dismemberChance, p_.gibThreshold, p_.goreEnabled ? 1.f : 0.f};
     u.goreCap = {(uint32_t)p_.particleCapacity, (uint32_t)p_.gibCapacity, decalW(), decalH()};
-    u.goreQ = {p_.tumbleDamping, p_.standHeight / 18.0f, 0.f, 0.f};
+    u.goreQ = {p_.tumbleDamping, p_.standHeight / 18.0f, gameFlags_ ? gameGate_ : 0.f, (float)gameFlags_};
     return u;
 }
 
@@ -297,7 +318,7 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
     // 2. predict + histogram
     dispatch(D(pClear_, {}, {cellCount_}), groups(cells + 1, 256));
     dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, corpseH_},
-                       {agentsA_, cellCount_, cellLocal_, counters_, particles_, gibs_, gore_}),
+                       {agentsA_, cellCount_, cellLocal_, counters_, particles_, gibs_, gore_, gameIO_}),
                      indirect_, I_AGENT_DISPATCH * 4);
 
     // 3. counting sort: prefix sum + scatter (dead agents fall into the graveyard bucket and vanish)
@@ -316,7 +337,8 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
     const int iters = std::max(1, p_.solverIterations);
     for (int it = 0; it < iters; ++it) {
         u.misc.y = (it == iters - 1) ? 1u : 0u;
-        dispatchIndirect(D(pSolve_, {in, prevS_, cellStart_, cellCount_, staticH_, corpseH_, counters_}, {out, contactAux_}),
+        dispatchIndirect(D(pSolve_, {in, prevS_, cellStart_, cellCount_, staticH_, corpseH_, counters_, gameSolid_},
+                           {out, contactAux_}),
                          indirect_, I_AGENT_DISPATCH * 4);
         std::swap(in, out);
     }
@@ -348,7 +370,7 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
     for (int it = 0; it < std::max(1, p_.navIterationsPerStep); ++it) {
         for (uint32_t parity = 0; parity < 2; ++parity) {   // red-black Gauss-Seidel, in place
             u.misc.y = parity;
-            dispatch(D(pNavRelax_, {staticH_, corpseH_, density_}, {navDist_[0]}), gx, gy);
+            dispatch(D(pNavRelax_, {staticH_, corpseH_, density_, navSeed_}, {navDist_[0]}), gx, gy);
         }
     }
     u.misc.y = 0;
@@ -356,6 +378,13 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
 
     simTime_ += p_.fixedDt;
     ++stepIndex_;
+    gridValid_ = true;
+}
+
+void CrowdSim::fillBuffer(SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* buf, uint32_t offset, uint32_t count, uint32_t value) {
+    if (!count) return;
+    struct { uint32_t offset, count, value, pad; } u{offset, count, value, 0};
+    dispatch(Dispatch{cmd, pFill_, {}, {buf}, &u, sizeof(u)}, groups(count, 256));
 }
 
 // One layer of a grid field shifted through the scratch buffer (a compute pass cannot read and write the same
@@ -380,6 +409,8 @@ void CrowdSim::relocate(SDL_GPUCommandBuffer* cmd, int dx, int dz, const std::ve
     if (staticHeights.size() != cells) return;
     if (!shiftScratch_) shiftScratch_ = gpu_->createBuffer(kStorage, std::max(cells * 16, decalW() * decalH() * 4), "shiftScratch");
     float oldX = sandbox_.originX, oldZ = sandbox_.originZ;
+    gridValid_ = false;                                            // cell lists refer to the old origin until the next step
+    fillBuffer(cmd, gameIO_, kGameKillWords, (uint32_t)p_.agentCapacity * 4, 0u);   // pending bullet damage: agent indices change
     sandbox_.originX += dx * p_.cellSize;
     sandbox_.originZ += dz * p_.cellSize;
     sandbox_.heightOverride = staticHeights;
@@ -429,8 +460,9 @@ void CrowdSim::writeDrawArgs(SDL_GPUCommandBuffer* cmd, uint32_t zombieIndexCoun
 void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
     SDL_GPUDevice* d = gpu_->device();
     // harvest finished slots
+    pollFences();
     for (auto& r : rb_) {
-        if (r.recorded && r.fence && SDL_QueryGPUFence(d, r.fence)) {
+        if (r.recorded && r.submitId && r.submitId <= completed_) {
             uint32_t c[C_COUNT], g[8], pk[4];
             void* p = SDL_MapGPUTransferBuffer(d, r.tb, false);
             std::memcpy(c, p, sizeof(c));
@@ -456,8 +488,7 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
                 stats_.parkDropped = pk[2];
                 stats_.frameOfData = r.frame;
             }
-            SDL_ReleaseGPUFence(d, r.fence);
-            r.fence = nullptr;
+            r.submitId = 0;
             r.recorded = false;
         }
     }
@@ -488,19 +519,39 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
     }
     SDL_EndGPUCopyPass(cp);
     r.recorded = true;
+    r.submitId = 0;
     r.frame = frameCounter_;
 }
 
+void CrowdSim::pollFences() {
+    if (!gpu_) return;
+    SDL_GPUDevice* d = gpu_->device();
+    // one queue: frames finish in submission order, so a signalled fence also covers every older one
+    int newest = -1;
+    for (int i = (int)nFences_ - 1; i >= 0; --i)
+        if (SDL_QueryGPUFence(d, fences_[i].fence)) { newest = i; break; }
+    if (newest < 0) return;
+    completed_ = std::max(completed_, fences_[newest].id);
+    for (int i = 0; i <= newest; ++i) SDL_ReleaseGPUFence(d, fences_[i].fence);
+    const uint32_t keep = nFences_ - (uint32_t)(newest + 1);
+    for (uint32_t i = 0; i < keep; ++i) fences_[i] = fences_[i + newest + 1];
+    nFences_ = keep;
+}
+
 void CrowdSim::onFrameSubmitted(SDL_GPUFence* fence) {
-    if (rbRecordSlot_ >= 0 && fence) {
-        rb_[rbRecordSlot_].fence = fence;
-        rbRecordSlot_ = -1;
-    } else if (fence) {
-        SDL_ReleaseGPUFence(gpu_->device(), fence);
-    } else if (rbRecordSlot_ >= 0) {
-        rb_[rbRecordSlot_].recorded = false;   // submitted without a fence: discard this slot
+    ++submitted_;
+    if (rbRecordSlot_ >= 0) {
+        if (fence) rb_[rbRecordSlot_].submitId = submitted_;
+        else rb_[rbRecordSlot_].recorded = false;   // submitted without a fence: discard this slot
         rbRecordSlot_ = -1;
     }
+    if (!fence) return;
+    if (nFences_ == fences_.size()) {   // all in flight: drop the oldest (a newer fence covers it), never wait
+        SDL_ReleaseGPUFence(gpu_->device(), fences_[0].fence);
+        for (uint32_t i = 1; i < nFences_; ++i) fences_[i - 1] = fences_[i];
+        --nFences_;
+    }
+    fences_[nFences_++] = {fence, submitted_};
 }
 
 } // namespace ttz

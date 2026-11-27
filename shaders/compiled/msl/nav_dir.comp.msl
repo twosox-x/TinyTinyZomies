@@ -90,7 +90,7 @@ float D(thread const int2& c, thread const float& fallback, constant SimUniforms
     return (d >= 5000000.0) ? fallback : d;
 }
 
-kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Dist& _88 [[buffer(1)]], device NavDir& _327 [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Dist& _88 [[buffer(1)]], device NavDir& _342 [[buffer(2)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     int2 c = int2(gl_GlobalInvocationID.xy);
     bool _116 = c.x >= int(_35.grid.x);
@@ -111,7 +111,27 @@ kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Dist& _88 [[bu
     uint id = cellIndex(param, _35);
     float d0 = _88.dist[id];
     float2 dir = float2(0.0);
-    if (d0 < 5000000.0)
+    bool _145 = d0 < 5000000.0;
+    bool _161;
+    if (_145)
+    {
+        bool _152 = _35.goreQ.z > 0.0;
+        bool _159;
+        if (_152)
+        {
+            _159 = d0 > _35.goreQ.z;
+        }
+        else
+        {
+            _159 = _152;
+        }
+        _161 = !_159;
+    }
+    else
+    {
+        _161 = _145;
+    }
+    if (_161)
     {
         if (d0 <= 0.0)
         {
@@ -132,44 +152,44 @@ kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Dist& _88 [[bu
             int2 param_7 = c + int2(0, 1);
             float param_8 = bump;
             float zp = D(param_7, param_8, _35, _88);
-            float _197;
+            float _212;
             if (fast::min(xm, xp) < d0)
             {
-                float _203;
+                float _218;
                 if (xm < xp)
                 {
-                    _203 = d0 - xm;
+                    _218 = d0 - xm;
                 }
                 else
                 {
-                    _203 = xp - d0;
+                    _218 = xp - d0;
                 }
-                _197 = _203;
+                _212 = _218;
             }
             else
             {
-                _197 = 0.0;
+                _212 = 0.0;
             }
-            float gx = _197;
-            float _222;
+            float gx = _212;
+            float _237;
             if (fast::min(zm, zp) < d0)
             {
-                float _228;
+                float _243;
                 if (zm < zp)
                 {
-                    _228 = d0 - zm;
+                    _243 = d0 - zm;
                 }
                 else
                 {
-                    _228 = zp - d0;
+                    _243 = zp - d0;
                 }
-                _222 = _228;
+                _237 = _243;
             }
             else
             {
-                _222 = 0.0;
+                _237 = 0.0;
             }
-            float gz = _222;
+            float gz = _237;
             float2 g = float2(gx, gz);
             float gl = length(g);
             if (gl > 9.9999997473787516355514526367188e-06)
@@ -201,6 +221,6 @@ kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Dist& _88 [[bu
             }
         }
     }
-    _327.navDir[id] = dir;
+    _342.navDir[id] = dir;
 }
 

@@ -21,6 +21,10 @@ layout(std430, set = 0, binding = 3) readonly buffer CellCount { uint cellCount[
 layout(std430, set = 0, binding = 4) readonly buffer StaticH   { float staticH[]; };
 layout(std430, set = 0, binding = 5) readonly buffer CorpseH   { int corpseH[]; };
 layout(std430, set = 0, binding = 6) readonly buffer Counters  { uint counters[]; };
+// gameplay coupling (GAME_SOLDIERS): soldier capsules (feet xyz + radius, x height) and their cells (index + 1, 2 layers)
+// (one buffer: 8 uints per soldier from word 0, cells from GAME_CELL_BASE)
+layout(std430, set = 0, binding = 7) readonly buffer GameSolid { uint gameSolid[]; };
+vec4 solidVec(uint w) { return uintBitsToFloat(uvec4(gameSolid[w], gameSolid[w + 1u], gameSolid[w + 2u], gameSolid[w + 3u])); }
 layout(std430, set = 1, binding = 0) buffer PosOut     { vec4 posOut[]; };
 layout(std430, set = 1, binding = 1) buffer ContactAux { vec4 contactAux[]; };
 #include "fields.glsl"
@@ -106,6 +110,29 @@ void main() {
     vec3 x = xi;
     if (n > 0.0) x += sum * (solverP.x / n);
     if (nf > 0.0) x.xz += fric * (solverP.w / nf);
+
+    // ---- soldiers (game mode): vertical capsules of infinite mass, zombies are pushed out completely ----------
+    if ((gameFlags() & GAME_SOLDIERS) != 0u) {
+        ivec2 cs = cellCoord(x.xz);
+        for (int dy = -1; dy <= 1; ++dy)
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 cc = cs + ivec2(dx, dy);
+            if (cc.x < 0 || cc.y < 0 || cc.x >= int(grid.x) || cc.y >= int(grid.y)) continue;
+            uint cid = cellIndex(cc);
+            for (uint layer = 0u; layer < 2u; ++layer) {
+                uint sIdx = gameSolid[GAME_CELL_BASE + layer * grid.z + cid];
+                if (sIdx == 0u) continue;
+                vec4 sp = solidVec((sIdx - 1u) * 8u), si = solidVec((sIdx - 1u) * 8u + 4u);
+                if (x.y > sp.y + si.x || x.y + hi < sp.y) continue;   // above / below the capsule
+                vec2 d = x.xz - sp.xz;
+                float minD = R + sp.w;
+                float dl = length(d);
+                if (dl >= minD) continue;
+                vec2 nrm = dl > 1e-4 ? d / dl : vec2(cos(hash01(i * 7919u) * 6.2831853), sin(hash01(i * 7919u) * 6.2831853));
+                x.xz = sp.xz + nrm * minD;
+            }
+        }
+    }
 
     // ---- static boxes (one per solid grid cell) --------------------------------
     float wallAhead = -1e4;
