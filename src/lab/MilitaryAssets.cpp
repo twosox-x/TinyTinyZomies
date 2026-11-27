@@ -177,6 +177,11 @@ void MilitaryLibrary::basePalette() {
     palette[P_FLASH_TIP] = mat(1.0f, 0.702f, 0.278f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 2.5f, "flash_tip");
     palette[P_TRACER] = mat(1.0f, 0.824f, 0.478f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 3.0f, "tracer_core");
     palette[P_TRACER_TAIL] = mat(1.0f, 0.541f, 0.227f, 0.5f, 0, MAT_EMISSIVE, EM_STEADY, 2.0f, "tracer_tail");
+    // B1 owner feedback: brighter flashes / tracers, emissive by day too (emissiveDay was 0: lit albedo only)
+    palette[P_FLASH].emissiveNight = 7.0f; palette[P_FLASH].emissiveDay = 6.0f;
+    palette[P_FLASH_TIP].emissiveNight = 5.0f; palette[P_FLASH_TIP].emissiveDay = 4.5f;
+    palette[P_TRACER].emissiveNight = 7.0f; palette[P_TRACER].emissiveDay = 6.5f;
+    palette[P_TRACER_TAIL].emissiveNight = 4.0f; palette[P_TRACER_TAIL].emissiveDay = 3.5f;
     palette[P_BRASS] = mat(0.784f, 0.631f, 0.29f, 0.4f, 0.35f, 0, 0, 0, "brass");
     palette[P_PUFF] = mat(0.788f, 0.776f, 0.741f, 0.95f, 0, 0, 0, 0, "suppressor_puff");
     palette[P_DUST] = mat(0.45f, 0.43f, 0.40f, 0.95f, 0, 0, 0, 0, "dust");
@@ -390,6 +395,11 @@ void MilitaryLibrary::buildLabHelpers() {
         handItemModels[4] = item("hand_ammo_can", 5, 9, 14, P_OLIVE, P_OLIVE_DARK);
         handItemModels[5] = item("hand_belt_end", 2, 2, 7, P_BRASS, P_GUNMETAL);
         { Builder b("fx_dust_l", 1, 1, 1, 0.08f); b.box(0, 0, 0, 1, 1, 1, P_DUST); b.centred(0.5f, 0.f, 0.5f); fxModels[FX_DUST_L] = add(b); }
+        // game tracer streak (MilitaryRenderer::fxTracer): 1 x 16 x 1 voxels of 5 cm along +Y, head at the pivot (top),
+        // hot core at the head fading to the tail; scaled per instance (thickness / length) through city.vert
+        { Builder b("fx_streak", 1, 16, 1, 0.05f);
+          b.box(0, 12, 0, 1, 16, 1, P_TRACER); b.box(0, 0, 0, 1, 12, 1, P_TRACER_TAIL);
+          b.centred(0.5f, 16.f, 0.5f); fxModels[FX_STREAK] = add(b); }
     }
     { const float av = 1.7f / 36.f;   // muzzle flash, half body voxels, centred
       Builder b("muzzle_flash", 5, 5, 6, av);

@@ -13,7 +13,8 @@ struct FolU {                        // std140, shaders/city_foliage.vert slot 1
     float origin[4];                 // model quantisation origin
     float scale[4];                  // x xz, y y metres per unit
     float params[4];                 // x sway, y model height, z fadeStart, w fadeDist
-    uint32_t first, pad0, pad1, pad2;
+    float focus[4];                  // xyz camera focus, w clump xz scale of the far set
+    uint32_t first, stride, farK, pad2;
 };
 
 SDL_GPUGraphicsPipeline* makePipe(GpuContext& gpu, const char* vs, const char* fs, const SDL_GPUVertexBufferDescription& vbd,
@@ -198,7 +199,7 @@ void CityFoliage::release(int key) {
     tiles_.erase(it);
 }
 
-void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const float eye[3], const std::vector<int>& keys,
+void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const float eye[3], const float focus[3], const std::vector<int>& keys,
                        SDL_GPUBuffer* materials, const BoxVisibleFn& visible) {
     stats = {};
     if (!enabled || !pipe_ || tiles_.empty() || models_[0].empty()) return;
@@ -211,11 +212,17 @@ void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const
         for (uint32_t c = 0; c < t.chunks; ++c) {
             const float cx0 = t.x0 + (c % 4) * 32.f, cz0 = t.z0 + (c / 4) * 32.f;
             const float mn[3] = {cx0 - 1.f, -4.f, cz0 - 1.f}, mx[3] = {cx0 + 33.f, 3.5f, cz0 + 33.f};
-            const float dx = std::max({mn[0] - eye[0], 0.f, eye[0] - mx[0]}), dz = std::max({mn[2] - eye[2], 0.f, eye[2] - mx[2]});
-            const float dy = std::max(eye[1] - mx[1], 0.f), dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-            if (dist > fadeDist || !visible(mn, mx)) continue;
-            // nearest point -> lod; the vertex shader thins by each instance's own distance
+            auto distFrom = [&](const float* e) {
+                const float dx = std::max({mn[0] - e[0], 0.f, e[0] - mx[0]}), dz = std::max({mn[2] - e[2], 0.f, e[2] - mx[2]});
+                const float dy = std::max({mn[1] - e[1], 0.f, e[1] - mx[1]});
+                return std::sqrt(dx * dx + dy * dy + dz * dz);
+            };
+            const float dist = std::min(distFrom(eye), distFrom(focus));
+            if (!visible(mn, mx)) continue;
+            // nearest point -> lod; the vertex shader thins by each instance's own distance down to the far set (every
+            // farStride-th instance, grown into clumps); beyond fadeDist only that set is drawn (coarse far LOD)
             const int lod = dist < lod1Dist ? 0 : 1;
+            const uint32_t stride = dist > fadeDist ? (uint32_t)std::max(1, farStride) : 1u;
             for (uint32_t ty = 0; ty < t.types && ty < models_[lod].size(); ++ty) {
                 const uint32_t a = t.start[c * t.types + ty], b = t.start[c * t.types + ty + 1];
                 const Model& m = models_[lod][ty];
@@ -228,15 +235,17 @@ void CityFoliage::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const
                 }
                 if (!tileBound) { SDL_BindGPUVertexStorageBuffers(pass, 0, &t.inst, 1); tileBound = true; }
                 FolU u{{t.x0, t.z0, (float)lod, 0}, {m.origin[0], m.origin[1], m.origin[2], 0}, {m.scale[0], m.scale[1], 0, 0},
-                       {ty < sway_.size() ? sway_[ty] : 0.f, m.height, fadeStart, fadeDist}, a, 0, 0, 0};
+                       {ty < sway_.size() ? sway_[ty] : 0.f, m.height, fadeStart, fadeDist}, {focus[0], focus[1], focus[2], farClump},
+                       a, stride, (uint32_t)std::max(1, farStride), 0};
+                const uint32_t n = (b - a + stride - 1) / stride;
                 SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
                 SDL_GPUBufferBinding vb{m.vb, 0};
                 SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
                 SDL_GPUBufferBinding ib{m.ib, 0};
                 SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
-                SDL_DrawGPUIndexedPrimitives(pass, m.idx, b - a, 0, 0, 0);
-                stats.instances += b - a;
-                stats.triangles += (uint64_t)(b - a) * m.quads * 2;
+                SDL_DrawGPUIndexedPrimitives(pass, m.idx, n, 0, 0, 0);
+                stats.instances += n;
+                stats.triangles += (uint64_t)n * m.quads * 2;
                 stats.draws++;
             }
         }

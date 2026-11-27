@@ -89,6 +89,7 @@ set(TTZ_GAME_CORE
   src/game/SupplySelfTest.cpp
   src/game/Logistics.cpp
   src/game/Deploy.cpp
+  src/game/Reanimation.cpp
   src/lab/MilitaryAssets.cpp)
 add_executable(ttz
   src/main.cpp
@@ -109,6 +110,7 @@ add_executable(ttz
   src/city/CityRenderer.cpp
   src/city/CityWater.cpp
   src/city/CityWorld.cpp
+  src/city/CityAmbient.cpp
   src/city/CitySimWindow.cpp
   src/city/CityVehicles.cpp
   src/debug/DebugUI.cpp
@@ -164,6 +166,7 @@ add_executable(ttz_selftest
   src/city/CityAsset.cpp
   src/city/CityAssetFormat.cpp
   src/city/CityWorld.cpp
+  src/city/CityAmbient.cpp
   src/city/CityVehicles.cpp
   src/game/HordeBridge.cpp
   src/game/HordeBridgeTest.cpp

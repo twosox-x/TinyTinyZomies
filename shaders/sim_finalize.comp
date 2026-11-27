@@ -148,6 +148,8 @@ void main() {
     float proneTarget = 0.0;
     if (st == ST_CLIMB || (elev > 0.45 && supported)) proneTarget = 1.0;
     if ((sevNow & 0x3C0u) != 0u) proneTarget = 1.0;
+    // roaming crawlers lie in the street while calm and get up when they notice something
+    if (roamP.x > 0.5 && st == ST_WALK && agentRoamKind(a.info.y) == 2u && agentAlert(a.info.z) < 6u) proneTarget = 1.0;
     if (st == ST_FALL) proneTarget = 0.6;
     if (st == ST_DYING) proneTarget = 1.0;
     float prone = mix(a.pos.w, proneTarget, 1.0 - exp(-dt * extraP.z));

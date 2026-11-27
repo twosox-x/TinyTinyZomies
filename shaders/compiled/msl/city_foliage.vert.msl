@@ -11,6 +11,7 @@ struct FoliageDraw
     float4 origin;
     float4 qscale;
     float4 params;
+    float4 focus;
     uint4 first;
 };
 
@@ -68,35 +69,50 @@ float h11(thread uint& x)
     return float(x & 16777215u) / 16777216.0;
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _140 [[buffer(0)]], constant FoliageDraw& _47 [[buffer(1)]], const device Insts& _62 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _152 [[buffer(0)]], constant FoliageDraw& _47 [[buffer(1)]], const device Insts& _76 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
 {
     main0_out out = {};
-    uint id = _47.first.x + uint(int(gl_InstanceIndex));
-    uint a = _62.inst[id * 2u];
-    uint b = _62.inst[(id * 2u) + 1u];
+    uint stride = max(_47.first.y, 1u);
+    uint K = max(_47.first.z, 1u);
+    uint li = uint(int(gl_InstanceIndex)) * stride;
+    uint id = _47.first.x + li;
+    uint a = _76.inst[id * 2u];
+    uint b = _76.inst[(id * 2u) + 1u];
     float3 base = float3(_47.tile.x + (float(a & 65535u) / 512.0), float(int(b << uint(16)) >> 16) * 0.001000000047497451305389404296875, _47.tile.y + (float(a >> uint(16)) / 512.0));
     float yaw = float((b >> uint(16)) & 255u) * 0.02454369328916072845458984375;
     float sc = float(b >> uint(24)) * 0.00999999977648258209228515625;
     uint param = a ^ (b * 2654435769u);
-    float _127 = h11(param);
-    float h = _127;
-    float d = length(_140.camPos.xyz - base);
-    float dens = 1.0 - smoothstep(_47.params.z, _47.params.w, d);
-    float keep = fast::clamp((dens - h) * 6.0, 0.0, 1.0);
-    float3 p = ((_47.origin.xyz + (float3(in.inPos.xyz) * _47.qscale.xyx)) * sc) * float3(1.0, keep, 1.0);
+    float _139 = h11(param);
+    float h = _139;
+    float d = fast::min(length(_152.camPos.xyz - base), length(_47.focus.xyz - base));
+    float far = smoothstep(_47.params.z, _47.params.w, d);
+    float dens = 1.0 - far;
+    bool member = (li % K) == 0u;
+    float _191;
+    if (member)
+    {
+        _191 = 1.0;
+    }
+    else
+    {
+        _191 = fast::clamp((dens - h) * 6.0, 0.0, 1.0);
+    }
+    float keep = _191;
+    float clump = member ? far : 0.0;
+    float3 p = ((_47.origin.xyz + (float3(in.inPos.xyz) * _47.qscale.xyx)) * sc) * float3(mix(1.0, _47.focus.w, clump), keep * mix(1.0, 1.25, clump), mix(1.0, _47.focus.w, clump));
     float3 n = float3(in.inNrm.xyz) * 0.0078740157186985015869140625;
     float c = cos(yaw);
     float s = sin(yaw);
     p = float3((c * p.x) + (s * p.z), p.y, ((-s) * p.x) + (c * p.z));
     n = float3((c * n.x) + (s * n.z), n.y, ((-s) * n.x) + (c * n.z));
     float k = fast::clamp(p.y / fast::max(_47.params.y * sc, 0.100000001490116119384765625), 0.0, 1.5);
-    float t = _140.camPos.w;
+    float t = _152.camPos.w;
     float gust = (sin(dot(base.xz, float2(0.10999999940395355224609375, 0.070000000298023223876953125)) - (t * 1.2999999523162841796875)) * 0.5) + 0.5;
     float2 w = float2(sin(((t * 2.099999904632568359375) + (base.x * 0.699999988079071044921875)) + (base.z * 0.300000011920928955078125)), cos((t * 1.7000000476837158203125) + (base.z * 0.60000002384185791015625))) * (0.0500000007450580596923828125 + (0.119999997317790985107421875 * gust));
-    float3 _323 = p;
-    float2 _325 = _323.xz + (((((w * _47.params.x) * k) * k) * _47.params.y) * sc);
-    p.x = _325.x;
-    p.z = _325.y;
+    float3 _374 = p;
+    float2 _376 = _374.xz + (((((w * _47.params.x) * k) * k) * _47.params.y) * sc);
+    p.x = _376.x;
+    p.z = _376.y;
     float3 P = base + p;
     if (keep <= 0.0)
     {
@@ -106,7 +122,7 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _140 [[buffer(0
     out.vNormal = n;
     out.vMat = uint(in.inNrm.w) & 255u;
     out.vTint = h;
-    out.gl_Position = _140.viewProj * float4(P, 1.0);
+    out.gl_Position = _152.viewProj * float4(P, 1.0);
     return out;
 }
 

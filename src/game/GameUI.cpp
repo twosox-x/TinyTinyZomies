@@ -91,16 +91,16 @@ bool shiftHeld() { return (SDL_GetModState() & SDL_KMOD_SHIFT) != 0; }
 bool GameUI::pickGround(const AppState& app, const GameContext& ctx, float sx, float sy, V3& out) {
     float w, h;
     viewSize(app, w, h);
-    V3 top, bot;
-    if (!app.camera.screenToGround(sx, sy, w, h, 90.f, top)) top = app.camera.eye();
+    V3 bot;
+    // March the view ray from the eye (towers can rise above any fixed start plane; a start inside one picked a
+    // point behind its roof) down to y = -1, against the live height grid: the first surface hit is the roof or street.
     if (!app.camera.screenToGround(sx, sy, w, h, -1.f, bot)) return false;
-    const V3 eye = app.camera.eye();
-    if (eye.y < top.y) top = eye;
+    const V3 top = app.camera.eye();
     if (!ctx.nav || !ctx.nav->ready()) { if (!app.camera.screenToGround(sx, sy, w, h, 0.f, out)) return false; return true; }
     const NavGrid& nav = *ctx.nav;
     const V3 d = bot - top;
     const float len = std::sqrt(dot(d, d));
-    const int steps = std::max(8, (int)(len / 0.25f));
+    const int steps = std::max(8, std::min(4000, (int)(len / 0.25f)));
     V3 prev = top;
     for (int k = 1; k <= steps; ++k) {
         V3 p = top + d * ((float)k / (float)steps);

@@ -1,6 +1,7 @@
 // Headless validation of the GPU crowd simulation. Uses synchronous readbacks (test-only).
 #include "app/SelfTest.h"
 
+#include "city/CityAmbient.h"
 #include "city/CityVehicles.h"
 #include "game/Combat.h"
 #include "game/Config.h"
@@ -565,6 +566,183 @@ void testGameCore() {
     g_fail += runSoldierAnimSelfTest(std::string(TTZ_SOURCE_DIR) + "/assets/military");   // WS-B section "anim"
 }
 
+// ---------------------------------------------------------------------------------------------- ambient roaming
+// Idle zombies spread over the streets (no tight clumps), wander (move, pause, follow streets, lurkers at walls), are
+// pulled by a noise source within the awareness gate, then disperse gradually after it fades (alert memory).
+uint32_t pcgHashCpu(uint32_t v) {
+    uint32_t state = v * 747796405u + 2891336453u;
+    uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+uint32_t roamKindCpu(uint32_t lookY, const SimParams& p) {
+    float h = (float)(pcgHashCpu(lookY * 2246822519u + 3266489917u) & 0x00FFFFFFu) / 16777216.f;
+    return h < p.roamLurkers ? 1u : (h < p.roamLurkers + p.roamCrawlers ? 2u : 0u);
+}
+void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
+    std::printf("[R] ambient roaming: spread, wandering, noise pull and dispersal\n");
+    (void)gpu;
+    AmbientConfig amb;   // built-in (UNAPPROVED) defaults, denser than the city default for the statistics
+    amb.densityPerHa = 400.f;
+    SimParams& sp = w.sim.params();
+    const SimParams saved = sp;
+    amb.apply(sp);
+    w.p = sp;
+    w.sim.reset(w.sb);
+    w.sim.setGoals({});
+    const std::vector<float> heights = w.sb.rasterize();
+    std::vector<Vec4> pts = ambientSpawnPoints(heights, params.gridW, params.gridH, w.sb.originX, w.sb.originZ, params.cellSize, amb, 7, -1);
+    {
+        std::vector<float> xz;
+        for (const Vec4& q : pts) { xz.push_back(q.x); xz.push_back(q.y); }
+        SpreadStats st = spreadStats(xz, 2.0f);
+        std::printf("  placement: %zu points, nn median %.2f m (p10 %.2f), clusters %zu (singles %zu, largest %zu, mean %.2f)\n", st.n,
+                    st.nnMedian, st.nnP10, st.clusters, st.singles, st.largestCluster, st.meanClusterSize);
+        size_t openCells = 0;
+        for (int z = 1; z < params.gridH - 1; ++z)
+            for (int x = 1; x < params.gridW - 1; ++x) openCells += heights[(size_t)z * params.gridW + x] <= 0.f ? 1 : 0;
+        const double expect = amb.densityPerHa * openCells * params.cellSize * params.cellSize / 1e4;
+        check(st.n > 100 && std::fabs((double)st.n - expect) < expect * 0.1, "ambient placement fills the window from the density",
+              fmt("%.0f zombies, %.0f expected (%.2f ha open)", (double)st.n, expect, openCells * params.cellSize * params.cellSize / 1e4));
+        check(st.singles > st.n / 12 && st.largestCluster <= 40 && st.fracInClustersOver20 < 0.3f,
+              "placement: scattered singles, small groups, few large clusters",
+              fmt("singles %.0f, largest %.0f, in clusters > 20: %.2f", (double)st.singles, (double)st.largestCluster, st.fracInClustersOver20));
+    }
+    auto dump = [&](const char* tag) {
+        const char* dir = std::getenv("TTZ_ROAM_DUMP");
+        if (!dir) return;
+        std::string path = std::string(dir) + "/roam_" + tag + ".csv";
+        if (FILE* f = std::fopen(path.c_str(), "w")) {
+            for (const GpuAgent& a : w.agents) std::fprintf(f, "%.2f,%.2f,%u,%u\n", a.pos.x, a.pos.z, a.info.z >> 28, roamKindCpu(a.info.y, sp));
+            std::fclose(f);
+        }
+    };
+    auto live = [&]() {
+        std::vector<float> xz;
+        for (const GpuAgent& a : w.agents)
+            if ((a.info.x & 0xFF) < ST_DYING) { xz.push_back(a.pos.x); xz.push_back(a.pos.z); }
+        return xz;
+    };
+    auto keyOf = [](const GpuAgent& a) { return ((uint64_t)a.info.x << 32) ^ a.info.y; };   // look bits: identity across sorts
+    w.sim.requestSpawnPoints(pts);
+    w.run(2);
+    w.read();
+    const size_t n0 = w.agents.size();
+    check(n0 + 5 >= pts.size() * 98 / 100, "every ambient point spawns (open ground)", fmt("%.0f of %.0f", (double)n0, (double)pts.size()));
+    std::unordered_map<uint64_t, std::array<float, 2>> start;
+    for (const GpuAgent& a : w.agents) start[keyOf(a)] = {a.pos.x, a.pos.z};
+    dump("t0");
+    // ---- idle: 60 s
+    w.run(60 * 60);
+    w.read();
+    dump("idle60");
+    {
+        std::vector<float> xz = live();
+        SpreadStats st = spreadStats(xz, 1.5f);
+        double moved = 0;
+        int movedFar = 0, matched = 0, inWall = 0, alerted = 0, lurkers = 0, lurkersAtWall = 0, crawlers = 0, crawlersProne = 0;
+        auto wallNear = [&](float x, float z, float r) {
+            for (int k = 0; k < 16; ++k) {
+                float an = k * 0.3927f;
+                for (float d = 0.375f; d <= r; d += 0.375f) {
+                    float px = x + std::cos(an) * d, pz = z + std::sin(an) * d;
+                    if (w.staticH[w.cellOf(px, pz)] > sp.stepUp) return true;
+                }
+            }
+            return false;
+        };
+        for (const GpuAgent& a : w.agents) {
+            if ((a.info.x & 0xFF) >= ST_DYING) continue;
+            auto it = start.find(keyOf(a));
+            if (it != start.end()) {
+                float d = std::hypot(a.pos.x - it->second[0], a.pos.z - it->second[1]);
+                moved += d; ++matched; movedFar += d > 3.f ? 1 : 0;
+            }
+            float sh = w.staticH[w.cellOf(a.pos.x, a.pos.z)];
+            if (sh > sp.stepUp && a.pos.y < sh - 0.3f) ++inWall;
+            alerted += (a.info.z >> 28) != 0 ? 1 : 0;
+            uint32_t kind = roamKindCpu(a.info.y, sp);
+            if (kind == 1) { ++lurkers; lurkersAtWall += wallNear(a.pos.x, a.pos.z, 1.6f) ? 1 : 0; }
+            if (kind == 2) { ++crawlers; crawlersProne += a.pos.w > 0.6f ? 1 : 0; }
+        }
+        std::printf("  idle 60 s: nn median %.2f m (p10 %.2f, < 1 m %.2f), clusters(1.5 m) %zu, largest %zu, mean %.2f, in > 20: %.2f\n",
+                    st.nnMedian, st.nnP10, st.fracNnBelow1m, st.clusters, st.largestCluster, st.meanClusterSize, st.fracInClustersOver20);
+        check(st.nnMedian > 1.2f && st.fracNnBelow1m < 0.2f, "idle zombies keep their distance (no tight clumps)",
+              fmt("nn median %.2f m, fraction closer than 1 m %.2f", st.nnMedian, st.fracNnBelow1m));
+        check(st.largestCluster <= 45 && st.fracInClustersOver20 < 0.25f, "no condensed hordes form while idle (cluster sizes)",
+              fmt("largest %.0f, fraction in clusters > 20: %.2f", (double)st.largestCluster, st.fracInClustersOver20));
+        check(matched > 0 && moved / matched > 4.0 && movedFar > matched / 2, "idle zombies wander (most move several metres per minute)",
+              fmt("mean displacement %.1f m, moved > 3 m: %.2f", moved / std::max(matched, 1), (double)movedFar / std::max(matched, 1)));
+        check(inWall <= (int)(n0 / 500) + 1, "wanderers stay out of buildings", fmt("inside static geometry: %.0f", inWall));
+        check(alerted == 0, "nothing to notice: nobody is alerted", fmt("alerted %.0f", alerted));
+        check(lurkers > 0 && lurkersAtWall > lurkers * 6 / 10, "lurkers stand at walls / doors",
+              fmt("%.0f of %.0f within 1.6 m of a wall", lurkersAtWall, lurkers));
+        check(crawlers == 0 || crawlersProne > crawlers * 6 / 10, "calm crawlers lie in the street", fmt("%.0f of %.0f prone", crawlersProne, crawlers));
+    }
+    // ---- noise: a source with a 30 m awareness gate for 25 s
+    const float gx = -20.f, gz = 0.f, gate = 30.f;
+    auto nearCount = [&](float r) {
+        int c = 0;
+        for (const GpuAgent& a : w.agents)
+            if ((a.info.x & 0xFF) < ST_DYING && std::hypot(a.pos.x - gx, a.pos.z - gz) < r) ++c;
+        return c;
+    };
+    std::unordered_map<uint64_t, float> dist0;
+    for (const GpuAgent& a : w.agents) dist0[keyOf(a)] = std::hypot(a.pos.x - gx, a.pos.z - gz);
+    const int near0 = nearCount(12.f);
+    w.sim.setGameInputs(GAME_SEEDS, gate);
+    w.sim.setGoals({gx, gz});
+    w.run(25 * 60);
+    w.read();
+    dump("noise25");
+    const int nearPeak = nearCount(12.f);
+    {
+        double inSum0 = 0, inSum1 = 0, farMove = 0;
+        int inN = 0, farN = 0, farAlert = 0;
+        for (const GpuAgent& a : w.agents) {
+            auto it = dist0.find(keyOf(a));
+            if (it == dist0.end() || (a.info.x & 0xFF) >= ST_DYING) continue;
+            float d1 = std::hypot(a.pos.x - gx, a.pos.z - gz);
+            if (it->second < 20.f) { inSum0 += it->second; inSum1 += d1; ++inN; }
+            if (it->second > 55.f) { ++farN; farAlert += (a.info.z >> 28) != 0 ? 1 : 0; }
+        }
+        (void)farMove;
+        std::printf("  noise 25 s: within 12 m of the source %d -> %d; zombies that started within 20 m: mean distance %.1f -> %.1f m\n",
+                    near0, nearPeak, inN ? inSum0 / inN : 0.0, inN ? inSum1 / inN : 0.0);
+        check(inN > 0 && inSum1 < inSum0 * 0.6 && nearPeak > near0 * 3 + 10, "a noise source pulls the zombies within its reach",
+              fmt("mean distance %.1f -> %.1f m, near the source %.0f", inSum0 / std::max(inN, 1), inSum1 / std::max(inN, 1), nearPeak));
+        check(farN > 0 && farAlert < farN / 10 + 1, "zombies far beyond the awareness reach keep wandering",
+              fmt("%.0f of %.0f beyond 55 m alerted", farAlert, farN));
+    }
+    // ---- the source fades: memory, then dispersal back to wandering
+    w.sim.setGoals({});
+    w.run(3 * 60);
+    w.read();
+    int stillAlert = 0;
+    for (const GpuAgent& a : w.agents)
+        if (std::hypot(a.pos.x - gx, a.pos.z - gz) < 12.f && (a.info.z >> 28) >= 8) ++stillAlert;
+    check(stillAlert > nearCount(12.f) / 2, "after the source fades the crowd stays alert for a while (no snapping)",
+          fmt("%.0f of %.0f near the source still alert after 3 s", stillAlert, nearCount(12.f)));
+    w.run(57 * 60);
+    w.read();
+    dump("after60");
+    {
+        const int nearAfter = nearCount(12.f);
+        int alerted = 0;
+        for (const GpuAgent& a : w.agents) alerted += (a.info.z >> 28) != 0 ? 1 : 0;
+        std::vector<float> xz = live();
+        SpreadStats st = spreadStats(xz, 1.5f);
+        std::printf("  60 s after: within 12 m %d (peak %d), alerted %d, nn median %.2f m, largest cluster %zu\n", nearAfter, nearPeak, alerted,
+                    st.nnMedian, st.largestCluster);
+        check(nearAfter < nearPeak * 0.6, "the pulled crowd disperses after the source fades", fmt("near the source %.0f -> %.0f", nearPeak, nearAfter));
+        check(alerted == 0, "alert memory decays back to idle", fmt("alerted %.0f", alerted));
+    }
+    w.sim.setGameInputs(0, 0.f);
+    sp = saved;
+    w.p = params;
+    w.sim.reset(w.sb);
+    w.sim.setGoals({});
+}
+
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     auto t0 = std::chrono::steady_clock::now();
     testGameCore();
@@ -579,6 +757,11 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
 
     if (std::getenv("TTZ_SELFTEST_VEHICLES")) {   // only the vehicle test
         testVehicles(w, gpu, params);
+        w.sim.shutdown();
+        return g_fail ? 1 : 0;
+    }
+    if (!std::getenv("TTZ_SELFTEST_NO_ROAM")) testRoaming(w, gpu, params);
+    if (std::getenv("TTZ_SELFTEST_ROAM")) {   // only the roaming test
         w.sim.shutdown();
         return g_fail ? 1 : 0;
     }

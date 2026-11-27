@@ -45,9 +45,12 @@ struct CitySettings {
     float lod1Dist = 210.f, lod2Dist = 420.f, lodHyst = 20.f;
     // Instances (frustum-culled per instance by bounding sphere): full mesh near, mid mesh (quads with an edge
     // >= 0.25 m, emissive quads kept; derived at load) beyond *MidDist, vehicle box proxy beyond vehicleBoxDist,
-    // street furniture not drawn beyond propDist.
+    // street furniture: baked coarse model (if any, else the mid mesh) beyond propDist. Distances are measured from
+    // the nearer of the eye and the camera target (focus). Nothing is culled by distance: an instance is dropped only
+    // when its bounding radius projects below minProjectedRadius (radians; ~0.4 px at 1080p / 43 deg).
     float vehicleMidDist = 60.f, vehicleBoxDist = 130.f;
     float propMidDist = 60.f, propDist = 200.f;
+    float minProjectedRadius = 0.00028f;
     bool chunks = true;                             // per-chunk culling / LOD (packages with CHNK)
     bool indirect = true;                           // one multi-draw-indirect call per tile for its chunk ranges
     bool props = true;
@@ -195,7 +198,7 @@ private:
     struct VDraw { uint32_t model, first, count, lod; };
     std::vector<VDraw> vdraws_;
     float frustum_[6][4];
-    V3 eye_{};
+    V3 eye_{}, focus_{};   // LOD reference: min(distance to eye, distance to the camera target)
     CityRenderStats stats_;
 };
 

@@ -385,12 +385,16 @@ void CityRenderer::gatherInstance(std::vector<std::vector<GpuInstance>> (&byMode
     size_t model = kind == 0 ? variant : nVeh + variant;
     if (model >= nModels || (kind == 0 && variant >= nVeh)) return;
     if (kind == 0 ? !settings.vehicles : !settings.props) return;
-    float ex = pos[0] - eye_.x, ey = pos[1] - eye_.y, ez = pos[2] - eye_.z, d2 = ex * ex + ey * ey + ez * ez;
+    // LOD distance from the nearer of eye and focus (see update); visibility by projected size from the eye: an
+    // instance is only dropped when it would be smaller than ~half a pixel (never by a fixed distance).
+    float ex = pos[0] - eye_.x, ey = pos[1] - eye_.y, ez = pos[2] - eye_.z, de2 = ex * ex + ey * ey + ez * ez;
+    float fx = pos[0] - focus_.x, fy = pos[1] - focus_.y, fz = pos[2] - focus_.z, d2 = std::min(de2, fx * fx + fy * fy + fz * fz);
+    const float r = models_[0][model].radius;
+    if (r * r < de2 * settings.minProjectedRadius * settings.minProjectedRadius) return;
     int lod = 0;
     if (kind == 0) lod = d2 > settings.vehicleBoxDist * settings.vehicleBoxDist ? 2 : d2 > settings.vehicleMidDist * settings.vehicleMidDist ? 1 : 0;
-    else if (d2 > settings.propDist * settings.propDist) return;
-    else lod = d2 > settings.propMidDist * settings.propMidDist ? 1 : 0;
-    if (!sphereVisible(pos[0], pos[1], pos[2], models_[0][model].radius)) return;
+    else lod = d2 > settings.propDist * settings.propDist ? 2 : d2 > settings.propMidDist * settings.propMidDist ? 1 : 0;
+    if (!sphereVisible(pos[0], pos[1], pos[2], r)) return;
     while (lod > 0 && !models_[lod][model].vb) --lod;   // coarser mesh missing: next finer one
     byModel[lod][model].push_back({{pos[0], pos[1], pos[2], (float)kind}, {q[0], q[1], q[2], q[3]}, {paint[0], paint[1], paint[2], paint[3]}});
 }
@@ -400,6 +404,7 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
     stats_.uploadedTiles = 0;
     stats_.uploadedBytes = 0;
     eye_ = cam.eye();
+    focus_ = cam.target();
     // frustum planes (clip = VP * p, depth 0..1)
     M4 vp = mul(cam.proj(aspect), cam.view());
     auto row = [&](int r, int c) { return vp(r, c); };
@@ -464,11 +469,17 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
     std::vector<std::vector<GpuInstance>> byModel[3];
     for (auto& b : byModel) b.resize(nModels);
     const float h = settings.lodHyst;
+    // LOD distance: the nearer of the eye and the camera's focus (RTS pivot). Zoomed out, the eye is 200-300 m from
+    // everything on screen, but the area the player looks at (around the pivot) must stay at full detail; the
+    // transitions then move outwards from the focus instead of covering it.
     auto distTo = [&](const float* mn, const float* mx) {
-        float dx = std::max({mn[0] - eye_.x, 0.f, eye_.x - mx[0]});
-        float dy = std::max({mn[1] - eye_.y, 0.f, eye_.y - mx[1]});
-        float dz = std::max({mn[2] - eye_.z, 0.f, eye_.z - mx[2]});
-        return std::sqrt(dx * dx + dy * dy + dz * dz);
+        auto d = [&](V3 e) {
+            float dx = std::max({mn[0] - e.x, 0.f, e.x - mx[0]});
+            float dy = std::max({mn[1] - e.y, 0.f, e.y - mx[1]});
+            float dz = std::max({mn[2] - e.z, 0.f, e.z - mx[2]});
+            return std::sqrt(dx * dx + dy * dy + dz * dz);
+        };
+        return std::min(d(eye_), d(focus_));
     };
     auto pickLod = [&](float dist, int prev) {   // finer only once well inside the threshold (hysteresis)
         int want = dist > settings.lod2Dist ? 2 : dist > settings.lod1Dist ? 1 : 0;
@@ -688,7 +699,8 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
         auto boxVis = [this](const float* mn, const float* mx) { return boxVisible(mn, mx); };
         const float eye[3] = {eye_.x, eye_.y, eye_.z};
         foliage.lampGrid = water.lampGrid = lampGrid();
-        foliage.draw(pass, cmd, eye, vis, materials_, boxVis);
+        const float focus[3] = {focus_.x, focus_.y, focus_.z};
+        foliage.draw(pass, cmd, eye, focus, vis, materials_, boxVis);
         water.draw(pass, cmd, quadIB_, boxVis);
     }
     SDL_BindGPUGraphicsPipeline(pass, settings.backfaceCull ? pipe_ : pipeNoCull_);

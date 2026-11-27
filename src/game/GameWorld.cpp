@@ -63,6 +63,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         SDL_Log("game: script %s", opt.script.c_str());
     }
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
+    render_.droppedWeapons = &reanim_.weapons();
     if (const MilitaryLibrary* lib = render_.library()) {
         animator_.init(*lib);
         animator_.configure(cfg_);   // fire / reload clip rates matched to the weapon stats
@@ -164,11 +165,19 @@ void GameWorld::tick(AppState& app) {
     }
     deploy_.tick(ctx_);                                        // c
     ai_.tick(ctx_);                                            // d
+    reanim_.tick(ctx_, &animator_);                            // d': dead soldiers rise as zombies (GAME_DESIGN 14c)
     for (uint32_t i = 0; i < (uint32_t)soldiers_.capacity(); ++i) {   // e
         if (!soldiers_.used[i]) continue;
         float root[3] = {0, 0, 0};
         animator_.tick(i, soldiers_.infantry[i], soldiers_.anim[i], ctx_.dt, animEvents_, root);
+        const V3 before = soldiers_.pos[i];
         SoldierAnimator::applyRootMotion(soldiers_.pos[i], soldiers_.yaw[i], root);   // turns, para_land offset
+        if ((root[0] != 0.f || root[1] != 0.f) && nav_.ready() && soldiers_.state[i] != SoldierState::Descending) {
+            // committed root motion never carries a body off a roof edge or into a wall: keep it on the walkable surface
+            V3& p = soldiers_.pos[i];
+            if (!nav_.walkLine(before, p) && nav_.walkable(before.x, before.z)) { p.x = before.x; p.z = before.z; }
+            p.y = nav_.surface(p.x, p.z);
+        }
     }
     deploy_.onAnimEvents(ctx_);                                // c': touchdown / canopy_ground / weapon_draw of this tick
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)

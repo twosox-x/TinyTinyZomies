@@ -12,7 +12,8 @@ layout(std140, set = 1, binding = 1) uniform FoliageDraw {
     vec4 origin;     // model quantisation origin
     vec4 qscale;     // x xz, y y
     vec4 params;     // x sway, y model height, z fade start, w fade end (m)
-    uvec4 first;     // x first instance
+    vec4 focus;      // xyz camera focus (RTS pivot): distances are min(eye, focus); w clump xz scale of the far set
+    uvec4 first;     // x first instance, y draw stride (instances skipped between drawn ones), z far-set stride K
 };
 layout(std430, set = 0, binding = 0) readonly buffer Insts { uint inst[]; };
 layout(location = 0) out vec3 vWorld;
@@ -21,16 +22,22 @@ layout(location = 2) flat out uint vMat;
 layout(location = 3) flat out float vTint;
 float h11(uint x) { x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16; return float(x & 0xffffffu) / 16777216.0; }
 void main() {
-    uint id = first.x + uint(gl_InstanceIndex);
+    uint stride = max(first.y, 1u), K = max(first.z, 1u);
+    uint li = uint(gl_InstanceIndex) * stride;   // index inside this chunk / type run
+    uint id = first.x + li;
     uint a = inst[id * 2u], b = inst[id * 2u + 1u];
     vec3 base = vec3(tile.x + float(a & 0xffffu) / 512.0, float(int(b << 16) >> 16) * 0.001, tile.y + float(a >> 16) / 512.0);
     float yaw = float((b >> 16) & 255u) * (6.2831853 / 256.0), sc = float(b >> 24) * 0.01;
     float h = h11(a ^ (b * 0x9e3779b9u));
-    float d = length(camPos.xyz - base);
-    float dens = 1.0 - smoothstep(params.z, params.w, d);
-    // fade by shrinking the thinned-out instances (no popping), tallest first stays
-    float keep = clamp((dens - h) * 6.0, 0.0, 1.0);
-    vec3 p = (origin.xyz + vec3(inPos.xyz) * qscale.xyx) * sc * vec3(1.0, keep, 1.0);
+    float d = min(length(camPos.xyz - base), length(focus.xyz - base));
+    float far = smoothstep(params.z, params.w, d);
+    float dens = 1.0 - far;
+    // fade by shrinking the thinned-out instances (no popping) down to the far set (every K-th instance), whose
+    // members grow into clumps instead: the coarse far LOD the CPU draws beyond the fade (stride K) is that same set
+    bool member = (li % K) == 0u;
+    float keep = member ? 1.0 : clamp((dens - h) * 6.0, 0.0, 1.0);
+    float clump = member ? far : 0.0;
+    vec3 p = (origin.xyz + vec3(inPos.xyz) * qscale.xyx) * sc * vec3(mix(1.0, focus.w, clump), keep * mix(1.0, 1.25, clump), mix(1.0, focus.w, clump));
     vec3 n = vec3(inNrm.xyz) * (1.0 / 127.0);
     float c = cos(yaw), s = sin(yaw);
     p = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);

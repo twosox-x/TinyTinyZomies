@@ -45,10 +45,15 @@ public:
     void upload(SDL_GPUCopyPass* cp, int key, const TileCPU& t, float tileX0, float tileZ0);
     void release(int key);
     // tiles: keys of the tiles the city renderer draws this frame
-    void draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const float eye[3], const std::vector<int>& tiles,
+    // focus: camera target (RTS pivot); distances are min(eye, focus)
+    void draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, const float eye[3], const float focus[3], const std::vector<int>& tiles,
               SDL_GPUBuffer* materials, const BoxVisibleFn& visible);
-    // Distances (m from the eye): full model below lod1Dist, simple model up to fadeDist, density thinned from fadeStart.
+    // Distances (m, nearer of eye and focus): full model below lod1Dist, simple model beyond; from fadeStart to
+    // fadeDist the density thins to the far set (every farStride-th instance, grown farClump x wider: clumps), which
+    // is all that is drawn beyond fadeDist (no distance limit: foliage never fades to nothing).
     float lod1Dist = 45.f, fadeStart = 70.f, fadeDist = 150.f;
+    int farStride = 8;
+    float farClump = 2.2f;
     bool enabled = true;
     FoliageStats stats;
 

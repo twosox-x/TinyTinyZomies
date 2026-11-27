@@ -64,6 +64,43 @@ struct ZombieThreatConfig {          // zombies vs soldiers (HordeBridge)
     float soldierAttraction = 1.0f;  // attractor strength of a soldier: multiplies the awareness reach (awarenessRadius x strength)
 };
 
+struct ReanimationConfig {          // GAME_DESIGN 14c (APPROVED rule): dead soldiers rise again as tougher zombies
+    bool enabled = true;
+    float delayMin = 8.f, delayMax = 20.f;   // s the body lies dead before it starts to rise (uniform per soldier)
+    float riseTime = 1.6f;           // s of the get-up transition before the zombie agent takes over
+    float healthMul = 3.f;           // zombie health x (a normal zombie spawns with 1.0): harder to kill (headshots still kill)
+};
+
+struct StaminaConfig {               // soldiers run by default when they can; stamina limits sprinting
+    float max = 100.f;
+    float drainRun = 5.f;            // per s while running (100 -> 0 in 20 s)
+    float regenWalk = 6.f;           // per s while walking
+    float regenRest = 12.f;          // per s while standing (idle, engaging, reloading, ...)
+    float minToRun = 15.f;           // below this a soldier walks until he has recovered to resumeRun
+    float resumeRun = 40.f;
+    float sprintScale = 1.15f;       // run speed x when threatened and fresh (clip rate follows: no foot sliding)
+    float threatRadius = 30.f;       // m: zombies this close (or an attack) make it a high-stakes move
+};
+
+struct FortConfig {                  // B2 walls, territory, containers (GAME_DESIGN 5 / 14b / 14c); every value UNAPPROVED
+    std::array<int, 2> wallPrice = {40, 110};         // per 4 m piece: cheap (1.6 m gabion), reinforced (2.4 m)
+    std::array<float, 2> wallHealth = {600.f, 1800.f};
+    std::array<float, 2> wallHeight = {1.6f, 2.4f};    // collision height above the ground (approved assets)
+    float gatePriceMul = 3.f;        // gate piece price = wall piece price x this (PROPOSED gate)
+    float damagePerZombie = 1.0f;    // hp / s per zombie pressing on a piece beyond the threshold
+    int pressureThreshold = 3;       // zombies a piece shrugs off (a few stragglers never breach)
+    float buildTime = 0.6f;          // s: rise animation (collision is immediate; no construction delay yet)
+    float territoryCell = 1.0f;      // m: territory raster
+    float minRegionArea = 16.f;      // m^2: smaller pockets are not territory
+    double incomePerHectarePerMin = 1000;   // controlled area -> passive income
+    float clearDelay = 3.f;          // s an enclosed region must stay free of zombies before it is controlled
+    float lossTime = 20.f;           // s zombies may stay inside a controlled region before ownership is lost (income paused meanwhile)
+    bool containerNeedsTerritory = false;   // PROPOSED false: containers also close gaps (14c), so they cannot need territory
+    float containerAltitude = 70.f;  // m above the landing surface
+    float containerDescentSpeed = 6.5f;     // m/s: heavier than a crate (two cargo canopies)
+    float containerLandDuration = 1.0f;     // s from touchdown until it is usable
+};
+
 struct BalanceConfig {
     std::string status = "UNAPPROVED";   // anything else must come from an owner decision
     std::array<WeaponStats, 3> weapon;   // per SoldierClass
@@ -72,6 +109,9 @@ struct BalanceConfig {
     EconomyConfig economy;
     LogisticsConfig logistics;
     ZombieThreatConfig threat;
+    FortConfig fort;
+    ReanimationConfig reanimation;
+    StaminaConfig stamina;
     bool load(const std::string& path, std::string* error = nullptr);   // missing keys keep the defaults above
     bool approved() const { return status == "APPROVED"; }
 };

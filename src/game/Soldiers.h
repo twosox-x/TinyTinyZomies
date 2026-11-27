@@ -65,6 +65,10 @@ struct SoldierPool {
     std::vector<V3> goal;            // AI: destination of the current path (home, supply slot, queue point)
     std::vector<uint8_t> wounded;    // health below SoldierPool::woundedFraction (slower, wider spread)
     std::vector<uint32_t> targetSwitches, stateChanges, rounds;   // diagnostics (tests, UI)
+    std::vector<float> stamina;      // SoldierAI: 0..StaminaConfig.max, drains while running, recovers otherwise
+    std::vector<uint8_t> tired;      // SoldierAI: stamina ran low; walks until it recovered to resumeRun (hysteresis)
+    std::vector<uint8_t> running;    // SoldierAI: moved at run speed this tick (UI, tests)
+    std::vector<uint8_t> unarmed;    // Reanimation: the weapon lies on the ground (rising body drawn without it)
 
     SoldierId spawn(SoldierClass c, int infantryIndex, SquadId sq, int slot, V3 p, float yawRad, uint32_t seed);
     // Health, full magazine and reserve from the config (Deploy calls it on purchase; SoldierAI equips any soldier

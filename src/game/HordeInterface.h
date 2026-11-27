@@ -85,6 +85,9 @@ public:
     virtual void queueHits(const std::vector<HitRequest>& hits) = 0;
     virtual void setAttractors(const std::vector<Attractor>& attractors) = 0;
     virtual void requestExplosion(V3 pos, float scale) = 0;   // existing CrowdSim path (grenades later; vehicles today)
+    // One zombie walker near pos (existing spawn path, one request per sim step): appearance from the look bits,
+    // start health `health` (1.0 = a normal zombie). Dead soldiers rising (GAME_DESIGN 14c). False: not supported.
+    virtual bool spawnZombie(V3 pos, float yaw, float health, uint32_t lookX, uint32_t lookY) { (void)pos; (void)yaw; (void)health; (void)lookX; (void)lookY; return false; }
     // ---- outputs, newest harvested data (never blocks) ------------------------------------------------------------
     virtual const ZombieField& field() const = 0;
     virtual const std::vector<SoldierContact>& contacts() const = 0;

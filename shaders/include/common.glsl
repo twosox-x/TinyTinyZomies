@@ -24,7 +24,8 @@ struct Agent {
     vec4 dirs;  // xy desired horizontal dir, z = heading (rad), w = state timer (s)
     uvec4 info; // x = state(8) | look bits 8..31, y = look bits (see LOOK LAYOUT), z = see AGENT Z, w = climb target (float bits)
 };
-/* AGENT Z (info.z): bits 0..15 health (half float), 16..25 severed-segment mask (bit = slot), 26..27 bloodiness 0..3.
+/* AGENT Z (info.z): bits 0..15 health (half float), 16..25 severed-segment mask (bit = slot), 26..27 bloodiness 0..3,
+   28..31 alert memory 0..15 (roaming: 15 = aware of an attractor now, decays to 0 = idle wandering).
    While FALLING / DYING, dirs.xy holds the tumble (x = roll angle, y = roll rate rad/s) instead of the desired velocity. */
 float agentHealth(uint z) { return unpackHalf2x16(z & 0xFFFFu).x; }
 uint  agentSevered(uint z) { return (z >> 16) & 0x3FFu; }
@@ -33,6 +34,7 @@ uint  packAgentZ(float health, uint severed, uint blood) {
     return (packHalf2x16(vec2(clamp(health, -60000.0, 60000.0), 0.0)) & 0xFFFFu) | ((severed & 0x3FFu) << 16) | (min(blood, 3u) << 26);
 }
 #define SEVER_ALL 0x3FFu
+uint  agentAlert(uint z) { return z >> 28; }
 
 struct Corpse {
     vec4 pos;   // xyz resting position (feet), w = yaw
@@ -98,6 +100,8 @@ layout(std140, set = 2, binding = 0) uniform SimUniforms {
     vec4  goreP;     // x blood amount, y dismember chance, z gib threshold (blast closeness), w enabled
     uvec4 goreCap;   // x particle capacity, y gib capacity, z decal grid width, w decal grid height
     vec4  goreQ;     // x tumble damping (1/s), y metres per voxel
+    vec4  roamP;     // ambient roaming (city): x enabled, y wander speed (m/s), z pause fraction, w alert memory (s)
+    vec4  roamQ;     // x separation strength, y lurker fraction, z crawler fraction, w noise-field wavelength (m)
 };
 
 #define FLAG_VERTICAL 1u
@@ -117,6 +121,11 @@ float rand01(inout uint s) { s = pcgHash(s); return float(s & 0x00FFFFFFu) / 167
 float hash01(uint v) { return float(pcgHash(v) & 0x00FFFFFFu) / 16777216.0; }
 // stable per-agent random value (look bits double as the agent's identity seed)
 float agentVary(Agent a)   { return hash01(a.info.y ^ (a.info.x >> 8) * 2654435761u); }
+// roaming archetype from the agent's identity (no storage): 0 wanderer, 1 lurker (stands at walls / doors), 2 crawler (lies)
+uint agentRoamKind(uint lookY) {
+    float h = float(pcgHash(lookY * 2246822519u + 3266489917u) & 0x00FFFFFFu) / 16777216.0;
+    return h < roamQ.y ? 1u : (h < roamQ.y + roamQ.z ? 2u : 0u);
+}
 
 
 ivec2 cellCoord(vec2 xz) {

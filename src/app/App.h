@@ -1,5 +1,6 @@
 #pragma once
 #include "assets/Model.h"
+#include "city/CityAmbient.h"
 #include "city/CityAsset.h"
 #include "city/CityRenderer.h"
 #include "city/CitySimWindow.h"
@@ -13,6 +14,7 @@
 #include "sim/SimParams.h"
 
 #include <array>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -97,6 +99,11 @@ struct AppState {
     CitySimWindow simWindow;
     CityVehicles vehicles;             // dynamic vehicles (blasts, wrecks, chain reactions)
     Sandbox cityHome;                  // the initial window (scenario reset)
+    AmbientConfig ambient;             // ambient population + roaming (config/balance.json "ambient", UNAPPROVED)
+    bool ambientAuto = false;          // density-driven population: newly visited 48 m blocks get populated on window moves
+    int ambientPlaced = 0;
+    uint32_t ambientSeed = 1;
+    std::set<std::pair<int, int>> ambientBlocks;   // 48 m blocks (from the home window origin) already populated
     bool cityMode = false, debugCam = false;
     std::vector<double> benchFrameMs, benchUploadMs;
     CityRenderStats benchMax;
@@ -146,6 +153,7 @@ private:
     bool init();
     void shutdown();
     void loadScenario(int index, int count);
+    void populateAmbient(int count, const std::vector<std::pair<int, int>>& blocks);
     void loadShowcase(int which);
     void handleEvent(const SDL_Event& e);
     void frame(double dt);

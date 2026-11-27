@@ -39,6 +39,7 @@ struct MilPoseInput : MilPlayback {
     V3 pos;
     float yaw = 0.f;
     int lod = -1;                     // -1: frustum cull + distance LOD here; >= 0: forced LOD, never culled
+    bool noWeapon = false;            // weapon not drawn with the body (game: a rising dead soldier left it on the ground)
 };
 
 // A parachute sequence (docs/MILITARY_ANIMS.md 2.3): soldier (street / rooftop) or cargo crate.
@@ -100,6 +101,9 @@ public:
     void addModel(int model, V3 p, const float q[4], int kind = 1, const float* paint = nullptr);   // raw mesh instance
     void addModelYaw(int model, V3 p, float yaw);
     void addProp(int prop, V3 pos, float yaw, float dissolve = 0.f);
+    // The weapon a death clip dropped, alone, where the clip's weapon track left it at time so.t (the body is gone or
+    // drawn with noWeapon). False when the clip has no weapon track.
+    bool addDroppedWeapon(const MilPoseInput& so);
     void addCityMesh(const CityRenderer::GpuMesh* mesh, V3 p, const float q[4]);   // city palette (comparison vehicles)
     void addMarker(MilMarker shape, int color, V3 p, float yaw);   // icons: yaw ignored, they face the camera
     void advanceDrop(MilDrop& d, float dt);
@@ -109,6 +113,16 @@ public:
     void fxEvent(const MilPoseInput& s, const MilFxEvent& e);
     void fxShot(const MilPoseInput& s);                     // one full shot of the class weapon (flash, tracer, casing)
     void fxBurst(V3 pos, int kind);                         // 0 small dust (footstep), 1 landing dust ring
+    // One round fired along a known ray (game: Combat shot + HordeBridge hit): flash (or suppressor puff + faint glint)
+    // at the posed muzzle, optional casing, optional tracer from the posed muzzle to `hit`. Returns the tracer id
+    // (0: none) for fxTracerEnd once the GPU resolves where the round stopped.
+    uint32_t fxShotRay(const MilPoseInput& s, V3 hit, bool tracer, bool casing);
+    // Bright emissive streak travelling from `from` to `to` (style 0 rifle, 1 MG, 2 sniper: thinner, faster).
+    uint32_t fxTracer(V3 from, V3 to, int style);
+    void fxTracerEnd(uint32_t id, float distFromStart);     // shorten / lengthen a live tracer (hit resolved)
+    float tracerLength = 7.f;                               // m, visible streak behind the head
+    float tracerWidth = 1.f;                                // x the minimum angular width (~2 px at 1080p)
+    float flashScale = 1.f;                                 // x the minimum angular size of muzzle flashes (~3 px)
     void clearFx() { fx_.clear(); flashes_.clear(); }
     void updateFx(float dt);                                // age / move FX, emit their instances (before endFrame)
     void endFrame();                                        // parts sorted by mesh, CPU instances, canopies, vehicles
@@ -125,14 +139,17 @@ public:
     static constexpr uint32_t kMaxChars = 1280, kMaxAtts = 28672, kMaxCpuInst = 8192, kMaxFx = 4000, kMaxFlashLights = 4;
 
 private:
-    struct Fx { int model; V3 p, v; float q[4]; float age, life; int kind; };   // kind 0 static, 1 ballistic, 2 drift, 3 tracer
+    // kind 0 static, 1 ballistic, 2 drift, 3 tracer (clip event), 4 ray tracer (p start, v unit dir, a length, b style)
+    struct Fx { int model; V3 p, v; float q[4]; float age, life; int kind; float glow = 0.f, a = 0.f, b = 0.f, speed = 0.f; uint32_t id = 0; };
+    static constexpr float kStreakVoxel = 0.05f, kStreakLength = 0.8f;   // FX_STREAK model: 1 x 16 x 1 voxels of 5 cm
     struct Flash { V3 p; float life; float radius; };
     void soldierEvent(const MilPoseInput& so, const CharU& C, const MilFxEvent& e);
     void pushSoldier(const MilPoseInput& so, int lod);
     void sampleSoldier(const MilPoseInput& so, CharU& C, float mountQ[4], int lod) const;
     bool sampleBody(const MilPoseInput& so, int lod, float* B) const;
     void muzzleFrame(const MilPoseInput& so, const CharU& C, const float mountQ[4], const float wsPoint[3], V3& outP, float outQ[4]) const;
-    void spawnFx(int model, V3 p, V3 v, const float q[4], float life, int kind);
+    void spawnFx(int model, V3 p, V3 v, const float q[4], float life, int kind, float glow = 0.f);
+    void addGlow(int model, V3 p, const float q[4], float sxz, float sy);
     void buildMarkers();
 
     MilitaryLibrary lib_;
@@ -152,7 +169,9 @@ private:
     int hookId_ = -1;
 
     float frustum_[6][4] = {};
-    V3 eye_{};
+    V3 eye_{}, focus_{};
+    V3 lastMuzzle_{};
+    uint32_t fxIds_ = 0;
 
     // per-frame lists
     std::vector<CharU> charsU_;

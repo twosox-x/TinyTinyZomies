@@ -45,6 +45,11 @@ public:
     std::vector<WorldMarker>& markers() { return markers_; }   // drawn every frame until the caller changes them
     bool classIcons = true;            // class icon above every squad
     bool soldierRings = false;         // faint ring under every soldier (not only the selected squads)
+    // Tracer cadence per SoldierClass (rifle, MG, sniper): every N-th round of a soldier draws a tracer (0: none).
+    // The sniper's is a thin, faint streak (suppressed rifle).
+    int tracerEvery[3] = {3, 1, 1};
+    // Weapons left on the ground by soldiers that rose as zombies (Reanimation, GameWorld sets it): drawn every frame.
+    const std::vector<struct DroppedWeapon>* droppedWeapons = nullptr;
     static uint8_t classColor(SoldierClass c) { return c == SoldierClass::MachineGunner ? MK_AMBER : c == SoldierClass::Sniper ? MK_CYAN : MK_GREEN; }
     static MilMarker classIcon(SoldierClass c) { return c == SoldierClass::MachineGunner ? MilMarker::IconMG : c == SoldierClass::Sniper ? MilMarker::IconSniper : MilMarker::IconRifle; }
 
@@ -55,7 +60,11 @@ private:
     struct DemoSoldier { int infantry = 0; SoldierClass cls = SoldierClass::Rifleman; V3 pos; float yaw = 0; AnimPlayback anim;
                          AnimAction action = AnimAction::Idle; float every = 0.f, clock = 0.f; bool para = false; float alt = 0.f, paraT = 0.f; int squad = 0; };
     void soldierPose(const AnimPlayback& a, int infantry, V3 pos, float yaw, float ahead, MilPoseInput& out) const;
-    void clipFx(uint32_t slot, uint32_t gen, const MilPoseInput& p, bool visible, float frameDt, std::vector<FxTrack>& tracks);
+    void clipFx(uint32_t slot, uint32_t gen, const MilPoseInput& p, bool visible, float frameDt, std::vector<FxTrack>& tracks, bool shotFx);
+    void shotFx(AppState& app, const GameContext& ctx, const std::vector<FxEvent>& fx, float ahead);
+    struct PendingRound { uint32_t shooter = 0, tracer = 0; V3 origin, dir; int frames = 0; };
+    std::vector<PendingRound> pendingRounds_;   // rounds waiting for their GPU hit result (tracer end)
+    uint64_t lastHitFrame_ = 0;
     void initDemo(AppState& app);
     void updateDemo(AppState& app, float frameDt);
 

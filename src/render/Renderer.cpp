@@ -430,7 +430,14 @@ bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings&
     if (rs.studioLighting || !rs.shadows || !rs.shadowMap || !shadowTex_) return false;
     const TimeOfDayLight tl = evalTimeOfDay(rs.tod);
     if (tl.color.x + tl.color.y + tl.color.z < 1e-4f) return false;
-    const V3 L = tl.dir, tgt = cam.target();
+    // The shadow direction follows the clock in small steps (1/150 h of game time, ~0.1 deg of sun path; ~0.4 s real
+    // at the default 30 min cycle): a light that rotates every frame re-orients the texel grid every frame, and every
+    // shadow edge crawls. Shading (N.L) keeps the smooth direction; the step is far below a texel of shadow offset.
+    TimeOfDaySettings qt = rs.tod;
+    constexpr float kDirStepH = 1.f / 150.f;
+    qt.hours = std::floor(qt.hours / kDirStepH) * kDirStepH;
+    const TimeOfDayLight ql = evalTimeOfDay(qt);
+    const V3 L = (ql.moon == tl.moon) ? ql.dir : tl.dir, tgt = cam.target();
     const M4 view = lookAt(L * 500.f, V3{0, 0, 0}, std::fabs(L.y) > 0.99f ? V3{0, 0, 1} : V3{0, 1, 0});
     V3 fwd = tgt - cam.eye();
     fwd.y = 0;
@@ -454,10 +461,13 @@ bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings&
             }
         }
     auto stepUp = [](float v) { return std::exp2(std::ceil(std::log2(std::max(v, 8.f)) * 8.f) / 8.f); };
-    const float hx = stepUp(0.5f * (mxx - mnx) + 3.f), hy = stepUp(0.5f * (mxy - mny) + 3.f);
+    // size hysteresis: grow at once, shrink only when the fit needs < 3/4 of the current box (rotating / tilting the
+    // camera near a step boundary no longer flips the map size, which re-samples every shadow edge)
+    auto sticky = [](float want, float& cur) { if (want > cur || want < cur * 0.75f) cur = want; return cur; };
+    const float hx = sticky(stepUp(0.5f * (mxx - mnx) + 3.f), shadowHx_), hy = sticky(stepUp(0.5f * (mxy - mny) + 3.f), shadowHy_);
     const float n = (float)shadowSize_, tx = 2.f * hx / n, ty = 2.f * hy / n;
     const float cx = std::round(0.5f * (mnx + mxx) / tx) * tx, cy = std::round(0.5f * (mny + mxy) / ty) * ty;
-    const float zn = -dot(L, tgt), zf = zn + 1000.f;   // view-space distance range along -L: 500 m above .. 500 m below the pivot
+    const float zn = std::floor(-dot(L, tgt) / 4.f) * 4.f, zf = zn + 1000.f;   // depth window in 4 m steps (stable depths while panning)   // view-space distance range along -L: 500 m above .. 500 m below the pivot
     M4 proj;
     proj(0, 0) = 1.f / hx; proj(0, 3) = -cx / hx;
     proj(1, 1) = 1.f / hy; proj(1, 3) = -cy / hy;

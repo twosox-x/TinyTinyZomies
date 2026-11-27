@@ -175,6 +175,7 @@ private:
     SDL_GPUSampler* shadowCmp_ = nullptr;
     SDL_GPUGraphicsPipeline* pBoxShadow_ = nullptr;
     uint32_t shadowSize_ = 0, shadowDraws_ = 0;
+    mutable float shadowHx_ = 0.f, shadowHy_ = 0.f;   // shadow fit half extents (size hysteresis, shadowView)
     void ensureShadowMap(uint32_t size);
     SDL_GPUBuffer* shadowExt_ = nullptr;
     SDL_GPUBuffer* lampDummy_ = nullptr;   // empty street-lamp grid (no city)

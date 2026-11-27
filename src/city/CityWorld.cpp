@@ -84,6 +84,9 @@ bool buildCityWindow(const CityAsset& city, float cx, float cz, float cell, int 
     sb.scenarios.push_back(horde);
     Scenario wander{"City (baked): dispersed, no destination", MapKind::Baked, spawns, {}, 4000};
     sb.scenarios.push_back(wander);
+    Scenario ambient{"City (baked): ambient roaming population", MapKind::Baked, spawns, {}, 0};
+    ambient.ambient = true;
+    sb.scenarios.push_back(ambient);
     SDL_Log("city window: origin (%.1f, %.1f), %d x %d cells of %.2f m, %d tiles sampled, %zu spawn points", sb.originX, sb.originZ,
             gw, gh, cell, tiles, spawns.size());
     return tiles > 0;

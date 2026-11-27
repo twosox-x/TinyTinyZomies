@@ -122,7 +122,7 @@ struct MilitaryLibrary {
     bool loadAnims(const std::string& dir);   // assets/military/anims.{json,bin}: per-class clips appended to the infantry
     // lab-only helper models (scale ruler, ground grid, parachute demo, tracer)
     enum { FX_FLASH_RIFLE = 0, FX_FLASH_RIFLE_HALF, FX_FLASH_MG, FX_FLASH_MG_SMALL, FX_TRACER, FX_CASING, FX_PUFF_S, FX_PUFF_M, FX_PUFF_L,
-           FX_DUST, FX_DUST_L, FX_COUNT };
+           FX_DUST, FX_DUST_L, FX_STREAK, FX_COUNT };
     int fxModels[FX_COUNT] = {};      // docs/MILITARY_ANIMS.md 6: voxel FX meshes
     int flashModel = -1, rulerModel = -1, gridModel = -1, chuteOpenModel = -1, chuteCollapsedModel = -1, dropCrateModel = -1, tracerModel = -1;
     bool placeholder = true;

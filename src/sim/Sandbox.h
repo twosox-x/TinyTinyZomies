@@ -29,6 +29,7 @@ struct Scenario {
     std::vector<Rect> spawns;
     std::vector<float> goals;   // x,z pairs
     int defaultCount;
+    bool ambient = false;       // city: ambient population (CityAmbient) instead of the spawn rects; count <= 0: density
 };
 
 struct PointLight { float x, y, z, radius, r, g, b, intensity; };

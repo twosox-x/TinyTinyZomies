@@ -112,6 +112,8 @@ struct SimUniforms
     float4 goreP;
     uint4 goreCap;
     float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
 };
 
 constant spvUnsafeArray<uint, 7> _1129 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });

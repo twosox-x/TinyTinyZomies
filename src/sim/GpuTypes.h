@@ -48,6 +48,8 @@ struct SimUniforms {        // std140, all vec4 members
     Vec4 goreP;       // x blood amount, y dismember chance, z gib threshold, w enabled
     UVec4 goreCap;    // x particle capacity, y gib capacity, z decal grid width, w decal grid height
     Vec4 goreQ;       // x tumble damping, y metres per voxel
+    Vec4 roamP;       // ambient roaming: x enabled, y wander speed, z pause fraction, w alert memory (s)
+    Vec4 roamQ;       // x separation, y lurker fraction, z crawler fraction, w noise-field wavelength (m)
 };
 // gore buffers: counters (uint) and per-element layouts (see shaders/include/gore.glsl)
 enum : uint32_t { G_PARTICLE_HEAD = 0, G_GIB_HEAD = 1, G_PARTICLES_ALIVE = 2, G_GIBS_ALIVE = 3, G_SEVERED = 4, G_GIBBED = 5,

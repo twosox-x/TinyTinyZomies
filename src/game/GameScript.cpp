@@ -126,6 +126,23 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
             else if (fld == "reserve") out += al ? P.reserve[i] : 0;
             else if (fld == "health") out += al ? P.health[i] : 0;
             else if (fld == "parachuted") out += w.deploy().parachuted(m2) ? 1 : 0;
+            else if (fld == "y") out += P.pos[i].y;   // sum of feet heights (one sniper: his height)
+            else if (fld == "inside") {               // bodies inside geometry: below the surface, or a wall through the body
+                const NavGrid* nav = w.context().nav;
+                if (!nav || !nav->ready()) continue;
+                const V3 q = P.pos[i];
+                bool in = q.y < nav->surface(q.x, q.z) - 0.2f || std::fabs(q.y - nav->surface(q.x, q.z)) > 0.6f;
+                for (int d = 0; d < 8 && !in; ++d)
+                    in = nav->surface(q.x + std::cos(d * 0.785398f) * 0.3f, q.z + std::sin(d * 0.785398f) * 0.3f) > q.y + 1.0f;
+                out += in ? 1 : 0;
+            } else if (fld == "rooftop") {            // on a surface more than 2.5 m above the lowest ground within 15 m
+                const NavGrid* nav = w.context().nav;
+                if (!nav || !nav->ready()) continue;
+                const V3 q = P.pos[i];
+                float g = q.y;
+                for (int d = 0; d < 16; ++d) for (float r : {6.f, 10.f, 15.f}) g = std::min(g, nav->surface(q.x + std::cos(d * 0.3927f) * r, q.z + std::sin(d * 0.3927f) * r));
+                out += q.y - g > 2.5f && nav->walkable(q.x, q.z) ? 1 : 0;
+            }
             else { err = "unknown squad field " + fld; return false; }
         }
         return true;
@@ -273,6 +290,11 @@ bool GameScript::tick(GameWorld& world, double time) {
         } else if (L.verb == "camera") {
             if (!app || a.size() < 2) { bad("camera X Z [YAW PITCH DIST]"); continue; }
             app->camera.setImmediate({f(a, 0), 0.f, f(a, 1)}, f(a, 2, app->camera.yaw()), f(a, 3, app->camera.pitch()), f(a, 4, app->camera.distance()));
+        } else if (L.verb == "noise") {   // a noise source (gunfire-like) at X Z: reach RADIUS m for DURATION s
+            if (a.size() < 2) { bad("noise X Z [RADIUS DURATION INTENSITY]"); continue; }
+            NoiseEvent n;
+            n.pos = {f(a, 0), 0.f, f(a, 1)}; n.radius = f(a, 2, 60.f); n.duration = f(a, 3, 10.f); n.intensity = f(a, 4, 1.f);
+            world.combat().addNoise(n);
         } else if (L.verb == "shot") {
             if (a.empty()) { bad("shot FILE.png"); continue; }
             shot_ = a[0];
@@ -382,6 +404,18 @@ bool GameScript::tick(GameWorld& world, double time) {
             std::printf("  probe container: %s %s\n", cOk ? "valid" : "refused", why);
             const bool aOk = world.logistics().canAirdrop(ctx, p, &why);
             std::printf("  probe airdrop: %s %s\n", aOk ? "valid" : "refused", why);
+        } else if (L.verb == "heights") {   // debug: 11 x 11 surface heights (and walkability) around X Z
+            const GameContext& ctx = world.context();
+            if (!ctx.nav || !ctx.nav->ready() || a.size() < 2) { bad("heights X Z"); continue; }
+            const NavGrid& nav = *ctx.nav;
+            for (int dz = -5; dz <= 5; ++dz) {
+                std::printf("   ");
+                for (int dx = -5; dx <= 5; ++dx) {
+                    const float x = f(a, 0) + dx * nav.cell(), z = f(a, 1) + dz * nav.cell();
+                    std::printf(" %6.2f%c", nav.surface(x, z), nav.walkable(x, z) ? '*' : ' ');
+                }
+                std::printf("\n");
+            }
         } else if (L.verb == "expect") {
             expect(world, L);
         } else bad(("unknown verb " + L.verb).c_str());

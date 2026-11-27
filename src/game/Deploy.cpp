@@ -67,6 +67,35 @@ bool flatFootprint(const GameContext& ctx, V3 c, float halfX, float halfZ, float
     return true;
 }
 
+// A landing spot: walkable, on a navigation island, a 1.2 m footprint flat within 0.3 m (one soldier: GAME_DESIGN 14c
+// owner feedback, the old 3.6 m roof rule refused most roofs), and no wall / parapet / obstacle rising more than
+// 1.5 m within `clear` metres (canopy and body never inside geometry).
+static bool landable(const GameContext& ctx, V3 c, float clear, float* surface) {
+    const NavGrid& nav = *ctx.nav;
+    float y;
+    if (!flatFootprint(ctx, c, 0.6f, 0.6f, 0.f, 0.3f, &y)) return false;
+    if (!nav.island(c.x, c.z)) return false;
+    for (int k = 0; k < 12; ++k) {
+        const float a = (float)k * kPi / 6.f;
+        for (float r = 0.75f; r <= clear + 1e-3f; r += 0.75f)
+            if (nav.surface(c.x + std::cos(a) * r, c.z + std::sin(a) * r) > y + 1.5f) return false;
+    }
+    if (surface) *surface = y;
+    return true;
+}
+
+// Fraction of 16 horizontal directions blocked within 14 m by a wall more than 3 m above the spot: a courtyard, light
+// well or slot between towers reads as "inside a building" from the RTS camera and has no room for a canopy.
+static float enclosure(const NavGrid& nav, V3 c, float y) {
+    int blocked = 0;
+    for (int k = 0; k < 16; ++k) {
+        const float a = (float)k * kPi / 8.f;
+        for (float r = 1.5f; r <= 14.f; r += 0.75f)
+            if (nav.surface(c.x + std::cos(a) * r, c.z + std::sin(a) * r) > y + 3.f) { ++blocked; break; }
+    }
+    return (float)blocked / 16.f;
+}
+
 DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
     DropPlan p;
     const SquadDef& def = ctx.cfg->squad[(size_t)type];
@@ -77,10 +106,34 @@ DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
         p.reason = "outside the simulated area";
         return p;
     }
-    float ys = 0;
-    if (!flatFootprint(ctx, dest, 0.7f, 0.7f, 0.f, 0.3f, &ys)) { p.reason = "blocked: inside geometry, a vehicle or an edge"; return p; }
     const bool known = walkKnown(nav);
-    if (known && !nav.walkable(dest.x, dest.z)) { p.reason = "not walkable"; return p; }
+    // The clicked surface (street, roof, parapet). Snap to the nearest landing spot on that same surface within 2.5 m:
+    // a click near a roof edge, on a parapet or a roof fixture lands on the roof next to it, never below it.
+    const float clicked = nav.surface(dest.x, dest.z);
+    const float clear = 1.5f;
+    float ys = 0;
+    auto spotOk = [&](V3 c, float* y) {
+        if (!insideGrid(nav, c.x, c.z, 2.f) || (ctx.horde && !ctx.horde->simulated(c.x, c.z))) return false;
+        if (known && !nav.walkable(c.x, c.z)) return false;
+        return landable(ctx, c, clear, y);
+    };
+    if (!spotOk(dest, &ys) || std::fabs(ys - clicked) > 1.f) {
+        bool found = false;
+        float best = 1e9f;
+        V3 bestC = dest;
+        float bestY = 0;
+        for (float r = 0.5f; r <= 2.5f + 1e-3f; r += 0.5f)
+            for (int k = 0; k < 16; ++k) {
+                const float a = (float)k * kPi / 8.f;
+                V3 c{dest.x + std::cos(a) * r, 0, dest.z + std::sin(a) * r};
+                float y;
+                if (!spotOk(c, &y) || std::fabs(y - clicked) > 1.f) continue;
+                const float score = r + std::fabs(y - clicked);
+                if (score < best) { best = score; bestC = c; bestY = y; found = true; }
+            }
+        if (!found) { p.reason = "blocked: inside geometry, a vehicle or an edge"; return p; }
+        dest = bestC; ys = bestY;
+    }
     // street or roof: the drop surface against the lowest ground within 15 m
     float ground = ys;
     for (int k = 0; k < 16; ++k) {
@@ -90,37 +143,35 @@ DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
     const float rise = ys - ground;
     if (rise > 0.5f && rise <= 2.5f) { p.reason = "blocked: on a vehicle, wall or obstacle"; return p; }   // also water (1 m wall)
     p.rooftop = rise > 2.5f;
-    if (p.rooftop && !flatFootprint(ctx, dest, 1.8f, 1.8f, 0.f, 0.3f)) { p.reason = "roof too small or not flat here"; return p; }
+    if (!p.rooftop && enclosure(nav, dest, ys) > 0.8f) { p.reason = "enclosed: courtyard or gap between buildings"; return p; }
     const uint32_t isl = nav.island(dest.x, dest.z);
     dest.y = ys;
     const int n = std::max(1, def.size);
-    auto ok = [&](V3 c) {
-        if (!insideGrid(nav, c.x, c.z, 2.f) || (ctx.horde && !ctx.horde->simulated(c.x, c.z))) return false;
-        float y;
-        if (!flatFootprint(ctx, c, 0.6f, 0.6f, 0.f, 0.3f, &y) || std::fabs(y - ys) > 0.4f) return false;
-        if (known && !nav.walkable(c.x, c.z)) return false;
-        if (isl && nav.island(c.x, c.z) != isl) return false;
+    auto ok = [&](V3 c, float& y) {
+        if (!spotOk(c, &y) || std::fabs(y - ys) > 0.4f) return false;
+        if (isl && nav.island(c.x, c.z) != isl) return false;   // the exact surface (roof island) that was chosen
         return true;
     };
-    for (float spacing : {dropSpacing, dropSpacing * 0.7f}) {
+    for (float spacing : {dropSpacing, dropSpacing * 0.7f, dropSpacing * 0.5f}) {
         p.landing.assign(1, dest);
-        for (int ring = 1; ring <= 4 && (int)p.landing.size() < n; ++ring) {
+        for (int ring = 1; ring <= 5 && (int)p.landing.size() < n; ++ring) {
             const int m = 6 * ring;
             for (int k = 0; k < m && (int)p.landing.size() < n; ++k) {
                 const float a = (k + 0.5f * (ring & 1)) * 2.f * kPi / (float)m;
                 V3 c{dest.x + std::cos(a) * spacing * ring, ys, dest.z + std::sin(a) * spacing * ring};
-                if (!ok(c)) continue;
+                float y;
+                if (!ok(c, y)) continue;
                 bool apart = true;
                 for (const V3& q : p.landing) apart &= (q.x - c.x) * (q.x - c.x) + (q.z - c.z) * (q.z - c.z) >= spacing * spacing * 0.8f;
                 if (!apart) continue;
-                c.y = nav.surface(c.x, c.z);
+                c.y = y;   // landing height = the surface at the final spot
                 p.landing.push_back(c);
             }
         }
         if ((int)p.landing.size() >= n) break;
     }
     if ((int)p.landing.size() < n) { p.reason = p.rooftop ? "roof too small for the squad" : "not enough open ground for the squad"; p.landing.clear(); return p; }
-    // nearest-first order is already ring order; the first member lands at the clicked point
+    // nearest-first order is already ring order; the first member lands at the (snapped) clicked point
     p.valid = true;
     return p;
 }
@@ -146,8 +197,23 @@ SquadId Deploy::execute(GameContext& ctx, SquadType type, const DropPlan& plan) 
         d.landing = land;
         d.rooftop = plan.rooftop;
         const float da = rand01(seed) * 2.f * kPi, dr = 3.f + rand01(seed) * 4.f;
-        d.drift = {std::cos(da) * dr, 0.f, std::sin(da) * dr};
         d.startAlt = d.alt = dropAltitude + 2.5f * (float)k + rand01(seed) * 2.f;   // staggered: no simultaneous landing
+        d.drift = {};
+        if (ctx.nav && ctx.nav->ready()) {   // the descent never passes through a building: a drift whose path is clear
+            const NavGrid& nav = *ctx.nav;
+            for (int t = 0; t < 8; ++t) {
+                const float a = da + (float)t * kPi / 4.f;
+                const V3 dv{std::cos(a) * dr, 0.f, std::sin(a) * dr};
+                bool clearPath = true;
+                for (int s2 = 0; s2 <= 16 && clearPath; ++s2) {
+                    const float f = (float)s2 / 16.f, e = f * f * (3.f - 2.f * f);   // same easing as the descent
+                    const float x = land.x + dv.x * e, z = land.z + dv.z * e, y = land.y + d.startAlt * f;
+                    for (int r = 0; r < 4 && clearPath; ++r)   // canopy / body radius ~1.5 m
+                        clearPath = nav.surface(x + std::cos(r * kPi / 2.f) * 1.5f, z + std::sin(r * kPi / 2.f) * 1.5f) < y - 0.5f || f < 0.06f;
+                }
+                if (clearPath) { d.drift = dv; break; }
+            }
+        } else d.drift = {std::cos(da) * dr, 0.f, std::sin(da) * dr};
         if (plan.rooftop && ctx.nav) roofClamp(*ctx.nav, land, d.clamp);
         const float yaw = facing + (rand01(seed) - 0.5f) * 0.6f;
         V3 p0{land.x + d.drift.x, land.y + d.alt, land.z + d.drift.z};

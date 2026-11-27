@@ -1,9 +1,12 @@
 // Game -> MilitaryRenderer adapter (WS-B). See GameRender.h.
 #include "game/GameRender.h"
+#include "game/Reanimation.h"
 
 #include "app/App.h"
 #include "game/Deploy.h"
 #include "game/GameEvents.h"
+#include "game/Config.h"
+#include "game/HordeBridge.h"
 #include "game/Logistics.h"
 #include "game/Soldiers.h"
 
@@ -74,7 +77,7 @@ void GameRender::soldierPose(const AnimPlayback& a, int infantry, V3 pos, float 
 
 // Visual clip events (muzzle flash, tracer, casing, puff, footstep, body fall) crossed since the last render frame on
 // the same clip timeline the game tick reads its gameplay events from. Beyond LOD1 / off screen: none.
-void GameRender::clipFx(uint32_t slot, uint32_t gen, const MilPoseInput& p, bool visible, float frameDt, std::vector<FxTrack>& tracks) {
+void GameRender::clipFx(uint32_t slot, uint32_t gen, const MilPoseInput& p, bool visible, float frameDt, std::vector<FxTrack>& tracks, bool shotFx) {
     if (tracks.size() <= slot) tracks.resize(slot + 1);
     FxTrack& tr = tracks[slot];
     const MilitaryLibrary& lib = mil_->library();
@@ -88,7 +91,9 @@ void GameRender::clipFx(uint32_t slot, uint32_t gen, const MilPoseInput& p, bool
     if (same && !wrapped && p.t <= prev) return;
     for (const MilFxEvent& e : k.events) {
         bool hit = wrapped ? (e.t > prev || e.t <= p.t) : same ? (e.t > prev && e.t <= p.t) : (e.t >= prev && e.t <= p.t);
-        if (hit) mil_->fxEvent(p, e);
+        if (!hit) continue;
+        if (!shotFx && (e.type == "muzzle_flash" || e.type == "tracer" || e.type == "suppressed" || e.type == "shell_eject")) continue;
+        mil_->fxEvent(p, e);
     }
 }
 
@@ -108,12 +113,19 @@ void GameRender::update(AppState& app, const GameContext& ctx, float frameDt, fl
             MilPoseInput p;
             const bool moving = P->alive(i);
             soldierPose(P->anim[i], P->infantry[i], moving ? P->pos[i] + P->vel[i] * ahead : P->pos[i], P->yaw[i], app.paused ? 0.f : ahead, p);
+            p.noWeapon = P->unarmed[i] != 0;   // rising dead soldier: his weapon stays on the ground
             ++mil_->stats().soldiers;
             const bool shown = mil_->addSoldier(p);
-            clipFx(i, P->gen[i], p, shown && mil_->lodAt(p.pos) < 2, fdt, fxTracks_);
+            clipFx(i, P->gen[i], p, shown && mil_->lodAt(p.pos) < 2, fdt, fxTracks_, false);   // rounds: shotFx below
             if (soldierRings && shown && P->alive(i) && P->state[i] != SoldierState::Descending)
                 mil_->addMarker(MilMarker::Ring, classColor(P->cls[i]), P->pos[i] + V3{0, 0.02f, 0}, 0.f);
         }
+        if (droppedWeapons)
+            for (const DroppedWeapon& w : *droppedWeapons) {
+                MilPoseInput p;
+                p.infantry = w.infantry; p.clip = w.clip; p.t = w.t; p.pos = w.pos; p.yaw = w.yaw;
+                if (mil_->visible(w.pos, 1.5f)) mil_->addDroppedWeapon(p);
+            }
         // selection rings + class icons
         if (ctx.squads)
             for (const Squad& s : ctx.squads->squads) {
@@ -188,16 +200,59 @@ void GameRender::update(AppState& app, const GameContext& ctx, float frameDt, fl
         }
     }
 
-    // ---- FX requests from gameplay (dust, impacts). Shots / footsteps come from the clip timeline above.
+    // ---- FX requests from gameplay (dust, impacts). Footsteps come from the clip timeline above.
     for (const FxEvent& e : fx) {
         if (e.kind == FxKind::Landing || e.kind == FxKind::CrateTouch) mil_->fxBurst(e.pos, 1);
         else if (e.kind == FxKind::Impact) mil_->fxBurst(e.pos, 0);
     }
+    shotFx(app, ctx, fx, ahead);
 
     if (demo_) updateDemo(app, frameDt);
     for (const WorldMarker& m : markers_) mil_->addMarker(m.shape, m.color, m.pos, m.yaw);
     mil_->updateFx(fdt);
     mil_->endFrame();
+}
+
+// Rounds (FxKind::Shot, one per round Combat fired): muzzle flash at the posed muzzle (any distance: the flash keeps a
+// minimum on-screen size), casing near the camera, and every tracerEvery[class]-th round a tracer from the posed
+// muzzle along the shot ray. Its end is first estimated (the target's distance along the ray, else the weapon range)
+// and corrected when the GPU resolves the round (HordeBridge::hitResults, same queue order per shooter), so the
+// streak stops on the zombie or wall that took the round.
+void GameRender::shotFx(AppState& app, const GameContext& ctx, const std::vector<FxEvent>& fx, float ahead) {
+    (void)app;
+    const SoldierPool* P = ctx.soldiers;
+    if (!P || !ctx.cfg) return;
+    for (const FxEvent& e : fx) {
+        if (e.kind != FxKind::Shot || !P->valid(e.soldier)) continue;
+        const uint32_t i = e.soldier.index;
+        if (P->infantry[i] >= mil_->library().infantry.size()) continue;
+        const int cls = std::clamp((int)P->cls[i], 0, 2);
+        const float range = ctx.cfg->weapon[cls].range;
+        float dist = range;
+        if (P->target[i].active) {   // the round is aimed at the target: estimate its stop there (a hit) until resolved
+            const float along = dot(P->target[i].pos - e.pos, e.dir);
+            if (along > 1.f && along < range) dist = along + 0.3f;
+        }
+        const uint32_t n = i < P->rounds.size() ? P->rounds[i] : 0u;
+        const bool tracer = tracerEvery[cls] > 0 && n % (uint32_t)tracerEvery[cls] == 0;
+        MilPoseInput p;
+        soldierPose(P->anim[i], P->infantry[i], P->pos[i] + P->vel[i] * ahead, P->yaw[i], app.paused ? 0.f : ahead, p);
+        const bool near = mil_->visible(p.pos, 1.2f) && mil_->lodAt(p.pos) < 2;
+        const uint32_t id = mil_->fxShotRay(p, e.pos + e.dir * dist, tracer, near);
+        pendingRounds_.push_back({e.soldier.packed(), id, e.pos, e.dir, 0});
+    }
+    // resolved rounds (newest harvested frame): per shooter in queue order
+    if (const HordeBridge* hb = dynamic_cast<const HordeBridge*>(ctx.horde); hb && hb->hitResultsFrame() != lastHitFrame_) {
+        lastHitFrame_ = hb->hitResultsFrame();
+        for (const HordeBridge::HitResult& r : hb->hitResults()) {
+            auto it = std::find_if(pendingRounds_.begin(), pendingRounds_.end(), [&](const PendingRound& q) { return q.shooter == r.shooterPacked; });
+            if (it == pendingRounds_.end()) continue;
+            if (r.kind != HordeBridge::HitKind::Miss) mil_->fxTracerEnd(it->tracer, r.dist);
+            pendingRounds_.erase(it);
+        }
+    }
+    for (PendingRound& q : pendingRounds_) ++q.frames;
+    pendingRounds_.erase(std::remove_if(pendingRounds_.begin(), pendingRounds_.end(), [](const PendingRound& q) { return q.frames > 30; }), pendingRounds_.end());
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -339,7 +394,7 @@ void GameRender::updateDemo(AppState& app, float frameDt) {
         soldierPose(d.anim, d.infantry, d.pos + V3{0, d.para ? d.alt : 0.f, 0}, d.yaw, ahead, p);
         ++mil_->stats().soldiers;
         const bool shown = mil_->addSoldier(p);
-        clipFx(i, 0, p, shown && mil_->lodAt(p.pos) < 2, fdt, demoFx_);
+        clipFx(i, 0, p, shown && mil_->lodAt(p.pos) < 2, fdt, demoFx_, true);
         if (d.para) {
             MilDrop& c = demoDrops_[0];
             c.xz = d.pos; c.yaw = d.yaw; c.alt = d.alt; c.phase = dropPhaseOf(d.anim.action); c.t = p.t;

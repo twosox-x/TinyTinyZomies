@@ -72,6 +72,7 @@ bool CrowdSim::init(GpuContext& gpu, const SimParams& p, const Sandbox& sb) {
     gameIO_ = mk((kGameKillWords + cap * 4) * 4, "gameIO");
     gameSolid_ = mk((kGameSoldierWords + 2 * cells) * 4, "gameSolid");
     navSeed_ = mk(cells * 4, "navSeed");
+    spawnPts_ = mk(cap * 16, "spawnPoints");   // ambient population: one vec4 (x, z, jitter, 0) per agent
     {
         std::vector<uint32_t> z((size_t)std::max<uint32_t>(kGameKillWords + cap * 4, kGameSoldierWords + 2 * cells), 0u);
         gpu_->uploadNow(gameIO_, z.data(), (kGameKillWords + cap * 4) * 4);   // kill seq starts at 0 once per session
@@ -102,7 +103,7 @@ void CrowdSim::shutdown() {
                               &cellStart_, &blockSums_, &density_, &staticH_, &corpseH_, &navDist_[0], &navDist_[1],
                               &navDir_, &corpses_, &counters_, &indirect_, &particles_, &particleList_, &gibs_, &gore_, &decals_,
                               &park_[0], &park_[1], &parkCnt_, &shiftScratch_,
-                              &gameIO_, &gameSolid_, &navSeed_};
+                              &gameIO_, &gameSolid_, &navSeed_, &spawnPts_};
     for (auto b : bufs) gpu_->releaseBuffer(*b);
     SDL_GPUComputePipeline** pipes[] = {&pSpawn_, &pCorpseBlast_, &pCommitAppend_, &pClear_, &pPredict_, &pScanLocal_,
                                         &pScanBlocks_, &pScanAdd_, &pScatter_, &pCommitSort_, &pSolve_, &pFinalize_,
@@ -169,6 +170,28 @@ void CrowdSim::requestSpawn(const Rect& r, uint32_t count) {
 
 void CrowdSim::requestSpawnLook(const Rect& r, uint32_t count, uint32_t lookX, uint32_t lookY, bool asCorpse) {
     if (count > 0) pendingSpawns_.push_back({r, count, lookX, lookY, true, asCorpse});
+}
+
+void CrowdSim::requestSpawnPoints(const std::vector<Vec4>& pts) {
+    const uint32_t cap = (uint32_t)p_.agentCapacity;
+    size_t i = 0;
+    while (i < pts.size()) {   // ring of point slots in spawnPts_; a batch never wraps (one dispatch reads it)
+        uint32_t n = (uint32_t)std::min<size_t>(pts.size() - i, cap);
+        if (spawnPtsHead_ + n > cap) spawnPtsHead_ = 0;
+        gpu_->uploadNow(spawnPts_, pts.data() + i, n * 16, spawnPtsHead_ * 16);
+        SpawnRequest r{{0, 0, 0, 0}, n};
+        r.points = true;
+        r.ptOffset = spawnPtsHead_;
+        pendingSpawns_.push_back(r);
+        spawnPtsHead_ += n;
+        i += n;
+    }
+}
+
+void CrowdSim::requestSpawnZombie(float x, float z, float radius, uint32_t lookX, uint32_t lookY, float health) {
+    SpawnRequest q{Rect{x - radius, z - radius, x + radius, z + radius}, 1u, lookX, lookY, true, false};
+    q.health = health > 0.f ? health : 1.f;
+    pendingSpawns_.push_back(q);
 }
 
 void CrowdSim::requestSpawnCorpses(const Rect& r, uint32_t count) {
@@ -267,6 +290,8 @@ SimUniforms CrowdSim::baseUniforms() const {
     u.goreP = {p_.bloodAmount, p_.dismemberChance, p_.gibThreshold, p_.goreEnabled ? 1.f : 0.f};
     u.goreCap = {(uint32_t)p_.particleCapacity, (uint32_t)p_.gibCapacity, decalW(), decalH()};
     u.goreQ = {p_.tumbleDamping, p_.standHeight / 18.0f, gameFlags_ ? gameGate_ : 0.f, (float)gameFlags_};
+    u.roamP = {p_.roamEnabled ? 1.f : 0.f, p_.roamSpeed, p_.roamPause, p_.roamMemory};
+    u.roamQ = {p_.roamSeparation, p_.roamLurkers, p_.roamCrawlers, p_.roamWavelength};
     return u;
 }
 
@@ -303,9 +328,13 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
         u.counts.z = req.count;
         u.spawnRect = {req.rect.minX, req.rect.minZ, req.rect.maxX, req.rect.maxZ};
         u.counts.w = spawnSeed_++;
-        u.forcedLook = {req.lookX, req.lookY, req.forced ? 1u : 0u, 0};
+        uint32_t hpBits = 0;   // w: start health (float bits) of a game spawn; z = 2 keeps the random facing
+        if (req.health > 0.f) std::memcpy(&hpBits, &req.health, 4);
+        u.forcedLook = {req.lookX, req.lookY, req.forced ? (req.health > 0.f ? 2u : 1u) : 0u, hpBits};
         u.lookB.z = req.corpse ? 1.f : 0.f;
-        dispatch(D(pSpawn_, {staticH_}, {agentsA_, counters_}), groups(req.count, 256));
+        if (req.points) u.misc.x = req.ptOffset, u.misc.y = 1;
+        dispatch(D(pSpawn_, {staticH_, spawnPts_}, {agentsA_, counters_}), groups(req.count, 256));
+        u.misc.x = (uint32_t)p_.maxNeighbors, u.misc.y = 0;
         u.counts.z = 0;
         u.forcedLook = {};
         u.lookB.z = 0.f;
@@ -317,7 +346,7 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
 
     // 2. predict + histogram
     dispatch(D(pClear_, {}, {cellCount_}), groups(cells + 1, 256));
-    dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, corpseH_},
+    dispatchIndirect(D(pPredict_, {navDir_, density_, staticH_, corpseH_, navDist_[0]},
                        {agentsA_, cellCount_, cellLocal_, counters_, particles_, gibs_, gore_, gameIO_}),
                      indirect_, I_AGENT_DISPATCH * 4);
 

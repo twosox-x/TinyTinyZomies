@@ -32,6 +32,8 @@ struct SimUniforms
     float4 goreP;
     uint4 goreCap;
     float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
 };
 
 struct Stamped

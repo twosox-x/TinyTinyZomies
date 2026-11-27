@@ -62,6 +62,7 @@ public:
     void queueHits(const std::vector<HitRequest>& hits) override { hits_.insert(hits_.end(), hits.begin(), hits.end()); }
     void setAttractors(const std::vector<Attractor>& a) override { attractors_ = a; }
     void requestExplosion(V3 pos, float scale) override;
+    bool spawnZombie(V3 pos, float yaw, float health, uint32_t lookX, uint32_t lookY) override;
     const ZombieField& field() const override { return field_; }
     const std::vector<SoldierContact>& contacts() const override { return contacts_; }
     void takeKills(std::vector<KillEvent>& out) override { out.insert(out.end(), kills_.begin(), kills_.end()); kills_.clear(); }

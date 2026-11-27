@@ -13,6 +13,7 @@ layout(std430, set = 0, binding = 0) readonly buffer NavDir  { vec2 navDir[]; };
 layout(std430, set = 0, binding = 1) readonly buffer Density { vec4 density[]; };
 layout(std430, set = 0, binding = 2) readonly buffer StaticH { float staticH[]; };
 layout(std430, set = 0, binding = 3) readonly buffer CorpseH { int corpseH[]; };
+layout(std430, set = 0, binding = 4) readonly buffer NavDist { float navDist[]; };   // roaming: attractor awareness
 layout(std430, set = 1, binding = 0) buffer Agents    { Agent agents[]; };
 layout(std430, set = 1, binding = 1) buffer CellCount { uint cellCount[]; };
 layout(std430, set = 1, binding = 2) buffer CellLocal { uvec2 cellLocal[]; };
@@ -39,6 +40,93 @@ vec2 sampleDir(vec2 xz) {
     return l > 1e-3 ? d / l : vec2(0.0);
 }
 float sampleDensity(vec2 xz) { return density[cellIndex(cellCoord(xz))].x; }
+
+// ---- ambient roaming (roamP.x > 0, city): zombies that are not aware of an attractor wander ---------------------
+float vnoise1(float x, uint seed) {   // smooth 1D value noise in [0, 1)
+    float i = floor(x), f = x - i;
+    float a = hash01(uint(int(i)) * 1597334677u ^ seed), b = hash01(uint(int(i) + 1) * 1597334677u ^ seed);
+    return mix(a, b, f * f * (3.0 - 2.0 * f));
+}
+// Slowly drifting divergence-free field (curl of a sum of plane waves): nearby zombies drift the same way (loose
+// groups), and being divergence-free it has no sinks, so it never gathers the population into clumps.
+vec2 curlField(vec2 xz, float t) {
+    const vec2 D[4] = vec2[4](vec2(0.8, 0.6), vec2(-0.447, 0.894), vec2(0.970, -0.243), vec2(-0.707, -0.707));
+    const float S[4] = float[4](1.0, 1.37, 0.71, 1.83);
+    float k = 6.2831853 / max(roamQ.w, 1.0);
+    vec2 v = vec2(0.0);
+    for (int j = 0; j < 4; ++j) {
+        float th = dot(D[j], xz) * k / S[j] + t * (0.021 + 0.007 * float(j)) + float(j) * 1.7;
+        v += cos(th) * vec2(D[j].y, -D[j].x);
+    }
+    return v * 0.5;
+}
+bool freeAt(vec2 q, float y) {
+    ivec2 c = ivec2(floor((q - world.xy) * world.w));
+    if (c.x < 1 || c.y < 1 || c.x >= int(grid.x) - 1 || c.y >= int(grid.y) - 1) return false;   // window border: turn back
+    return staticH[cellIndex(c)] <= y + moveP.w;
+}
+vec2 rot2(vec2 d, float a) { float c = cos(a), s = sin(a); return vec2(c * d.x - s * d.y, s * d.x + c * d.y); }
+// first free direction near `dir` (walls deflect wanderers along streets / sidewalks); per-agent side preference
+vec2 steerFree(vec2 p, float y, vec2 dir, float side) {
+    const float A[8] = float[8](0.0, 0.55, -0.55, 1.1, -1.1, 1.75, -1.75, 3.14159265);
+    for (int k = 0; k < 8; ++k) {
+        vec2 d = rot2(dir, A[k] * side);
+        if (freeAt(p + d * 0.9, y) && freeAt(p + d * 2.1, y)) return d;
+    }
+    return vec2(0.0);
+}
+float densAt(ivec2 c) {
+    c = clamp(c, ivec2(0), ivec2(int(grid.x) - 1, int(grid.y) - 1));
+    return density[cellIndex(c)].x;
+}
+vec2 separation(vec2 xz) {   // down the crowd-density gradient (mild: wanderers keep a metre or two apart)
+    ivec2 c = cellCoord(xz);
+    vec2 g = vec2(0.0);
+    for (int k = 1; k <= 2; ++k) {
+        float w = 1.0 / float(k);
+        g.x += (densAt(c + ivec2(k, 0)) - densAt(c - ivec2(k, 0))) * w;
+        g.y += (densAt(c + ivec2(0, k)) - densAt(c - ivec2(0, k))) * w;
+    }
+    vec2 s = -g * roamQ.x * 0.25;
+    float l = length(s);
+    return l > 0.5 ? s * (0.5 / l) : s;
+}
+vec2 roamVelocity(vec3 p, float vary, uint seed, uint kind) {
+    float t = timeP.y;
+    float y = p.y;
+    float side = vary < 0.5 ? 1.0 : -1.0;
+    float ws = roamP.y * (0.6 + 0.8 * vary);                                      // staggering: slow and slower ones
+    float g = vnoise1(t / 9.0 + vary * 37.0, seed ^ 0x5bd1e995u);                // pauses come and go
+    float th = 12.566 * vnoise1(t / 23.0 + vary * 11.0, seed);                     // own heading drifts slowly
+    vec2 ind = vec2(cos(th), sin(th));
+    vec2 sep = separation(p.xz);
+    if (kind == 1u) {   // lurker: goes to the nearest wall / door within a few metres and stands facing it
+        vec2 best = vec2(0.0);
+        float bestR = 1e9;
+        for (int j = 0; j < 8; ++j) {
+            vec2 d = rot2(vec2(1.0, 0.0), float(j) * 0.785398 + vary * 0.3);
+            for (int r = 1; r <= 6; ++r) {
+                float rr = float(r) * 0.75;
+                if (rr >= bestR) break;
+                if (!freeAt(p.xz + d * rr, y)) { bestR = rr; best = d; break; }
+            }
+        }
+        if (bestR < 1e8 && g > 0.12) return bestR > 1.1 ? best * ws * 0.6 + sep : best * 0.03;
+        return ind * 0.03 + sep * 0.5;   // in the open: stands and slowly looks around
+    }
+    float pauseFrac = kind == 2u ? 0.7 : roamP.z;
+    if (g < pauseFrac) return ind * 0.06 + sep;   // paused: shuffles on the spot, turning now and then
+    vec2 cf = curlField(p.xz, t);
+    float cl = length(cf);
+    vec2 dir = ind + (cl > 1e-3 ? cf / max(cl, 1.0) : vec2(0.0)) * 0.9;
+    float dl = length(dir);
+    dir = dl > 1e-3 ? dir / dl : ind;
+    dir = steerFree(p.xz, y, dir, side);
+    float sp = ws * (0.65 + 0.7 * vnoise1(t / 4.0 + vary * 53.0, seed ^ 0x27d4eb2fu));
+    if (kind == 2u) sp *= 0.35;
+    float gait = smoothstep(pauseFrac, min(pauseFrac + 0.08, 1.0), g);           // eases out of / into pauses
+    return dir * sp * gait + ind * 0.06 * (1.0 - gait) + sep;
+}
 
 // segments that come off together: an arm takes its forearm, a leg its shin
 uint severWithChildren(uint s) { return (s == 2u || s == 4u || s == 6u || s == 8u) ? (3u << s) : (1u << s); }
@@ -175,16 +263,35 @@ void main() {
         }
     }
 
+    // ---- awareness (roaming): an attractor within reach (nav distance under the gate) = pursuit; memory decays ----
+    const bool roam = roamP.x > 0.5;
+    uint alert = agentAlert(a.info.z);
+    bool aware = true;
+    if (roam) {
+        float nd = navDist[cellIndex(cellCoord(p.xz))];
+        aware = nd < 0.5e7 && !(goreQ.z > 0.0 && nd > goreQ.z);
+        if (aware) alert = 15u;
+        else if (alert > 0u && rand01(rng) < dt * 15.0 / max(roamP.w, 0.1)) alert -= 1u;   // ~roamP.w s from 15 to 0
+    }
+
     // ---- desired velocity -----------------------------------------------------
-    vec2 flow = sampleDir(p.xz);
-    float wob = sin(timeP.y * (0.5 + vary) + vary * 40.0) * extraP.y;
-    float cw = cos(wob), sw = sin(wob);
-    flow = vec2(cw * flow.x - sw * flow.y, sw * flow.x + cw * flow.y);
-    float rhoAhead = sampleDensity(p.xz + flow * crowdP.w);
-    float speedF = clamp(1.0 - (rhoAhead - crowdP.x) / max(crowdP.y - crowdP.x, 1e-3), crowdP.z, 1.0);
-    float baseSpeed = agentP.w * (0.7 + 0.6 * vary);
-    float speed = mix(baseSpeed * speedF, extraP.w * (0.8 + 0.4 * vary), clamp(a.pos.w, 0.0, 1.0));
-    vec2 desired = flow * speed;
+    vec2 desired;
+    if (aware) {   // pursuit: stream along the shared flow field with crowd-density speed (unchanged behaviour)
+        vec2 flow = sampleDir(p.xz);
+        float wob = sin(timeP.y * (0.5 + vary) + vary * 40.0) * extraP.y;
+        float cw = cos(wob), sw = sin(wob);
+        flow = vec2(cw * flow.x - sw * flow.y, sw * flow.x + cw * flow.y);
+        float rhoAhead = sampleDensity(p.xz + flow * crowdP.w);
+        float speedF = clamp(1.0 - (rhoAhead - crowdP.x) / max(crowdP.y - crowdP.x, 1e-3), crowdP.z, 1.0);
+        float baseSpeed = agentP.w * (0.7 + 0.6 * vary);
+        float speed = mix(baseSpeed * speedF, extraP.w * (0.8 + 0.4 * vary), clamp(a.pos.w, 0.0, 1.0));
+        desired = flow * speed;
+    } else {       // idle: wander; after losing the attractor keep the last heading, then drift back to wandering
+        vec2 wv = roamVelocity(p, vary, a.info.y, agentRoamKind(a.info.y));
+        vec2 prevD = (st0 == ST_WALK || st0 == ST_CLIMB) ? a.dirs.xy : vec2(0.0);
+        float m = float(alert) / 15.0;
+        desired = alert == 0u ? wv : mix(prevD, wv, min(1.0, dt * (0.12 + 1.6 * (1.0 - m) * (1.0 - m))));
+    }
 
     if (st == ST_WALK || st == ST_CLIMB) {
         v.xz += (desired - v.xz) * min(1.0, moveP.x * dt);
@@ -209,7 +316,7 @@ void main() {
     a.dirs.xy = (st == ST_FALL || st == ST_DYING) ? tumble : desired;
     a.dirs.w = timer;
     a.info.x = st | agentLookX(a);
-    a.info.z = packAgentZ(health, sev, blood);
+    a.info.z = packAgentZ(health, sev, blood) | (alert << 28);
     agents[i] = a;
 
     // ---- kill record (game mode): exactly one thread sees an agent's alive -> DYING transition ----------------

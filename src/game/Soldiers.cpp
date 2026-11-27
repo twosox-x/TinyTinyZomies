@@ -18,6 +18,7 @@ SoldierId SoldierPool::spawn(SoldierClass c, int infantryIndex, SquadId sq, int 
         resume.push_back(SoldierState::Idle); stuckTime.push_back(0); progressPos.emplace_back(); repaths.push_back(0);
         phase.push_back(0); hitCooldown.push_back(0); contactAge.push_back(1e9f); retry.push_back(0); wounded.push_back(0); stopCooldown.push_back(0); goal.emplace_back();
         targetSwitches.push_back(0); stateChanges.push_back(0); rounds.push_back(0);
+        stamina.push_back(0); tired.push_back(0); running.push_back(0); unarmed.push_back(0);
     }
     used[i] = 1; cls[i] = c; infantry[i] = (uint16_t)infantryIndex; squad[i] = sq; slotInSquad[i] = (uint8_t)slot;
     pos[i] = p; vel[i] = {}; yaw[i] = yawRad; path[i] = {}; health[i] = 0; mag[i] = 0; reserve[i] = 0; target[i] = {};
@@ -26,6 +27,7 @@ SoldierId SoldierPool::spawn(SoldierClass c, int infantryIndex, SquadId sq, int 
     equipped[i] = 0; maxHealth[i] = 0; home[i] = p; homeYaw[i] = yawRad; orderSerial[i] = 0; resume[i] = SoldierState::Idle;
     stuckTime[i] = 0; progressPos[i] = p; repaths[i] = 0; phase[i] = 0; hitCooldown[i] = 0; contactAge[i] = 1e9f; retry[i] = 0; stopCooldown[i] = 0; goal[i] = p;
     wounded[i] = 0; targetSwitches[i] = 0; stateChanges[i] = 0; rounds[i] = 0;
+    stamina[i] = 100.f; tired[i] = 0; running[i] = 0; unarmed[i] = 0;
     return idOf(i);
 }
 
@@ -34,6 +36,7 @@ void SoldierPool::equip(uint32_t i, const BalanceConfig& cfg) {
     maxHealth[i] = health[i] = cfg.soldier[c].health;
     mag[i] = cfg.weapon[c].magazine;
     reserve[i] = cfg.weapon[c].reserve;
+    stamina[i] = cfg.stamina.max;
     equipped[i] = 1;
 }
 

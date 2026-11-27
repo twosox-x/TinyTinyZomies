@@ -34,6 +34,7 @@
 #include "game/Commands.h"
 #include "game/Config.h"
 #include "game/Deploy.h"
+#include "game/Reanimation.h"
 #include "game/Economy.h"
 #include "game/GameEvents.h"
 #include "game/GameRender.h"
@@ -86,10 +87,12 @@ public:
     AppState* app() { return app_; }
     GameUI& ui() { return ui_; }
     const Combat& combat() const { return combat_; }
+    Combat& combat() { return combat_; }
     const HordeBridge& horde() const { return horde_; }
     const Deploy& deploy() const { return deploy_; }
     const Logistics& logistics() const { return logistics_; }
     const Economy& economy() const { return economy_; }
+    const Reanimation& reanimation() const { return reanim_; }
     struct SquadStart { int ammo = 0; };          // per squad (purchase order): total rounds when the squad was bought
     const std::vector<SquadStart>& squadStarts() const { return squadStarts_; }
     uint64_t purchasesRefused() const { return refused_; }
@@ -115,6 +118,7 @@ private:
     Economy economy_;
     Logistics logistics_;
     Deploy deploy_;
+    Reanimation reanim_;
     CommandQueue commands_;
     std::vector<Command> applying_;
     GameUI ui_;

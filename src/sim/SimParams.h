@@ -84,6 +84,17 @@ struct SimParams {
     float gibThreshold = 0.78f;    // blast closeness (0 edge .. 1 centre) above which a killed zombie is torn apart
     float tumbleDamping = 8.0f;    // 1/s: how fast a dying body stops rolling once it touches anything
     int particleCapacity = 65536;
+
+    // ambient roaming (city): zombies not aware of an attractor wander instead of standing still. Off by default
+    // (showcase / tests unchanged); the city sets it from config/balance.json "ambient" (UNAPPROVED values).
+    bool roamEnabled = false;
+    float roamSpeed = 0.45f;       // m/s wander speed (per zombie x 0.6 .. 1.4, varying over time)
+    float roamPause = 0.35f;       // fraction of the time a wanderer stands / shuffles on the spot
+    float roamMemory = 25.0f;      // s: after losing every attractor, alert decays to idle over this time
+    float roamSeparation = 0.6f;   // push down the crowd-density gradient while wandering
+    float roamLurkers = 0.12f;     // fraction standing at walls / doors
+    float roamCrawlers = 0.03f;    // fraction lying (crawl) while calm
+    float roamWavelength = 70.0f;  // m: size of the slowly drifting field that keeps nearby wanderers loosely together
     int gibCapacity = 16384;
 
     bool load(const std::string& path);

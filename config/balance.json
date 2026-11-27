@@ -23,5 +23,17 @@
                "killReward": { "soldier": 5, "explosion": 5, "other": 0 }, "containerPrice": 1500, "airdropPrice": 400 },
   "logistics": { "containerStock": { "rifle": 3000, "mg": 2000, "sniper": 300 }, "crateStock": { "rifle": 600, "mg": 400, "sniper": 60 },
                  "containerSlots": 4, "crateSlots": 2, "collectRadius": 1.2, "airdropAltitude": 60, "airdropScatter": 4 },
-  "threat": { "attackReach": 0.9, "damagePerSecond": 12, "awarenessRadius": 60, "soldierAttraction": 1.0 }
+  "ambient": { "note": "UNAPPROVED. Idle city population and roaming (CityAmbient, sim_predict). densityPerHa: zombies per hectare of open ground; group chances per placed group; behaviour: wander speed m/s, pause fraction, alert memory s (dispersal after noise), separation, lurker / crawler fractions, drift-field wavelength m.",
+               "densityPerHa": 220, "singleChance": 0.55, "clusterChance": 0.03, "edgeWeight": 1.8, "openWeight": 0.2, "builtUpWeight": 1.6,
+               "wanderSpeed": 0.45, "pauseFraction": 0.35, "alertMemory": 25, "separation": 0.6, "lurkerFraction": 0.12,
+               "crawlerFraction": 0.03, "fieldWavelength": 70 },
+  "fort": { "note": "UNAPPROVED (B2). Walls: price per 4 m piece, health, collision height (approved 1.6 / 2.4 m assets); pressure damage hp/s per zombie beyond the threshold. Territory: 1 m raster, income per controlled hectare, clear delay, loss time (PROPOSED breach rule). Gate (PROPOSED): price multiplier. Containers: parachute drop.",
+            "wallPrice": { "cheap": 40, "reinforced": 110 }, "wallHealth": { "cheap": 600, "reinforced": 1800 },
+            "wallHeight": { "cheap": 1.6, "reinforced": 2.4 }, "gatePriceMul": 3, "damagePerZombie": 1.0, "pressureThreshold": 3,
+            "buildTime": 0.6, "territoryCell": 1.0, "minRegionArea": 16, "incomePerHectarePerMin": 1000, "clearDelay": 3, "lossTime": 20,
+            "containerNeedsTerritory": false, "containerAltitude": 70, "containerDescentSpeed": 6.5, "containerLandDuration": 1.0 },
+  "threat": { "attackReach": 0.9, "damagePerSecond": 12, "awarenessRadius": 60, "soldierAttraction": 1.0 },
+  "reanimation": { "enabled": true, "delayMin": 8, "delayMax": 20, "riseTime": 1.6, "healthMul": 3.0 },
+  "stamina": { "max": 100, "drainRun": 5, "regenWalk": 6, "regenRest": 12, "minToRun": 15, "resumeRun": 40,
+               "sprintScale": 1.15, "threatRadius": 30 }
 }

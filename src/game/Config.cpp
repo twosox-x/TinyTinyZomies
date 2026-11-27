@@ -71,6 +71,27 @@ bool BalanceConfig::load(const std::string& path, std::string* error) {
     const json::Value& t = root["threat"];
     num(t, "attackReach", threat.attackReach); num(t, "damagePerSecond", threat.damagePerSecond);
     num(t, "awarenessRadius", threat.awarenessRadius); num(t, "soldierAttraction", threat.soldierAttraction);
+    const json::Value& r = root["reanimation"];
+    if (r.has("enabled")) reanimation.enabled = r["enabled"].n(1.0) != 0.0;
+    num(r, "delayMin", reanimation.delayMin); num(r, "delayMax", reanimation.delayMax);
+    num(r, "riseTime", reanimation.riseTime); num(r, "healthMul", reanimation.healthMul);
+    const json::Value& st = root["stamina"];
+    num(st, "max", stamina.max); num(st, "drainRun", stamina.drainRun); num(st, "regenWalk", stamina.regenWalk);
+    num(st, "regenRest", stamina.regenRest); num(st, "minToRun", stamina.minToRun); num(st, "resumeRun", stamina.resumeRun);
+    num(st, "sprintScale", stamina.sprintScale); num(st, "threatRadius", stamina.threatRadius);
+    const json::Value& fo = root["fort"];
+    for (int v = 0; v < 2; ++v) {
+        const char* kv = v ? "reinforced" : "cheap";
+        num(fo["wallPrice"], kv, fort.wallPrice[(size_t)v]); num(fo["wallHealth"], kv, fort.wallHealth[(size_t)v]);
+        num(fo["wallHeight"], kv, fort.wallHeight[(size_t)v]);
+    }
+    num(fo, "gatePriceMul", fort.gatePriceMul); num(fo, "damagePerZombie", fort.damagePerZombie);
+    num(fo, "pressureThreshold", fort.pressureThreshold); num(fo, "buildTime", fort.buildTime);
+    num(fo, "territoryCell", fort.territoryCell); num(fo, "minRegionArea", fort.minRegionArea);
+    num(fo, "incomePerHectarePerMin", fort.incomePerHectarePerMin); num(fo, "clearDelay", fort.clearDelay);
+    num(fo, "lossTime", fort.lossTime); num(fo, "containerAltitude", fort.containerAltitude);
+    num(fo, "containerDescentSpeed", fort.containerDescentSpeed); num(fo, "containerLandDuration", fort.containerLandDuration);
+    if (fo.has("containerNeedsTerritory")) fort.containerNeedsTerritory = fo["containerNeedsTerritory"].n(0) != 0;
     return true;
 }
 

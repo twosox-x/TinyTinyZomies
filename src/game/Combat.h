@@ -33,6 +33,8 @@ public:
     uint32_t maxAttractors = kMaxAttractors;
 
     void tick(GameContext& ctx);               // after SoldierAI and SoldierAnimator::tick (events of this tick)
+    // An external noise source (scripts / tests; later: explosions, vehicles): joins the aged noise list -> attractors.
+    void addNoise(const NoiseEvent& e) { if (noise_.size() < 128) { Noise n; n.e = e; noise_.push_back(n); } }
     // Helpers exposed for tests.
     static V3 spreadDir(V3 dir, float spreadDeg, uint32_t& rng);
     uint64_t roundsFired() const { return roundsFired_; }

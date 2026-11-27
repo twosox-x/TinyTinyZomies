@@ -368,6 +368,13 @@ void HordeBridge::parseSlot(int si) {
     st_.latencyFrames = (uint32_t)(sim_->submittedFrames() - s.frame);
 }
 
+bool HordeBridge::spawnZombie(V3 pos, float yaw, float health, uint32_t lookX, uint32_t lookY) {
+    (void)yaw;   // the spawn pass picks a random facing (agents carry no facing input)
+    if (!sim_ || !simulated(pos.x, pos.z)) return false;
+    sim_->requestSpawnZombie(pos.x, pos.z, 1.2f, lookX, lookY, health);
+    return true;
+}
+
 void HordeBridge::requestExplosion(V3 pos, float scale) {
     if (sim_) sim_->requestExplosion(pos.x, pos.y, pos.z, scale);
 }

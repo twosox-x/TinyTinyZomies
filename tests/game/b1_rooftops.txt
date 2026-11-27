@@ -1,0 +1,33 @@
+# Owner feedback (B1): snipers must land on roofs, never inside a building. Drops on the roofs of several buildings
+# (a 147 m tower, 76 m and 48 m blocks, a 36 m block, a 17 m low building), two through the real UI pick (screen ray
+# against the height grid at the roof height). Every sniper must stand on his roof surface (feet = surface height,
+# walkable roof cell, no wall through the body) after landing and after a minute of autonomous behaviour.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_rooftops.txt
+at 0.0  camera -14 120 0.6 0.9 250
+at 0.1  buy sniper 8 84                 # tower roof (147.5 m)
+at 0.2  buy sniper -48 116              # 76 m roof with parapets
+at 0.3  buy sniper 0 76                 # low building (16.7 m)
+at 0.4  buy sniper 24 92                # 36 m roof
+at 0.5  key c                           # sniper tool, placed with a click on a roof (UI pick)
+at 0.6  click left -40 92               # 48 m roof
+at 0.7  key c
+at 0.8  click left 16 100               # tower roof (137.5 m)
+at 1.0  expect squads == 6
+at 1.0  expect refused == 0
+at 1.0  expect spent == 4200
+at 30   log
+at 30   expect landed == 6
+at 30   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop + squad 6 rooftop == 6
+at 30   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside + squad 6 inside == 0
+at 30   expect squad 1 y >= 147
+at 30   expect squad 2 y >= 75.7
+at 30   expect squad 3 y >= 16.2
+at 30   expect squad 4 y >= 35.4
+at 30   expect squad 5 y >= 47.7
+at 30   expect squad 6 y >= 137
+at 30   expect squad 1 parachuted + squad 2 parachuted + squad 3 parachuted + squad 4 parachuted + squad 5 parachuted + squad 6 parachuted == 6
+at 30   shot rooftops_landed.png
+at 75   log
+at 75   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop + squad 6 rooftop == 6
+at 75   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside + squad 6 inside == 0
+at 76   end

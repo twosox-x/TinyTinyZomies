@@ -61,6 +61,11 @@ bool App::init() {
     s_.sandbox.build(s_.params.cellSize, s_.params.gridW, s_.params.gridH);
     if (o.cityMap && !initCity()) return false;
     if (!s_.zombieModel.load(dataPath("assets/models/zombie.glb"), s_.params.standHeight)) return false;
+    if (s_.cityMode && o.lab.empty()) {   // city: idle zombies roam (GPU), ambient population parameters
+        std::string err;
+        if (!s_.ambient.load(dataPath(o.balance), &err)) SDL_Log("ambient: %s (using built-in UNAPPROVED defaults)", err.c_str());
+        s_.ambient.apply(s_.params);
+    }
     if (!s_.sim.init(s_.gpu, s_.params, s_.sandbox)) return false;
     SDL_GPUTextureFormat swapFmt = s_.window ? SDL_GetGPUSwapchainTextureFormat(s_.gpu.device(), s_.window)
                                              : SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -225,14 +230,51 @@ void App::loadScenario(int index, int count) {
         s_.vehicles.setWindow(s_.sandbox.originX, s_.sandbox.originZ, s_.sandbox.cellSize, s_.sandbox.gridW, s_.sandbox.gridH, s_.staticHeights);
     s_.sim.setGoals(sc.goals);
     int n = count > 0 ? count : sc.defaultCount;
-    s_.spawnCount = n;
-    int per = n / (int)sc.spawns.size();
-    for (const Rect& r : sc.spawns) s_.sim.requestSpawn(r, (uint32_t)per);
+    // ambient population: the ambient scenario, and every --game session (the game clears the goal)
+    const bool ambient = s_.cityMode && sc.map == MapKind::Baked && s_.params.roamEnabled && (sc.ambient || s_.opt.game);
+    if (ambient) {
+        if (s_.ambientAuto && count == s_.ambientPlaced) count = -1;   // reset (R) of a density-driven population
+        s_.ambientAuto = count <= 0;
+        populateAmbient(count <= 0 ? -1 : count, {});
+        s_.ambientPlaced = n = s_.spawnCount = std::max(1, s_.ambientPlaced);
+    } else {
+        s_.ambientAuto = false;
+        s_.spawnCount = n;
+        int per = n / (int)sc.spawns.size();
+        for (const Rect& r : sc.spawns) s_.sim.requestSpawn(r, (uint32_t)per);
+    }
     const Rect& r = sc.spawns[0];
-    if (sc.map == MapKind::Baked && !sc.goals.empty()) s_.camera.setImmediate({sc.goals[0], 0, sc.goals[1]}, 0.9f, 0.9f, 110.f);
+    if (ambient && sc.ambient)
+        s_.camera.setImmediate({s_.sandbox.originX + 0.5f * s_.sandbox.gridW * s_.sandbox.cellSize, 0,
+                                s_.sandbox.originZ + 0.5f * s_.sandbox.gridH * s_.sandbox.cellSize}, 0.9f, 0.9f, 110.f);
+    else if (sc.map == MapKind::Baked && !sc.goals.empty()) s_.camera.setImmediate({sc.goals[0], 0, sc.goals[1]}, 0.9f, 0.9f, 110.f);
     else s_.camera.setImmediate({(r.minX + r.maxX) * 0.5f + 15.f, 0, (r.minZ + r.maxZ) * 0.5f}, 0.9f, 0.8f, 75.f);
     (void)r;
     s_.simAccumulator = 0;
+}
+
+// Ambient population of the current window (blocks = none: the whole window, and every block is marked populated;
+// otherwise only the listed 48 m blocks). count < 0: from the density.
+void App::populateAmbient(int count, const std::vector<std::pair<int, int>>& blocks) {
+    const Sandbox& sb = s_.sandbox;
+    const float B = 64.f * sb.cellSize;
+    auto blockOf = [&](float x, float z) {
+        return std::make_pair((int)std::floor((x - s_.cityHome.originX) / B), (int)std::floor((z - s_.cityHome.originZ) / B));
+    };
+    std::set<std::pair<int, int>> want(blocks.begin(), blocks.end());
+    std::vector<Vec4> pts = ambientSpawnPoints(sb.heightOverride.empty() ? sb.rasterize() : sb.heightOverride, sb.gridW, sb.gridH,
+                                               sb.originX, sb.originZ, sb.cellSize, s_.ambient, s_.ambientSeed++, count,
+                                               blocks.empty() ? std::function<bool(float, float)>{}
+                                                              : [&](float x, float z) { return want.count(blockOf(x, z)) != 0; });
+    if (blocks.empty()) {
+        s_.ambientBlocks.clear();
+        for (float z = sb.originZ + 0.5f * B; z < sb.originZ + sb.gridH * sb.cellSize; z += B)
+            for (float x = sb.originX + 0.5f * B; x < sb.originX + sb.gridW * sb.cellSize; x += B) s_.ambientBlocks.insert(blockOf(x, z));
+        s_.ambientPlaced = (int)pts.size();
+    }
+    s_.ambientBlocks.insert(want.begin(), want.end());
+    if (!pts.empty()) s_.sim.requestSpawnPoints(pts);
+    SDL_Log("ambient: %zu zombies placed (%s)", pts.size(), blocks.empty() ? "window" : "newly visited blocks");
 }
 
 // Character validation scenes (open arena, no destination: zombies stand where they are placed).
@@ -452,6 +494,16 @@ void App::frame(double dt) {
         moves_ += moved ? 1 : 0;
         if (moved) s.vehicles.setWindow(s.sandbox.originX, s.sandbox.originZ, s.sandbox.cellSize, s.sandbox.gridW, s.sandbox.gridH,
                                         s.sandbox.heightOverride);
+        if (moved && s.ambientAuto) {   // populate the blocks this window shows for the first time
+            const float B = 64.f * s.sandbox.cellSize;
+            std::vector<std::pair<int, int>> fresh;
+            for (float z = s.sandbox.originZ + 0.5f * B; z < s.sandbox.originZ + s.sandbox.gridH * s.sandbox.cellSize; z += B)
+                for (float x = s.sandbox.originX + 0.5f * B; x < s.sandbox.originX + s.sandbox.gridW * s.sandbox.cellSize; x += B) {
+                    std::pair<int, int> k{(int)std::floor((x - s.cityHome.originX) / B), (int)std::floor((z - s.cityHome.originZ) / B)};
+                    if (!s.ambientBlocks.count(k)) fresh.push_back(k);
+                }
+            if (!fresh.empty()) populateAmbient(-1, fresh);
+        }
     }
     if (s.opt.panSpawnEvery > 0 && s.opt.panSpeed > 0 && (int)s.frameIndex >= s.opt.panStart) {
         int k = ((int)s.frameIndex - s.opt.panStart) / s.opt.panSpawnEvery, r = ((int)s.frameIndex - s.opt.panStart) % s.opt.panSpawnEvery;

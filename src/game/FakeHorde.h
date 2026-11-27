@@ -40,6 +40,13 @@ public:
     void takeKills(std::vector<KillEvent>& out) override { out.insert(out.end(), kills_.begin(), kills_.end()); kills_.clear(); }
     uint64_t killsOverflowed() const override { return 0; }
     bool simulated(float x, float z) const override { return x >= x0_ && z >= z0_ && x <= x1_ && z <= z1_; }
+    bool spawnZombie(V3 pos, float yaw, float health, uint32_t lookX, uint32_t lookY) override {
+        (void)yaw; (void)lookX; (void)lookY;
+        if (!simulated(pos.x, pos.z)) return false;
+        Zombie z; z.pos = pos; z.health = health; zombies.push_back(z); ++spawned;
+        return true;
+    }
+    uint64_t spawned = 0;
 
     uint64_t hitsQueued = 0, hitsLanded = 0, hitsBlocked = 0, killsTotal = 0, explosions = 0;
     const std::vector<Attractor>& attractors() const { return attractors_; }

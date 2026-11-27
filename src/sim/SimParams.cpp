@@ -34,6 +34,7 @@ std::map<std::string, Field>& fields() {
     F(explosionRadius); F(explosionStrength); F(explosionLethality); F(explosionUpBias);
     F(lookRecent); F(lookClothed); F(lookLight); F(lookHeavy); F(lookSkeletal); F(lookMissing);
     B(goreEnabled); F(bloodAmount); F(dismemberChance); F(gibThreshold); F(tumbleDamping); F(particleCapacity); F(gibCapacity);
+    B(roamEnabled); F(roamSpeed); F(roamPause); F(roamMemory); F(roamSeparation); F(roamLurkers); F(roamCrawlers); F(roamWavelength);
 #undef F
 #undef B
     return f;
