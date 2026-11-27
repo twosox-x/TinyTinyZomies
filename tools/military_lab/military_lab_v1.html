@@ -2417,13 +2417,13 @@ const FX_SPEC2 = {
   flame_tongue: {
     look: "v3 (owner: one continuous tongue of flame): gap-free 5 cm world-aligned voxels (character scale), exact-size cubes, a solid tapered core along the bent jet path, noise only on the outer edge and the widening rolling tip; emissive with face shading (top 1.0, sides 0.78-0.86, bottom 0.62)",
     voxel: 0.05, samples: 40, speed: 14.0, gravity: 5.0, drag: 0.6, life: 0.55,
-    radius: [0.035, 0.42], tipBulge: 0.12, core: 0.6, edgeNoise: 0.75,
+    radius: [0.035, 0.24], tipBulge: 0.06, core: 0.6, edgeNoise: 0.75, tipLick: 0.6, bodyMax: 0.8, fringe: 0.3,
     shape: "s = distance to the centreline / r(age); filled if s <= core (always; the core shrinks only in the last 25 % of the tip) or 1 - s + edgeNoise(k) * n > 0, n = 0.65 vnoise(9 q, scroll 9 m/s up) + 0.35 vnoise(20 q, 16 m/s); edgeNoise(k) = edgeNoise * (0.35 + 0.65 smooth((k - 0.35) / 0.65)) (calm at the nozzle, rolling at the tip)",
-    radiusLaw: "r = r0 + (r1 - r0) k^1.4 + tipBulge * smooth((k - 0.7) / 0.3), k = age / life",
+    radiusLaw: "r = r0 + (r1 - r0) k^1.4 + tipBulge * smooth((k - 0.7) / 0.3), k = age / life (max 0.30 m); the tip's edge noise adds tipLick * smooth((k - 0.75) / 0.25): the rolling tip breaks into licking tongues",
     centreline: "ballistic path of fuel emitted at t - age from the nozzle pose at that time (speed, drag, gravity), 40 samples; held >= 0.6 r above the ground (it splashes and runs along the ground)",
-    colour: "ramp(kk), kk = 0.2 k + s (0.6 + 0.4 k) + 0.3 k^2 +- 4 % per-voxel jitter: white-yellow core -> orange -> red edge, the tip redder; HDR gain 1 + 0.2 (1 - kk) (fireColour of fx_volume_frag.glsl in the engine)",
-    ramp: [[0.0, "#fff6d0"], [0.18, "#ffe27a"], [0.38, "#ffb340"], [0.58, "#ff7a1e"], [0.78, "#d9421a"], [0.92, "#8a2410"]],
-    smoke: { voxel: 0.1, life: 0.9, rise: 1.6, radius: 0.28, color: ["#2a2623", "#3d3833"], note: "continues the column from 0.85 life, same field rules but core 0.15, noise 0.9 and a 0.45 threshold: thin, broken wisps; lit not emissive in the engine" },
+    colour: "v4: ramp(kk), kk = min(0.8, 0.12 k + 0.55 s + 0.18 k^2 +- 4 %): white-yellow core, bright yellow-orange body, orange edge; red-orange (kk 0.95) ONLY on a flickering 30 % of the outer fringe voxels (s > 0.9) in the last 22 % of the tip (re-rolled 12x/s); HDR gain 1 + 0.35 (1 - kk); no dark red / maroon anywhere",
+    ramp: [[0.0, "#fffbe6"], [0.18, "#fff09a"], [0.36, "#ffd24a"], [0.55, "#ffa82a"], [0.72, "#ff8418"], [0.9, "#f0561a"]],
+    smoke: { voxel: 0.1, life: 0.9, rise: 1.8, lift: 0.3, radius: 0.28, ember: 0.12, emberColor: ["#9a3f14", "#7a3212"], color: ["#2a2623", "#3d3833"], note: "starts AFTER the flame (age > life) and 0.3 m above its tip, rising 1.8 m/s (never inside the flame volume); first 12 % of its life dark orange embers, then grey-black; core 0.15, noise 0.9, threshold 0.45: thin broken wisps; lit, not emissive, in the engine" },
     engine: "proposed FX volume kind 3 (flame jet): centreline points + radii (or emitter pose history) and age as uniforms; ray-march the 5 cm grid inside the tube's AABB like fx_volume (same DDA), surface cube faces shaded",
   },
   flame_volume: {
@@ -2439,7 +2439,7 @@ const FX_SPEC2 = {
   },
   flame_smoke: { size: [0.18, 0.45], color: [["0", "#4a423b"], ["1", "#7a746c"]], alpha: [0.8, 0.0], rise: 1.3, drift: "FX_WIND (0.55, 0, 0.25) m/s, as the volume smoke", life: 1.4, every: 3, note: "one smoke voxel per 3 flame voxels" },
   ground_fire: {
-    v3: "drawn with the flame_tongue voxels (5 cm): every point where the jet reaches the ground makes a pool of radius pool.radius; column height pool.height * (1 - d) * flicker noise; same colour ramp (base yellow, top red)",
+    v3: "drawn with the flame_tongue voxels (5 cm): every point where the jet reaches the ground makes a pool of radius pool.radius; column height pool.height * (1 - d) * flicker noise; same ramp capped at 0.78 (bright yellow base, orange tips; no red)",
     seeds: "flame voxels hitting the ground merge into pools on a 0.25 m world grid (the explosion / building voxel size)",
     pool: { radius: 0.45, height: 0.55, cell: 0.05, radiusGrow: "0.25 m per 6 seeds, max 1.25 m", heightVoxels: [1, 4], flicker: "column height = 1 + floor(3 * noise(cell, 6 Hz))", life: 7.0, fadeOut: 2.0 },
     color: "same fireColour ramp, column base k = 0.2, top k = 0.85; embers (#ff6a1e, 0.06 m) at the base for the last 2 s",
@@ -2942,7 +2942,7 @@ function flameCentreline(a, clip, t, stopAt, n0, ageMax, ageMin) {
     const k = Math.min(1, age / F.life);
     let r = F.radius[0] + (F.radius[1] - F.radius[0]) * Math.pow(k, 1.4) + F.tipBulge * smooth((k - 0.7) / 0.3);
     if (p[1] < r * 0.6) p[1] = r * 0.6;                                      // splash: rides along the ground
-    if (age > F.life) { const sa = age - F.life; p = [p[0] + 0.55 * sa, p[1] + F.smoke.rise * sa, p[2] + 0.25 * sa]; r = lerp(r, F.smoke.radius, Math.min(1, sa / F.smoke.life)); }
+    if (age > F.life) { const sa = age - F.life; p = [p[0] + 0.55 * sa, p[1] + F.smoke.lift + F.smoke.rise * sa, p[2] + 0.25 * sa]; r = lerp(F.smoke.radius * 0.5, F.smoke.radius, Math.min(1, sa / F.smoke.life)); }
     out.push({ p, r, age, k });
   }
   return out;
@@ -2966,7 +2966,7 @@ function drawTongueCells(cells, v, t, seed, smoke) {
   for (const [key, c] of cells) {
     const q = [(c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v];
     // solid core (always filled); noise only beyond the core radius, stronger toward the rolling tip
-    const edgeAmp = smoke ? 0.9 : F.edgeNoise * (0.35 + 0.65 * smooth((c.k - 0.35) / 0.65));
+    const edgeAmp = smoke ? 0.9 : F.edgeNoise * (0.35 + 0.65 * smooth((c.k - 0.35) / 0.65)) + F.tipLick * smooth((c.k - 0.75) / 0.25);
     const n = 0.65 * vnoise3(q[0] * 9, q[1] * 9 - t * 9, q[2] * 9, seed) + 0.35 * vnoise3(q[0] * 20, q[1] * 20 - t * 16, q[2] * 20, seed + 1);
     const core = smoke ? 0.15 : F.core * (1 - 0.6 * smooth((c.k - 0.75) / 0.25));
     if (c.s <= core || 1 - c.s + edgeAmp * n - (smoke ? 0.45 : 0) > 0) { c.on = true; filled.add(key); }
@@ -2976,16 +2976,20 @@ function drawTongueCells(cells, v, t, seed, smoke) {
     // surface voxels only (a cube with an empty 6-neighbour); interior cubes are never visible
     if (filled.has((c.x + 1) + "," + c.y + "," + c.z) && filled.has((c.x - 1) + "," + c.y + "," + c.z) && filled.has(c.x + "," + (c.y + 1) + "," + c.z) && filled.has(c.x + "," + (c.y - 1) + "," + c.z) && filled.has(c.x + "," + c.y + "," + (c.z + 1)) && filled.has(c.x + "," + c.y + "," + (c.z - 1))) continue;
     const jit = hash3(c.x, c.y, c.z, seed + 5);
-    if (smoke) { flameVox((c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v, v, jit < 0.5 ? F.smoke.color[0] : F.smoke.color[1], 1); continue; }
-    const kk = clamp01(0.2 * c.k + Math.min(1, c.s) * (0.6 + 0.4 * c.k) + 0.3 * c.k * c.k + (jit - 0.5) * 0.08);   // radial: core -> edge, plus age
-    flameVox((c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v, v, rampColor(F.ramp, kk), 1.0 + 0.2 * (1 - kk));
+    if (smoke) {   // short dark-orange transition, then grey-black smoke (above the flame)
+      const sa = (c.age - F.life) / F.smoke.life, col = sa < F.smoke.ember ? (jit < 0.5 ? F.smoke.emberColor[0] : F.smoke.emberColor[1]) : (jit < 0.5 ? F.smoke.color[0] : F.smoke.color[1]);
+      flameVox((c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v, v, col, 1); continue; }
+    // bright everywhere: white-yellow core, yellow-orange body, orange edge; red only as a thin flickering fringe at the tip
+    let kk = Math.min(F.bodyMax, 0.12 * c.k + 0.55 * Math.min(1, c.s) + 0.18 * c.k * c.k + (jit - 0.5) * 0.08);
+    if (c.s > 0.9 && c.k > 0.78 && hash3(c.x, c.y, c.z + Math.floor(t * 12), seed + 7) < F.fringe) kk = 0.95;
+    flameVox((c.x + 0.5) * v, (c.y + 0.5) * v, (c.z + 0.5) * v, v, rampColor(F.ramp, kk), 1.0 + 0.35 * (1 - kk));
   }
 }
 function drawFlame(a, clip, t, stopAt) {
   const F = FX2.flame_tongue, seed = 17 + (a.outer.id % 97);
   const C = flameCentreline(a, clip, t, stopAt, F.samples, F.life, 0); if (C.length < 2) return [];
   const cells = new Map(); tubeCells(C, F.voxel, cells); drawTongueCells(cells, F.voxel, t, seed, false);
-  const S = flameCentreline(a, clip, t, stopAt, 14, F.life + F.smoke.life, F.life * 0.85);
+  const S = flameCentreline(a, clip, t, stopAt, 14, F.life + F.smoke.life, F.life * 1.0001);
   if (S.length > 1) { const sc = new Map(); tubeCells(S, F.smoke.voxel, sc); drawTongueCells(sc, F.smoke.voxel, t, seed + 9, true); }
   return [];
 }
@@ -3007,7 +3011,7 @@ function drawGroundFire(a, clip, t) {   // burning fuel on the ground: low conti
     const [x, z] = key.split(",").map(Number), h = G.pool.height * (1 - d) * (0.55 + 0.45 * (0.5 + 0.5 * vnoise3(x * vx * 4, t * 5, z * vx * 4, seed)));
     const ny = Math.max(1, Math.round(h / vx));
     for (let y = 0; y < ny; y++) { if (y > 0 && y < ny - 1 && d < 0.9) { const inner = cells.get((x + 1) + "," + z) !== undefined && cells.get((x - 1) + "," + z) !== undefined && cells.get(x + "," + (z + 1)) !== undefined && cells.get(x + "," + (z - 1)) !== undefined; if (inner) continue; }
-      const kk = clamp01(0.2 + 0.75 * y / Math.max(1, ny) + 0.3 * d + (hash3(x, y, z, 3) - 0.5) * 0.1); flameVox((x + 0.5) * vx, (y + 0.5) * vx, (z + 0.5) * vx, vx, rampColor(F.ramp, kk), 1 + 0.5 * (1 - kk)); }
+      const kk = Math.min(0.78, 0.1 + 0.55 * y / Math.max(1, ny) + 0.2 * d + (hash3(x, y, z, 3) - 0.5) * 0.1); flameVox((x + 0.5) * vx, (y + 0.5) * vx, (z + 0.5) * vx, vx, rampColor(F.ramp, kk), 1 + 0.5 * (1 - kk)); }
   }
 }
 function drawFx2(a, clip, t) {
