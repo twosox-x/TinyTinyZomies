@@ -43,7 +43,7 @@ const lib = vm.runInContext(html.slice(a, b) + `
 ;({ buildAll, buildAnims, PALETTE, PAL, partFaces, quadsCulled, quadsGreedy, rigidGroup, DIRS, CORN, V_M, PROP_M, SLOTS, PIVOT, HAND, MIL_VERSION,
      ANIM_VERSION, ANIM_HZ, BODY_STRIDE, CANOPY_STRIDE, CRATE_STRIDE, HAND_ITEM, ANIM_CLASSES,
      WEAPON_STRIDE, FLAG_DROPPED, posedBodyCells, posedMinY, weaponCells, fk, eulerMat, mvec, vadd, mmul,
-     PAL_V1_COUNT, buildSpecialists, buildSpecialistAnims, FLAG_STOWED, TOOL_SHIFT, TOOL_ID, SPEC_CLASSES, stowPlacement, toolCells })`, sandbox, { filename: "military_lab_v1.html" });
+     PAL_V1_COUNT, buildSpecialists, buildSpecialistAnims, FLAG_STOWED, TOOL_SHIFT, TOOL_ID, SPEC_CLASSES, stowPlacement, toolCells, limbIntrusion, LIMB_TOL })`, sandbox, { filename: "military_lab_v1.html" });
 
 const t0 = Date.now();
 const { infantry, props } = lib.buildAll();
@@ -308,8 +308,9 @@ function bakeSpecialistAnims(SPEC) {
     push("weapon", lib.WEAPON_STRIDE, c.weapon);
     if (c.weapon) checkDeath(c, soldiers);
     checkTools(c);
+    if (c.avoid) checkLimbs(c, soldiers);
     const out = { name: c.name, class: c.cls, action: c.action, duration: c.duration, frames: c.frames, loop: !!c.loop, rootMotion: !!c.rootMotion };
-    for (const k of ["speed", "stride", "descentSpeed", "rate", "stairs", "phase0", "stream", "work", "carry", "dropTool", "toolGround"]) if (c[k] !== undefined) out[k] = c[k];
+    for (const k of ["speed", "stride", "descentSpeed", "rate", "stairs", "phase0", "stream", "work", "carry", "dropTool", "toolGround", "avoid"]) if (c[k] !== undefined) out[k] = c[k];
     if (c.delta) out.delta = c.delta;
     out.events = (c.events || []).map(e => Object.assign({}, e, { t: f6(e.t) })).sort((a, b) => a.t - b.t);
     out.tracks = tracks;
@@ -331,7 +332,20 @@ function bakeSpecialistAnims(SPEC) {
     transitions: A.transitions, fx: A.fx, clips };
   fs.writeFileSync(path.join(ROOT, "assets/military/specialist_anims.json"), JSON.stringify(manifest, null, 1) + "\n");
   console.log(`\nspecialist anims: ${clips.length} clips, ${floats.length} floats, ${buf.length} bytes`);
-  for (const c of clips) console.log(`  ${c.name.padEnd(30)} ${c.duration.toFixed(2).padStart(5)} s ${c.loop ? "loop" : "once"} ${String(c.frames).padStart(4)} fr  sup ${c.check.supportError} m  minY ${c.check.minY}  slide ${c.check.footSlide}${c.check.toolMinY !== undefined ? `  toolMinY ${c.check.toolMinY}` : ""}${c.check.weaponGap !== undefined ? `  drop gap ${c.check.weaponGap} m, drop minY ${c.check.weaponMinY}, rest body minY ${c.check.restMinY}` : ""}`);
+  for (const c of clips) console.log(`  ${c.name.padEnd(30)} ${c.duration.toFixed(2).padStart(5)} s ${c.loop ? "loop" : "once"} ${String(c.frames).padStart(4)} fr  sup ${c.check.supportError} m  minY ${c.check.minY}  slide ${c.check.footSlide}${c.check.toolMinY !== undefined ? `  toolMinY ${c.check.toolMinY}` : ""}${c.check.limbPen !== undefined ? `  limb ${c.check.limbPen} m` : ""}${c.check.weaponGap !== undefined ? `  drop gap ${c.check.weaponGap} m, drop minY ${c.check.weaponMinY}, rest body minY ${c.check.restMinY}` : ""}`);
+}
+// work / carry clips (field avoid): hands, forearms and the held tool never penetrate the head, helmet, torso or torso
+// gear, on every frame. Voxel-pair inscribed-sphere test (limbIntrusion in the Lab library); tolerance: faces touching
+// (1 cm) for head / helmet / torso, 3 cm grazing for soft torso gear (pouches, pack; Stage A clips graze up to 3.7 cm).
+function checkLimbs(c, soldiers) {
+  const byId = Object.fromEntries(Object.entries(lib.TOOL_ID).map(([k, v]) => [v, k])), V = lib.V_M;
+  let raw = 0;
+  for (const m of soldiers.filter(x => x.cls === c.cls)) c.body.forEach((fr, f) => {
+    const id = (fr[43] >> lib.TOOL_SHIFT) & 15, r = lib.limbIntrusion(m, fr, id ? byId[id] : null);
+    raw = Math.max(raw, r.raw);
+    if (r.pen > 1e-3) throw new Error(`${c.name} (${m.name}) frame ${f}: ${r.at} interpenetration ${(r.pen * V).toFixed(3)} m beyond tolerance`);
+  });
+  c.stats.limbPen = +(raw * V).toFixed(3);
 }
 // tool clips: the tool id in the flags must be a known tool, the weapon must be stowed while a tool is held, and the held
 // tool's lowest voxel is reported (toolMinY; only the shovel / sledgehammer touch the ground: digging / striking, >= -5 cm)

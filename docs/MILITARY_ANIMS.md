@@ -338,10 +338,19 @@ voxels keep their own trajectory (so a sweep draws a curved stream).
 
 ### 7.5 FX (manifest `fx`, voxel style consistent with the volumetric explosions)
 
-- `flame_stream`: 90 voxels/s, 13–15 m/s, gravity 5 m/s², drag 0.6, life 0.5–0.62 s (~8 m reach, drooping), cubes
-  growing 6 → 24 cm, world-axis-aligned and snapped to a 6 cm grid, colour ramp white-yellow → orange → deep red =
-  `fireColour(k)` of `shaders/include/fx_volume_frag.glsl` (HDR, emissive). Each voxel ends as smoke (`flame_smoke`, every
-  3rd, 18 → 45 cm, rises 1.3 m/s, drifts with `FX_WIND`) or, if it reaches the ground first, seeds ground fire.
+- `flame_volume` (**revised after owner feedback: no particles**): the flame jet is a **voxelised density volume in the
+  same style as the explosion / wreck volumes** (`shaders/include/fx_volume.glsl`, `fx_volume_frag.glsl`): sampled at
+  the centres of the world-aligned **0.25 m voxel grid** (0.5 m far, same LOD rule), a cell is drawn as a solid cube
+  where `density > 0`, coloured with `fireColour(k)` (HDR, emissive) plus the per-voxel ±6 % jitter of fx_volume_frag.
+  Density = `max_i (1 − |q − c_i| / r_i) + 0.7 · (0.6 · vnoise(2.2 q, scrolling up 4 m/s) + 0.3 · vnoise(5 q, 7 m/s)) − thr`.
+  The centreline `c_i` (22 samples) is the ballistic path of fuel emitted at `t − age_i` from the nozzle pose **at that
+  time** (14 m/s, drag 0.6, gravity 5 m/s², life 0.55 s, so ~7–8 m reach with a droop; a sweep bends the column),
+  clamped 0.15 m above the ground (splash); radius grows 0.10 → 0.55 m with √(age/life); `thr = 0.05 + 0.35 k²`
+  erodes the tip, `k = age/life` (+ toward the rim) drives the colour white-yellow → orange → red → dark ember. After
+  `life` the column continues as **smoke voxels** (dark grey, rising 1.4 m/s, drifting with `FX_WIND`, radius → 0.95 m,
+  1.3 s, higher threshold so it breaks up). Proposed engine form: FX volume **kind 3** (flame jet) whose uniforms carry
+  the centreline points (or emitter pose + sweep rate) and age; bounds = centreline AABB + r. Data:
+  `fx.flame_volume`. (`fx.flame_stream`, the first particle draft, is kept only for reference and marked superseded.)
 - `ground_fire`: pools on the **0.25 m voxel grid of the explosion volumes**, 1–4 voxel flickering columns, burn 7 s
   + 2 s fade, dark smoke column per pool; proposed engine form: FX volume **kind 2** in `fx_volume.glsl` (disc density ×
   flicker noise, like `wreckDensity` but low). Gameplay hook: corpses inside a pool burn (`corpse_burn`: char tint 3 s,
@@ -351,4 +360,17 @@ voxels keep their own trajectory (so a sweep draws a curved stream).
 
 Converter checks for these clips (in addition to §2.5 / §5): tool id valid, weapon stowed whenever a tool is held, held
 tool never more than 5 cm (shovel 10 cm) below the ground (`check.toolMinY`), dropped tools at rest flat and beside the
-body (`checkDeath` with the tool's voxels).
+body (`checkDeath` with the tool's voxels), and **no limb interpenetration** in the work / carry clips (field `avoid`:
+`build_*`, `carry_*`, `cut_car`, `pry_car`): on every frame and for every engineer variant, every voxel of both
+forearms (incl. hands) and of the held tool is tested against every voxel of the head, helmet / head gear, torso and torso
+gear (inscribed-sphere test per voxel pair, `limbIntrusion` in the library). Tolerance: faces touching (1 cm) for head,
+helmet and torso; 3 cm of grazing for soft torso gear (pouches, ruck), the level of the approved Stage A clips (rifleman
+walk 3.7 cm against the pouches). Abort on failure; the worst raw value is reported as `check.limbPen` (now ≤ 2.8 cm,
+all against pouches). At bake time `avoidIntrusion` nudges the tool / hand targets out of the body when needed, but
+never at the cost of the support hand.
+
+Owner fix (7b review: "hands entering their heads while they swing"): the sledgehammer wind-up now keeps both hands in
+front of the face (≥ 3 V ahead of the torso pivot) with the hammer head travelling up and back **beside** the right
+side of the helmet; elbows point out (right) / down-forward (left, crossing arm). The shovel, sandbag, cutting and
+prying hand paths were moved forward the same way; the `build_sandbag` support-hand error (was 0.26 m at the pick-up)
+is now 0 (the pile sits in front of the feet, the bag is lifted square to the body).

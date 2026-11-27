@@ -2192,7 +2192,9 @@ function avoidIntrusion(c, S, fr, model) {
     else if (r.limb === "forearmL" && S.leftT) S.leftT = vadd(S.leftT, d);
     else if (r.limb === "forearmL") { S.leftT = vadd([2.2, -1.2, 1.0], d); S.leftRot = null; }
     else break;
-    fr = finalizeFrame(c.cls, S, model);
+    const nf = finalizeFrame(c.cls, S, model);
+    if (S.sw > 0.99 && nf.supErr > Math.max(fr.supErr, 0.2)) break;   // never trade the support hand for clearance
+    fr = nf;
   }
   return fr;
 }
@@ -2271,7 +2273,7 @@ function authorEngineerWork(add) {
     // hands stay IN FRONT of the face / chest (z >= 3 V) so the left forearm crosses clear of the body; the hammer head
     // goes up and back past the right side of the helmet (beside the head, never over it)
     const K = [[0, [-2.8, 13.2, 3.6, -0.3, 0.7, -0.75, -0.05]], [0.5, [-3.0, 14.6, 3.0, -0.3, 0.75, -0.55, -0.15]], [0.72, [-2.4, 11.6, 4.6, -0.12, 0.55, 1, 0.3]], [0.84, [-1.0, 7.6, 5.4, 0.05, -0.62, 1, 0.62]],
-               [0.98, [-1.0, 8.1, 5.2, 0.05, -0.55, 1, 0.58]], [1.5, [-2.8, 13.2, 3.6, -0.3, 0.7, -0.75, -0.05]]];
+               [0.98, [-1.0, 8.1, 5.2, 0.05, -0.55, 1, 0.58]], [1.25, [-2.0, 10.8, 5.6, -0.15, 0.25, 1, 0.3]], [1.5, [-2.8, 13.2, 3.6, -0.3, 0.7, -0.75, -0.05]]];
     add(cls, "build_hammer", { duration: dur, loop: true, avoid: true, work: "hammer", events: [{ t: 0.84, type: "tool_hit", fx: "hammer_hit" }, { t: 0.84, type: "work_tick" }], gen: t => {
       const k = keyLerp(K, t), torso = [k[6], 0.12, 0];
       const S = { torso, head: [0.25 + 0.4 * Math.max(0, k[6]), -0.05, 0], pelvis: [pel[0], pel[1] - 0.3 * Math.max(0, k[6]), pel[2] - 0.3 * Math.max(0, k[6])], legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
@@ -2281,9 +2283,9 @@ function authorEngineerWork(add) {
   // ---- build_shovel (loop 2.2 s): drive the blade in, lever, lift, toss into the gabion to the right-front
   {
     const dur = 2.2, fL = [1.8, 0, 1.4], fR = [-1.8, 0, -1.2];
-    const K = [[0, [-3.2, 11.0, 2.6, 0.2, -0.8, 0.6, 0.45, -1.4]], [0.45, [-3.0, 10.4, 3.2, 0.15, -0.85, 0.5, 0.7, -2.0]], [0.75, [-3.0, 8.8, 3.0, 0.1, -0.45, 0.9, 0.8, -2.4]],
-               [1.15, [-3.2, 9.8, 3.4, -0.15, 0.1, 1.0, 0.3, -1.2]], [1.45, [-2.4, 12.0, 4.4, -0.35, 0.45, 0.8, 0.05, -0.6]], [1.6, [-2.4, 12.4, 4.2, -0.35, 0.55, 0.7, 0.0, -0.5]],
-               [2.2, [-3.2, 11.0, 2.6, 0.2, -0.8, 0.6, 0.45, -1.4]]];
+    const K = [[0, [-3.2, 11.0, 3.4, 0.2, -0.8, 0.6, 0.45, -1.4]], [0.45, [-3.0, 10.4, 3.8, 0.15, -0.85, 0.5, 0.7, -2.0]], [0.75, [-3.0, 8.8, 4.3, 0.1, -0.45, 0.9, 0.8, -2.4]],
+               [1.15, [-2.0, 9.8, 4.6, -0.15, 0.1, 1.0, 0.3, -1.2]], [1.45, [-1.6, 12.0, 4.4, -0.05, 0.45, 0.85, 0.05, -0.6]], [1.6, [-1.6, 12.4, 4.2, -0.05, 0.55, 0.75, 0.0, -0.5]],
+               [2.2, [-3.2, 11.0, 3.4, 0.2, -0.8, 0.6, 0.45, -1.4]]];
     add(cls, "build_shovel", { duration: dur, loop: true, avoid: true, work: "shovel", toolGround: 0.1, events: [{ t: 0.6, type: "dig", fx: "dig" }, { t: 1.45, type: "toss", fx: "dirt_toss" }, { t: 1.45, type: "work_tick" }], gen: t => {
       const k = keyLerp(K, t), torso = [k[6], -0.15 + 0.3 * smooth((t - 1.1) / 0.4) * (1 - smooth((t - 1.6) / 0.5)), 0];
       const S = { torso, head: [0.2 + 0.3 * k[6], -0.1, 0], pelvis: [0, k[7] * 0.8, -0.2], legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
@@ -2293,10 +2295,10 @@ function authorEngineerWork(add) {
   // ---- build_sandbag (loop 2.8 s): take a bag from the pile at the left-front, lift, place it on the wall course ahead (1.0 m), pat it down
   {
     const dur = 2.8, fL = [1.7, 0, 1.0], fR = [-1.7, 0, -0.6];
-    const pileGrip = [1.2, 2.4, 3.6], wallGrip = [-1.8, 10.2, 5.9];   // clip space V: right end of the bag on the pile / on the wall
+    const pileGrip = [-1.0, 2.4, 3.8], wallGrip = [-1.8, 10.2, 5.9];   // clip space V: right end of the bag on the pile / on the wall
     add(cls, "build_sandbag", { duration: dur, loop: true, avoid: true, work: "sandbag", events: [{ t: 0.7, type: "grab" }, { t: 1.95, type: "place" }, { t: 1.95, type: "work_tick" }, { t: 2.3, type: "pat" }], gen: t => {
       const bend = smooth(t / 0.55) * (1 - smooth((t - 0.75) / 0.6)), reach = smooth((t - 1.35) / 0.55) * (1 - smooth((t - 2.35) / 0.4));
-      const yaw = 0.7 * (1 - smooth((t - 0.8) / 0.6)) * (t > 0.3 ? 1 : smooth(t / 0.3)) + 0.7 * smooth((t - 2.45) / 0.35) * (t > 2.4 ? 1 : 0);
+      const yaw = 0.2 * (1 - smooth((t - 0.8) / 0.6)) * (t > 0.3 ? 1 : smooth(t / 0.3)) + 0.2 * smooth((t - 2.45) / 0.35) * (t > 2.4 ? 1 : 0);
       const torso = [0.05 + 1.0 * bend + 0.45 * reach, yaw, 0], pel = [0, -0.2 - 2.6 * bend - 0.4 * reach, -0.6 * bend];
       const S = { torso, head: [0.2 + 0.4 * bend, 0, 0], pelvis: pel, legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true, stowed: true };
       const holding = t >= 0.7 && t < 1.95;
@@ -2304,8 +2306,8 @@ function authorEngineerWork(add) {
       const chest = [-2.4, 11.0, 4.8];
       let g = t < 1.3 ? vlerp(pileGrip, chest, smooth((t - 0.75) / 0.55)) : vlerp(chest, wallGrip, smooth((t - 1.35) / 0.55));
       if (holding) {
-        const gb = vsub(g, pel), xh = mvec(eulerMat([0, yaw * 0.6, 0]), X);
-        return W1(S, "sandbag", placeB(torso, gb, mvec(eulerMat([0, yaw * 0.6, 0]), [0, 0, 1]), xh));
+        const gb = vsub(g, pel), xh = mvec(eulerMat([0, yaw, 0]), X);
+        return W1(S, "sandbag", placeB(torso, gb, mvec(eulerMat([0, yaw, 0]), [0, 0, 1]), xh));
       }
       // empty hands: reach to the pile / pat the placed bag (torso-space targets)
       const tR = eulerMat(torso), toT = p => mvec(mT(tR), vsub(vsub(p, pel), PIVOT.torso));
@@ -2335,24 +2337,24 @@ function authorEngineerWork(add) {
     return W1(S, "sandbag", placeB(torso, [-2.5, 10.4 + 0.15 * Math.cos(u * Math.PI * 4), 4.3], [0, 0, 1], X));
   });
   carryWalk("carry_panel", "panel", (S, u, sw) => {
-    const torso = [0.04, -0.05 * sw, 0.07]; S.torso = torso; S.head = [0.05, 0.05 * sw, -0.05];
-    const S2 = W1(S, "panel", placeB(torso, [-3.75, 6.9 + 0.1 * Math.cos(u * Math.PI * 4), 0.3], [0, 0.02, 1], [0.995, -0.1, 0]));
+    const torso = [0.04, -0.05 * sw, -0.05]; S.torso = torso; S.head = [0.05, 0.05 * sw, 0.03];   // leans left against the load
+    const S2 = W1(S, "panel", placeB(torso, [-4.1, 6.9 + 0.1 * Math.cos(u * Math.PI * 4), 0.3], [0, 0.02, 1], [0.995, 0.1, 0]));
     S2.sw = 0; S2.leftRot = { upper: [-0.35 * sw, 0, 0.12], fore: [-0.35, 0, 0] }; return S2;
   });
   // ---- cut_car (loop 2.4 s): kneel, cutting torch in both hands, slow cut along a seam 0.75 m up, 0.75 m ahead
   {
     const dur = 2.4, kneelP = [0, -3.55, -0.3];
     add(cls, "cut_car", { duration: dur, loop: true, avoid: true, stream: "cut_sparks", work: "cut", events: [{ t: 0, type: "work_tick" }], gen: t => {
-      const sx = 1.4 * Math.sin(t / dur * Math.PI * 2), torso = [0.32, 0.1 * sx / 1.4, 0];
+      const sx = 1.4 * Math.sin(t / dur * Math.PI * 2), torso = [0.16, 0.1 * sx / 1.4, 0];
       const tip = [sx, 7.4, 9.4], dir = vnorm([0.0, -0.25, 1]);
       const T = tool("torch"), gripC = vsub(tip, vadd(vscale(dir, T.tip[2]), [0, T.tip[1], 0]));
-      const S = { torso, head: [0.35, 0.25 * sx / 1.4, 0], pelvis: kneelP, legs: { L: { foot: [1.7, 0, 3.6] }, R: { thigh: [0.08, 0, -0.05], shin: [1.62, 0, 0] } }, footL: true, ground: 0 };
+      const S = { torso, head: [0.12, 0.25 * sx / 1.4, 0], pelvis: kneelP, legs: { L: { foot: [1.7, 0, 3.6] }, R: { thigh: [0.08, 0, -0.05], shin: [1.62, 0, 0] } }, footL: true, ground: 0 };
       return W1(S, "torch", placeB(torso, vsub(gripC, kneelP), dir, X));
     } });
   }
   // ---- pry_car (loop 2.0 s): crowbar tip in a door gap / wheel arch 0.8 m up, heave back twice, leaning on the lever
   {
-    const dur = 2.0, tip = [0.3, 8.6, 9.2], fL = [1.7, 0, 1.6], fR = [-1.6, 0, -1.6];
+    const dur = 2.0, tip = [0.3, 8.6, 9.8], fL = [1.7, 0, 1.6], fR = [-1.6, 0, -1.6];
     add(cls, "pry_car", { duration: dur, loop: true, avoid: true, work: "pry", events: [{ t: 0.55, type: "pry_creak" }, { t: 1.55, type: "pry_creak" }, { t: 1.6, type: "work_tick" }], gen: t => {
       const h = Math.max(0, Math.sin(t / dur * Math.PI * 4 - 0.6)) ** 1.5;   // two heaves per loop
       const torso = [0.45 - 0.5 * h, 0.15, 0], pel = [0, -0.9 - 0.6 * h, -0.3 - 0.9 * h];
@@ -2403,6 +2405,7 @@ const FX_SPEC2 = {
   inherits: "anims.json fx (v1, approved): muzzle_flash.rifle for the carbine, shell_eject, footstep, body_fall",
   shell_eject_port: { carbine: [-0.05, 0.08, 0.10] },
   flame_stream: {
+    superseded: "v1 particle description kept for reference; the preview and the engine use flame_volume (owner feedback 7b: volume style)",
     emitter: "weapon muzzle (nozzle), direction weapon +Z; on while a clip with stream:'flame' plays, or between flame_start and flame_stop",
     rate: 90, speed: [13.0, 15.0], spread: 0.035, gravity: 5.0, drag: 0.6, life: [0.5, 0.62], range: "about 8 m (ballistic, droops at the end)",
     size: { start: 0.06, end: 0.24, curve: "sqrt(age / life)", note: "chunky cubes, axis-aligned in world space (like the explosion voxels)" },
@@ -2410,6 +2413,16 @@ const FX_SPEC2 = {
     jitter: "per-voxel position noise 0.04 m and a 15 % brightness flicker per frame (hash of particle id + frame)",
     snap: "positions snapped to a 0.06 m world grid when drawing (reads as voxels, not sprites)",
     endOfLife: "each flame voxel becomes a smoke voxel (below) at its last position; if it hits the ground (y <= 0) or a wall first it becomes a ground_fire seed at the hit point",
+  },
+  flame_volume: {
+    look: "voxelised density volume like the explosions (shaders/include/fx_volume.glsl / fx_volume_frag.glsl): world-aligned 0.25 m voxel grid (0.5 m far, same LOD rule), cells drawn where density > 0, colour = fireColour(k)",
+    voxel: 0.25, samples: 22, speed: 14.0, gravity: 5.0, drag: 0.6, life: 0.55, radius: [0.1, 0.55], noiseAmp: 0.7, threshold: 0.05,
+    smokeLife: 1.3, smokeRise: 1.4, smokeRadius: 0.95, smokeThreshold: 0.35, smokeColor: ["#2e2a27", "#4a443e"],
+    ramp: [[0.0, "#fff4c8"], [0.12, "#ffd25a"], [0.35, "#ff8c22"], [0.65, "#d9461a"], [0.9, "#6a1c0a"]],
+    density: "d(q) = max_i (1 - |q - c_i| / r_i) + noiseAmp * (0.6 vnoise(2.2 q - 4t y) + 0.3 vnoise(5 q - 7t y)) - thr(k_i);  thr = threshold + 0.35 k^2 (flame), smokeThreshold + 0.5 s (smoke)",
+    centreline: "c_i = ballistic position of fuel emitted at t - age_i from the nozzle pose AT THAT TIME (speed, drag, gravity), clamped to 0.15 m above the ground (splash); after life it continues as smoke (rise, FX_WIND drift); r_i grows sqrt(age / life) from radius[0] to radius[1], then to smokeRadius",
+    k: "k = age_i / life of the closest centreline sample (+ 0.35 (1 - shape) toward the rim, +-6 % per-voxel jitter: the MagicaVoxel colour variation of fx_volume_frag)",
+    engine: "proposed FX volume kind 3 (flame jet): uniforms = nozzle position / direction history as N centreline points (or the emitter pose + sweep rate), age; bounds = the centreline AABB + r",
   },
   flame_smoke: { size: [0.18, 0.45], color: [["0", "#4a423b"], ["1", "#7a746c"]], alpha: [0.8, 0.0], rise: 1.3, drift: "FX_WIND (0.55, 0, 0.25) m/s, as the volume smoke", life: 1.4, every: 3, note: "one smoke voxel per 3 flame voxels" },
   ground_fire: {
@@ -2871,31 +2884,52 @@ function streamOn(clip, t) {
   const st = (clip.events || []).find(e => e.type === "flame_start"); if (st && t >= st.t) return "flame";
   return null;
 }
-function drawFlame(a, clip, t, stopAt) {
-  const S = FX2.flame_stream, rate = S.rate, g = S.gravity, life = S.life[1];
-  const n0 = Math.floor(t * rate), seeds = [];
-  const start = (clip.events || []).find(e => e.type === "flame_start");
-  for (let k = 0; k < Math.ceil((life + 1.4) * rate); k++) {
-    const id = n0 - k, te = id / rate, age = t - te; if (age < 0) continue;
-    if (!clip.loop && te < (start ? start.t : 0)) break;
+// Flame stream as a VOXELISED VOLUME (owner feedback: same look as the engine's explosion volumes, fx_volume.glsl): a
+// density field (tube along the stream's centreline + animated value noise - erosion threshold) sampled at the centres
+// of a world-aligned 0.25 m voxel grid; cells above the threshold are drawn as solid cubes coloured by the fire ramp.
+// The centreline is the ballistic path of fuel emitted at each past instant (nozzle pose at the emission time), so a
+// sweep bends the column like a hose jet. Smoke continues the column (rising, drifting) as darker voxels.
+function vnoise3(x, y, z, sd) {
+  const i = Math.floor(x), j = Math.floor(y), k = Math.floor(z), fx = x - i, fy = y - j, fz = z - k, u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+  const h = (a, b, c) => hash3(a, b, c, sd);
+  const x0 = lerp(lerp(h(i, j, k), h(i + 1, j, k), u), lerp(h(i, j + 1, k), h(i + 1, j + 1, k), u), v), x1 = lerp(lerp(h(i, j, k + 1), h(i + 1, j, k + 1), u), lerp(h(i, j + 1, k + 1), h(i + 1, j + 1, k + 1), u), v);
+  return lerp(x0, x1, w) * 2 - 1;
+}
+function flameCentreline(a, clip, t, stopAt) {
+  const F = FX2.flame_volume, out = [], n = F.samples, start = (clip.events || []).find(e => e.type === "flame_start");
+  for (let i = 0; i <= n; i++) {
+    const age = (i / n) * (F.life + F.smokeLife), te = t - age;
+    if (!clip.loop && start && te < start.t) break;
     if (stopAt !== undefined && te > stopAt) continue;
-    const L = lerp(S.life[0], S.life[1], hash3(id, 1, 2, 77)), v = lerp(S.speed[0], S.speed[1], hash3(id, 3, 4, 77));
-    const em = nozzleAt(a, clip, te);
-    const ta = Math.min(age, L), dr = (1 - Math.exp(-S.drag * ta)) / S.drag;
-    const j = [hnoise(id, 11) * S.spread, hnoise(id, 12) * S.spread, hnoise(id, 13) * S.spread];
-    let p = [em.p[0] + (em.d[0] + j[0]) * v * dr, em.p[1] + (em.d[1] + j[1]) * v * dr - 0.5 * g * ta * ta, em.p[2] + (em.d[2] + j[2]) * v * dr];
-    const hit = p[1] < 0.05; if (hit) p[1] = 0.05;
-    if (age <= L) {
-      const k01 = age / L, sz = S.size.start + (S.size.end - S.size.start) * Math.sqrt(k01);
-      fxCube(new THREE.Vector3(snapV(p[0], 0.06), Math.max(sz / 2, snapV(p[1], 0.06)), snapV(p[2], 0.06)), sz, rampColor(S.color.ramp, k01));
-      if (hit) seeds.push(p);
-    } else if (id % FX2.flame_smoke.every === 0) {
-      const sa = age - L, SM = FX2.flame_smoke; if (sa > SM.life) continue;
-      const q = [p[0] + 0.55 * sa, p[1] + SM.rise * sa, p[2] + 0.25 * sa], k01 = sa / SM.life;
-      fxCube(new THREE.Vector3(snapV(q[0], 0.08), snapV(q[1], 0.08), snapV(q[2], 0.08)), lerp(SM.size[0], SM.size[1], k01), k01 < 0.5 ? SM.color[0][1] : SM.color[1][1], lerp(SM.alpha[0], 0.15, k01));
-    }
+    const em = nozzleAt(a, clip, te), ta = Math.min(age, F.life), dr = (1 - Math.exp(-F.drag * ta)) / F.drag;
+    let p = [em.p[0] + em.d[0] * F.speed * dr, em.p[1] + em.d[1] * F.speed * dr - 0.5 * F.gravity * ta * ta, em.p[2] + em.d[2] * F.speed * dr];
+    if (p[1] < 0.15) p[1] = 0.15;                                  // the jet splashes along the ground
+    if (age > F.life) { const sa = age - F.life; p = [p[0] + 0.55 * sa, p[1] + F.smokeRise * sa, p[2] + 0.25 * sa]; }
+    const k = age / F.life, r = age <= F.life ? lerp(F.radius[0], F.radius[1], Math.sqrt(k)) : lerp(F.radius[1], F.smokeRadius, (age - F.life) / F.smokeLife);
+    out.push({ p, r, age, smoke: age > F.life });
   }
-  return seeds;
+  return out;
+}
+function drawFlame(a, clip, t, stopAt) {
+  const F = FX2.flame_volume, C = flameCentreline(a, clip, t, stopAt); if (C.length < 2) return [];
+  const v = F.voxel, lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const c of C) for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], c.p[k] - c.r * 1.6); hi[k] = Math.max(hi[k], c.p[k] + c.r * 1.6); }
+  lo[1] = Math.max(0, lo[1]);
+  const seed = 17 + (a.outer.id % 97);
+  for (let x = Math.floor(lo[0] / v); x <= Math.floor(hi[0] / v); x++) for (let y = Math.floor(lo[1] / v); y <= Math.floor(hi[1] / v); y++) for (let z = Math.floor(lo[2] / v); z <= Math.floor(hi[2] / v); z++) {
+    const q = [(x + 0.5) * v, (y + 0.5) * v, (z + 0.5) * v];
+    let best = -1, bc = null;
+    for (const c of C) { const d = Math.hypot(q[0] - c.p[0], q[1] - c.p[1], q[2] - c.p[2]); const sh = 1 - d / c.r; if (sh > best) { best = sh; bc = c; } }
+    if (best < -0.7) continue;
+    const n = vnoise3(q[0] * 2.2, q[1] * 2.2 - t * 4.0, q[2] * 2.2, seed) * 0.6 + vnoise3(q[0] * 5, q[1] * 5 - t * 7, q[2] * 5, seed + 1) * 0.3;
+    const k = bc.age / F.life, thr = bc.smoke ? F.smokeThreshold + 0.5 * (bc.age - F.life) / F.smokeLife : F.threshold + 0.35 * k * k;
+    if (best + F.noiseAmp * n - thr <= 0) continue;
+    const jit = hash3(x, y, z, seed + 5);
+    // drawn at 0.94 v: the hairline seams show the voxel grid (the engine shades faces; the preview material is unlit)
+    if (bc.smoke) fxCube(new THREE.Vector3(q[0], q[1], q[2]), v * 0.94, jit < 0.5 ? F.smokeColor[0] : F.smokeColor[1], 1);
+    else { const kk = Math.min(1, k + (1 - best) * 0.35 + (jit - 0.5) * 0.12); fxCube(new THREE.Vector3(q[0], q[1], q[2]), v * 0.94, rampColor(F.ramp, kk), 1); }
+  }
+  return [];
 }
 function drawGroundFire(a, clip, t) {   // pools on a 0.25 m grid where the stream reached the ground during the last 2 s
   const cells = new Map(), S = FX2.flame_stream;
@@ -3014,6 +3048,7 @@ function buildAnimScene() {
     let list = anim.cls === "all" ? ["rifleman", "mg", "sniper"].map(c => [CLS_MODEL[c], c]) : anim.cls === "new" ? [["engineer_a", "engineer"], ["flamer_a", "flamer"]]
       : [...LIB.infantry, ...SPEC.soldiers].filter(m => m.cls === anim.cls).slice(0, 3).map(m => [m.name, anim.cls]);
     list = list.filter(([m, c]) => CLIP[c + "/" + anim.action]);
+    if (anim.cls === "flamer" && state.view === "side") list = list.slice(0, 1);   // one jet per side view (they would cross)
     // side-by-side across the view direction (side view: spread along Z)
     const wk = /^(build|cut|pry)/.test(anim.action), spS = wk ? 4.6 : 2.6, spP = /^(cut|pry)/.test(anim.action) ? 4.6 : wk ? 2.6 : 1.7;
     list.forEach(([m, c], i) => { const o = (i - (list.length - 1) / 2); const a = state.view === "side" ? makeActor(m, 0, o * spS, 0) : makeActor(m, o * spP, 0, 0); a.cls = c; });
@@ -3065,7 +3100,7 @@ function workSet(act, spots) {
     const R = (dx, dz) => [x + Math.cos(ry) * dx + Math.sin(ry) * dz, z - Math.sin(ry) * dx + Math.cos(ry) * dz];
     if (act === "build_hammer") { const p = R(-0.1, 1.07); box(p[0], 0.14, p[1], 0.09, 0.28, 0.09, 0x6a4f31); const w = inst("wall_cheap_end"); const q = R(0, 1.85); w.position.set(q[0], 0, q[1]); w.rotation.y = ry + Math.PI / 2; addExtra(w); }
     if (act === "build_shovel") { const w = inst("wall_cheap_straight"); const q = R(-1.4, 1.4); w.position.set(q[0], 0, q[1]); w.rotation.y = ry; w.scale.set(0.5, 0.62, 1); addExtra(w); const p = R(0.0, 0.95); box(p[0], 0.08, p[1], 0.9, 0.16, 0.6, 0x9c8961); }
-    if (act === "build_sandbag") { const p = R(-0.35, 0.8); const b = box(p[0], 0.42, p[1], 1.3, 0.84, 0.5, 0xa99a70); b.rotation.y = ry; const pile = inst("sandbag_pile"); const q = R(0.42, 0.12); pile.position.set(q[0], 0, q[1]); pile.rotation.y = ry - Math.PI / 2; addExtra(pile); }
+    if (act === "build_sandbag") { const p = R(-0.35, 0.8); const b = box(p[0], 0.42, p[1], 1.3, 0.84, 0.5, 0xa99a70); b.rotation.y = ry; const pile = inst("sandbag_pile"); const q = R(-0.3, 0.19); pile.position.set(q[0], 0, q[1]); pile.rotation.y = ry; addExtra(pile); }
     if (act === "cut_car" || act === "pry_car") { const p = R(0, 0.88 + 0.9); const c = box(p[0], 0.75, p[1], 4.2, 1.1, 1.8, 0x6d7a86); c.rotation.y = ry; const c2 = box(p[0], 1.55, p[1], 2.2, 0.55, 1.6, 0x56616b); c2.rotation.y = ry;
       for (const dx of [-1.35, 1.35]) { const wq = R(dx, 0.86); const wh = box(wq[0], 0.33, wq[1], 0.66, 0.66, 0.1, 0x1d1d1d); wh.rotation.y = ry; } }
   }
