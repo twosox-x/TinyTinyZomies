@@ -20,6 +20,7 @@ SoldierId SoldierPool::spawn(SoldierClass c, int infantryIndex, SquadId sq, int 
         targetSwitches.push_back(0); stateChanges.push_back(0); rounds.push_back(0);
         stamina.push_back(0); tired.push_back(0); running.push_back(0); unarmed.push_back(0);
         carry.push_back(0); runner.push_back(0); deliverTo.emplace_back(); scanT.push_back(0);
+        post.push_back(0); building.push_back(~0u); postOut.emplace_back();
     }
     used[i] = 1; cls[i] = c; infantry[i] = (uint16_t)infantryIndex; squad[i] = sq; slotInSquad[i] = (uint8_t)slot;
     pos[i] = p; vel[i] = {}; yaw[i] = yawRad; path[i] = {}; health[i] = 0; mag[i] = 0; reserve[i] = 0; target[i] = {};
@@ -29,6 +30,7 @@ SoldierId SoldierPool::spawn(SoldierClass c, int infantryIndex, SquadId sq, int 
     stuckTime[i] = 0; progressPos[i] = p; repaths[i] = 0; phase[i] = 0; hitCooldown[i] = 0; contactAge[i] = 1e9f; retry[i] = 0; stopCooldown[i] = 0; goal[i] = p;
     wounded[i] = 0; targetSwitches[i] = 0; stateChanges[i] = 0; rounds[i] = 0;
     stamina[i] = 100.f; tired[i] = 0; running[i] = 0; unarmed[i] = 0; carry[i] = 0; runner[i] = 0; deliverTo[i] = {}; scanT[i] = 0;
+    post[i] = 0; building[i] = ~0u; postOut[i] = {};
     return idOf(i);
 }
 

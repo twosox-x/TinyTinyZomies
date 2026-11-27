@@ -342,6 +342,8 @@ bool decodeTileBytes(const std::vector<uint8_t>& b, TileCPU& out) {
                 }
             }
     }
+    it = sec.find("BLDG");
+    if (it != sec.end()) out.bldg.assign(it->second.first, it->second.first + it->second.second);
     it = sec.find("FOLI");
     if (it != sec.end()) {
         Reader r{it->second.first, it->second.second};

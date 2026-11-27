@@ -110,6 +110,7 @@ void GameRender::update(AppState& app, const GameContext& ctx, float frameDt, fl
     if (const SoldierPool* P = ctx.soldiers) {
         for (uint32_t i = 0; i < (uint32_t)P->capacity(); ++i) {
             if (!P->used[i] || P->infantry[i] >= lib.infantry.size()) continue;
+            if (P->post[i] == POST_INSIDE) continue;   // B3a: patients inside a hospital (interiors are never drawn)
             MilPoseInput p;
             const bool moving = P->alive(i);
             soldierPose(P->anim[i], P->infantry[i], moving ? P->pos[i] + P->vel[i] * ahead : P->pos[i], P->yaw[i], app.paused ? 0.f : ahead, p);

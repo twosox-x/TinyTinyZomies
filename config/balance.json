@@ -36,5 +36,15 @@
   "threat": { "attackReach": 0.9, "damagePerSecond": 12, "awarenessRadius": 60, "soldierAttraction": 1.0 },
   "reanimation": { "enabled": true, "delayMin": 8, "delayMax": 20, "riseTime": 1.6, "healthMul": 3.0 },
   "stamina": { "max": 100, "drainRun": 5, "regenWalk": 6, "regenRest": 12, "minToRun": 15, "resumeRun": 40,
-               "sprintScale": 1.15, "threatRadius": 30 }
+               "sprintScale": 1.15, "threatRadius": 30 },
+  "buildings": { "note": "UNAPPROVED / PROPOSED (B3a). Capture: a squad holds an entrance with no zombie inside or at the door for captureTime s. Roles: Garrison / Hospital only (prices UNAPPROVED). Hospital beds and heal rate PROPOSED. Barricades: approved planks / plate / sandbags props, price and health per type; breachDps = zombie damage per s per zombie at an opening (CPU fallback until B3b).",
+                 "captureTime": 5, "captureRadius": 7, "doorClearRadius": 6, "garrisonPrice": 150, "hospitalPrice": 250, "garrisonAmmo": 600,
+                 "hospitalBeds": 4, "healRate": 6, "hospitalSearch": 150, "dischargeFraction": 0.95, "maxFloors": 12, "windowFloors": 3,
+                 "windowSpacing": 4, "roofSpacing": 5, "maxPositions": 12,
+                 "barricadePrice": { "planks": 30, "plate": 80, "sandbags": 60 }, "barricadeHealth": { "planks": 300, "plate": 1200, "sandbags": 800 },
+                 "breachDps": 4, "nestPrice": 60, "nestDamageScale": 0.6 },
+  "vertical": { "note": "UNAPPROVED (B3b): zombies in buildings. Interior graph door -> floor per storey (stair core) -> roof hatch; times in s, capacities in zombies; defenderDps = zombie health per s per soldier on that floor; routeWeight = door attractor reach lost per m of interior route. Barricade breach per zombie = buildings.breachDps.",
+                "walkSpeed": 1.1, "climbTimePerFloor": 4.5, "doorTime": 1.0, "hatchTime": 1.5, "doorCapacity": 3, "stairCapacity": 6,
+                "floorCapacity": 60, "hatchCapacity": 2, "captureRadius": 1.2, "defenderDps": 0.6, "attackersPerSoldier": 3,
+                "entranceRadius": 1.5, "routeWeight": 0.5, "minReachFraction": 0.8 }
 }

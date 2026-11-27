@@ -1,0 +1,45 @@
+# Milestone B3a: capture blocked while zombies are inside (B3b counts; TEST HOOK bzombies), Hospital role (PROPOSED beds /
+# heal rate), wounded soldiers seek it (SoldierAI::medicalSeek), are treated inside, then rejoin their squad;
+# door / window barricades (approved props) with health, breached by damage. Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3a_hospital.txt
+at 0.1  bselect 24 93.2
+at 0.1  buy rifle 20 118
+at 24   expect landed == 5
+at 24   bzombies 3                         # B3b reports zombies inside: capture is contested
+at 24   bdoor 1
+at 38   expect building capture == 3       # contested
+at 38   expect building progress == 0
+at 38   bzombies 0                         # cleared
+at 48   expect building capture == 2
+at 49   brole hospital
+at 50   expect building role == 2
+at 50   expect building capacity == 4
+at 50   expect spent == 1250               # 1000 squad + 250 hospital (UNAPPROVED)
+at 50   move 1 10 120                      # the squad moves away down the street
+at 60   sethealth 1 20 1                   # TEST HOOK: two soldiers wounded
+at 60   sethealth 1 25 2
+at 61   expect squad 1 wounded == 2
+at 75   log
+at 75   expect bstat admitted == 2
+at 75   expect building patients == 2
+at 75   expect squad_inside 1 == 2
+at 76   camera 26 108 0.6 0.95 70
+at 77   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/hospital.png
+at 95   log
+at 95   expect bstat discharged == 2
+at 95   expect bstat healed >= 140
+at 95   expect squad 1 wounded == 0
+at 95   expect squad_inside 1 == 0
+at 95   expect building patients == 0
+at 110  expect squad 1 maxdist 10 120 < 12   # back with the squad
+at 110  bbarricade doors plate
+at 110  bbarricade windows planks
+at 111  expect building barricades >= 5
+at 111  expect bstat barricades >= 5
+at 111  expect spent >= 1250 + 80 + 4 * 30
+at 112  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/barricades.png
+at 113  bdamage 500                         # TEST HOOK: breach damage (B3b zombies at the door)
+at 113.5 expect building barricades >= 5    # plate 1200 hp: still holds
+at 114  bdamage 800
+at 114.5 expect building barricades >= 4    # broken: open again
+at 115  end

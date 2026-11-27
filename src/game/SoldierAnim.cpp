@@ -28,6 +28,7 @@ const char* clipName(AnimAction a) {
     case AnimAction::ParaDescent: return "para_descent";
     case AnimAction::ParaLand: return "para_land";
     case AnimAction::ParaRecover: return "para_recover";
+    case AnimAction::EnterBuilding: return "enter_building";
     default: return "idle";
     }
 }
@@ -59,7 +60,7 @@ const char* endEvent(AnimAction a) {
 
 bool SoldierAnimator::oneShot(AnimAction a) {
     return a == AnimAction::Reload || a == AnimAction::Hit || a == AnimAction::CollectAmmo || a == AnimAction::TurnL || a == AnimAction::TurnR ||
-           a == AnimAction::ParaLand || a == AnimAction::ParaRecover;
+           a == AnimAction::ParaLand || a == AnimAction::ParaRecover || a == AnimAction::EnterBuilding;
 }
 
 bool SoldierAnimator::init(const MilitaryLibrary& lib) {

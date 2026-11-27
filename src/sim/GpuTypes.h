@@ -71,7 +71,7 @@ constexpr uint32_t FLAG_CORPSES = 2u;
 // ---- gameplay coupling (src/game/HordeBridge, docs/GAMEPLAY_ARCHITECTURE.md 3.3) ----------------------------------
 // SimUniforms.goreQ.z = awareness gate (nav distance beyond which the flow is zeroed, 0 = off),
 // SimUniforms.goreQ.w = GAME_* flags (as a float). All zero unless a HordeBridge drives the sim: the showcase is unchanged.
-enum : uint32_t { GAME_HITS = 1u, GAME_SOLDIERS = 2u, GAME_SEEDS = 4u };
+enum : uint32_t { GAME_HITS = 1u, GAME_SOLDIERS = 2u, GAME_SEEDS = 4u, GAME_VERTICAL = 8u };   // GAME_VERTICAL: B3b (HordeVertical)
 constexpr uint32_t kGameMaxSoldiers = 2048;   // == game::kMaxGpuSoldiers
 constexpr uint32_t kGameKillCap = 1024;       // kill records per readback (== game::kMaxKillsPerFrame)
 constexpr uint32_t kGameKillHeader = 16;      // uints: [0] records this readback, [1] session seq, [2] overflow total

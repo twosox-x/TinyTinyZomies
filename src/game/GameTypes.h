@@ -55,7 +55,7 @@ const char* stateName(SoldierState s);
 // What the AI asks the animator to show (SoldierAnim.h maps action -> class clip, cross-fades per anims.json).
 enum class AnimAction : uint8_t {
     Idle, Walk, Run, Aim, Fire, CrouchAim, CrouchFire, Reload, Hit, Death, CollectAmmo, TurnL, TurnR,
-    ParaDescent, ParaLand, ParaRecover, Count
+    ParaDescent, ParaLand, ParaRecover, EnterBuilding /* B3a */, Count
 };
 const char* actionName(AnimAction a);   // anims.json action names ("idle", "para_descent", ...)
 

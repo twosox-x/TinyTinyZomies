@@ -7,6 +7,7 @@
 #include "game/Config.h"
 #include "game/Economy.h"
 #include "game/HordeBridge.h"
+#include "game/HordeVertical.h"
 #include "game/Soldiers.h"
 
 #include "render/CharacterRenderer.h"
@@ -755,6 +756,8 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     testGameCore();
     if (std::getenv("TTZ_SELFTEST_GAME")) return g_fail ? 1 : 0;   // only the gameplay core
     if (!std::getenv("TTZ_SELFTEST_NO_HORDE")) g_fail += game::selfTestHordeBridge(gpu, params);   // combat GPU (WS-A)
+    if (!std::getenv("TTZ_SELFTEST_NO_VERTICAL")) g_fail += game::selfTestHordeVertical(gpu, params);   // vertical horde (B3b)
+    if (std::getenv("TTZ_SELFTEST_VERTICAL")) return g_fail ? 1 : 0;   // only gameplay core + combat GPU + vertical
     if (std::getenv("TTZ_SELFTEST_HORDE")) return g_fail ? 1 : 0;   // only gameplay core + combat GPU
     World w;
     w.gpu = &gpu;

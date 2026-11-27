@@ -1,0 +1,585 @@
+#pragma clang diagnostic ignored "-Wunused-variable"
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+#include <metal_atomic>
+
+using namespace metal;
+
+struct Agent
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct SimUniforms
+{
+    float4 world;
+    uint4 grid;
+    float4 timeP;
+    float4 agentP;
+    float4 moveP;
+    float4 crowdP;
+    float4 solverP;
+    float4 climbP;
+    float4 corpseP;
+    float4 navP;
+    float4 goals[4];
+    float4 explo[8];
+    float4 exploP[8];
+    uint4 counts;
+    float4 spawnRect;
+    uint4 misc;
+    float4 extraP;
+    float4 lookA;
+    float4 lookB;
+    uint4 forcedLook;
+    float4 goreP;
+    uint4 goreCap;
+    float4 goreQ;
+    float4 roamP;
+    float4 roamQ;
+};
+
+struct OccOut
+{
+    uint occOut[1];
+};
+
+struct VState
+{
+    uint vstate[1];
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct Counters
+{
+    uint counters[1];
+};
+
+struct Agent_1
+{
+    float4 pos;
+    float4 vel;
+    float4 prev;
+    float4 dirs;
+    uint4 info;
+};
+
+struct Agents
+{
+    Agent_1 agents[1];
+};
+
+struct VEntr
+{
+    float4 p;
+    uint4 q;
+};
+
+struct VEntr_1
+{
+    float4 p;
+    uint4 q;
+};
+
+struct Entr
+{
+    VEntr_1 entr[1];
+};
+
+struct VNode
+{
+    float4 p;
+    uint4 q;
+    uint4 r;
+};
+
+struct VNode_1
+{
+    float4 p;
+    uint4 q;
+    uint4 r;
+};
+
+struct Nodes
+{
+    VNode_1 nodes[1];
+};
+
+struct CellStart
+{
+    uint cellStart[1];
+};
+
+struct CellCount
+{
+    uint cellCount[1];
+};
+
+struct OccIn
+{
+    uint occIn[1];
+};
+
+struct GameIO
+{
+    uint gameIO[1];
+};
+
+constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
+
+static inline __attribute__((always_inline))
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _126)
+{
+    float2 g = (xz - _126.world.xy) * _126.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_126.grid.x) - 1, int(_126.grid.y) - 1));
+}
+
+static inline __attribute__((always_inline))
+uint cellIndex(thread const int2& c, constant SimUniforms& _126)
+{
+    return (uint(c.y) * _126.grid.x) + uint(c.x);
+}
+
+static inline __attribute__((always_inline))
+uint agentState(thread const Agent& a)
+{
+    return a.info.x & 255u;
+}
+
+static inline __attribute__((always_inline))
+uint agentAlert(thread const uint& z)
+{
+    return z >> uint(28);
+}
+
+static inline __attribute__((always_inline))
+void pushOcc(thread const uint4& a, thread const uint4& b, constant SimUniforms& _126, device OccOut& _174, device VState& _189)
+{
+    uint _176 = atomic_fetch_add_explicit((device atomic_uint*)&_174.occOut[0], 1u, memory_order_relaxed);
+    uint k = _176;
+    if (k >= uint(_126.extraP.z))
+    {
+        uint _192 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[4099], 1u, memory_order_relaxed);
+        return;
+    }
+    uint o = 4u + (k * 8u);
+    _174.occOut[o] = a.x;
+    _174.occOut[o + 1u] = a.y;
+    _174.occOut[o + 2u] = a.z;
+    _174.occOut[o + 3u] = a.w;
+    _174.occOut[o + 4u] = b.x;
+    _174.occOut[o + 5u] = b.y;
+    _174.occOut[o + 6u] = b.z;
+    _174.occOut[o + 7u] = b.w;
+}
+
+static inline __attribute__((always_inline))
+uint pcgHash(thread const uint& v)
+{
+    uint state = (v * 747796405u) + 2891336453u;
+    uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+static inline __attribute__((always_inline))
+float agentHealth(thread const uint& z)
+{
+    return float2(as_type<half2>(z & 65535u)).x;
+}
+
+static inline __attribute__((always_inline))
+float hash01(thread const uint& v)
+{
+    uint param = v;
+    return float(pcgHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+bool insideWindow(thread const float2& xz, constant SimUniforms& _126)
+{
+    float2 g = (xz - _126.world.xy) * _126.world.w;
+    bool _254 = all(g >= float2(1.0));
+    bool _268;
+    if (_254)
+    {
+        _268 = all(g < (float2(_126.grid.xy) - float2(1.0)));
+    }
+    else
+    {
+        _268 = _254;
+    }
+    return _268;
+}
+
+static inline __attribute__((always_inline))
+bool emitAgent(thread const float3& pos, thread const uint4& a, thread const uint& rng, constant SimUniforms& _126, device StaticH& _331, device Counters& _378, device Agents& _438)
+{
+    uint param = rng;
+    float an = hash01(param) * 6.283185482025146484375;
+    float3 p = pos;
+    bool found = false;
+    for (int t = 0; (t < 12) && (!found); t++)
+    {
+        float r = 0.300000011920928955078125 + (0.20000000298023223876953125 * float(t));
+        float aa = an + (float(t) * 2.399962902069091796875);
+        float2 q = pos.xz + (float2(cos(aa), sin(aa)) * r);
+        float2 param_1 = q;
+        if (!insideWindow(param_1, _126))
+        {
+            continue;
+        }
+        float2 param_2 = q;
+        int2 param_3 = cellCoord(param_2, _126);
+        float sh = _331.staticH[cellIndex(param_3, _126)];
+        bool _344 = sh <= (pos.y + 0.5);
+        bool _353;
+        if (_344)
+        {
+            _353 = sh >= (pos.y - 3.5);
+        }
+        else
+        {
+            _353 = _344;
+        }
+        if (_353)
+        {
+            p = float3(q.x, fast::max(sh, 0.0) + 0.0500000007450580596923828125, q.y);
+            found = true;
+        }
+    }
+    if (!found)
+    {
+        return false;
+    }
+    uint _380 = _378.counters[0];
+    uint _382 = atomic_fetch_add_explicit((device atomic_uint*)&_378.counters[1], 1u, memory_order_relaxed);
+    uint slot = _380 + _382;
+    if (slot >= _126.grid.w)
+    {
+        return false;
+    }
+    Agent g;
+    g.pos = float4(p, 0.0);
+    uint param_4 = rng * 7u;
+    g.vel = float4(0.0, 0.0, 0.0, hash01(param_4) * 6.283100128173828125);
+    g.prev = float4(p, 0.0);
+    g.dirs = float4(0.0, 0.0, an, 0.0);
+    g.info = uint4(0u | (a.x & 4294967040u), a.y, (a.z & 268435455u) | 4026531840u, as_type<uint>(0.0));
+    _438.agents[slot].pos = g.pos;
+    _438.agents[slot].vel = g.vel;
+    _438.agents[slot].prev = g.prev;
+    _438.agents[slot].dirs = g.dirs;
+    _438.agents[slot].info = g.info;
+    return true;
+}
+
+kernel void main0(constant SimUniforms& _126 [[buffer(0)]], device Nodes& _562 [[buffer(1)]], device Entr& _494 [[buffer(2)]], device CellStart& _589 [[buffer(3)]], device CellCount& _598 [[buffer(4)]], device OccIn& _838 [[buffer(5)]], device StaticH& _331 [[buffer(6)]], device Agents& _438 [[buffer(7)]], device Counters& _378 [[buffer(8)]], device VState& _189 [[buffer(9)]], device OccOut& _174 [[buffer(10)]], device GameIO& _947 [[buffer(11)]], uint3 gl_WorkGroupID [[threadgroup_position_in_grid]], uint3 gl_LocalInvocationID [[thread_position_in_threadgroup]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+{
+    float dt = _126.extraP.x;
+    if (_126.misc.y == 0u)
+    {
+        uint e = gl_WorkGroupID.y;
+        uint t = gl_LocalInvocationID.x;
+        if ((e >= _126.counts.x) || (t >= 25u))
+        {
+            return;
+        }
+        VEntr en;
+        en.p = _494.entr[e].p;
+        en.q = _494.entr[e].q;
+        float2 param = en.p.xz;
+        int2 c = cellCoord(param, _126) + int2(int(t % 5u) - 2, int(t / 5u) - 2);
+        bool _521 = c.x < 0;
+        bool _528;
+        if (!_521)
+        {
+            _528 = c.y < 0;
+        }
+        else
+        {
+            _528 = _521;
+        }
+        bool _538;
+        if (!_528)
+        {
+            _538 = c.x >= int(_126.grid.x);
+        }
+        else
+        {
+            _538 = _528;
+        }
+        bool _548;
+        if (!_538)
+        {
+            _548 = c.y >= int(_126.grid.y);
+        }
+        else
+        {
+            _548 = _538;
+        }
+        if (_548)
+        {
+            return;
+        }
+        uint node = en.q.x;
+        VNode nd;
+        nd.p = _562.nodes[node].p;
+        nd.q = _562.nodes[node].q;
+        nd.r = _562.nodes[node].r;
+        bool barricaded = (en.q.z & 1u) != 0u;
+        int2 param_1 = c;
+        uint cid = cellIndex(param_1, _126);
+        uint live = _378.counters[0];
+        uint b = _589.cellStart[cid];
+        uint end = min((b + _598.cellCount[cid]), live);
+        float r2 = en.p.w * en.p.w;
+        uint pressing = 0u;
+        Agent a;
+        uint k = b;
+        for (;;)
+        {
+            bool _621 = k < end;
+            bool _629;
+            if (_621)
+            {
+                _629 = k < (b + 48u);
+            }
+            else
+            {
+                _629 = _621;
+            }
+            if (_629)
+            {
+                a.pos = _438.agents[k].pos;
+                a.vel = _438.agents[k].vel;
+                a.prev = _438.agents[k].prev;
+                a.dirs = _438.agents[k].dirs;
+                a.info = _438.agents[k].info;
+                Agent param_2 = a;
+                uint st = agentState(param_2);
+                if ((st != 0u) && (st != 1u))
+                {
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                float2 d = a.pos.xz - en.p.xz;
+                bool _668 = dot(d, d) > r2;
+                bool _680;
+                if (!_668)
+                {
+                    _680 = abs(a.pos.y - en.p.y) > 1.60000002384185791015625;
+                }
+                else
+                {
+                    _680 = _668;
+                }
+                if (_680)
+                {
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                bool _687 = _126.roamP.x > 0.5;
+                bool _696;
+                if (_687)
+                {
+                    uint param_3 = a.info.z;
+                    _696 = agentAlert(param_3) < 12u;
+                }
+                else
+                {
+                    _696 = _687;
+                }
+                if (_696)
+                {
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                if (barricaded)
+                {
+                    pressing++;
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                uint _709 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[node * 4u], 1u, memory_order_relaxed);
+                if (_709 >= nd.q.y)
+                {
+                    uint _719 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[node * 4u], 4294967295u, memory_order_relaxed);
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                if ((_174.occOut[0] + 8u) >= uint(_126.extraP.z))
+                {
+                    uint _733 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[node * 4u], 4294967295u, memory_order_relaxed);
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                uint x0 = a.info.x;
+                uint _744;
+                do
+                {
+                    _744 = x0;
+                } while (!atomic_compare_exchange_weak_explicit((device atomic_uint*)&((device uint*)&_438.agents[k].info)[0u], &_744, (x0 & 4294967040u) | 4u, memory_order_relaxed, memory_order_relaxed) && _744 == x0);
+                if (_744 != x0)
+                {
+                    uint _752 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[node * 4u], 4294967295u, memory_order_relaxed);
+                    uint _775 = k;
+                    k = _775 + uint(1);
+                    continue;
+                }
+                uint4 param_4 = uint4(x0 & 4294967040u, a.info.y, a.info.z, node);
+                uint4 param_5 = uint4(as_type<uint>(0.0), 0u, 0u, 0u);
+                pushOcc(param_4, param_5, _126, _174, _189);
+                uint _769 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[4096], 1u, memory_order_relaxed);
+                uint _774 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[(node * 4u) + 2u], 1u, memory_order_relaxed);
+                uint _775 = k;
+                k = _775 + uint(1);
+                continue;
+            }
+            else
+            {
+                break;
+            }
+        }
+        if (pressing > 0u)
+        {
+            uint cap = nd.q.y * 2u;
+            uint _791 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[(node * 4u) + 3u], pressing, memory_order_relaxed);
+            uint before = min(_791, cap);
+            uint n = min(pressing, (cap - before));
+            if (n > 0u)
+            {
+                uint _819 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[(node * 4u) + 1u], uint((((float(n) * _126.extraP.y) * dt) * 256.0) + 0.5), memory_order_relaxed);
+            }
+        }
+        return;
+    }
+    uint i = gl_GlobalInvocationID.x;
+    if (i < 1024u)
+    {
+        _189.vstate[(i * 4u) + 3u] = 0u;
+    }
+    if (i >= min(_838.occIn[0], uint(_126.extraP.z)))
+    {
+        return;
+    }
+    uint o = 4u + (i * 8u);
+    uint4 a_1 = uint4(_838.occIn[o], _838.occIn[o + 1u], _838.occIn[o + 2u], _838.occIn[o + 3u]);
+    float timer = as_type<float>(_838.occIn[o + 4u]);
+    uint n_1 = a_1.w;
+    VNode nd_1;
+    nd_1.p = _562.nodes[n_1].p;
+    nd_1.q = _562.nodes[n_1].q;
+    nd_1.r = _562.nodes[n_1].r;
+    uint param_6 = (a_1.y ^ (uint(_126.timeP.z) * 2654435761u)) ^ i;
+    uint rng = pcgHash(param_6);
+    float defense = as_type<float>(nd_1.q.w);
+    if ((defense > 0.0) && (dt > 0.0))
+    {
+        uint param_7 = a_1.z;
+        float hp = agentHealth(param_7);
+        uint occ = max(_189.vstate[n_1 * 4u], 1u);
+        hp -= ((defense * dt) / float(occ));
+        if (hp <= 0.0)
+        {
+            uint _939 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[n_1 * 4u], 4294967295u, memory_order_relaxed);
+            uint _942 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[4098], 1u, memory_order_relaxed);
+            uint _949 = atomic_fetch_add_explicit((device atomic_uint*)&_947.gameIO[1], 1u, memory_order_relaxed);
+            uint seq = _949 + 1u;
+            uint _953 = atomic_fetch_add_explicit((device atomic_uint*)&_947.gameIO[0], 1u, memory_order_relaxed);
+            uint slot = _953;
+            if (slot < 1024u)
+            {
+                uint kb = 16u + (slot * 8u);
+                _947.gameIO[kb] = seq;
+                _947.gameIO[kb + 1u] = 0u;
+                _947.gameIO[kb + 2u] = nd_1.r.x;
+                _947.gameIO[kb + 3u] = 0u;
+                _947.gameIO[kb + 4u] = as_type<uint>(nd_1.p.x);
+                _947.gameIO[kb + 5u] = as_type<uint>(nd_1.p.y);
+                _947.gameIO[kb + 6u] = as_type<uint>(nd_1.p.z);
+                _947.gameIO[kb + 7u] = 0u;
+            }
+            else
+            {
+                uint _1000 = atomic_fetch_add_explicit((device atomic_uint*)&_947.gameIO[2], 1u, memory_order_relaxed);
+            }
+            return;
+        }
+        a_1.z = (a_1.z & 4294901760u) | (as_type<uint>(half2(float2(hp, 0.0))) & 65535u);
+    }
+    timer += dt;
+    if (timer >= nd_1.p.w)
+    {
+        uint nx = nd_1.q.x;
+        if (nx == 4294967294u)
+        {
+            float3 param_8 = nd_1.p.xyz;
+            uint4 param_9 = a_1;
+            uint param_10 = rng;
+            bool _1037 = emitAgent(param_8, param_9, param_10, _126, _331, _378, _438);
+            if (_1037)
+            {
+                uint _1043 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[n_1 * 4u], 4294967295u, memory_order_relaxed);
+                uint _1048 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[(n_1 * 4u) + 2u], 1u, memory_order_relaxed);
+                uint _1057 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[4096u + (((nd_1.q.z & 2u) != 0u) ? 4u : 1u)], 1u, memory_order_relaxed);
+                return;
+            }
+            timer = nd_1.p.w;
+        }
+        else
+        {
+            if (nx != 4294967295u)
+            {
+                VNode nn;
+                nn.p = _562.nodes[nx].p;
+                nn.q = _562.nodes[nx].q;
+                nn.r = _562.nodes[nx].r;
+                if ((nn.q.z & 1u) != 0u)
+                {
+                    uint _1093 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[(nx * 4u) + 1u], uint(((_126.extraP.y * dt) * 256.0) + 0.5), memory_order_relaxed);
+                    timer = nd_1.p.w;
+                }
+                else
+                {
+                    uint _1100 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[nx * 4u], 1u, memory_order_relaxed);
+                    if (_1100 < nn.q.y)
+                    {
+                        uint _1109 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[n_1 * 4u], 4294967295u, memory_order_relaxed);
+                        uint _1114 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[(nx * 4u) + 2u], 1u, memory_order_relaxed);
+                        a_1.w = nx;
+                        timer = 0.0;
+                    }
+                    else
+                    {
+                        uint _1121 = atomic_fetch_add_explicit((device atomic_uint*)&_189.vstate[nx * 4u], 4294967295u, memory_order_relaxed);
+                        timer = nd_1.p.w;
+                    }
+                }
+            }
+            else
+            {
+                timer = nd_1.p.w;
+            }
+        }
+    }
+    uint4 param_11 = a_1;
+    uint4 param_12 = uint4(as_type<uint>(timer), 0u, 0u, 0u);
+    pushOcc(param_11, param_12, _126, _174, _189);
+}
+

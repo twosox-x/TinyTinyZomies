@@ -103,6 +103,49 @@ struct FortConfig {                  // B2 walls, territory, containers (GAME_DE
     float containerLandDuration = 1.0f;     // s from touchdown until it is usable
 };
 
+struct BuildingConfig {              // B3a buildings (GAME_DESIGN 6 / 7 / 14b); every value UNAPPROVED / PROPOSED
+    float captureTime = 5.f;         // s a squad must hold an entrance (no zombie inside / at the door) to capture
+    float captureRadius = 7.f;       // m from an entrance (or inside the footprint) that counts as "at the building"
+    float doorClearRadius = 6.f;     // m around the entrance that must be free of zombies (exact contact lists)
+    int garrisonPrice = 150;         // role cost (UNAPPROVED)
+    int hospitalPrice = 250;         // role cost (UNAPPROVED)
+    int garrisonAmmo = 600;          // rounds stocked in the garrison ammo stack (posted soldiers refill from it)
+    int hospitalBeds = 4;            // patients treated at once (PROPOSED)
+    float healRate = 6.f;            // hp / s per patient (PROPOSED)
+    float hospitalSearch = 150.f;    // m: wounded soldiers seek a hospital within this
+    float dischargeFraction = 0.95f; // patients leave at this fraction of max health
+    int maxFloors = 12;              // taller buildings are unsupported (towers: no usable firing floors yet)
+    int windowFloors = 3;            // garrison windows only on floors 1..N (lower floors facing streets)
+    float windowSpacing = 4.f;       // m between window positions along a facade
+    float roofSpacing = 5.f;         // m between roof-edge positions
+    int maxPositions = 12;           // firing positions per building (capacity cap)
+    std::array<int, 3> barricadePrice = {30, 80, 60};            // planks, plate, sandbags (UNAPPROVED)
+    std::array<float, 3> barricadeHealth = {300.f, 1200.f, 800.f};
+    float breachDps = 4.f;           // hp / s per zombie pressing at a barricaded opening (CPU fallback until B3b)
+    int nestPrice = 60;              // fort_window_nest / fort_roof_ring at a firing position (UNAPPROVED)
+    float nestDamageScale = 0.6f;    // contact damage taken at a position with a nest (defence value, PROPOSED)
+};
+
+// B3b zombies in buildings (HordeVertical, GAME_DESIGN 7): every value UNAPPROVED. Barricade breach damage per zombie is
+// BuildingConfig::breachDps (shared with B3a's fallback).
+struct VerticalConfig {
+    float walkSpeed = 1.1f;          // interior horizontal speed (m/s): door -> stair core
+    float climbTimePerFloor = 4.5f;  // s per flight of stairs (one floor)
+    float doorTime = 1.0f;           // s to squeeze through a door
+    float hatchTime = 1.5f;          // s to climb out of the roof hatch
+    int doorCapacity = 3;            // occupants in a doorway at once (more queue outside)
+    int stairCapacity = 6;           // occupants on one flight at once (congestion at the stairs)
+    int floorCapacity = 60;          // occupants on the soldiers' floor (fighting)
+    int hatchCapacity = 2;
+    float captureRadius = 1.2f;      // m around the door's street-side point
+    float breachPerZombie = 4.0f;    // barricade health per second per battering zombie (game: BuildingConfig::breachDps)
+    float defenderDps = 0.6f;        // zombie health per second per soldier on that floor (interior fight)
+    int attackersPerSoldier = 3;     // at most this many occupants attack one soldier on its floor
+    float entranceRadius = 1.5f;     // attractor footprint at a door
+    float routeWeight = 0.5f;        // reach lost per metre of interior route (doors of tall buildings pull less far)
+    float minReachFraction = 0.8f;
+};
+
 struct BalanceConfig {
     std::string status = "UNAPPROVED";   // anything else must come from an owner decision
     std::array<WeaponStats, 3> weapon;   // per SoldierClass
@@ -114,6 +157,8 @@ struct BalanceConfig {
     FortConfig fort;
     ReanimationConfig reanimation;
     StaminaConfig stamina;
+    BuildingConfig buildings;
+    VerticalConfig vertical;             // B3b
     bool load(const std::string& path, std::string* error = nullptr);   // missing keys keep the defaults above
     bool approved() const { return status == "APPROVED"; }
 };

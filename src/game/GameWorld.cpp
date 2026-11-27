@@ -2,6 +2,7 @@
 #include "game/GameWorld.h"
 
 #include "app/App.h"
+#include "game/BuildingGame.h"
 #include "debug/Profiler.h"
 #include "lab/MilitaryAssets.h"
 
@@ -46,6 +47,17 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     horde_.setAttackReach(cfg_.threat.attackReach);
     horde_.setThreatRadius(ai_.tuning.scanRadius);   // exact nearest-zombie lists for targeting
     horde_.setSync(opt.syncReadback);
+    if (vertical_.init(app.gpu, app.sim, horde_)) {   // B3b: building-local zombie navigation (GAME_DESIGN 7)
+        horde_.setVertical(true);
+        vertical_.setSync(opt.syncReadback);
+        vertical_.cfg = cfg_.vertical;
+        vertical_.awareness = cfg_.threat.awarenessRadius;
+        BuildingRegistry& reg = buildings_.registry();
+        vertical_.buildings = &reg.all();
+        vertical_.lookup = [&reg](float x, float z) { return reg.at(x, z); };
+        vertical_.damageBarricade = [&reg](BuildingId b, uint16_t op, float dmg) { reg.damageBarricade(b, op, dmg); };
+        vertical_.setZombieCounts = [&reg](BuildingId b, int in, int roof, const int16_t* pf, int n) { reg.setZombieCounts(b, in, roof, pf, n); };
+    } else SDL_Log("game: vertical horde unavailable (game_vertical pipeline)");
     fort_.init(app, cfg_);                                     // B2: walls, territory, containers as obstacles
     rebuildNav(app);
     economy_.reset(cfg_);
@@ -67,7 +79,11 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         SDL_Log("game: script %s", opt.script.c_str());
     }
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
-    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); };
+    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); drawBuildingProps(mil, ctx_, buildings_); };
+    // B3a buildings: BLDG records of the tiles under the window, UI hooks, hospital seeking (SoldierAI hook)
+    syncBuildings(app, buildings_, fort_.navHeights(app), cfg_);
+    installBuildingUI(ui_, buildings_);
+    ai_.medicalSeek = [this](GameContext& c, uint32_t i) { return buildings_.medicalSeek(c, i); };
     render_.droppedWeapons = &reanim_.weapons();
     if (const MilitaryLibrary* lib = render_.library()) {
         animator_.init(*lib);
@@ -86,6 +102,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
 void GameWorld::shutdown(AppState& app) {
     render_.shutdown(app);
     fort_.shutdown();
+    vertical_.shutdown();
     horde_.shutdown();
 }
 
@@ -176,6 +193,7 @@ void GameWorld::tick(AppState& app) {
         overflowSeen_ = horde_.killsOverflowed();
     }
     deploy_.tick(ctx_);                                        // c
+    buildings_.preAi(ctx_);                                    // c'' B3a: a new order releases garrisoned soldiers
     ai_.tick(ctx_);                                            // d
     reanim_.tick(ctx_, &animator_);                            // d': dead soldiers rise as zombies (GAME_DESIGN 14c)
     for (uint32_t i = 0; i < (uint32_t)soldiers_.capacity(); ++i) {   // e
@@ -192,7 +210,16 @@ void GameWorld::tick(AppState& app) {
         }
     }
     deploy_.onAnimEvents(ctx_);                                // c': touchdown / canopy_ground / weapon_draw of this tick
+    buildings_.tick(ctx_);                                     // e' B3a: capture, entering, posts pinned, hospital, barricades
+    {
+        std::vector<BuildingNotice> bn;
+        buildings_.takeNotices(bn);
+        for (const BuildingNotice& n : bn) ui_.notify(n.text, n.bad, ctx_.time);
+    }
+    buildings_.preCombat(ctx_);
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)
+    vertical_.tick(horde_.uploadedSoldiers(), ctx_.time);     // f'' B3b: active buildings, door attractors, interior fights
+    buildings_.postCombat(ctx_);                               // f' nests: contact damage scaled (defence value)
     logistics_.tick(ctx_);                                     // g
     fort_.tick(app, ctx_);                                     // g' B2: walls, breaches, obstacles, territory, income rate
     {
@@ -211,7 +238,7 @@ void GameWorld::preSim(AppState& app, SDL_GPUCommandBuffer* cmd, double frameDt)
     events_.fx.clear();                                        // FX of every tick of this frame reach the renderer
     // navigation follows the window (moved) and vehicle changes (rows uploaded), at most once per second
     const Sandbox& sb = app.sandbox;
-    if (sb.originX != navOx_ || sb.originZ != navOz_) { fort_.windowMoved(app); rebuildNav(app); }
+    if (sb.originX != navOx_ || sb.originZ != navOz_) { fort_.windowMoved(app); rebuildNav(app); syncBuildings(app, buildings_, fort_.navHeights(app), cfg_); }
     else fort_.patchNav(app, nav_);   // rows the vehicles / walls changed: local NavGrid patches (B2: no global rebuilds)
     if (!app.paused) {
         accumulator_ += frameDt * app.simSpeed;
@@ -222,7 +249,7 @@ void GameWorld::preSim(AppState& app, SDL_GPUCommandBuffer* cmd, double frameDt)
     horde_.preSim(cmd);
 }
 
-void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) { horde_.postSim(cmd, app.frameIndex); fort_.postSim(cmd); }
+void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) { horde_.postSim(cmd, app.frameIndex); vertical_.postSim(cmd); fort_.postSim(cmd); }
 
 void GameWorld::render(AppState& app, float frameDt) {
     render_.setSelection(ui_.selection().squads);   // in-world selection rings (WS-B); GameUI draws the screen-space status
@@ -231,6 +258,6 @@ void GameWorld::render(AppState& app, float frameDt) {
 
 void GameWorld::drawUI(AppState& app) { ui_.draw(app, ctx_, commands_); }
 
-void GameWorld::afterSubmit(AppState& app) { horde_.harvest(); fort_.afterSubmit(opt_.syncReadback); }
+void GameWorld::afterSubmit(AppState& app) { horde_.harvest(); vertical_.harvest(); fort_.afterSubmit(opt_.syncReadback); }
 
 } // namespace ttz::game

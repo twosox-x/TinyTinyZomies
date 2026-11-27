@@ -1,0 +1,30 @@
+# Milestone B3a: the second representative building, a 2-storey suburban house (pitched roof: no roof positions,
+# first-floor windows on every side), captured and garrisoned by a rifle squad that fires from the windows. Run:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3a_house.txt
+at 0.1  camera -245 452 0.6 0.8 60            # the window follows the camera to the suburbs
+at 3    bselect -252.5 453
+at 3    expect building supported == 1
+at 3    expect building positions == 4
+at 3    expect building roofpos == 0          # pitched roof
+at 3    buy rifle -239 452
+at 27   expect landed == 5
+at 27   bdoor 1
+at 42   expect building capture == 2
+at 42   brole garrison
+at 43   bgarrison 1
+at 65   log
+at 65   expect squad_posted 1 == 4            # capacity 4: the fifth soldier stays outside
+at 65   expect building garrison == 4
+at 65   expect posted_min_y > 2.5             # first floor
+at 66   bbarricade doors planks
+at 67   expect building barricades == 1
+at 67   spawn 40 -225 452 6
+at 67   spawn 30 -253 425 6
+at 70   camera -250 453 0.6 0.95 55
+at 72   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/house_garrison.png
+at 110  log
+at 110  expect posted_rounds > 10
+at 110  expect kills >= 8
+at 110  expect no_duplicate_rewards
+at 110  expect ledger_balanced
+at 111  end

@@ -30,6 +30,7 @@
 // kMaxHitsPerTick and never waits on the CPU (no synchronous readbacks; --game-sync is a headless test switch).
 // Determinism: game ticks are fixed-step with per-entity seeded RNG; the only nondeterminism is readback latency,
 // removed in tests by --game-sync. Save / load of game state is out of scope.
+#include "game/BuildingPlay.h"
 #include "game/Combat.h"
 #include "game/Commands.h"
 #include "game/Config.h"
@@ -42,6 +43,7 @@
 #include "game/GameScript.h"
 #include "game/GameUI.h"
 #include "game/HordeBridge.h"
+#include "game/HordeVertical.h"
 #include "game/Logistics.h"
 #include "game/NavGrid.h"
 #include "game/SoldierAI.h"
@@ -96,6 +98,10 @@ public:
     Fortifications& fort() { return fort_; }                    // B2
     const Fortifications& fort() const { return fort_; }
     const Reanimation& reanimation() const { return reanim_; }
+    const HordeVertical& vertical() const { return vertical_; }   // B3b
+    HordeVertical& vertical() { return vertical_; }
+    BuildingPlay& buildings() { return buildings_; }            // B3a
+    const BuildingPlay& buildings() const { return buildings_; }
     struct SquadStart { int ammo = 0; };          // per squad (purchase order): total rounds when the squad was bought
     const std::vector<SquadStart>& squadStarts() const { return squadStarts_; }
     uint64_t purchasesRefused() const { return refused_; }
@@ -123,6 +129,8 @@ private:
     Deploy deploy_;
     Fortifications fort_;
     Reanimation reanim_;
+    HordeVertical vertical_;         // B3b: zombies in buildings (entrances, stairs, roofs, barricades)
+    BuildingPlay buildings_;         // B3a: capture, garrison, hospital, barricades
     CommandQueue commands_;
     std::vector<Command> applying_;
     GameUI ui_;

@@ -77,6 +77,14 @@ struct SoldierPool {
     std::vector<SoldierId> deliverTo;// ammo runner: the squad mate he is walking to / handing rounds to
     std::vector<float> scanT;        // SoldierAI: s until a rooftop marksman re-picks his firing position
     std::vector<uint8_t> unarmed;    // Reanimation: the weapon lies on the ground (rising body drawn without it)
+    // --- B3a buildings (BuildingPlay writes; SoldierAI / Combat / GameRender / HordeBridge read)
+    std::vector<uint8_t> post;       // PostState: 0 none, 1 walking to a building, 2 at a firing position (fixed),
+                                     // 3 inside (hospital patient: hidden, not a zombie target), 4 entering (clip)
+    std::vector<uint32_t> building;  // BuildingId.v of the post / hospital (~0u none)
+    std::vector<V3> postOut;         // outward unit direction of the window / roof edge (firing offset)
+    // Where rounds and sight lines start from for this soldier's feet: a soldier at a window fires from just outside
+    // the facade (his own building is not an occluder), others from where they stand.
+    V3 firePos(uint32_t i) const { return post[i] == 2 ? pos[i] + postOut[i] * 0.9f : pos[i]; }
 
     SoldierId spawn(SoldierClass c, int infantryIndex, SquadId sq, int slot, V3 p, float yawRad, uint32_t seed);
     // Health, full magazine and reserve from the config (Deploy calls it on purchase; SoldierAI equips any soldier
@@ -98,6 +106,8 @@ struct SoldierPool {
 private:
     std::vector<uint32_t> free_;
 };
+
+enum PostState : uint8_t { POST_NONE = 0, POST_APPROACH = 1, POST_FIRING = 2, POST_INSIDE = 3, POST_ENTERING = 4 };
 
 enum SoldierPhase : uint8_t { PH_RELOADED = 1, PH_GRABBED = 2, PH_WAITING = 4, PH_RETURNING = 8, PH_ACQUIRED = 16 };
 

@@ -197,7 +197,7 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 - Ammo containers never disappear and can be used to wall things off: they are physical obstacles. They rotate during placement and arrive by parachute.
 
 ## 14d. Owner decisions 2026-11-27 evening (APPROVED)
-- Day/night: 30 minutes of day, then 15 minutes of night.
+- Day/night: 20 minutes of day, then 7 minutes of night (updated by owner; replaces 30/15).
 - New squad, **Engineers (3)**:
   - They build walls, gates and fortifications. The player can no longer build instantly or anywhere: construction is limited to an area around the engineer squads.
   - Engineers can remove (clear) cars.

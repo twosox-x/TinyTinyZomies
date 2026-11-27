@@ -1,0 +1,200 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+// Vertical warfare for the zombie horde (Milestone B3b, src/game/HordeVertical.*, docs/GAMEPLAY_ARCHITECTURE.md 9).
+// Zombies stay 2D agents on the street grid. Buildings with soldiers inside / on the roof ("active", <= 32 at a time)
+// get a compact building-local graph: door nodes -> one node per floor (stair core) -> roof hatch -> roof. A walker
+// that reaches an active entrance leaves the agent list (ST_DEAD without a corpse: removed by the next sort) and becomes
+// an OCCUPANT (side list, 8 uints) that advances node by node with per-node capacity (queues on the stairs), a traverse
+// time per node, barricades that hold it until breached (damage accumulated per node, applied on the CPU through
+// BuildingRegistry::damageBarricade) and defenders on its floor (interior fight: kills go through the kill ring).
+// An occupant that reaches the roof re-enters the agent list at the hatch (roof agents are ordinary agents standing on
+// the static height of the roof); one leaving an inactive building re-enters at its door.
+//
+// misc.y = 0: capture   one workgroup per entrance (gl_WorkGroupID.y), thread t < 25 scans cell t of the 5 x 5 cells
+//                       around the entrance point; barricaded: pressing walkers add breach damage instead
+// misc.y = 1: advance   one thread per occupant of occIn (count = occIn[0]); survivors are appended to occOut
+// Uniforms (SimUniforms of the next step, spare fields): extraP.x = frame dt (s), extraP.y = breach damage per zombie
+// per second, extraP.z = occupant capacity, extraP.w = capture radius (m); counts.x = entrances; misc.z = occIn count
+// bound (dispatch size).
+#include "common.glsl"
+layout(local_size_x = 64) in;
+
+struct VNode {
+    vec4 p;    // xyz: where the node ends (stair core at that floor, hatch on the roof, door on the street); w: traverse time (s)
+    uvec4 q;   // x next node (VN_STAY / VN_EMIT / node index), y capacity, z flags, w defender damage per second (float bits)
+    uvec4 r;   // x shooter credited for interior kills (Handle::packed), y building slot, z level (0.. floors-1, 255 roof), w -
+};
+struct VEntr {
+    vec4 p;    // capture point (street side of the door) xyz, w radius (m)
+    uvec4 q;   // x door node, y building slot, z flags (bit 0 barricaded), w opening index
+};
+#define VN_STAY 0xFFFFFFFFu
+#define VN_EMIT 0xFFFFFFFEu
+#define VF_BARRICADED 1u
+#define VOCC_WORDS 8u
+#define VOCC_HEADER 4u
+#define VSTATE_TOTALS 4096u   // word offset of the totals (1024 nodes x 4 uints before)
+// totals: [0] captured, [1] emitted on the roof / a floor exit, [2] killed inside, [3] dropped (list full),
+//         [4] left through a door (building inactive), [5] arrivals at the top (stay)
+
+layout(std430, set = 0, binding = 0) readonly buffer Nodes     { VNode nodes[]; };
+layout(std430, set = 0, binding = 1) readonly buffer Entr      { VEntr entr[]; };
+layout(std430, set = 0, binding = 2) readonly buffer CellStart { uint cellStart[]; };
+layout(std430, set = 0, binding = 3) readonly buffer CellCount { uint cellCount[]; };
+layout(std430, set = 0, binding = 4) readonly buffer OccIn     { uint occIn[]; };
+layout(std430, set = 0, binding = 5) readonly buffer StaticH   { float staticH[]; };
+layout(std430, set = 1, binding = 0) buffer Agents   { Agent agents[]; };
+layout(std430, set = 1, binding = 1) buffer Counters { uint counters[]; };
+layout(std430, set = 1, binding = 2) buffer VState   { uint vstate[]; };   // per node: occupancy, breach (1/256), passed, batterers this frame
+layout(std430, set = 1, binding = 3) buffer OccOut   { uint occOut[]; };
+layout(std430, set = 1, binding = 4) buffer GameIO   { uint gameIO[]; };   // kill ring (interior kills)
+
+void pushOcc(uvec4 a, uvec4 b) {
+    uint k = atomicAdd(occOut[0], 1u);
+    if (k >= uint(extraP.z)) { atomicAdd(vstate[VSTATE_TOTALS + 3u], 1u); return; }
+    uint o = VOCC_HEADER + k * VOCC_WORDS;
+    occOut[o] = a.x; occOut[o + 1u] = a.y; occOut[o + 2u] = a.z; occOut[o + 3u] = a.w;
+    occOut[o + 4u] = b.x; occOut[o + 5u] = b.y; occOut[o + 6u] = b.z; occOut[o + 7u] = b.w;
+}
+
+bool insideWindow(vec2 xz) {
+    vec2 g = (xz - world.xy) * world.w;
+    return all(greaterThanEqual(g, vec2(1.0))) && all(lessThan(g, vec2(grid.xy) - 1.0));
+}
+
+// An occupant becomes an agent again (roof hatch, or the street door of an inactive building).
+bool emitAgent(vec3 pos, uvec4 a, uint rng) {
+    // a free cell of the node's surface near it (roof hatches sit in stair bulkheads, doors in the facade line)
+    float an = hash01(rng) * 6.2831853;
+    vec3 p = pos;
+    bool found = false;
+    for (int t = 0; t < 12 && !found; ++t) {
+        float r = 0.3 + 0.2 * float(t);
+        float aa = an + float(t) * 2.399963;
+        vec2 q = pos.xz + vec2(cos(aa), sin(aa)) * r;
+        if (!insideWindow(q)) continue;
+        float sh = staticH[cellIndex(cellCoord(q))];
+        if (sh <= pos.y + 0.5 && sh >= pos.y - 3.5) { p = vec3(q.x, max(sh, 0.0) + 0.05, q.y); found = true; }
+    }
+    if (!found) return false;
+    uint slot = counters[C_LIVE] + atomicAdd(counters[C_APPEND], 1u);
+    if (slot >= grid.w) return false;
+    Agent g;
+    g.pos = vec4(p, 0.0);
+    g.vel = vec4(0.0, 0.0, 0.0, hash01(rng * 7u) * 6.2831);
+    g.prev = vec4(p, 0.0);
+    g.dirs = vec4(0.0, 0.0, an, 0.0);
+    g.info = uvec4(ST_WALK | (a.x & 0xFFFFFF00u), a.y, (a.z & 0x0FFFFFFFu) | (15u << 28), floatBitsToUint(0.0));
+    agents[slot] = g;
+    return true;
+}
+
+void main() {
+    const float dt = extraP.x;
+    if (misc.y == 0u) {
+        // ---- capture at an entrance -------------------------------------------------------------------------------
+        uint e = gl_WorkGroupID.y;
+        uint t = gl_LocalInvocationID.x;
+        if (e >= counts.x || t >= 25u) return;
+        VEntr en = entr[e];
+        ivec2 c = cellCoord(en.p.xz) + ivec2(int(t % 5u) - 2, int(t / 5u) - 2);
+        if (c.x < 0 || c.y < 0 || c.x >= int(grid.x) || c.y >= int(grid.y)) return;
+        uint node = en.q.x;
+        VNode nd = nodes[node];
+        bool barricaded = (en.q.z & VF_BARRICADED) != 0u;
+        uint cid = cellIndex(c);
+        uint live = counters[C_LIVE];
+        uint b = cellStart[cid], end = min(b + cellCount[cid], live);
+        float r2 = en.p.w * en.p.w;
+        uint pressing = 0u;
+        for (uint k = b; k < end && k < b + 48u; ++k) {
+            Agent a = agents[k];
+            uint st = agentState(a);
+            if (st != ST_WALK && st != ST_CLIMB) continue;
+            vec2 d = a.pos.xz - en.p.xz;
+            if (dot(d, d) > r2 || abs(a.pos.y - en.p.y) > 1.6) continue;
+            if (roamP.x > 0.5 && agentAlert(a.info.z) < 12u) continue;   // wanderers passing by do not go in
+            if (barricaded) { ++pressing; continue; }
+            if (atomicAdd(vstate[node * 4u], 1u) >= nd.q.y) { atomicAdd(vstate[node * 4u], 0xFFFFFFFFu); continue; }   // door jammed: queue outside
+            if (occOut[0] + 8u >= uint(extraP.z)) { atomicAdd(vstate[node * 4u], 0xFFFFFFFFu); continue; }
+            uint x0 = a.info.x;
+            if (atomicCompSwap(agents[k].info.x, x0, (x0 & ~0xFFu) | ST_DEAD) != x0) { atomicAdd(vstate[node * 4u], 0xFFFFFFFFu); continue; }
+            pushOcc(uvec4(x0 & 0xFFFFFF00u, a.info.y, a.info.z, node), uvec4(floatBitsToUint(0.0), 0u, 0u, 0u));
+            atomicAdd(vstate[VSTATE_TOTALS], 1u);
+            atomicAdd(vstate[node * 4u + 2u], 1u);
+        }
+        if (pressing > 0u) {   // at most 2 x the door's width batter it at once (word 3: this frame's batterers)
+            uint cap = nd.q.y * 2u;
+            uint before = min(atomicAdd(vstate[node * 4u + 3u], pressing), cap);
+            uint n = min(pressing, cap - before);
+            if (n > 0u) atomicAdd(vstate[node * 4u + 1u], uint(float(n) * extraP.y * dt * 256.0 + 0.5));
+        }
+        return;
+    }
+
+    // ---- advance one occupant ---------------------------------------------------------------------------------------
+    uint i = gl_GlobalInvocationID.x;
+    if (i < VSTATE_TOTALS / 4u) vstate[i * 4u + 3u] = 0u;   // per-frame batterer counts (capture runs after this pass)
+    if (i >= min(occIn[0], uint(extraP.z))) return;
+    uint o = VOCC_HEADER + i * VOCC_WORDS;
+    uvec4 a = uvec4(occIn[o], occIn[o + 1u], occIn[o + 2u], occIn[o + 3u]);
+    float timer = uintBitsToFloat(occIn[o + 4u]);
+    uint n = a.w;
+    VNode nd = nodes[n];
+    uint rng = pcgHash(a.y ^ uint(timeP.z) * 2654435761u ^ i);
+    // defenders on this floor: the damage is shared by the occupants of the node
+    float defense = uintBitsToFloat(nd.q.w);
+    if (defense > 0.0 && dt > 0.0) {
+        float hp = agentHealth(a.z);
+        uint occ = max(vstate[n * 4u], 1u);
+        hp -= defense * dt / float(occ);
+        if (hp <= 0.0) {
+            atomicAdd(vstate[n * 4u], 0xFFFFFFFFu);
+            atomicAdd(vstate[VSTATE_TOTALS + 2u], 1u);
+            uint seq = atomicAdd(gameIO[1], 1u) + 1u;
+            uint slot = atomicAdd(gameIO[0], 1u);
+            if (slot < GAME_KILL_CAP) {
+                uint kb = GAME_KILL_HEADER + slot * 8u;
+                gameIO[kb] = seq;
+                gameIO[kb + 1u] = 0u;              // KillCause::Soldier
+                gameIO[kb + 2u] = nd.r.x;
+                gameIO[kb + 3u] = 0u;
+                gameIO[kb + 4u] = floatBitsToUint(nd.p.x);
+                gameIO[kb + 5u] = floatBitsToUint(nd.p.y);
+                gameIO[kb + 6u] = floatBitsToUint(nd.p.z);
+                gameIO[kb + 7u] = 0u;
+            } else atomicAdd(gameIO[2], 1u);
+            return;
+        }
+        a.z = (a.z & 0xFFFF0000u) | (packHalf2x16(vec2(hp, 0.0)) & 0xFFFFu);
+    }
+    timer += dt;
+    if (timer >= nd.p.w) {
+        uint nx = nd.q.x;
+        if (nx == VN_EMIT) {
+            if (emitAgent(nd.p.xyz, a, rng)) {
+                atomicAdd(vstate[n * 4u], 0xFFFFFFFFu);
+                atomicAdd(vstate[n * 4u + 2u], 1u);
+                atomicAdd(vstate[VSTATE_TOTALS + ((nd.q.z & 2u) != 0u ? 4u : 1u)], 1u);
+                return;
+            }
+            timer = nd.p.w;   // window / agent pool full: wait
+        } else if (nx != VN_STAY) {
+            VNode nn = nodes[nx];
+            if ((nn.q.z & VF_BARRICADED) != 0u) {
+                // at a barricade (roof hatch): the occupant batters it (one share per waiting occupant, up to its width)
+                atomicAdd(vstate[nx * 4u + 1u], uint(extraP.y * dt * 256.0 + 0.5));
+                timer = nd.p.w;
+            } else if (atomicAdd(vstate[nx * 4u], 1u) < nn.q.y) {
+                atomicAdd(vstate[n * 4u], 0xFFFFFFFFu);
+                atomicAdd(vstate[nx * 4u + 2u], 1u);
+                a.w = nx;
+                timer = 0.0;
+            } else {
+                atomicAdd(vstate[nx * 4u], 0xFFFFFFFFu);   // stairs full: queue
+                timer = nd.p.w;
+            }
+        } else timer = nd.p.w;
+    }
+    pushOcc(a, uvec4(floatBitsToUint(timer), 0u, 0u, 0u));
+}

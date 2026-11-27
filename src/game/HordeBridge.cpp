@@ -90,7 +90,7 @@ void HordeBridge::shutdown() {
             *p = nullptr;
         }
     }
-    soldiers_.clear(); hits_.clear(); attractors_.clear(); contacts_.clear(); kills_.clear(); hitResults_.clear();
+    soldiers_.clear(); hits_.clear(); attractors_.clear(); entranceAttractors_.clear(); interiorAttackers_.clear(); contacts_.clear(); kills_.clear(); hitResults_.clear();
     gpu_ = nullptr; sim_ = nullptr;
 }
 
@@ -121,8 +121,13 @@ void HordeBridge::preSim(SDL_GPUCommandBuffer* cmd) {
     // attractors: strongest kMaxAttractors with a positive reach
     struct A { const Attractor* a; float reach; };
     std::vector<A> at;
-    at.reserve(attractors_.size());
-    for (const Attractor& a : attractors_) {
+    at.reserve(attractors_.size() + entranceAttractors_.size());
+    std::vector<const Attractor*> all;
+    all.reserve(attractors_.size() + entranceAttractors_.size());
+    for (const Attractor& a : attractors_) all.push_back(&a);
+    for (const Attractor& a : entranceAttractors_) all.push_back(&a);
+    for (const Attractor* ap : all) {
+        const Attractor& a = *ap;
         float reach = (a.awareness > 0.f ? a.awareness : awareness_) * std::clamp(a.strength, 0.f, 4.f);
         if (reach > 0.f && std::isfinite(a.pos.x) && std::isfinite(a.pos.z)) at.push_back({&a, reach});
     }
@@ -219,7 +224,7 @@ void HordeBridge::preSim(SDL_GPUCommandBuffer* cmd) {
         }
         seedsDirty_ = nA > 0;
     }
-    sim_->setGameInputs(GAME_HITS | (nS ? GAME_SOLDIERS : 0u) | (nA ? GAME_SEEDS : 0u), gate_);
+    sim_->setGameInputs(GAME_HITS | (nS ? GAME_SOLDIERS : 0u) | (nA ? GAME_SEEDS : 0u) | (vertical_ ? GAME_VERTICAL : 0u), gate_);
     st_.cpuMs = msSince(t0);
 }
 
@@ -358,6 +363,9 @@ void HordeBridge::parseSlot(int si) {
                 ++c.nNear;
             }
         }
+        for (const auto& ia : interiorAttackers_)   // B3b: occupants fighting on the soldier's floor
+            for (SoldierContact& c : contacts_)
+                if (c.packedId == ia.first) { c.attackers = (uint16_t)std::min<uint32_t>(c.attackers + ia.second, 0xFFFFu); break; }
         const uint32_t tiles = s.tilesX * s.tilesZ;
         field_.frame = s.frame;
         field_.originX = s.originX;

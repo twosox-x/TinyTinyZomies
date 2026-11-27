@@ -172,7 +172,7 @@ bool SoldierAI::findTarget(const GameContext& ctx, uint32_t i, float range, V3& 
     // Line of sight (nearest first); squad mates spread over the visible candidates close to the nearest one.
     V3 vis[K];
     int nv = 0;
-    const V3 eye = p + V3{0, tuning.eyeHeight, 0};
+    const V3 eye = P.firePos(i) + V3{0, tuning.eyeHeight, 0};
     if (P.cls[i] == SoldierClass::Sniper) {
         // marksman: isolated zombies (sparse tiles) and those close to other soldiers first, nearest as the tie break
         float bestS = 1e9f;
@@ -187,7 +187,7 @@ bool SoldierAI::findTarget(const GameContext& ctx, uint32_t i, float range, V3& 
                     for (const Cell& c : hash_)
                         if (c.idx != i && dist2D(P.pos[c.idx], t.pos[k]) < 10.f) { s -= 60.f; break; }
                     if (s >= bestS) continue;
-                    if (ctx.nav && ctx.nav->ready() && !shotClear(*ctx.nav, p, t.pos[k] + V3{0, 1.1f, 0}, tuning.sniperMargin)) continue;
+                    if (ctx.nav && ctx.nav->ready() && !shotClear(*ctx.nav, P.firePos(i), t.pos[k] + V3{0, 1.1f, 0}, tuning.sniperMargin)) continue;
                     bestS = s; out = t.pos[k]; any = true;
                 }
             }
@@ -213,7 +213,7 @@ bool SoldierAI::bestThreat(const GameContext& ctx, uint32_t i, V3& pos, V3& vel,
     const SoldierContact* c = contactOf(ctx, i);
     if (!c || !c->nNear) return false;
     const SoldierPool& P = *ctx.soldiers;
-    const V3 p = P.pos[i], eye = p + V3{0, tuning.eyeHeight, 0};
+    const V3 p = P.pos[i], eye = P.firePos(i) + V3{0, tuning.eyeHeight, 0};
     float best = 1e9f;
     bool found = false;
     for (uint32_t k = 0; k < c->nNear; ++k) {
@@ -260,6 +260,7 @@ void SoldierAI::face(GameContext& ctx, uint32_t i, V3 at) {
 void SoldierAI::steer(GameContext& ctx, uint32_t i, V3 desired) {
     SoldierPool& P = *ctx.soldiers;
     const V3 p = P.pos[i];
+    if (P.post[i] >= POST_FIRING) { P.vel[i] = {}; return; }   // B3a: fixed at a window / roof position or inside
     const bool moving = desired.x * desired.x + desired.z * desired.z > 1e-4f;
     // Separation from nearby soldiers (squad mates and others), via the 2 m cell hash.
     V3 push{};
@@ -600,6 +601,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         return;
     }
     P.wounded[i] = P.health[i] < P.woundedFraction * std::max(1.f, P.maxHealth[i]) ? 1 : 0;
+    if (P.post[i] == POST_ENTERING || P.post[i] == POST_INSIDE) { P.vel[i] = {}; return; }   // B3a owns them (clip / hospital)
     const bool outside = ctx.horde && !ctx.horde->simulated(P.pos[i].x, P.pos[i].z);   // B1: no fighting there
 
     // ---- a fresh squad order takes over (Reloading / Hit finish first: non-interruptible clips)
@@ -627,7 +629,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     //      similar threats only, GAME_DESIGN 14b + owner feedback after B1)
     TargetLock& L = P.target[i];
     const bool perceive = tuning.perceptionStride <= 1 || (ctx.tick + i) % (uint64_t)tuning.perceptionStride == 0;
-    const V3 eye = P.pos[i] + V3{0, tuning.eyeHeight, 0};
+    const V3 eye = P.firePos(i) + V3{0, tuning.eyeHeight, 0};
     V3 close, closeVel;
     float closeD = 1e9f;
     int nThreat = 0;
@@ -728,7 +730,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             // as Combat::fire does): rounds into parked cars were most of the "misses" (b1_ai_threat: 50 of 76)
             bool clear = true;
             if (ctx.nav && ctx.nav->ready())
-                clear = shotClear(*ctx.nav, P.pos[i], L.pos + V3{0, 1.1f - 0.75f * std::clamp(L.prone, 0.f, 1.f), 0},
+                clear = shotClear(*ctx.nav, P.firePos(i), L.pos + V3{0, 1.1f - 0.75f * std::clamp(L.prone, 0.f, 1.f), 0},
                                   P.cls[i] == SoldierClass::Sniper ? tuning.sniperMargin : 0.f);
             // a lock that stays blocked (seen from the eye but not shootable: roof edge, parked car) is dropped so a
             // shootable one is picked (snipers also re-pick their roof vantage)
@@ -842,6 +844,10 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         const int total = P.mag[i] + P.reserve[i];
         const bool low = total < (int)std::ceil(ss.lowAmmoFraction * (float)P.fullLoad(i, cfg));
         if (P.mag[i] > 0 && (L.active || ((perceive || hasClose) && lockNew(false)))) { P.setState(i, SoldierState::Engaging); break; }
+        if (P.post[i] == POST_FIRING) {   // B3a garrison: holds the window / roof edge (BuildingPlay refills ammo)
+            if (P.mag[i] < (int)(w.magazine * tuning.tacticalReloadFraction) && P.reserve[i] > 0) P.setState(i, SoldierState::Reloading);
+            break;
+        }
         // rooftop marksman: from the middle of a roof the roof itself hides the street. With nothing shootable in
         // sight he moves to the roof-edge vantage that can shoot the most zombies the field knows within range (or,
         // with none known, to the vantage overlooking the most street), re-picked every vantageScan s.

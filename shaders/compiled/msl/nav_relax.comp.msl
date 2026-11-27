@@ -62,186 +62,315 @@ struct NavSeed
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(16u, 16u, 1u);
 
 static inline __attribute__((always_inline))
-uint cellIndex(thread const int2& c, constant SimUniforms& _39)
+uint cellIndex(thread const int2& c, constant SimUniforms& _42)
 {
-    return (uint(c.y) * _39.grid.x) + uint(c.x);
+    return (uint(c.y) * _42.grid.x) + uint(c.x);
 }
 
 static inline __attribute__((always_inline))
-uint gameFlags(constant SimUniforms& _39)
+uint gameFlags(constant SimUniforms& _42)
 {
-    return uint(_39.goreQ.w);
+    return uint(_42.goreQ.w);
 }
 
 static inline __attribute__((always_inline))
-float corpseAt(thread int2& c, constant SimUniforms& _39, device CorpseH& _76)
+float corpseAt(thread int2& c, constant SimUniforms& _42, device CorpseH& _79)
 {
-    c = clamp(c, int2(0), int2(int(_39.grid.x) - 1, int(_39.grid.y) - 1));
+    c = clamp(c, int2(0), int2(int(_42.grid.x) - 1, int(_42.grid.y) - 1));
     int2 param = c;
-    return float(_76.corpseH[cellIndex(param, _39)]) * 0.001000000047497451305389404296875;
+    return float(_79.corpseH[cellIndex(param, _42)]) * 0.001000000047497451305389404296875;
 }
 
 static inline __attribute__((always_inline))
-float cellCost(thread const int2& c, constant SimUniforms& _39, device CorpseH& _76, device Density& _98, device StaticH& _120)
+float cellCost(thread const int2& c, constant SimUniforms& _42, device CorpseH& _79, device Density& _101, device StaticH& _123)
 {
     int2 param = c;
-    uint id = cellIndex(param, _39);
-    float rho = ((device float*)&_98.density[id])[0u];
-    float cost = 1.0 + (_39.navP.x * fast::max(rho - _39.crowdP.x, 0.0));
-    float s = _120.staticH[id];
+    uint id = cellIndex(param, _42);
+    float rho = ((device float*)&_101.density[id])[0u];
+    float cost = 1.0 + (_42.navP.x * fast::max(rho - _42.crowdP.x, 0.0));
+    float s = _123.staticH[id];
     if (s > 0.0)
     {
         int2 param_1 = c;
-        float _132 = corpseAt(param_1, _39, _76);
-        float support = _132;
-        int2 _145;
-        int2 _152;
+        float _135 = corpseAt(param_1, _42, _79);
+        float support = _135;
+        int2 _148;
+        int2 _155;
         for (int k = 0; k < 4; k++)
         {
             if (k == 0)
             {
-                _145 = int2(1, 0);
+                _148 = int2(1, 0);
             }
             else
             {
                 if (k == 1)
                 {
-                    _152 = int2(-1, 0);
+                    _155 = int2(-1, 0);
                 }
                 else
                 {
-                    _152 = select(int2(0, -1), int2(0, 1), bool2(k == 2));
+                    _155 = select(int2(0, -1), int2(0, 1), bool2(k == 2));
                 }
-                _145 = _152;
+                _148 = _155;
             }
-            int2 o = _145;
-            int2 nc = clamp(c + o, int2(0), int2(_39.grid.xy) - int2(1));
+            int2 o = _148;
+            int2 nc = clamp(c + o, int2(0), int2(_42.grid.xy) - int2(1));
             int2 param_2 = nc;
-            uint nid = cellIndex(param_2, _39);
-            if (_120.staticH[nid] <= 0.0)
+            uint nid = cellIndex(param_2, _42);
+            if (_123.staticH[nid] <= 0.0)
             {
                 int2 param_3 = nc;
-                float _197 = corpseAt(param_3, _39, _76);
-                support = fast::max(support, fast::max(((device float*)&_98.density[nid])[1u], _197));
+                float _200 = corpseAt(param_3, _42, _79);
+                support = fast::max(support, fast::max(((device float*)&_101.density[nid])[1u], _200));
             }
         }
         int2 param_4 = c;
-        float _206 = corpseAt(param_4, _39, _76);
-        float climb = (s + _206) - support;
-        if (climb > _39.navP.z)
+        float _209 = corpseAt(param_4, _42, _79);
+        float climb = (s + _209) - support;
+        bool _217 = climb > _42.navP.z;
+        bool _223;
+        if (_217)
+        {
+            _223 = (gameFlags(_42) & 8u) != 0u;
+        }
+        else
+        {
+            _223 = _217;
+        }
+        if (_223)
+        {
+            bool enclosed = true;
+            float minTop = 1000000000.0;
+            int2 _242;
+            int2 _248;
+            for (int k_1 = 0; k_1 < 4; k_1++)
+            {
+                if (k_1 == 0)
+                {
+                    _242 = int2(1, 0);
+                }
+                else
+                {
+                    if (k_1 == 1)
+                    {
+                        _248 = int2(-1, 0);
+                    }
+                    else
+                    {
+                        _248 = select(int2(0, -1), int2(0, 1), bool2(k_1 == 2));
+                    }
+                    _242 = _248;
+                }
+                int2 o_1 = _242;
+                int2 nc_1 = clamp(c + o_1, int2(0), int2(_42.grid.xy) - int2(1));
+                int2 param_5 = nc_1;
+                float sn = _123.staticH[cellIndex(param_5, _42)];
+                if (sn <= 0.0)
+                {
+                    enclosed = false;
+                    break;
+                }
+                int2 param_6 = nc_1;
+                float _285 = corpseAt(param_6, _42, _79);
+                minTop = fast::min(minTop, sn + _285);
+            }
+            if (enclosed)
+            {
+                int2 param_7 = c;
+                float _296 = corpseAt(param_7, _42, _79);
+                climb = (s + _296) - fast::max(support, minTop);
+            }
+        }
+        if (climb > _42.navP.z)
         {
             return -1.0;
         }
-        cost += (_39.navP.y * fast::max(climb, 0.0));
+        cost += (_42.navP.y * fast::max(climb, 0.0));
     }
     return cost;
 }
 
-kernel void main0(constant SimUniforms& _39 [[buffer(0)]], device StaticH& _120 [[buffer(1)]], device CorpseH& _76 [[buffer(2)]], device Density& _98 [[buffer(3)]], device NavSeed& _337 [[buffer(4)]], device Dist& _322 [[buffer(5)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+static inline __attribute__((always_inline))
+float levelOf(thread const int2& c, constant SimUniforms& _42, device CorpseH& _79, device StaticH& _123)
+{
+    int2 param = c;
+    uint id = cellIndex(param, _42);
+    int2 param_1 = c;
+    float _330 = corpseAt(param_1, _42, _79);
+    return fast::max(_123.staticH[id], 0.0) + _330;
+}
+
+kernel void main0(constant SimUniforms& _42 [[buffer(0)]], device StaticH& _123 [[buffer(1)]], device CorpseH& _79 [[buffer(2)]], device Density& _101 [[buffer(3)]], device NavSeed& _442 [[buffer(4)]], device Dist& _427 [[buffer(5)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     int2 c = int2(gl_GlobalInvocationID.xy);
-    bool _241 = c.x >= int(_39.grid.x);
-    bool _251;
-    if (!_241)
+    bool _346 = c.x >= int(_42.grid.x);
+    bool _356;
+    if (!_346)
     {
-        _251 = c.y >= int(_39.grid.y);
+        _356 = c.y >= int(_42.grid.y);
     }
     else
     {
-        _251 = _241;
+        _356 = _346;
     }
-    if (_251)
+    if (_356)
     {
         return;
     }
-    if (uint((c.x + c.y) & 1) != _39.misc.y)
+    if (uint((c.x + c.y) & 1) != _42.misc.y)
     {
         return;
     }
     int2 param = c;
-    uint id = cellIndex(param, _39);
-    float2 center = _39.world.xy + ((float2(c) + float2(0.5)) * _39.world.z);
-    for (uint g = 0u; g < _39.counts.x; g++)
+    uint id = cellIndex(param, _42);
+    float2 center = _42.world.xy + ((float2(c) + float2(0.5)) * _42.world.z);
+    for (uint g = 0u; g < _42.counts.x; g++)
     {
-        bool _304 = _39.goals[g].w > 0.5;
-        bool _316;
-        if (_304)
+        bool _409 = _42.goals[g].w > 0.5;
+        bool _421;
+        if (_409)
         {
-            _316 = distance(center, _39.goals[g].xz) < _39.navP.w;
+            _421 = distance(center, _42.goals[g].xz) < _42.navP.w;
         }
         else
         {
-            _316 = _304;
+            _421 = _409;
         }
-        if (_316)
+        if (_421)
         {
-            _322.dist[id] = 0.0;
+            _427.dist[id] = 0.0;
             return;
         }
     }
-    if ((gameFlags(_39) & 4u) != 0u)
+    if ((gameFlags(_42) & 4u) != 0u)
     {
-        uint sd = _337.navSeed[id];
+        uint sd = _442.navSeed[id];
         if (sd != 4294967295u)
         {
-            _322.dist[id] = as_type<float>(sd);
+            _427.dist[id] = as_type<float>(sd);
             return;
         }
     }
     int2 param_1 = c;
-    float cost = cellCost(param_1, _39, _76, _98, _120);
+    float cost = cellCost(param_1, _42, _79, _101, _123);
     if (cost < 0.0)
     {
-        _322.dist[id] = 10000000.0;
+        _427.dist[id] = 10000000.0;
         return;
     }
-    float _367;
+    float _472;
     if (c.x > 0)
     {
         int2 param_2 = c - int2(1, 0);
-        _367 = _322.dist[cellIndex(param_2, _39)];
+        _472 = _427.dist[cellIndex(param_2, _42)];
     }
     else
     {
-        _367 = 10000000.0;
+        _472 = 10000000.0;
     }
-    float xm = _367;
-    float _386;
-    if (c.x < (int(_39.grid.x) - 1))
+    float xm = _472;
+    float _491;
+    if (c.x < (int(_42.grid.x) - 1))
     {
         int2 param_3 = c + int2(1, 0);
-        _386 = _322.dist[cellIndex(param_3, _39)];
+        _491 = _427.dist[cellIndex(param_3, _42)];
     }
     else
     {
-        _386 = 10000000.0;
+        _491 = 10000000.0;
     }
-    float xp = _386;
-    float _401;
+    float xp = _491;
+    float _506;
     if (c.y > 0)
     {
         int2 param_4 = c - int2(0, 1);
-        _401 = _322.dist[cellIndex(param_4, _39)];
+        _506 = _427.dist[cellIndex(param_4, _42)];
     }
     else
     {
-        _401 = 10000000.0;
+        _506 = 10000000.0;
     }
-    float zm = _401;
-    float _420;
-    if (c.y < (int(_39.grid.y) - 1))
+    float zm = _506;
+    float _525;
+    if (c.y < (int(_42.grid.y) - 1))
     {
         int2 param_5 = c + int2(0, 1);
-        _420 = _322.dist[cellIndex(param_5, _39)];
+        _525 = _427.dist[cellIndex(param_5, _42)];
     }
     else
     {
-        _420 = 10000000.0;
+        _525 = 10000000.0;
     }
-    float zp = _420;
+    float zp = _525;
+    if ((gameFlags(_42) & 8u) != 0u)
+    {
+        int2 param_6 = c;
+        float lv = levelOf(param_6, _42, _79, _123) + 4.5;
+        bool _549 = c.x > 0;
+        bool _558;
+        if (_549)
+        {
+            int2 param_7 = c - int2(1, 0);
+            _558 = levelOf(param_7, _42, _79, _123) > lv;
+        }
+        else
+        {
+            _558 = _549;
+        }
+        if (_558)
+        {
+            xm = 10000000.0;
+        }
+        bool _567 = c.x < (int(_42.grid.x) - 1);
+        bool _576;
+        if (_567)
+        {
+            int2 param_8 = c + int2(1, 0);
+            _576 = levelOf(param_8, _42, _79, _123) > lv;
+        }
+        else
+        {
+            _576 = _567;
+        }
+        if (_576)
+        {
+            xp = 10000000.0;
+        }
+        bool _581 = c.y > 0;
+        bool _590;
+        if (_581)
+        {
+            int2 param_9 = c - int2(0, 1);
+            _590 = levelOf(param_9, _42, _79, _123) > lv;
+        }
+        else
+        {
+            _590 = _581;
+        }
+        if (_590)
+        {
+            zm = 10000000.0;
+        }
+        bool _599 = c.y < (int(_42.grid.y) - 1);
+        bool _608;
+        if (_599)
+        {
+            int2 param_10 = c + int2(0, 1);
+            _608 = levelOf(param_10, _42, _79, _123) > lv;
+        }
+        else
+        {
+            _608 = _599;
+        }
+        if (_608)
+        {
+            zp = 10000000.0;
+        }
+    }
     float a = fast::min(xm, xp);
     float b = fast::min(zm, zp);
-    float f = cost * _39.world.z;
+    float f = cost * _42.world.z;
     float best;
     if (fast::min(a, b) >= 5000000.0)
     {
@@ -258,67 +387,67 @@ kernel void main0(constant SimUniforms& _39 [[buffer(0)]], device StaticH& _120 
             best = 0.5 * ((a + b) + sqrt(((2.0 * f) * f) - ((a - b) * (a - b))));
         }
     }
-    bool _488 = c.x == 0;
-    bool _495;
-    if (!_488)
+    bool _668 = c.x == 0;
+    bool _675;
+    if (!_668)
     {
-        _495 = c.y == 0;
+        _675 = c.y == 0;
     }
     else
     {
-        _495 = _488;
+        _675 = _668;
     }
-    bool _506;
-    if (!_495)
+    bool _686;
+    if (!_675)
     {
-        _506 = c.x == (int(_39.grid.x) - 1);
-    }
-    else
-    {
-        _506 = _495;
-    }
-    bool _517;
-    if (!_506)
-    {
-        _517 = c.y == (int(_39.grid.y) - 1);
+        _686 = c.x == (int(_42.grid.x) - 1);
     }
     else
     {
-        _517 = _506;
+        _686 = _675;
     }
-    if (_517)
+    bool _697;
+    if (!_686)
     {
-        float2 wlo = _39.world.xy;
-        float2 whi = _39.world.xy + (float2(_39.grid.xy) * _39.world.z);
-        for (uint g_1 = 0u; g_1 < _39.counts.x; g_1++)
+        _697 = c.y == (int(_42.grid.y) - 1);
+    }
+    else
+    {
+        _697 = _686;
+    }
+    if (_697)
+    {
+        float2 wlo = _42.world.xy;
+        float2 whi = _42.world.xy + (float2(_42.grid.xy) * _42.world.z);
+        for (uint g_1 = 0u; g_1 < _42.counts.x; g_1++)
         {
-            float2 q = _39.goals[g_1].xz;
-            bool _554 = _39.goals[g_1].w > 0.5;
-            bool _569;
-            if (_554)
+            float2 q = _42.goals[g_1].xz;
+            bool _734 = _42.goals[g_1].w > 0.5;
+            bool _749;
+            if (_734)
             {
-                bool _560 = any(q < wlo);
-                bool _568;
-                if (!_560)
+                bool _740 = any(q < wlo);
+                bool _748;
+                if (!_740)
                 {
-                    _568 = any(q > whi);
+                    _748 = any(q > whi);
                 }
                 else
                 {
-                    _568 = _560;
+                    _748 = _740;
                 }
-                _569 = _568;
+                _749 = _748;
             }
             else
             {
-                _569 = _554;
+                _749 = _734;
             }
-            if (_569)
+            if (_749)
             {
                 best = fast::min(best, distance(center, q));
             }
         }
     }
-    _322.dist[id] = fast::min(best, 10000000.0);
+    _427.dist[id] = fast::min(best, 10000000.0);
 }
 

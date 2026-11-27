@@ -64,7 +64,8 @@ vec2 curlField(vec2 xz, float t) {
 bool freeAt(vec2 q, float y) {
     ivec2 c = ivec2(floor((q - world.xy) * world.w));
     if (c.x < 1 || c.y < 1 || c.x >= int(grid.x) - 1 || c.y >= int(grid.y) - 1) return false;   // window border: turn back
-    return staticH[cellIndex(c)] <= y + moveP.w;
+    float s = staticH[cellIndex(c)];
+    return s <= y + moveP.w && ((gameFlags() & GAME_VERTICAL) == 0u || s >= y - VERT_DROP_MAX);   // B3b: no walking off roofs
 }
 vec2 rot2(vec2 d, float a) { float c = cos(a), s = sin(a); return vec2(c * d.x - s * d.y, s * d.x + c * d.y); }
 // first free direction near `dir` (walls deflect wanderers along streets / sidewalks); per-agent side preference

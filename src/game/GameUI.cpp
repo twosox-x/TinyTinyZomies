@@ -160,6 +160,7 @@ void GameUI::selectAt(AppState& app, const GameContext& ctx, float x, float y, b
             if (d < best) { best = d; hit = s.id; }
         }
     }
+    if (!hit.valid() && buildingClick && buildingClick(app, ctx, x, y)) return;   // B3a: building selected, squads kept
     if (hit.valid()) {
         if (additive && sel_.contains(hit)) c.squads.erase(std::remove(c.squads.begin(), c.squads.end(), hit), c.squads.end());
         else c.squads.push_back(hit);
@@ -227,6 +228,7 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
         containerYaw_ = std::fmod(containerYaw_ + (e.wheel.y > 0 ? 1.f : -1.f) * kPi / 12.f + 2.f * kPi, 2.f * kPi);
         return true;
     }
+    if (buildingKey && e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && buildingKey(app, ctx, e)) return true;   // B3a
     switch (e.type) {
     case SDL_EVENT_KEY_DOWN: {
         if (e.key.repeat) return false;
@@ -379,6 +381,7 @@ void GameUI::draw(AppState& app, const GameContext& ctx, CommandQueue& out) {
     drawBuildBar(app, ctx, out);
     drawSelection(app, ctx, out);
     drawNotices(app, ctx);
+    if (buildingDraw) buildingDraw(app, ctx);   // B3a: building markers / panel (BuildingGame.cpp)
     if (aiDebug) drawAiDebug(app, ctx);
     if (boxing_) {
         ImDrawList* dl = ImGui::GetForegroundDrawList();

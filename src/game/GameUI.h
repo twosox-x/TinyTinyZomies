@@ -17,6 +17,7 @@
 #include "game/Commands.h"
 #include "game/GameContext.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,12 @@ public:
     void setWallMode(uint8_t type, bool gate) { tool_ = Tool::BuildWall; wallType_ = type; wallGate_ = gate; wallPts_.clear(); forced_ = false; }
     void forceWallPreview(const std::vector<V3>& pts, uint8_t type, bool gate);   // scripts / captures
     float containerYaw() const { return containerYaw_; }
+    // ---- B3a buildings (BuildingGame.cpp installs these): a left click that hits no squad goes to buildingClick
+    // (true: a building was selected, the squad selection is kept so "Garrison" can use it); extra keys / panel.
+    std::function<bool(AppState&, const GameContext&, float, float)> buildingClick;
+    std::function<bool(AppState&, const GameContext&, const SDL_Event&)> buildingKey;
+    std::function<void(AppState&, const GameContext&)> buildingDraw;
+    const Selection& selectionConst() const { return sel_; }
 private:
     void selectAt(AppState& app, const GameContext& ctx, float x, float y, bool additive, CommandQueue& out);
     void selectBox(AppState& app, const GameContext& ctx, float x0, float y0, float x1, float y1, bool additive, CommandQueue& out);

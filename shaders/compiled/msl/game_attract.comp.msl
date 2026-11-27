@@ -66,87 +66,107 @@ struct NavSeed
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
 
 static inline __attribute__((always_inline))
-int2 cellCoord(thread const float2& xz, constant SimUniforms& _32)
+int2 cellCoord(thread const float2& xz, constant SimUniforms& _35)
 {
-    float2 g = (xz - _32.world.xy) * _32.world.w;
-    return clamp(int2(floor(g)), int2(0), int2(int(_32.grid.x) - 1, int(_32.grid.y) - 1));
+    float2 g = (xz - _35.world.xy) * _35.world.w;
+    return clamp(int2(floor(g)), int2(0), int2(int(_35.grid.x) - 1, int(_35.grid.y) - 1));
 }
 
 static inline __attribute__((always_inline))
-uint cellIndex(thread const int2& c, constant SimUniforms& _32)
+uint cellIndex(thread const int2& c, constant SimUniforms& _35)
 {
-    return (uint(c.y) * _32.grid.x) + uint(c.x);
+    return (uint(c.y) * _35.grid.x) + uint(c.x);
 }
 
-kernel void main0(constant SimUniforms& _32 [[buffer(0)]], device Attrs& _118 [[buffer(1)]], device StaticH& _218 [[buffer(2)]], device NavSeed& _235 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+static inline __attribute__((always_inline))
+uint gameFlags(constant SimUniforms& _35)
+{
+    return uint(_35.goreQ.w);
+}
+
+kernel void main0(constant SimUniforms& _35 [[buffer(0)]], device Attrs& _127 [[buffer(1)]], device StaticH& _227 [[buffer(2)]], device NavSeed& _261 [[buffer(3)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint k = gl_GlobalInvocationID.y;
-    uint side = _32.misc.z;
+    uint side = _35.misc.z;
     uint t = gl_GlobalInvocationID.x;
-    bool _98 = k >= _32.counts.x;
-    bool _107;
-    if (!_98)
+    bool _107 = k >= _35.counts.x;
+    bool _116;
+    if (!_107)
     {
-        _107 = t >= (side * side);
+        _116 = t >= (side * side);
     }
     else
     {
-        _107 = _98;
+        _116 = _107;
     }
-    if (_107)
+    if (_116)
     {
         return;
     }
     Attr at;
-    at.posR = _118.attrs[k].posR;
-    at.info = _118.attrs[k].info;
+    at.posR = _127.attrs[k].posR;
+    at.info = _127.attrs[k].info;
     float2 param = at.posR.xz;
-    int2 c0 = cellCoord(param, _32) - int2(int(side / 2u));
+    int2 c0 = cellCoord(param, _35) - int2(int(side / 2u));
     int2 c = c0 + int2(int(t % side), int(t / side));
-    bool _153 = c.x < 0;
-    bool _160;
-    if (!_153)
+    bool _162 = c.x < 0;
+    bool _169;
+    if (!_162)
     {
-        _160 = c.y < 0;
+        _169 = c.y < 0;
     }
     else
     {
-        _160 = _153;
+        _169 = _162;
     }
-    bool _170;
-    if (!_160)
+    bool _179;
+    if (!_169)
     {
-        _170 = c.x >= int(_32.grid.x);
+        _179 = c.x >= int(_35.grid.x);
     }
     else
     {
-        _170 = _160;
+        _179 = _169;
     }
-    bool _180;
-    if (!_170)
+    bool _189;
+    if (!_179)
     {
-        _180 = c.y >= int(_32.grid.y);
+        _189 = c.y >= int(_35.grid.y);
     }
     else
     {
-        _180 = _170;
+        _189 = _179;
     }
-    if (_180)
+    if (_189)
     {
         return;
     }
-    float2 center = _32.world.xy + ((float2(c) + float2(0.5)) * _32.world.z);
+    float2 center = _35.world.xy + ((float2(c) + float2(0.5)) * _35.world.z);
     float d = distance(center, at.posR.xz);
     if (d > at.posR.w)
     {
         return;
     }
     int2 param_1 = c;
-    uint id = cellIndex(param_1, _32);
-    if (_218.staticH[id] > (at.posR.y + _32.moveP.w))
+    uint id = cellIndex(param_1, _35);
+    if (_227.staticH[id] > (at.posR.y + _35.moveP.w))
     {
         return;
     }
-    uint _245 = atomic_fetch_min_explicit((device atomic_uint*)&_235.navSeed[id], as_type<uint>(fast::max(at.info.x + d, 0.0)), memory_order_relaxed);
+    bool _243 = (gameFlags(_35) & 8u) != 0u;
+    bool _254;
+    if (_243)
+    {
+        _254 = _227.staticH[id] < (at.posR.y - 2.0);
+    }
+    else
+    {
+        _254 = _243;
+    }
+    if (_254)
+    {
+        return;
+    }
+    uint _271 = atomic_fetch_min_explicit((device atomic_uint*)&_261.navSeed[id], as_type<uint>(fast::max(at.info.x + d, 0.0)), memory_order_relaxed);
 }
 

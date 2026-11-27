@@ -155,6 +155,9 @@ float bodyHeight(float prone) { return mix(agentP.y, agentP.z, clamp(prone, 0.0,
 #define GAME_HITS     1u   // sim_predict applies queued bullet damage and appends kill records
 #define GAME_SOLDIERS 2u   // sim_solve keeps zombies out of soldier capsules
 #define GAME_SEEDS    4u   // nav_relax seeds attractor sources
+#define GAME_VERTICAL 8u   // B3b: roof plateaus walkable, no flow up walls taller than VERT_PILE_REACH, roof attractors seed only their level
+#define VERT_PILE_REACH 4.5   // m: walls up to this height stay in the flow (corpse-pile climbing of low roofs, unchanged)
+#define VERT_DROP_MAX 3.0     // m: wanderers on a roof do not walk off a drop deeper than this
 #define GAME_NO_SEED  0xFFFFFFFFu
 #define GAME_KILL_HEADER 16u
 #define GAME_KILL_CAP    1024u

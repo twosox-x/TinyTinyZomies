@@ -93,6 +93,8 @@ set(TTZ_GAME_CORE
   src/game/Territory.cpp
   src/game/FortSelfTest.cpp
   src/game/Reanimation.cpp
+  src/game/Buildings.cpp
+  src/game/BuildingPlay.cpp
   src/lab/MilitaryAssets.cpp)
 add_executable(ttz
   src/main.cpp
@@ -124,12 +126,16 @@ add_executable(ttz
   src/game/GameWorld.cpp
   src/game/HordeBridge.cpp
   src/game/HordeBridgeTest.cpp
+  src/game/HordeVertical.cpp
+  src/game/HordeVerticalTest.cpp
   src/game/GameScript.cpp
   src/game/GameUI.cpp
   src/game/GameRender.cpp
   src/game/Fortify.cpp
   src/game/FortUI.cpp
   src/game/FortScript.cpp
+  src/game/BuildingGame.cpp
+  src/game/VerticalScript.cpp
   src/game/TerritoryGpu.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
 target_link_libraries(ttz PRIVATE SDL3::SDL3 imgui ttz_zstd)
@@ -177,6 +183,8 @@ add_executable(ttz_selftest
   src/city/CityVehicles.cpp
   src/game/HordeBridge.cpp
   src/game/HordeBridgeTest.cpp
+  src/game/HordeVertical.cpp
+  src/game/HordeVerticalTest.cpp
   ${TTZ_GAME_CORE})
 target_include_directories(ttz_selftest PRIVATE src)
 target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3 ttz_zstd)

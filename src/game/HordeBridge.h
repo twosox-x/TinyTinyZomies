@@ -59,6 +59,7 @@ public:
 
     // HordeInterface
     void uploadSoldiers(const std::vector<HordeSoldier>& soldiers) override { soldiers_ = soldiers; }
+    const std::vector<HordeSoldier>& uploadedSoldiers() const { return soldiers_; }   // B3b: who is inside / on a roof
     void queueHits(const std::vector<HitRequest>& hits) override { hits_.insert(hits_.end(), hits.begin(), hits.end()); }
     void setAttractors(const std::vector<Attractor>& a) override { attractors_ = a; }
     void requestExplosion(V3 pos, float scale) override;
@@ -76,6 +77,16 @@ public:
     void setThreatRadius(float m) { threatRadius_ = m; }    // SoldierContact::nearPos (exact nearest zombies)
     // Tests / --game-sync only: harvest() waits for the GPU (deterministic latency). Never in normal play.
     void setSync(bool on) { sync_ = on; }
+    // ---- B3b vertical warfare (HordeVertical) -------------------------------------------------------------------
+    // GAME_VERTICAL: roof plateaus walkable in the flow field, no flow up walls taller than the corpse-pile reach,
+    // roof / window attractors seed only their own level (shaders: nav_relax, game_attract, sim_predict).
+    void setVertical(bool on) { vertical_ = on; }
+    bool vertical() const { return vertical_; }
+    // Extra attractors (entrances of buildings with soldiers inside / on the roof), merged with setAttractors().
+    void setEntranceAttractors(const std::vector<Attractor>& a) { entranceAttractors_ = a; }
+    // Zombies fighting inside a building (occupants on a soldier's floor): added to SoldierContact::attackers of that
+    // soldier whenever contacts are harvested. (packedId, attackers)
+    void setInteriorAttackers(const std::vector<std::pair<uint32_t, uint16_t>>& a) { interiorAttackers_ = a; }
 
     // Rounds resolved by the GPU, in queue order, from the newest harvested frame (FX / tests).
     enum class HitKind : uint8_t { Miss = 0, Zombie = 1, Static = 2 };
@@ -99,7 +110,9 @@ private:
     CrowdSim* sim_ = nullptr;
     std::vector<HordeSoldier> soldiers_;
     std::vector<HitRequest> hits_;
-    std::vector<Attractor> attractors_;
+    std::vector<Attractor> attractors_, entranceAttractors_;
+    std::vector<std::pair<uint32_t, uint16_t>> interiorAttackers_;
+    bool vertical_ = false;
     ZombieField field_;
     std::vector<SoldierContact> contacts_;
     std::vector<KillEvent> kills_;

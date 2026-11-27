@@ -1,0 +1,49 @@
+# Milestone B3b: vertical warfare for the zombie horde (HordeVertical, docs/GAMEPLAY_ARCHITECTURE.md 9).
+# Test building = B3a's (bake 00709005: 9-floor mid-rise, 33 m flat roof, street door at (27.8 110.2), roof hatch).
+# City seed1 with the BLDG section (tools/city_lab/bake/FORMAT.md). Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3b_vertical.txt
+# A  a squad fights a horde right at the door of the building with nobody inside: zombies never go in
+# B  a squad on the roof, its door barricaded (planks, 300 hp TEST HOOK), a horde in the street: the zombies batter the
+#    door until it breaks, go in, climb 9 floors through the stair core, come out of the roof hatch and attack the squad
+at 0.1  bselect 24 93.2
+at 0.1  expect building supported == 1
+at 0.1  expect building doors >= 1
+at 0.1  buy rifle 20 118
+at 24   expect landed == 5
+at 24   spawn 40 30 132 5
+at 24.5 camera 28 120 0.25 0.65 45
+at 44   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3b/a_ignored_door.png
+at 44   vinfo
+at 44   expect vstat captured == 0
+at 44   expect vstat active == 0
+at 44   expect vbuilding inside == -1
+at 45   move 1 -60 150
+at 46   buy rifle 25 97
+at 46   vbarricade 0 planks 300
+at 72   expect landed == 10
+at 72   vinfo
+at 72   expect vstat active == 1
+at 72   expect vbuilding target == 255
+at 72   spawn 160 30 125 7
+at 73   camera 28 118 0.25 0.6 40
+at 90   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3b/b_battering_door.png
+at 90   vinfo
+at 90   expect vstat captured == 0
+at 90   expect vopening 0 < 300
+at 112  vinfo
+at 112  expect vopening 0 == 0
+at 112  expect vstat captured > 0
+at 112  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3b/c_breached_entering.png
+at 140  vinfo
+at 140  expect vbuilding inside > 0
+at 150  camera 26 96 0.4 1.0 38
+at 175  vinfo
+at 175  expect vstat emitted > 0
+at 176  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3b/d_roof_arrivals.png
+at 200  vinfo
+at 200  log
+at 200  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3b/e_roof_fight.png
+at 200  expect squad_damage 2 > 0
+at 200  expect no_duplicate_rewards
+at 200  expect ledger_balanced
+at 201  end

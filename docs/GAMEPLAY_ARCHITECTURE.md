@@ -508,3 +508,157 @@ their bearings), or with none known to the vantage overlooking the most street, 
 steep shot clears the edge only from right there). Perception keeps scanning the field (every 3 ticks) with the
 firing-line test. Result: b1_sniper wave 2 (32 singles on rings of 70-190 m, some hidden behind other blocks): ~7 kills
 per minute, no crowd drawn (noise radius 12 m). Test `tests/game/b1_sniper.txt`.
+
+## 8. Milestone B3a: buildings (capture, garrison, hospital, fortification; GAME_DESIGN 6 / 7 / 14b; PROPOSED, values UNAPPROVED)
+
+**Data (bake).** The baked tiles had no per-building data (buildings are merged into the tile mesh; HGT0 only flags
+BUILDING cells). `bake.js` now writes an optional `BLDG` section per tile (FORMAT.md 3): one 140 B record per building
+the tile owns (City Lab jobs: id, kind, floors, flat-roof flag, oriented footprint O / e1 / w / d tightened to the
+building's quads above 2.2 m, ground / roof / top heights, up to 4 doors on the street facade). Backward compatible
+(older readers skip the tag; older packages load no buildings). seed 1: 2,045 buildings (1,048 houses, 314 row houses,
+425 mid-rises, 56 towers, 170 commercial, 32 other). Re-bake: `node tools/city_lab/bake/bake.js --seed=1 --scale=5
+--out=assets/city/seed1` (13 min on 3 workers here); every other section is byte-identical to the previous bake.
+
+**Registry (`Buildings.{h,cpp}`, shared with B3b).** `BuildingRegistry` parses BLDG when the simulation window covers
+a tile (`syncBuildings`, on init and window moves: the tile is decoded once) and `prepare`s each building whose
+footprint the window's height grid covers: doors (y from the street), windows on floors 1..`windowFloors` (single-storey
+houses: ground floor) of every facade where the air 2.3 m outside is at least 1 m below the sill (party walls and
+neighbours rejected), roof-edge positions (flat roofs, 0.8 m in, over a drop of 2 m or more), a stair core and a roof
+hatch. Firing positions are capped at `maxPositions` in priority order (front windows floor 1, 2, a few roof edges, upper
+floors, side windows). Support (GAME_DESIGN 14b): towers (> 12 floors, 56 in seed 1) and mid-rises over `maxFloors`
+(9), buildings whose door does not open onto walkable ground, footprints under 4 m and buildings without any open
+facade are unsupported, with the reason in the panel and in `blist` (default window: 46 of 327 supported, most
+refusals are towers / blocked entrances; suburbs near (-245, 452): 29 of 31). Queries: 16 m buckets (`at`, `nearest`,
+`inRect`, `nearestEntrance`), barricade state + `damageBarricade` (B3b breach), zombie counts (`setZombieCounts`, B3b),
+`packOpenings` (GPU export).
+
+**Gameplay (`BuildingPlay.{h,cpp}`, CPU, in the game core).**
+- *Capture (PROPOSED):* a live soldier within `captureRadius` (7 m) of a door, or inside the footprint, and no zombie
+  within `doorClearRadius` (6 m) of a door in his exact nearest list, and no zombie inside (B3b counts; -1 = unknown is
+  not blocking): progress for `captureTime` (5 s) -> Captured. Zombies at the door / inside: Contested (progress
+  paused); nobody there: progress decays at half rate. A captured building stays captured; zombies inside show a "!"
+  warning on its tag.
+- *Roles:* Garrison ($150) or Hospital ($250), UNAPPROVED; only on captured, supported buildings; nothing charged on a
+  refusal. Changing the role releases the occupants.
+- *Garrison:* the selected squads (G or the panel button) are assigned free firing positions; each soldier walks to a
+  point beside the nearest door (normal NavGrid path, threats still interrupt), plays `enter_building` (new
+  `AnimAction::EnterBuilding`, the approved clip) while moving into the doorway, then appears at his position
+  (`SoldierPool::post` = POST_FIRING): windows 0.3 m inside the facade on his floor, roof edges on the roof, facing out
+  within the firing arc (+-60 deg windows, +-80 deg roof). He is drawn there (interiors are never drawn), fights with
+  the normal AI (targets, reloads) but never moves; sight lines and rounds start from `SoldierPool::firePos` (0.9 m
+  outside the facade / past the roof edge), so his own building is not an occluder and the building still blocks
+  shots behind him. An ammo stack (`garrisonAmmo` 600 rounds) refills idle soldiers one magazine per second. Not
+  invulnerable: contact damage applies as anywhere (the contacts pass compares heights, so street zombies cannot hit a
+  window soldier; B3b brings zombies to his floor / roof). A new player order to the squad releases its garrison
+  through the door. Capacity = firing positions (<= 12).
+- *Hospital (PROPOSED):* `SoldierAI::medicalSeek` (wounded, idle) -> the nearest captured hospital within 150 m with
+  a free bed (4 beds incl. soldiers on the way); he walks (wounded pace) to the door, enters (clip), is hidden inside
+  (not uploaded to the horde: patients are not zombie targets), heals `healRate` 6 hp/s, leaves at 95 % health and
+  walks back to his squad's anchor. A squad order does not pull a patient out.
+- *Fortification:* approved barricades (`barricade_door_*` / `barricade_window_*`: planks $30 / 300 hp, plate $80 /
+  1,200 hp, sandbags $60 / 800 hp) on all doors or all open windows; window nests / roof rings (`fort_window_nest`,
+  `fort_roof_ring`, $60 each) at firing positions scale the contact damage taken there by 0.6. Access: B3b's zombies
+  batter barricaded doors on the GPU (`buildings.breachDps`); for buildings B3b does not simulate, a CPU fallback
+  damages a barricaded door from the coarse zombie field. Broken barricades open the door and are not drawn.
+- *Props / flags:* garrison: `garrison_flag` (olive chevron) on the roof's front corner (houses: beside the front door),
+  `garrison_banner` on the front facade, `garrison_ammo_stack` by the roof hatch, `garrison_antenna`,
+  `garrison_roof_position` at occupied roof edges; hospital: `hospital_flag` (green cross on white), banner,
+  `hospital_awning` over the door, stretcher, cot and crate outside.
+- *UI:* left click on a building (no squad under the cursor) selects it, keeping the squad selection; outline, doors,
+  firing positions (green = occupied), panel (kind, floors, support reason, capture state, role buttons with prices,
+  positions / beds, ammo stack, fortify buttons), capture bars and role tags over buildings; Esc deselects.
+
+**Tick order.** `preAi` (releases on new orders) before SoldierAI; `tick` (pending UI / script actions, capture,
+approach -> entering -> posted, pinning, ammo stack, hospital, breach fallback) after the animator; `pre/postCombat`
+around Combat (nests). Shared-file changes (additive): `SoldierPool::{post, building, postOut, firePos}`,
+`AnimAction::EnterBuilding`, `SoldierAI` (posted soldiers do not steer, skip leash / resupply / hunts / medical; LOS
+and firing lines from `firePos`; entering / inside soldiers skipped), `Combat::fire` (origin at `firePos`),
+`GameRender` (patients hidden), `GameUI` (building hooks), `BalanceConfig::buildings`, `TileCPU::bldg`.
+
+**Tests.** `tests/game/b3a_garrison.txt` (mid-rise: capture, refused role before capture, garrison price, 5 soldiers
+enter and take 2 window + 3 roof positions above the ground floor, nests + barricade, ~220 rounds and ~50 kills from
+the posts in 36 s, ledger / dedupe, release on a move order), `tests/game/b3a_house.txt` (2-storey house: 4 first-floor
+window positions, capacity 4, firing from the windows), `tests/game/b3a_hospital.txt` (contested capture while zombies
+are inside, hospital, two wounded soldiers admitted, healed and discharged back to the squad, door / window barricades,
+breach). Screenshots: see the B3a report.
+
+**Known limits.** Door positions along the facade are approximate (front facade, evenly spaced); windows are derived,
+not read from the facade art (a position can sit on a pier); roof-edge positions ignore parapet height (shots clear it
+from `firePos`); interiors are not navigable for soldiers (they teleport from the door to the position after the clip);
+hospital patients are invisible and untouchable; one stair core per building; towers are unsupported.
+
+## 9. Milestone B3b: zombies in buildings (vertical warfare, GAME_DESIGN 7; PROPOSED, values UNAPPROVED)
+
+Goal: no invulnerable position. Zombies enter accessible buildings, breach barricades, climb between floors through the
+stair core, reach rooftops and attack soldiers there, without pretending the 2D height grid has interiors, without a
+global navigation rebuild and without per-zombie CPU paths. Code: `src/game/HordeVertical.{h,cpp}`,
+`shaders/game_vertical.comp`, small GAME_VERTICAL rules in `nav_relax` / `game_attract` / `sim_predict`, hooks in
+`HordeBridge` (entrance attractors, interior attackers, flag), `GameWorld` wiring, `VerticalConfig` (`Config.h`,
+`config/balance.json` `"vertical"`), script verbs `src/game/VerticalScript.cpp`, self-test `src/game/HordeVerticalTest.cpp`.
+Building data comes from B3a's `BuildingRegistry` (`Buildings.h`: doors, roof hatch, stair core, floors, barricades).
+
+**Model.** Zombies stay 2D agents on the street grid. A building is *active* while uploaded soldiers stand inside its
+footprint or on its roof (B3a garrison posts included; hospital patients are not uploaded). Up to 32 active buildings
+own a slot of 32 nodes in a GPU node table: doors 0-7, one node per floor 8-29 (stair core; node f = crossing to the
+stairs on the ground floor, one flight above), roof hatch 30. Per node: traverse time (door 1 s, ground floor =
+door-to-stair distance / 1.1 m/s, 4.5 s per flight, hatch 1.5 s), capacity (door 3, flight 6, the soldiers' floor 60,
+hatch 2), next node, barricade flag, defender damage, credited shooter. The target level is the lowest level holding
+soldiers (floors before the roof); a slot is rebuilt (CPU, one 1.5 KB record) only when that building's soldier levels
+or barricades change, and uploaded with its entrances (dirty flag; ~1 upload per state change, not per frame).
+
+**Navigation (shared flow field, local rules only).** The street-side point (0.9 m out) of every door of an active
+building is an extra attractor (`HordeBridge::setEntranceAttractors`): its reach is the awareness radius minus 0.5 x
+the interior route (door -> stairs + 2 x floor height per storey), at least 80 % of it, so the horde streams to the
+doors. With GAME_VERTICAL: the flow never runs up a wall taller than 4.5 m (`VERT_PILE_REACH`: low roofs keep the
+existing corpse-pile climbing), a cell enclosed by solid cells is a plateau walkable at its lowest neighbour's level
+(roofs are navigable for agents already up there; roof edges stay impassable from the street), attractors on roofs /
+at windows seed only their own level (no crowd under a sniper's wall), and wanderers do not step off drops > 3 m.
+
+**GPU passes** (`game_vertical.comp`, after `HordeBridge::postSim`, only on frames with sim steps):
+1. *advance* (one thread per occupant, ping-pong lists of <= 4,096 x 32 B): timer += frame dt; defenders on the node's
+   floor deal `defenderDps x soldiers` shared by the occupants there (kill -> the existing kill ring, cause Soldier,
+   credited to a defender: rewards / seq dedupe unchanged); when the node's time is up, move to the next node if it
+   has capacity (atomics on per-node occupancy: queues form on the stairs), batter a barricaded hatch (breach
+   damage accumulates per node), stay on the target floor, or re-enter the agent list (`C_APPEND`, committed by the
+   next step) on a free roof cell near the hatch (alert 15, same look / health / wounds).
+2. *capture* (one 64-thread group per entrance, 5 x 5 cells): aware walkers / climbers within 1.2 m of the door point
+   become occupants (atomic compare-swap to ST_DEAD without a corpse: the next sort drops them, they are not drawn)
+   while the door node has capacity, otherwise they queue outside (visible crowd at the door). At a barricaded door
+   they batter it instead: `buildings.breachDps` (4 hp/s per zombie, shared with B3a's fallback; at most 2 x the door
+   capacity = 6 zombies at once, so sandbags 800 hp hold ~33 s) accumulates on the GPU; the CPU applies the deltas through `BuildingRegistry::damageBarricade` (B3a gets the BarricadeBroken report)
+   and the door opens with the next upload.
+3. *readback*: node state + totals (16.4 KB / frame, 3-slot ring, newest slot wins) -> per-building occupants per
+   floor (`BuildingRegistry::setZombieCounts`: B3a's contested capture / warnings; B3a's CPU breach fallback stops for
+   simulated buildings), barricade damage, interior attackers: occupants on a soldier's floor are added to his
+   `SoldierContact::attackers` (<= 3 each, shared over the soldiers on that floor) -> the existing Combat contact
+   damage. Roof fights need nothing new: roof zombies are ordinary agents (flow, collision with soldier capsules,
+   `game_contacts` attackers / nearest lists, bullets, gore, corpses on the roof).
+Buildings whose soldiers are gone for 2 s *drain*: every node leads down and out of door 0 (occupants reappear in the
+street), then the slot is freed and `zombiesInside` returns to -1.
+
+**Costs.** CPU per tick: soldiers x one registry lookup + active buildings (0.02-0.03 ms measured). GPU per frame: <= 256
+entrance groups x 25 cells and one thread per occupant (no per-cell or per-agent pass; nav changes are per-cell
+constant work inside the existing relaxation). Memory: nodes 48 KB, entrances 8 KB, state 16 KB, occupants 2 x 128 KB.
+
+**Unsupported / limitations (documented, GAME_DESIGN 14b).**
+- Buildings without a door in the registry (no BLDG record, entrance blocked): zombies cannot enter; low roofs
+  (<= 4.5 m) are still reached by corpse piles, taller ones are safe from the horde: listed by `blist`
+  (`HordeVertical::unsupportedWhy`). Buildings with more than 22 floors (interior graph limit) are not entered;
+  B3a already refuses garrisons above 12 floors.
+- Flat roofs without a roof hatch: occupants stop on the top floor (they never reach the roof).
+- Interiors are not drawn: occupants are invisible while inside (counts in the building panel / `vinfo`); window
+  soldiers fighting occupants show only the damage. Zombies do not climb in through windows.
+- At most 32 active buildings and 4,096 occupants (overflow: no capture, zombies wait outside; `vstat dropped`).
+- One stair core per building (B3a data); every door leads to it. Window soldiers are not targeted from the street
+  (their seed is inside the solid facade cell) except through the door route.
+- Occupants keep their health / wounds but not limb-loss animation state inside; corpses of zombies killed inside are
+  not placed (kill + reward only).
+- A window move does not drop occupants (building-local); a hatch outside the window holds its occupants until the
+  window covers it again.
+
+**Tests.** Self-test section *vertical horde* (`TTZ_SELFTEST_VERTICAL=1` alone, `TTZ_SELFTEST_NO_VERTICAL=1` skips; 12 m,
+4-floor test building in a 96 m arena): roof soldiers -> capture < 30 s, first on the roof 15-50 s after the capture
+(graph minimum ~22 s), contact attackers on the roof soldiers, nobody climbs the facade; a 240 hp barricaded door
+holds them until breached (no capture before), entry later than with an open door; no soldiers -> nobody enters;
+soldiers on floor 2 -> occupants stop there, interior attackers, defenders kill (each kill exactly one kill event);
+drain through the door once the soldiers leave. Script `tests/game/b3b_vertical.txt` (city, B3a's test building).

@@ -1,5 +1,6 @@
 // Headless scenario scripts (WS-D): command verbs, metrics and `expect` checks (see GameScript.h).
 #include "game/GameScript.h"
+#include "game/BuildingGame.h"
 
 #include "app/App.h"
 #include "game/GameWorld.h"
@@ -15,6 +16,10 @@
 #include <sstream>
 
 namespace ttz::game {
+// B3b (VerticalScript.cpp)
+bool verticalVerb(GameWorld& w, const ScriptLine& L, std::string& err);
+bool verticalMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
+
 
 namespace {
 bool num(const std::string& s, double& out) {
@@ -184,6 +189,8 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
         return true;
     }
     if (fortMetric(w, m, a, k, out, err)) return err.empty();   // B2 metrics (FortScript.cpp)
+    if (buildingMetric(w, m, a, k, out, err)) return err.empty();   // B3a metrics (BuildingGame.cpp)
+    if (verticalMetric(w, m, a, k, out, err)) return err.empty();   // B3b metrics (VerticalScript.cpp)
     err = "unknown metric " + m;
     return false;
 }
@@ -468,6 +475,10 @@ bool GameScript::tick(GameWorld& world, double time) {
             expect(world, L);
         } else if (std::string ferr; fortVerb(world, L, ferr)) {   // B2 verbs (FortScript.cpp)
             if (!ferr.empty()) bad(ferr.c_str());
+        } else if (std::string berr; buildingVerb(world, L, berr)) {   // B3a verbs (BuildingGame.cpp)
+            if (!berr.empty()) bad(berr.c_str());
+        } else if (std::string verr; verticalVerb(world, L, verr)) {   // B3b verbs (VerticalScript.cpp)
+            if (!verr.empty()) bad(verr.c_str());
         } else bad(("unknown verb " + L.verb).c_str());
     }
     return !ended_;

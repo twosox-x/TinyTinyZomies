@@ -31,10 +31,12 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
     if (synthetic) ++syntheticRounds_;
     const V3 fw{std::sin(P.yaw[i]), 0, std::cos(P.yaw[i])};
     V3 origin = P.pos[i] + V3{0, muzzleHeight, 0} + fw * 0.5f;
+    const bool posted = P.post[i] == POST_FIRING;   // B3a window / roof-edge position: rounds leave past the facade
+    if (posted) origin = P.firePos(i) + V3{0, muzzleHeight, 0};
     // Firing over cover: a wall / container / low obstacle right in front (within coverReach, at most coverMaxHeight
     // above the feet) does not stop the soldier's own rounds. The round starts just past it, above its top (the
     // soldier leans / raises the weapon over it); the hit ray then ignores that obstacle (GPU stops rays at static cells).
-    if (ctx.nav && ctx.nav->ready()) {
+    if (ctx.nav && ctx.nav->ready() && !posted) {
         const V3 tgt = P.target[i].active ? P.target[i].pos : P.pos[i] + fw * 10.f;
         V3 d{tgt.x - P.pos[i].x, 0, tgt.z - P.pos[i].z};
         const float l = std::sqrt(d.x * d.x + d.z * d.z);
@@ -203,6 +205,7 @@ void Combat::tick(GameContext& ctx) {
     upload_.clear();
     for (uint32_t i = 0; i < (uint32_t)P.capacity() && upload_.size() < kMaxGpuSoldiers; ++i) {
         if (!P.used[i] || !P.alive(i) || P.state[i] == SoldierState::Descending) continue;   // under canopy: invisible
+        if (P.post[i] == POST_INSIDE) continue;   // B3a: hospital patients are inside (PROPOSED: not a zombie target)
         HordeSoldier h;
         h.pos = P.pos[i]; h.packedId = P.idOf(i).packed(); h.attraction = cfg.threat.soldierAttraction;
         upload_.push_back(h);

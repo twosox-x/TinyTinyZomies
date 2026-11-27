@@ -89,6 +89,8 @@ struct TileCPU {
     // scale << 24), sorted by chunk then type; foliStart[(chunk * foliTypes + type)] = first instance, + 1 entry
     std::vector<uint32_t> foliage, foliStart;
     uint32_t foliTypes = 0, foliChunks = 0;
+    // BLDG (optional, B3): per-building records as stored (parsed by game/Buildings.cpp; empty for older packages)
+    std::vector<uint8_t> bldg;
     uint64_t fileBytes = 0, rawBytes = 0;  // stored / decompressed section bytes
     double decodeMs = 0;
     bool ok = false;

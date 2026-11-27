@@ -25,5 +25,8 @@ void main() {
     if (d > at.posR.w) return;
     uint id = cellIndex(c);
     if (staticH[id] > at.posR.y + moveP.w) return;
+    // B3b: a soldier on a roof / at a window seeds only its own level (zombies below reach it through the building or,
+    // for low roofs, by piling up against the wall: nav_relax lets the flow run up walls within VERT_PILE_REACH)
+    if ((gameFlags() & GAME_VERTICAL) != 0u && staticH[id] < at.posR.y - 2.0) return;
     atomicMin(navSeed[id], floatBitsToUint(max(at.info.x + d, 0.0)));   // positive floats order like uints
 }

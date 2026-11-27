@@ -15,7 +15,7 @@ const char* stateName(SoldierState s) {
 
 const char* actionName(AnimAction a) {
     static const char* n[] = {"idle", "walk", "run", "aim", "fire", "crouch_aim", "crouch_fire", "reload", "hit", "death_a",
-                              "collect_ammo", "turn_l", "turn_r", "para_descent", "para_land", "para_recover"};
+                              "collect_ammo", "turn_l", "turn_r", "para_descent", "para_land", "para_recover", "enter_building"};
     return (size_t)a < sizeof(n) / sizeof(n[0]) ? n[(size_t)a] : "idle";
 }
 
@@ -80,6 +80,31 @@ bool BalanceConfig::load(const std::string& path, std::string* error) {
     num(st, "max", stamina.max); num(st, "drainRun", stamina.drainRun); num(st, "regenWalk", stamina.regenWalk);
     num(st, "regenRest", stamina.regenRest); num(st, "minToRun", stamina.minToRun); num(st, "resumeRun", stamina.resumeRun);
     num(st, "sprintScale", stamina.sprintScale); num(st, "threatRadius", stamina.threatRadius);
+    {
+        const json::Value& bo = root["buildings"];
+        BuildingConfig& b = buildings;
+        num(bo, "captureTime", b.captureTime); num(bo, "captureRadius", b.captureRadius); num(bo, "doorClearRadius", b.doorClearRadius);
+        num(bo, "garrisonPrice", b.garrisonPrice); num(bo, "hospitalPrice", b.hospitalPrice); num(bo, "garrisonAmmo", b.garrisonAmmo);
+        num(bo, "hospitalBeds", b.hospitalBeds); num(bo, "healRate", b.healRate); num(bo, "hospitalSearch", b.hospitalSearch);
+        num(bo, "dischargeFraction", b.dischargeFraction); num(bo, "maxFloors", b.maxFloors); num(bo, "windowFloors", b.windowFloors);
+        num(bo, "windowSpacing", b.windowSpacing); num(bo, "roofSpacing", b.roofSpacing); num(bo, "maxPositions", b.maxPositions);
+        num(bo, "breachDps", b.breachDps); num(bo, "nestPrice", b.nestPrice); num(bo, "nestDamageScale", b.nestDamageScale);
+        static const char* bk[3] = {"planks", "plate", "sandbags"};
+        for (int k = 0; k < 3; ++k) {
+            if (bo.has("barricadePrice")) num(bo["barricadePrice"], bk[k], b.barricadePrice[(size_t)k]);
+            if (bo.has("barricadeHealth")) num(bo["barricadeHealth"], bk[k], b.barricadeHealth[(size_t)k]);
+        }
+    }
+    {
+        const json::Value& vo = root["vertical"];   // B3b (UNAPPROVED)
+        VerticalConfig& v = vertical;
+        num(vo, "walkSpeed", v.walkSpeed); num(vo, "climbTimePerFloor", v.climbTimePerFloor); num(vo, "doorTime", v.doorTime);
+        num(vo, "hatchTime", v.hatchTime); num(vo, "doorCapacity", v.doorCapacity); num(vo, "stairCapacity", v.stairCapacity);
+        num(vo, "floorCapacity", v.floorCapacity); num(vo, "hatchCapacity", v.hatchCapacity); num(vo, "captureRadius", v.captureRadius);
+        num(vo, "defenderDps", v.defenderDps); num(vo, "attackersPerSoldier", v.attackersPerSoldier);
+        num(vo, "entranceRadius", v.entranceRadius); num(vo, "routeWeight", v.routeWeight); num(vo, "minReachFraction", v.minReachFraction);
+        vertical.breachPerZombie = buildings.breachDps;
+    }
     const json::Value& fo = root["fort"];
     for (int v = 0; v < 2; ++v) {
         const char* kv = v ? "reinforced" : "cheap";

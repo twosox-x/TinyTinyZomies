@@ -1,0 +1,50 @@
+# Milestone B3a: capture (PROPOSED rule), Garrison role, soldiers enter through the door (enter_building clip), occupy
+# window and roof-edge firing positions of a downtown mid-rise and fire from there; window barricades and nests.
+# City seed1 (BLDG section required: re-bake, tools/city_lab/bake/FORMAT.md), default window. Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3a_garrison.txt
+at 0.1  bselect 24 93.2                    # test building: 9-floor mid-rise, front door on the street (z ~ 110)
+at 0.1  expect building supported == 1
+at 0.1  expect building positions >= 8
+at 0.1  expect building roofpos >= 1
+at 0.1  expect building capture == 0
+at 0.1  buy rifle 20 118
+at 0.2  brole garrison                     # refused: not captured yet (nothing charged)
+at 0.5  expect building role == 0
+at 0.5  expect spent == 1000
+at 24   expect landed == 5
+at 24   bdoor 1                            # the squad walks to the entrance
+at 40   log
+at 40   expect building capture == 2       # captured (squad at the door, no zombie inside / at the door)
+at 40   expect bstat captured == 1
+at 41   brole garrison
+at 42   expect building role == 1
+at 42   expect spent == 1150               # garrison price (UNAPPROVED)
+at 42   bgarrison 1
+at 43   camera 26 108 0.6 0.95 75
+at 46   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/garrison_entering.png
+at 70   log
+at 70   expect bstat entered >= 5
+at 70   expect squad_posted 1 == 5
+at 70   expect building posted == 5
+at 70   expect posted_window >= 2
+at 70   expect posted_roof >= 1
+at 70   expect posted_min_y > 3                # nobody stands on the ground floor
+at 71   bnest
+at 71   bbarricade doors sandbags
+at 73   expect building nests >= 8
+at 73   expect building barricades >= 1
+at 74   spawn 50 -5 119 6                      # zombies in the street in front of the building (west along it)
+at 74   spawn 40 -10 60 8                      # behind it (roof edges on that side)
+at 76   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/garrison_posted.png
+at 100  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/garrison_firing.png
+at 110  log
+at 110  expect posted_rounds > 20
+at 110  expect kills >= 15
+at 110  expect squad_posted 1 >= 4
+at 110  expect no_duplicate_rewards
+at 110  expect ledger_balanced
+at 111  move 1 20 125                          # a new order: the garrison steps out of the door
+at 113  expect squad_posted 1 == 0
+at 113  expect building garrison == 0
+at 113  expect bstat released >= 5
+at 114  end

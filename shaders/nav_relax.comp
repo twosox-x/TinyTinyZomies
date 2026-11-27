@@ -30,10 +30,31 @@ float cellCost(ivec2 c) {
             if (staticH[nid] <= 0.0) support = max(support, max(density[nid].y, corpseAt(nc)));
         }
         float climb = (s + corpseAt(c)) - support;
+        if (climb > navP.z && (gameFlags() & GAME_VERTICAL) != 0u) {
+            // B3b: a cell enclosed by solid cells (4-neighbourhood) is part of a plateau (a roof): walkable at the level
+            // of its lowest solid neighbour. Roof edges (a free neighbour) stay impassable, so roofs are only reached
+            // through buildings (HordeVertical), corpse piles or drops, never by the flow running up a facade.
+            bool enclosed = true;
+            float minTop = 1e9;
+            for (int k = 0; k < 4; ++k) {
+                ivec2 o = (k == 0) ? ivec2(1, 0) : (k == 1) ? ivec2(-1, 0) : (k == 2) ? ivec2(0, 1) : ivec2(0, -1);
+                ivec2 nc = clamp(c + o, ivec2(0), ivec2(grid.xy) - 1);
+                float sn = staticH[cellIndex(nc)];
+                if (sn <= 0.0) { enclosed = false; break; }
+                minTop = min(minTop, sn + corpseAt(nc));
+            }
+            if (enclosed) climb = (s + corpseAt(c)) - max(support, minTop);
+        }
         if (climb > navP.z) return -1.0;           // impassable
         cost += navP.y * max(climb, 0.0);
     }
     return cost;
+}
+
+// walking level of a cell: static top (0 street) + the corpse pile lying there
+float levelOf(ivec2 c) {
+    uint id = cellIndex(c);
+    return max(staticH[id], 0.0) + corpseAt(c);
 }
 
 void main() {
@@ -57,6 +78,14 @@ void main() {
     float xp = (c.x < int(grid.x) - 1) ? dist[cellIndex(c + ivec2(1, 0))] : BIG;
     float zm = (c.y > 0) ? dist[cellIndex(c - ivec2(0, 1))] : BIG;
     float zp = (c.y < int(grid.y) - 1) ? dist[cellIndex(c + ivec2(0, 1))] : BIG;
+    if ((gameFlags() & GAME_VERTICAL) != 0u) {
+        // B3b: no flow up a wall taller than the corpse-pile reach (tall roofs are reached through their doors)
+        float lv = levelOf(c) + VERT_PILE_REACH;
+        if (c.x > 0 && levelOf(c - ivec2(1, 0)) > lv) xm = BIG;
+        if (c.x < int(grid.x) - 1 && levelOf(c + ivec2(1, 0)) > lv) xp = BIG;
+        if (c.y > 0 && levelOf(c - ivec2(0, 1)) > lv) zm = BIG;
+        if (c.y < int(grid.y) - 1 && levelOf(c + ivec2(0, 1)) > lv) zp = BIG;
+    }
     float a = min(xm, xp), b = min(zm, zp);
     float f = cost * world.z;
     float best;
