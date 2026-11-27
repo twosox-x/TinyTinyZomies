@@ -5,6 +5,7 @@
 # gate, and must not pour rounds into the gate.
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3_ai_gate.txt
 at 0.0  camera -6 122 0.6 0.95 70
+at 0.05 cheat build 1                         # instant walls (no engineers: not what this test is about)
 at 0.1  wall reinforced -6 125 -22 125 -22 133 -6 133
 at 1.0  wall gate -6 133 -6 125
 at 1.5  expect gates == 2

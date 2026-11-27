@@ -109,6 +109,19 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "time") { out = ctx.time; return true; }
     if (m == "selected") { out = (double)w.ui().selection().squads.size(); return true; }
     if (m == "tool") { out = (double)w.ui().tool(); return true; }
+    // GAME_DESIGN 14d corpse gas / flamethrowers
+    if (m == "gas_max") { out = w.gas().stats().maxGas; return true; }
+    if (m == "gas_cells") { out = w.gas().stats().gasCells; return true; }
+    if (m == "gas_total") { out = w.gas().stats().totalGas; return true; }
+    if (m == "corpses_window") { out = w.gas().stats().corpses; return true; }
+    if (m == "rotting") { out = w.gas().stats().rotting; return true; }
+    if (m == "burned") { out = w.gas().stats().burned; return true; }
+    if (m == "burning") { out = w.gas().stats().burning; return true; }
+    if (m == "fire_cells") { out = w.gas().stats().fireCells; return true; }
+    if (m == "gas_damage") { out = w.gas().gasDamage(); return true; }
+    if (m == "flame_sprays") { out = (double)w.flameAI().sprays(); return true; }
+    if (m == "flame_trips") { out = (double)w.flameAI().trips(); return true; }
+    if (m == "fuel_used") { out = (double)w.flameAI().fuelUsed(); return true; }
     if (m == "zombies_live") { out = w.app() ? (double)w.app()->sim.stats().live : 0.0; return true; }
     if (m == "delivered") { out = 0; for (size_t t = 0; t < kAmmoTypes; ++t) out += (double)w.logistics().roundsDelivered((AmmoType)t); return true; }
     if (m == "squad") {
@@ -285,7 +298,8 @@ bool GameScript::tick(GameWorld& world, double time) {
         } else if (L.verb == "buy") {
             if (a.size() < 3) { bad("buy rifle|mg|sniper X Z"); continue; }
             Command c; c.type = CommandType::BuySquad;
-            c.squadType = a[0] == "mg" ? SquadType::MachineGun : a[0] == "sniper" ? SquadType::Sniper : SquadType::Rifle;
+            c.squadType = a[0] == "mg" ? SquadType::MachineGun : a[0] == "sniper" ? SquadType::Sniper : a[0] == "engineer" ? SquadType::Engineer
+                          : a[0] == "flamethrower" || a[0] == "flame" ? SquadType::Flamethrower : SquadType::Rifle;
             c.pos = {f(a, 1), 0, f(a, 2)};
             q.push(c);
         } else if (L.verb == "move" || L.verb == "stop") {
@@ -325,6 +339,15 @@ bool GameScript::tick(GameWorld& world, double time) {
         } else if (L.verb == "camera") {
             if (!app || a.size() < 2) { bad("camera X Z [YAW PITCH DIST]"); continue; }
             app->camera.setImmediate({f(a, 0), 0.f, f(a, 1)}, f(a, 2, app->camera.yaw()), f(a, 3, app->camera.pitch()), f(a, 4, app->camera.distance()));
+        } else if (L.verb == "corpses") {   // 14d: N corpses (settling bodies) in a square of half size R around X Z
+            if (!app || a.size() < 3) { bad("corpses N X Z [R]"); continue; }
+            const float r = f(a, 3, 1.5f);
+            app->sim.requestSpawnCorpses({f(a, 1) - r, f(a, 2) - r, f(a, 1) + r, f(a, 2) + r}, (uint32_t)std::atoi(a[0].c_str()));
+        } else if (L.verb == "rot") {       // TEST HOOK (scripts only): rot DELAY [RAMP] shortens corpse rot for scenarios
+            static RotConfig rc;
+            rc = world.config().rot;
+            rc.delay = f(a, 0, rc.delay); rc.ramp = f(a, 1, rc.ramp);
+            world.gas().configure(rc, world.config().flame);
         } else if (L.verb == "noise") {   // a noise source (gunfire-like) at X Z: reach RADIUS m for DURATION s
             if (a.size() < 2) { bad("noise X Z [RADIUS DURATION INTENSITY]"); continue; }
             NoiseEvent n;

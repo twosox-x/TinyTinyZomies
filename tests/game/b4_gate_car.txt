@@ -1,0 +1,37 @@
+# GAME_DESIGN 14d: single gates (placed on their own, into an existing wall, onto wall joints) and engineers clearing
+# a parked car (instance + collision removed, persistent), a wall planned through the car being cleared is built
+# once it is gone. Compound on the road x -22 .. -6, z 125 .. 133; a parked car at about (-25.5, 135.5). Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b4_gate_car.txt
+at 0.0  cheat build 1                                  # part 1 (gates): instant construction
+at 0.1  camera -14 129 0.5 0.95 60
+at 0.2  wall reinforced -6 125 -22 125 -22 133 -6 133  # east side open
+at 0.6  expect walls == 10
+at 0.7  gate -16 125 0                                 # into the south wall: that piece becomes the gate
+at 1.0  expect gates == 1
+at 1.0  expect walls == 10
+at 1.0  expect wall -16 125 gate == 1
+at 1.1  gate -6 127 90                                 # on its own, its south end snaps onto the wall's joint
+at 1.3  gate -6 131 90                                 # between that gate and the north wall's joint
+at 1.6  expect gates == 3
+at 1.6  expect walls == 12
+at 1.6  expect regions == 1                            # closed by the gates
+at 2.0  expect same_island -14 129 -14 121 == 1        # soldiers pass the gate in the south wall
+at 2.0  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/eng/gate_placed.png
+at 2.1  cheat build 0                                  # part 2: engineers clear a car
+at 2.2  expect vehicle_at -25.5 135.5 == 1
+at 2.3  clearcar -25.5 135.5                           # no engineers: refused
+at 2.5  expect cars_cleared == 0
+at 2.5  expect refused == 1
+at 2.6  buy engineer -12 129                           # inside the compound (they leave through the gates)
+at 3.0  clearcar -25.5 135.5
+at 3.0  wall cheap -30 135.5 -21 135.5                 # planned through the car being cleared: accepted, waits for it
+at 3.4  expect walls == 15
+at 3.4  expect jobs == 4                               # the car + three pieces (blocked by the car)
+at 16   jobs
+at 16   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/eng/car_clearing.png
+at 60   jobs
+at 60   expect cars_cleared == 1
+at 60   expect vehicle_at -25.5 135.5 == 0             # gone (instance, collision)
+at 60   expect walls_built == 15                       # the wall through it got built after
+at 60   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/eng/car_cleared.png
+at 61   end

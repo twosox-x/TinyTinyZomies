@@ -217,8 +217,10 @@ int selfTestCorpseGas(GpuContext& gpu, const SimParams& base) {
     // ---- 3. a flamethrower burns the pile: corpses gone (list + height field), the gas source stops, gas decays -------
     r.read();
     const uint32_t corpses0 = r.gas.stats().corpses;
+    const float total0 = r.gas.stats().totalGas;
     const V3 nozzle{pile.x - 6.f, 1.25f, pile.z};
     r.seconds(2.f, [&] { r.gas.queueFlame(coneAt(nozzle, {pile.x, 0.3f, pile.z}, 1.f / 30.f, 0x10001u)); });
+    const float totalA = r.gas.stats().totalGas;   // right after the spray (bodies still burning)
     r.seconds(cfg.flame.corpseBurnTime + 2.f);
     std::vector<int32_t> ch((size_t)p.gridW * p.gridH);
     gpu.downloadNow(r.sim.corpseHeight(), ch.data(), (uint32_t)(ch.size() * 4));
@@ -228,11 +230,11 @@ int selfTestCorpseGas(GpuContext& gpu, const SimParams& base) {
     check(corpses0 >= 35 && st.corpses == 0 && st.burned >= corpses0 && maxH < 0.02f && r.gas.corpsesNear(pile, 4.f) == 0,
           "flamethrower burns the corpse pile: every corpse burnt away (corpse list and height field)",
           fmt("%.0f corpses before, %.0f left, %.0f burnt, max pile height %.3f m", corpses0, st.corpses, st.burned, maxH));
-    const float gasA = r.gasAround(pile, 6.f);
     r.seconds(8.f);
-    const float gasB = r.gasAround(pile, 6.f);
-    check(gasB < gasA * 0.5f + 1e-3f && r.gas.stats().rotting == 0, "after burning the gas source is gone and the gas decays",
-          fmt("max gas %.3f -> %.3f over 8 s", gasA, gasB));
+    const float totalB = r.gas.stats().totalGas;
+    check(total0 > 1.f && totalA < total0 && totalB < totalA * 0.5f + 1e-3f && r.gas.stats().rotting == 0,
+          "after burning the gas source is gone and the gas decays",
+          fmt("total gas %.2f before burning, %.2f after spraying, %.2f once burnt + 8 s", total0, totalA, totalB));
 
     // ---- 4. flame kills zombies (credited to the flamethrower through the kill ring) ------------------------------------
     {

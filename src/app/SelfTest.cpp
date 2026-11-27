@@ -13,6 +13,7 @@
 
 #include "render/CharacterRenderer.h"
 #include "render/Math.h"
+#include "render/TimeOfDay.h"
 #include "sim/CrowdSim.h"
 #include "sim/Sandbox.h"
 
@@ -752,8 +753,25 @@ void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
     w.sim.setGoals({});
 }
 
+// Day / night timing (GAME_DESIGN: 20 real minutes of day, 7 of night): integrate the clock at 60 Hz.
+void testTimeOfDay() {
+    std::printf("time of day\n");
+    TimeOfDaySettings t;
+    t.hours = 6.f;
+    float dayS = 0.f, nightS = 0.f;
+    bool night = false;
+    for (int i = 0; i < 60 * 60 * 60 && !(night && t.hours >= 6.f && t.hours < 7.f); ++i) {
+        (t.hours >= 6.f && t.hours < 18.f ? dayS : nightS) += 1.f / 60.f;
+        if (t.hours >= 18.f || t.hours < 6.f) night = true;
+        t.advance(1.f / 60.f);
+    }
+    check(std::fabs(dayS / 60.f - 20.f) < 0.5f && std::fabs(nightS / 60.f - 7.f) < 0.5f, "day 20 min (06-18 h), night 7 min (18-06 h)",
+          fmt("day %.2f min, night %.2f min", dayS / 60.f, nightS / 60.f));
+}
+
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     auto t0 = std::chrono::steady_clock::now();
+    testTimeOfDay();
     testGameCore();
     if (std::getenv("TTZ_SELFTEST_GAME")) return g_fail ? 1 : 0;   // only the gameplay core
     if (!std::getenv("TTZ_SELFTEST_NO_HORDE")) g_fail += game::selfTestHordeBridge(gpu, params);   // combat GPU (WS-A)

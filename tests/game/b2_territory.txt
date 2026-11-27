@@ -4,14 +4,15 @@
 # connected again) and zombies pour in, an ammo container (parachute) closes the gap again.
 # City seed1, default window (pivot -17 117); the compound sits on the road at x -22 .. -1, z 125 .. 133. Run headless:
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b2_territory.txt
+at 0.0  cheat build 1                                 # DEBUG: B2 scenario without engineers (instant construction, GAME_DESIGN 14d)
 at 0.1  camera -12 129 0.5 0.95 60
 at 0.1  wall cheap -22 125 -6 125 -1 129 -6 133 -22 133   # irregular perimeter (pointed east end), west side left open
 at 0.5  expect walls == 12
 at 0.5  expect regions == 0                            # open perimeter: no territory ...
 at 0.5  expect territory_income == 0                   # ... and no income
-at 0.5  expect spent == 480                            # 12 pieces x $40
+at 0.5  expect spent == 448                            # 8 x $40 + 4 auto-fill pieces of 2.4 m (pro rata $24)
 at 0.6  wall cheap -36 100 -36 120                     # through buildings: refused, nothing charged
-at 0.8  expect spent == 480
+at 0.8  expect spent == 448
 at 0.8  expect refused == 1
 at 0.8  expect nav_patches > 0                         # soldiers' navigation patched locally (no global rebuild)
 at 1.0  spawn 10 -14 129 2.5                           # zombies inside the future compound

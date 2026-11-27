@@ -68,6 +68,10 @@ void classGlyph(ImDrawList* dl, ImVec2 c, float r, SquadType t, ImU32 fill, ImU3
         dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), fill, 1.5f);
         dl->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), edge, 1.5f, 0, 1.5f);
         dl->AddLine(ImVec2(c.x - r * 0.55f, c.y), ImVec2(c.x + r * 0.55f, c.y), edge, 1.5f);   // "MG" bar
+    } else if (t == SquadType::Engineer) {   // engineers: hexagon (nut)
+        dl->AddNgonFilled(c, r * 1.15f, fill, 6);
+        dl->AddNgon(c, r * 1.15f, edge, 6, 1.5f);
+        dl->AddCircle(c, r * 0.4f, edge, 8, 1.5f);
     } else if (t == SquadType::Flamethrower) {   // flamethrower: upward triangle (flame)
         const float q = r * 1.25f;
         dl->AddTriangleFilled(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y + q * 0.8f), ImVec2(c.x - q, c.y + q * 0.8f), fill);
@@ -80,10 +84,12 @@ void classGlyph(ImDrawList* dl, ImVec2 c, float r, SquadType t, ImU32 fill, ImU3
 }
 
 const char* squadName(SquadType t) {
-    return t == SquadType::Rifle ? "Rifle squad" : t == SquadType::MachineGun ? "MG squad" : t == SquadType::Flamethrower ? "Flamethrower squad" : "Sniper";
+    return t == SquadType::Rifle ? "Rifle squad" : t == SquadType::MachineGun ? "MG squad" : t == SquadType::Flamethrower ? "Flamethrower squad"
+         : t == SquadType::Engineer ? "Engineers" : "Sniper";
 }
 SquadType buyType(Tool t) {
-    return t == Tool::BuyRifle ? SquadType::Rifle : t == Tool::BuyMG ? SquadType::MachineGun : t == Tool::BuyFlame ? SquadType::Flamethrower : SquadType::Sniper;
+    return t == Tool::BuyRifle ? SquadType::Rifle : t == Tool::BuyMG ? SquadType::MachineGun : t == Tool::BuyFlame ? SquadType::Flamethrower
+         : t == Tool::BuyEngineer ? SquadType::Engineer : SquadType::Sniper;
 }
 
 V3 squadCentre(const Squad& s, const SoldierPool& P, int* alive = nullptr) {
@@ -207,7 +213,11 @@ void GameUI::placeAt(AppState& app, const GameContext& ctx, V3 p, CommandQueue& 
     int price = 0;
     bool ok = false;
     switch (tool_) {
-    case Tool::BuyRifle: case Tool::BuyMG: case Tool::BuySniper: case Tool::BuyFlame: {
+    case Tool::ClearCar:   // 14d: engineers clear the parked vehicle under the cursor (FortUI.cpp)
+        c.type = CommandType::ClearCar;
+        ok = clearCarCheck(app, ctx, p, &why); price = cfg.engineer.carPrice;
+        break;
+    case Tool::BuyRifle: case Tool::BuyMG: case Tool::BuySniper: case Tool::BuyFlame: case Tool::BuyEngineer: {
         c.type = CommandType::BuySquad;
         c.squadType = buyType(tool_);
         DropPlan plan = ctx.deploy->plan(ctx, c.squadType, p);
@@ -232,6 +242,7 @@ void GameUI::placeAt(AppState& app, const GameContext& ctx, V3 p, CommandQueue& 
 
 bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out) {
     if (!ctx.soldiers || !ctx.squads) return false;
+    if (constructionKey(app, ctx, e, out)) return true;   // 14d engineers / gate / car clearing / Ctrl+Z (FortUI.cpp)
     if (tool_ == Tool::BuildWall && wallEvent(app, ctx, e, out)) return true;   // B2 wall tool (FortUI.cpp)
     if (tool_ == Tool::PlaceContainer && e.type == SDL_EVENT_MOUSE_WHEEL && e.wheel.y != 0.f) {   // B2: rotate 15 deg
         containerYaw_ = std::fmod(containerYaw_ + (e.wheel.y > 0 ? 1.f : -1.f) * kPi / 12.f + 2.f * kPi, 2.f * kPi);
@@ -632,6 +643,7 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
 void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
     if (ctx.walls) ctx.walls->previewOn = false;
     if (tool_ == Tool::BuildWall) { drawWallPreview(app, ctx); return; }   // B2 (FortUI.cpp)
+    if (tool_ == Tool::ClearCar) { drawClearPreview(app, ctx); return; }   // 14d (FortUI.cpp)
     if (tool_ == Tool::Select || !ctx.deploy || !ctx.logistics) return;
     V3 p;
     if (forced_) p = forcedPos_;
@@ -644,7 +656,7 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
     const char* why = "";
     char label[96];
     int price = 0;
-    if (tool_ == Tool::BuyRifle || tool_ == Tool::BuyMG || tool_ == Tool::BuySniper || tool_ == Tool::BuyFlame) {
+    if (tool_ == Tool::BuyRifle || tool_ == Tool::BuyMG || tool_ == Tool::BuySniper || tool_ == Tool::BuyFlame || tool_ == Tool::BuyEngineer) {
         const SquadType t = buyType(tool_);
         DropPlan plan = ctx.deploy->plan(ctx, t, p);
         ok = plan.valid; why = plan.reason; price = plan.price;

@@ -2,6 +2,7 @@
 # but the soldiers' navigation passes it: a squad inside walks out through it. Compound on the road x -22 .. -6,
 # z 125 .. 133 (default window), gate = the east side. Run headless:
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b2_gate.txt
+at 0.0  cheat build 1                                 # DEBUG: B2 scenario without engineers (instant construction, GAME_DESIGN 14d)
 at 0.1  camera -12 129 0.3 0.95 50
 at 0.1  wall reinforced -6 125 -22 125 -22 133 -6 133  # 2.4 m walls, east side open
 at 0.5  expect walls == 10

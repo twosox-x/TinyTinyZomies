@@ -1,0 +1,32 @@
+# GAME_DESIGN 14d (APPROVED mechanics; values UNAPPROVED): corpse rot gas + flamethrower squad.
+# Two corpse piles rot (TEST HOOK: rot delay shortened to 4 s) and give off gas; a rifle squad dropped next to a pile
+# stands in the gas, takes slow damage and shows the gas warning. A flamethrower squad (2, placeholder rifleman model)
+# lands nearby, seeks the piles on its own, burns them (corpses gone from the corpse list / height field), the gas
+# source stops and the gas decays; zombies walking into the flames burn.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b4_gas_flame.txt
+at 0.0  camera -8 114 0.7 0.95 34
+at 0.0  rot 4 15                         # TEST HOOK: rot after 4 s, full emission after 15 s more (default 45 / 120)
+at 0.1  corpses 45 -5 118 1.6
+at 0.3  corpses 30 -15 122 1.3
+at 0.5  buy rifle -9 114
+at 3    expect gas_max == 0                 # nothing rots before the delay
+at 22   expect rotting >= 60
+at 22   expect gas_max > 0.2
+at 22   expect gas_cells >= 6
+at 23   shot gas_rot.png
+at 23.5 buy flamethrower -12 101
+at 40   expect gas_damage > 0                # the rifle squad in the gas loses health
+at 40   log
+at 48   expect squad 2 alive == 2
+at 75   shot gas_flame.png
+at 76   spawn 8 -2 104 2
+at 110  log
+at 110  expect flame_trips >= 1
+at 110  expect flame_sprays >= 20
+at 110  expect fuel_used >= 20
+at 110  expect burned >= 60
+at 110  expect corpses_window <= 15
+at 111  shot gas_burnt.png
+at 160  expect gas_max < 0.6
+at 160  shot gas_after.png
+at 161  end

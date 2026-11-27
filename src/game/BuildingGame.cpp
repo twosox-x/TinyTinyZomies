@@ -137,7 +137,7 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
     }
     const ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(12.f, io.DisplaySize.y - 262.f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(420.f, 0.f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(470.f, 0.f), ImGuiCond_Always);
     ImGui::Begin("##building", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     ImGui::Text("%s, %d floor%s%s", kindName(B.kind), (int)B.floors, B.floors > 1 ? "s" : "", B.flatRoof ? ", flat roof" : "");
     if (!B.supported) { ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1), "Unsupported: %s", B.unsupportedWhy); ImGui::End(); return; }

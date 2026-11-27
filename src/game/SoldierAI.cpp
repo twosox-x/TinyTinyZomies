@@ -804,7 +804,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     // candidates: exact nearest list every tick, + the coarse field (24 .. 60 m, zombies behind the 4 nearest) on
     // perception ticks or when there is no lock; scored and sorted (scoreTarget), hittability tested best first
     Cand cands[16];
-    const int nc = outside ? 0 : gatherTargets(ctx, i, w.acquireRange, perceive || !L.active, cands, 16);
+    const int nc = outside ? 0 : gatherTargets(ctx, i, w.acquireRange, perceive || (!L.active && P.cls[i] != SoldierClass::Sniper), cands, 16);
     const Cand* best = nullptr;     // best hittable candidate (clear firing line now)
     const Cand* threat = nullptr;   // best hittable exact zombie that can reach us (threat stops, resupply interrupts)
     int nThreat = 0;

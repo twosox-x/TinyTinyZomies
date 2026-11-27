@@ -246,6 +246,8 @@ bool MilitaryLab::applyView(AppState& s, const std::string& v) {
     }
     else if (v == "roofland" && roofDrop) s.camera.setImmediate({roofDrop->xz.x, roofDrop->xz.y + 1.f, roofDrop->xz.z}, frameYaw_ + 0.8f, 30.f * deg, 12.f);
     else if (v == "roof" && roofFound_) s.camera.setImmediate({roof_.x, roof_.y + roofAlt + 1.5f, roof_.z}, frameYaw_ + 0.8f, 28.f * deg, 14.f);
+    else if (v == "roofrts" && roofFound_)   // RTS rig, pivot on the street under the rooftop (auto focus check)
+        s.camera.setImmediate({roof_.x, world(0, 0).y, roof_.z}, frameYaw_ + 0.8f, 55.f * deg, 75.f);
     else if (v == "roofhigh" && roofFound_) s.camera.setImmediate({roof_.x, roof_.y + roofAlt + 4.f, roof_.z}, frameYaw_ + 0.8f, 16.f * deg, 30.f);
     else return false;
     lastView_ = v;

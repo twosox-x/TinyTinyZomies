@@ -29,7 +29,8 @@ struct AppState;
 
 namespace ttz::game {
 
-enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop, BuildWall /* B2 */, BuyFlame /* 14d */ };
+enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop, BuildWall /* B2 */, BuyFlame /* 14d */,
+                           BuyEngineer /* 14d */, ClearCar /* 14d: engineers remove a parked vehicle */ };
 
 struct UiNotice { std::string text; double time = 0; bool bad = false; };
 
@@ -51,7 +52,12 @@ public:
     // ---- B2 wall tool (FortUI.cpp): N cheap wall, M reinforced wall, J gate (PROPOSED). Click adds points (snapped to
     // the 1 m grid / existing joints), drag = straight run in whole 4 m pieces (Ctrl: 1 m steps), Enter / double-click /
     // closing the loop confirms, Backspace undoes a point, Esc cancels. Container: Q / E / wheel rotate 15 deg, T 90.
-    bool rotatesWithQE() const { return tool_ == Tool::PlaceContainer; }
+    // 14d engineers (FortUI.cpp): U buys engineers, K clears a car (click it), J places a single gate (click; Q / E / wheel
+    // rotate 15 deg, T 90; over a wall it replaces that part, next to a wall end it continues it), Ctrl+Z undoes the
+    // newest unfinished placement. Wall tool: Shift snaps the direction to 15 deg steps (and 0 / 45 / 90 deg relative to
+    // the previous leg / the wall it starts on snap magnetically within 4 deg); guide lines and a 1 m grid near the cursor.
+    bool rotatesWithQE() const { return tool_ == Tool::PlaceContainer || (tool_ == Tool::BuildWall && wallGate_ && wallPts_.empty()); }
+    float gateYaw() const { return gateYaw_; }
     void setWallMode(uint8_t type, bool gate) { tool_ = Tool::BuildWall; wallType_ = type; wallGate_ = gate; wallPts_.clear(); forced_ = false; }
     void forceWallPreview(const std::vector<V3>& pts, uint8_t type, bool gate);   // scripts / captures
     float containerYaw() const { return containerYaw_; }
@@ -78,6 +84,13 @@ private:
     void drawTerritory(AppState& app, const GameContext& ctx);
     void drawTerritoryHud(const GameContext& ctx);
     void drawWallButtons(const GameContext& ctx);
+    bool constructionKey(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out);   // 14d (FortUI.cpp)
+    bool clearCarCheck(const AppState& app, const GameContext& ctx, V3 p, const char** why) const;
+    void drawClearPreview(AppState& app, const GameContext& ctx);
+    void drawEngineerZones(AppState& app, const GameContext& ctx);
+    void drawConstruction(AppState& app, const GameContext& ctx);
+    V3 angleSnap(const GameContext& ctx, V3 from, V3 to, bool force) const;
+    float gateYaw_ = 0.f;
     uint8_t wallType_ = 0;
     bool wallGate_ = false;
     std::vector<V3> wallPts_;

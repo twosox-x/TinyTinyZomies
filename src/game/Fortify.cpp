@@ -365,21 +365,38 @@ void Fortifications::draw(MilitaryRenderer& mil, const GameContext& ctx, float f
         props_.chute = mil.findProp("para_cargo");
     }
     const float buildT = std::max(0.05f, cfg_ ? cfg_->fort.buildTime : 0.6f);
-    // pieces
+    // a piece: the approved 4 m straight / gate asset scaled to its length; pieces shorter than 3.5 m (auto-fill end
+    // pieces, split T junctions) as a row of 1 m gabion baskets (the approved joint post asset), never a squashed piece
+    auto piece = [&](int t, bool gate, float cx, float cz, float y, float yaw, float len, float rise, float dissolve, float open) {
+        if (!gate && len < 3.5f) {
+            const int n = std::max(1, (int)std::lround(len));
+            const float s = len / (float)n, c = std::cos(yaw), sn = std::sin(yaw);
+            for (int k = 0; k < n; ++k) {
+                const float u = -0.5f * len + ((float)k + 0.5f) * s;
+                putProp(mil, props_.corner[t], {cx + u * c, y, cz - u * sn}, yaw, s, rise * 0.9f, dissolve);
+            }
+            return;
+        }
+        putProp(mil, gate ? props_.gate[t] : props_.straight[t], {cx, y, cz}, yaw, len / 4.f, rise, dissolve, open);
+    };
+    // pieces: finished ones rise once complete; blueprints (engineers at work) are translucent and grow with progress
     for (uint32_t i = 0; i < walls_.pieces().size(); ++i) {
         const WallPiece& p = walls_.pieces()[i];
         if (!p.alive) continue;
         const Obb b = walls_.pieceBox(i);
         const float y = 0.5f * (walls_.nodes()[p.a].y + walls_.nodes()[p.b].y);
+        const int t = (int)p.type;
+        const float len = 2.f * b.hx;
+        if (!p.solid()) { piece(t, p.gate, b.cx, b.cz, y, b.yaw, len, 0.12f + 0.88f * p.build, 0.5f - 0.25f * p.build, 0.f); continue; }
         float rise = std::clamp(p.age / buildT, 0.f, 1.f);
         rise = rise * rise * (3.f - 2.f * rise);
-        const int t = (int)p.type;
-        putProp(mil, p.gate ? props_.gate[t] : props_.straight[t], {b.cx, y, b.cz}, b.yaw, walls_.pieceScale(i), rise, 0.f, p.gate ? p.gateOpen : 0.f);
+        piece(t, p.gate, b.cx, b.cz, y, b.yaw, len, rise, 0.f, p.gate ? p.gateOpen : 0.f);
+        if (p.toGate) piece(t, true, b.cx, b.cz, y + 0.02f, b.yaw, len, 1.f, 0.6f, 0.f);   // the gate being fitted
     }
     // joints
     for (uint32_t n = 0; n < walls_.nodes().size(); ++n) {
         const WallNode& nd = walls_.nodes()[n];
-        if (!nd.alive || !nd.degree) continue;
+        if (!nd.alive || !nd.solidDeg) continue;
         float yaw;
         WallType t;
         const JointShape js = walls_.joint(n, yaw, t);
@@ -407,12 +424,20 @@ void Fortifications::draw(MilitaryRenderer& mil, const GameContext& ctx, float f
             const float since = sp.phase == 0 ? -1.f : sp.phase == 1 ? sp.phaseT : land + std::max(0.f, sp.groundT);
             if (props_.chute < 0 || since > 3.6f) continue;
             const float c = std::cos(sp.yaw), s = std::sin(sp.yaw);
+            // collapsing canopies drift to the side of the container away from walls; with walls on both sides they
+            // fold straight down onto its roof (never draped over / through a wall next to it)
+            float side = 1.f, room = 0.f;
+            for (float sd : {1.f, -1.f}) {
+                bool clear = true;
+                for (float d : {1.5f, 3.f, 4.5f}) clear &= walls_.nearestPiece(o.x + sd * d * s, o.z + sd * d * c, 1.2f) < 0 && walls_.nearestNode(o.x + sd * d * s, o.z + sd * d * c, 1.2f) < 0;
+                if (clear) { side = sd; room = 1.f; break; }
+            }
             for (int k = -1; k <= 1; k += 2) {
                 float sy = 1.6f, d = 0.f, drift = 0.f, lean = 0.f;
                 if (since >= 0.f) {   // collapse: height shrinks, drifts downwind, dissolves
                     const float u = std::clamp(since / 1.6f, 0.f, 1.f);
                     sy = 1.6f - 1.35f * u;
-                    drift = 2.5f * u;
+                    drift = 2.5f * u * room * side;
                     lean = 0.f;
                     d = std::clamp((since - 1.4f) / 2.2f, 0.f, 1.f);
                 }
@@ -430,7 +455,7 @@ void Fortifications::draw(MilitaryRenderer& mil, const GameContext& ctx, float f
             if (!q.ok) continue;
             const float len = std::hypot(q.bx - q.ax, q.bz - q.az);
             const float yaw = std::atan2(-(q.bz - q.az), q.bx - q.ax);
-            putProp(mil, pl.gate ? props_.gate[t] : props_.straight[t], {0.5f * (q.ax + q.bx), q.y, 0.5f * (q.az + q.bz)}, yaw, len / 4.f, 1.f, 0.42f);
+            piece(t, pl.gate, 0.5f * (q.ax + q.bx), 0.5f * (q.az + q.bz), q.y, yaw, len, 1.f, 0.42f, 0.f);
         }
     }
     (void)frameDt;

@@ -3,6 +3,7 @@
 #include "game/GameScript.h"
 #include "game/GameWorld.h"
 #include "game/NavGrid.h"
+#include "game/EngineerAI.h"
 #include "sim/GpuTypes.h"
 
 #include <cmath>
@@ -80,6 +81,41 @@ bool fortVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
         std::fflush(stdout);
         return true;
     }
+    // ---- 14d engineers
+    if (L.verb == "cheat") {   // DEBUG: cheat build 0|1 (instant construction anywhere, no engineers)
+        if (a.size() < 2 || a[0] != "build") { err = "cheat build 0|1"; return true; }
+        w.engineers().instantBuild = std::atoi(a[1].c_str()) != 0;
+        return true;
+    }
+    if (L.verb == "gate") {   // gate X Z [YAW_DEG] [cheap|reinforced]: the single-gate tool (into a wall / at a wall end / alone)
+        if (a.size() < 2) { err = "gate X Z [YAW_DEG] [cheap|reinforced]"; return true; }
+        Command c;
+        c.type = CommandType::BuildGate;
+        c.pos = ground(w, fa(a, 0), fa(a, 1));
+        c.facing = fa(a, 2) * 3.14159265f / 180.f;
+        c.wallType = a.size() > 3 && a[3] == "reinforced" ? 1 : 0;
+        w.commands().push(c);
+        return true;
+    }
+    if (L.verb == "clearcar") {   // clearcar X Z: engineers clear the parked vehicle there
+        if (a.size() < 2) { err = "clearcar X Z"; return true; }
+        Command c;
+        c.type = CommandType::ClearCar;
+        c.pos = ground(w, fa(a, 0), fa(a, 1));
+        w.commands().push(c);
+        return true;
+    }
+    if (L.verb == "undo") { Command c; c.type = CommandType::UndoBuild; w.commands().push(c); return true; }
+    if (L.verb == "jobs") {   // log the construction queue
+        const EngineerAI& E = w.engineers();
+        std::printf("  jobs: %zu (cars %zu), working %d, built %llu, gates %llu, cars cleared %llu, walls %u solid / %u alive\n", E.jobs().size(), E.cars().size(),
+                    E.workingNow(), (unsigned long long)E.piecesBuilt(), (unsigned long long)E.gatesConverted(), (unsigned long long)E.carsCleared(), W.solidPieces(), W.alivePieces());
+        for (const EngineerAI::Job& j : E.jobs())
+            std::printf("    %s %u at (%.1f %.1f) %.0f%% workers %d%s%s\n", j.kind == EngineerAI::JobKind::Car ? "car" : j.kind == EngineerAI::JobKind::GateConvert ? "gate-in-wall" : "piece",
+                        j.index, j.box.cx, j.box.cz, 100.f * j.progress, j.workers, j.inRange ? "" : " (no engineers in range)", j.blocked ? " (waits for a car)" : "");
+        std::fflush(stdout);
+        return true;
+    }
     if (L.verb == "territory") {
         const Territory& T = w.fort().territory();
         std::printf("  territory: %zu region(s), controlled %.0f m2, enclosed %.0f m2, income +%.0f/min; walls %u pieces (%u gates), obstacles %u, "
@@ -100,6 +136,36 @@ bool fortMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
     const Territory& T = w.fort().territory();
     const NavGrid* nav = w.context().nav;
     if (m == "walls") { out = W.alivePieces(); return true; }
+    if (m == "walls_built") { out = W.solidPieces(); return true; }
+    if (m == "wall_nodes") { out = 0; for (const WallNode& n : W.nodes()) out += n.alive ? 1 : 0; return true; }
+    if (m == "jobs") { out = (double)w.engineers().jobs().size(); return true; }
+    if (m == "engineers_working") { out = w.engineers().workingNow(); return true; }
+    if (m == "pieces_built") { out = (double)w.engineers().piecesBuilt(); return true; }
+    if (m == "cars_cleared") { out = (double)w.engineers().carsCleared(); return true; }
+    if (m == "in_engineer_range") {
+        if (k + 1 >= a.size()) { err = "in_engineer_range X Z"; return true; }
+        out = w.engineers().inRange(w.context(), fa(a, k), fa(a, k + 1)) ? 1.0 : 0.0;
+        k += 2;
+        return true;
+    }
+    if (m == "vehicle_at") {   // 1 if a parked vehicle's box is within 0.5 m of X Z
+        if (k + 1 >= a.size()) { err = "vehicle_at X Z"; return true; }
+        out = w.app() && w.app()->vehicles.parkedAt(fa(a, k), fa(a, k + 1), 0.5f) != UINT32_MAX ? 1.0 : 0.0;
+        k += 2;
+        return true;
+    }
+    if (m == "solid_at") {   // zombie obstacle height above the ground at X Z (vehicles, walls)
+        if (k + 1 >= a.size()) { err = "solid_at X Z"; return true; }
+        AppState* app = w.app();
+        out = 0;
+        if (app) {
+            const Sandbox& sb = app->sandbox;
+            const int cx = (int)std::floor((fa(a, k) - sb.originX) / sb.cellSize), cz = (int)std::floor((fa(a, k + 1) - sb.originZ) / sb.cellSize);
+            if (cx >= 0 && cz >= 0 && cx < sb.gridW && cz < sb.gridH) out = app->vehicles.simHeights()[(size_t)cz * sb.gridW + cx] - app->vehicles.groundAt(fa(a, k), fa(a, k + 1));
+        }
+        k += 2;
+        return true;
+    }
     if (m == "gates") { out = W.aliveGates(); return true; }
     if (m == "walls_destroyed") { out = (double)w.fort().wallsDestroyed(); return true; }
     if (m == "regions") { out = (double)T.regions().size(); return true; }
@@ -126,7 +192,15 @@ bool fortMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
         if (fld == "alive") out = p >= 0 ? 1.0 : 0.0;
         else if (fld == "hp") out = p >= 0 ? W.pieces()[(size_t)p].hp : 0.0;
         else if (fld == "pressure") out = p >= 0 ? w.fort().piecePressure((uint32_t)p) : 0.0;
-        else err = "wall field hp|alive|pressure";
+        else if (fld == "built") out = p >= 0 ? W.pieces()[(size_t)p].build : 0.0;
+        else if (fld == "gate") out = p >= 0 && W.pieces()[(size_t)p].gate ? 1.0 : 0.0;
+        else if (fld == "length") out = p >= 0 ? 2.0 * W.pieceBox((uint32_t)p).hx : 0.0;
+        else if (fld == "joint") {   // joint shape at the nearest node: 0 none, 1 end, 2 corner, 3 T, 4 X
+            const int n = W.nearestNode(x, z, 1.f);
+            float yaw; WallType t;
+            out = n >= 0 ? (double)(int)W.joint((uint32_t)n, yaw, t) : -1.0;
+        }
+        else err = "wall field hp|alive|pressure|built|gate|length|joint";
         return true;
     }
     if (m == "walkable") {

@@ -234,7 +234,11 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
             const float r = L - kPieceLen * (float)n4;
             if (n4 == 0) cut.push_back(L);
             else if (r < kMinLeg) for (int j = 1; j <= n4; ++j) cut.push_back(L * (float)j / (float)n4);
-            else { for (int j = 1; j <= n4; ++j) cut.push_back(kPieceLen * (float)j); cut.push_back(L); }
+            else if (r < 2.5f) {   // a short remainder shares the last 4 m: two end pieces of (4 + r) / 2 (2.5 .. 3 m)
+                for (int j = 1; j < n4; ++j) cut.push_back(kPieceLen * (float)j);
+                cut.push_back(kPieceLen * (float)(n4 - 1) + 0.5f * (kPieceLen + r));
+                cut.push_back(L);
+            } else { for (int j = 1; j <= n4; ++j) cut.push_back(kPieceLen * (float)j); cut.push_back(L); }
         }
         for (size_t j = 0; j + 1 < cut.size(); ++j) {
             WallPlanPiece q;
@@ -341,6 +345,7 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
                 if (jointAngle(jx, jz, px, pz, ox, oz) < kMinJointDeg) fail("joint angle too sharp");
                 continue;
             }
+            if (e + 2 == i && std::hypot(P.pieces[e + 1].bx - P.pieces[e + 1].ax, P.pieces[e + 1].bz - P.pieces[e + 1].az) < 2.f * wq) continue;   // around a short piece
             if (segDist(q.ax, q.az, q.bx, q.bz, o.ax, o.az, o.bx, o.bz) < wq * 0.95f) fail("overlaps itself");
         }
     }
@@ -385,35 +390,40 @@ WallPlan Walls::planGate(V3 c, float yaw, WallType type, const WallEnv& env) con
         return P;
     }
     if (e >= 0) { WallPlan P; P.gate = true; P.type = type; P.reason = "a gate is already there"; return P; }
-    // 2. next to a wall end: continue that wall
+    // 2. an end on an existing joint (within 1.2 m): connect there (both ends: between the two joints)
     float dx = std::cos(yaw), dz = -std::sin(yaw);
     V3 A{c.x - dx * 0.5f * kPieceLen, c.y, c.z - dz * 0.5f * kPieceLen}, B{c.x + dx * 0.5f * kPieceLen, c.y, c.z + dz * 0.5f * kPieceLen};
-    int best = -1;
-    float bd = 2.5f;
-    for (size_t i = 0; i < nodes_.size(); ++i) {
-        const WallNode& n = nodes_[i];
-        if (!n.alive || n.degree != 1) continue;
-        const float d = std::min(std::hypot(n.x - A.x, n.z - A.z), std::hypot(n.x - B.x, n.z - B.z));
-        if (d < bd) { bd = d; best = (int)i; }
+    const int na = nearestNode(A.x, A.z, 1.2f), nb = nearestNode(B.x, B.z, 1.2f);
+    auto at = [&](int n) { return V3{nodes_[(size_t)n].x, nodes_[(size_t)n].y, nodes_[(size_t)n].z}; };
+    if (na >= 0 && nb >= 0 && na != nb) { A = at(na); B = at(nb); }
+    else if (na >= 0) { const V3 n = at(na); B = {B.x + n.x - A.x, B.y, B.z + n.z - A.z}; A = n; }
+    else if (nb >= 0) { const V3 n = at(nb); A = {A.x + n.x - B.x, A.y, A.z + n.z - B.z}; B = n; }
+    else {   // 3. next to a wall end (within 2.5 m): continue that wall
+        int best = -1;
+        float bd = 2.5f;
+        for (size_t i = 0; i < nodes_.size(); ++i) {
+            const WallNode& n = nodes_[i];
+            if (!n.alive || n.degree != 1) continue;
+            const float d = std::min(std::hypot(n.x - A.x, n.z - A.z), std::hypot(n.x - B.x, n.z - B.z));
+            if (d < bd) { bd = d; best = (int)i; }
+        }
+        if (best >= 0) {
+            const WallNode& n = nodes_[(size_t)best];
+            for (const WallPiece& p : pieces_)
+                if (p.alive && (p.a == (uint32_t)best || p.b == (uint32_t)best)) {
+                    const WallNode& o = nodes_[p.a == (uint32_t)best ? p.b : p.a];
+                    const float l = std::max(1e-3f, std::hypot(n.x - o.x, n.z - o.z));
+                    dx = (n.x - o.x) / l; dz = (n.z - o.z) / l;
+                    if (p.type == WallType::Reinforced) type = WallType::Reinforced;
+                    break;
+                }
+            A = {n.x, n.y, n.z};
+            B = {n.x + dx * kPieceLen, c.y, n.z + dz * kPieceLen};
+            const int nb2 = nearestNode(B.x, B.z, 1.f);
+            if (nb2 >= 0) B = at(nb2);
+        }
+        // 4. otherwise on its own (end posts)
     }
-    if (best >= 0) {
-        const WallNode& n = nodes_[(size_t)best];
-        for (const WallPiece& p : pieces_)
-            if (p.alive && (p.a == (uint32_t)best || p.b == (uint32_t)best)) {
-                const WallNode& o = nodes_[p.a == (uint32_t)best ? p.b : p.a];
-                const float l = std::max(1e-3f, std::hypot(n.x - o.x, n.z - o.z));
-                dx = (n.x - o.x) / l; dz = (n.z - o.z) / l;
-                if (p.type == WallType::Reinforced) type = WallType::Reinforced;
-                break;
-            }
-        A = {n.x, n.y, n.z};
-        B = {n.x + dx * kPieceLen, c.y, n.z + dz * kPieceLen};
-    } else {   // 3. on its own; a joint within 1 m snaps (connects both sides)
-        const int na = nearestNode(A.x, A.z, 1.f);
-        if (na >= 0) { const WallNode& n = nodes_[(size_t)na]; B = {B.x + n.x - A.x, B.y, B.z + n.z - A.z}; A = {n.x, n.y, n.z}; }
-    }
-    const int nb = nearestNode(B.x, B.z, 1.f);
-    if (nb >= 0) B = {nodes_[(size_t)nb].x, nodes_[(size_t)nb].y, nodes_[(size_t)nb].z};
     return plan({A, B}, type, true, env);
 }
 

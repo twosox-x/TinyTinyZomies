@@ -1,6 +1,7 @@
 # Milestone B2: wall tool through the real input path (GameUI): hotkey, click-and-drag straight run (length snapped to
 # whole 4 m pieces, built on release), click polyline + Enter, Backspace, Esc leaves the tool. Run headless:
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b2_input.txt
+at 0.0  cheat build 1                                 # DEBUG: B2 scenario without engineers (instant construction, GAME_DESIGN 14d)
 at 0.1  camera -9 120 0 1.1 45
 at 0.2  key n                                          # cheap wall tool
 at 0.3  expect tool == 6

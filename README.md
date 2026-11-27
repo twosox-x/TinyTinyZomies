@@ -309,7 +309,7 @@ puff, dust); stress presets 10 / 50 / 100 / 250 / 500 / 1000 soldiers with the z
 the UI.
 
 Headless review captures (one view per `--shots` frame). Views: `closeup front rear side top muzzle lineup rts45
-rts110 rts300 props parachute landing roof roofhigh`; options: `+studio +notilt +inf=N +prop=N +clip=NAME +t=SECONDS
+rts110 rts300 props parachute landing roof roofhigh roofrts`; options: `+studio +notilt +inf=N +prop=N +clip=NAME +t=SECONDS
 +stress=N +drop=SECONDS +fire +hold +seq` (`+seq`: transition demo idle-walk-run-aim-fire-reload-walk):
 
 ```bash
