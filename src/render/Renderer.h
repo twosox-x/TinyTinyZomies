@@ -57,11 +57,11 @@ struct RenderSettings {
     // discs, see Renderer::postProcess / shaders/post_dof_*.frag), plus a small saturation / contrast boost
     bool tiltShift = true;           // miniature depth of field on / off (name kept for the lab's "+notilt")
     float dofStrength = 1.0f;        // 0..1 blend of the bokeh layers
-    float dofAperture = 1.3f;        // CoC = aperture * (d - focus) / d, in units of the max blur radius (thin lens)
+    float dofAperture = 0.836f;       // CoC = aperture * (d - focus) / d, in units of the max blur radius (thin lens)
     float dofFocusOffset = 0.0f;     // focus distance = pivot distance * (1 + offset)
-    float dofMaxBlur = 0.018f;       // max CoC radius, fraction of the screen height
-    float dofHighlightGain = 3.0f;   // extra brightness of highlights in the blur (bokeh discs of lamps / windows / fire)
-    float dofHighlightThreshold = 0.62f;   // display luma where the highlight boost starts
+    float dofMaxBlur = 0.015f;       // max CoC radius, fraction of the screen height
+    float dofHighlightGain = 2.062f;  // extra brightness of highlights in the blur (bokeh discs of lamps / windows / fire)
+    float dofHighlightThreshold = 0.564f;  // display luma where the highlight boost starts
     float dofHexAperture = 0.0f;     // 0 = round bokeh, 1 = hexagonal (six aperture blades)
     bool dofDebug = false;           // show the CoC (red near, blue far)
     float saturation = 1.18f, contrast = 1.06f, vignette = 0.12f;
