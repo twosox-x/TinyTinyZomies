@@ -61,7 +61,7 @@ struct ZombieThreatConfig {          // zombies vs soldiers (HordeBridge)
     float attackReach = 0.9f;        // m, soldier capsule surface to zombie centre
     float damagePerSecond = 12.f;    // per attacking zombie
     float awarenessRadius = 60.f;    // m: zombies farther from any attractor do not chase (wander)
-    float soldierAttraction = 1.0f;  // attractor strength of a soldier (nav distance offset, m-equivalent)
+    float soldierAttraction = 1.0f;  // attractor strength of a soldier: multiplies the awareness reach (awarenessRadius x strength)
 };
 
 struct BalanceConfig {

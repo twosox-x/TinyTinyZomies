@@ -42,6 +42,8 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     if (!cfg_.load(opt.balancePath, &err)) SDL_Log("game: %s (using built-in UNAPPROVED defaults)", err.c_str());
     SDL_Log("game: balance %s (%s)", opt.balancePath.c_str(), cfg_.status.c_str());
     if (!horde_.init(app.gpu, app.sim)) return false;
+    horde_.setAwarenessRadius(cfg_.threat.awarenessRadius);
+    horde_.setAttackReach(cfg_.threat.attackReach);
     rebuildNav(app);
     economy_.reset(cfg_);
     ctx_.cfg = &cfg_;
