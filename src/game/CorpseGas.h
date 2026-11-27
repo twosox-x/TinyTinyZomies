@@ -12,7 +12,8 @@
 //     (buildings hold no gas), emission, decay, fire burns gas off; ground fire ages, flame cones light the cells they
 //     cover (contained: never spreads). Packed CPU readback (gas, fire, corpses, rotting per cell) + render list.
 //   * zombie flame damage is NOT here: FlameAI::coneRays queues hit rays over each cone through HordeBridge (credited,
-//     existing kill / reward / gore path). Ground fire does not damage zombies (PROPOSED follow-up).
+//     existing kill / reward / gore path). Ground fire: CorpseGas::tick queues 4 knee-high rays across every burning
+//     cell of each readback (flame.groundFireDps, same path; credited to the newest cone's shooter).
 //
 // Updates run in GameWorld::postSim (after the last horde step of a frame, like HordeBridge's field passes) with the
 // simulation time elapsed since the last update (pause / sim speed respected). Readback is async (ring of 3, every
@@ -80,8 +81,10 @@ public:
     // ---- gameplay (game tick, after Combat): gas damage to soldiers (Combat owns health writes otherwise; gas is a
     // second, independent damage source), squad SQ_GAS warning flag, per-soldier exposure for the UI.
     void tick(GameContext& ctx);
+    void groundFire(GameContext& ctx);               // zombies in ground fire: hit rays (called by tick)
     float soldierGas(uint32_t i) const { return i < exposure_.size() ? exposure_[i] : 0.f; }
     double gasDamage() const { return gasDamage_; }
+    uint64_t groundFireRays() const { return groundFireRays_; }   // ground-fire damage rays queued (session)
     // NavGrid gas cost layer (cells above rot.navAvoidLevel cost extra): rebuilt per readback.
     const std::vector<uint8_t>& navCost() const { return navCost_; }
     float originX() const { return ox_; }
@@ -118,6 +121,10 @@ private:
     float ox_ = 0, oz_ = 0, cell_ = 1.5f;             // origin / cell of the readback grid
     Stats stats_;
     uint64_t readbacks_ = 0, updates_ = 0;
+    uint64_t groundFireSeen_ = 0;          // readback the last ground-fire damage pass used
+    double groundFireAt_ = -1.0;           // game time of that pass
+    uint32_t lastShooter_ = 0;             // credited for ground-fire kills (newest flame cone's shooter)
+    uint64_t groundFireRays_ = 0;
     std::vector<float> exposure_;
     std::vector<uint8_t> navCost_;
     double gasDamage_ = 0.0;

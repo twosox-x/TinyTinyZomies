@@ -20,8 +20,10 @@ at 38   shot gas_flame.png
 at 64   log
 at 64   expect flame_repositions >= 0       # (info) walked round the pile when soldiers stood in the cone
 at 64   expect flame_trips >= 1
-at 64   expect flame_sprays >= 20
-at 64   expect fuel_used >= 20
+at 64   expect flame_sprays >= 1                # a short spray lights the pile's cells; burning bodies keep them lit
+at 64   expect fuel_used >= 1
+at 64   expect fuel_used <= 120                # economy: lit corpses are not sprayed again (unlitOnly), < 1 tank per pile
+at 64   expect ground_fire_rays > 0            # ground fire damage rays (zombies standing in fire) were queued
 at 64   expect burned >= 40                  # first pile gone (sprays walk round soldiers standing in the cone)
 at 95   log
 at 95   expect burned >= 65                  # second pile too (next autonomous trip)

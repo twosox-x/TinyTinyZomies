@@ -7,10 +7,10 @@ at 0.0  camera -8 117 0.6 0.9 90
 at 0.1  buy rifle -8 117
 at 0.2  buy mg -2 119
 at 30   expect squad 1 alive + squad 2 alive == 8
-at 30   spawn 15 -40 116 3                     # west
+at 30   spawn 15 -26 115 3                     # west (the re-baked map has a tower from x = -31 west)
 at 34   spawn 15 30 118 3                      # east
 at 45   spawn 12 -6 150 3                      # north
-at 55   spawn 15 -42 120 3                     # west again
+at 55   spawn 15 -27 120 3                     # west again
 at 60   log
 at 95   log
 at 95   expect squad 1 alive + squad 2 alive >= 7

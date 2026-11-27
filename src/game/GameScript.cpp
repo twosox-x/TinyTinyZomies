@@ -119,6 +119,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "burning") { out = w.gas().stats().burning; return true; }
     if (m == "fire_cells") { out = w.gas().stats().fireCells; return true; }
     if (m == "gas_damage") { out = w.gas().gasDamage(); return true; }
+    if (m == "ground_fire_rays") { out = (double)w.gas().groundFireRays(); return true; }
     if (m == "flame_sprays") { out = (double)w.flameAI().sprays(); return true; }
     if (m == "flame_trips") { out = (double)w.flameAI().trips(); return true; }
     if (m == "fuel_used") { out = (double)w.flameAI().fuelUsed(); return true; }

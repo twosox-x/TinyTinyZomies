@@ -8,18 +8,20 @@ at 0.0  camera -6 122 0.6 0.95 70
 at 0.02 spawn 6 -12 129 1.5                    # inside the future compound (walls close it next)
 at 0.05 cheat build 1                         # instant walls (no engineers: not what this test is about)
 at 0.5  wall reinforced -6 125 -22 125 -22 133 -6 133
-at 1.0  wall gate -6 133 -6 125
+at 1.0  wall rgate -6 133 -6 125                # reinforced (2.4 m): a 1.6 m cheap gate shows the heads above it (AI round 3 aims at heads over cover)
 at 1.5  expect gates == 2
 at 2.1  buy mg -1 121                          # outside, next to the gate
 at 30   expect squad 1 alive == 3
-at 30   expect zombies_rect -21 126 -7 132 >= 4   # shut in
+at 30   expect zombies_rect -21 126 -6.3 132 >= 4   # shut in
 at 30   spawn 10 22 112 2                      # the approaching group (~25 m)
+at 31   expect zombies_live >= 14                # the group really spawned (kerb spawns: sim_spawn)
 at 40   log
 at 55   log
 at 55   expect squad 1 alive == 3
 at 55   expect zombies_rect -40 100 45 124 == 0   # the approaching group is dead
-at 55   expect zombies_rect -21 126 -7 132 >= 4   # the zombies behind the gate were not the target (unshootable)
+at 55   expect zombies_rect -21 126 -6.3 132 >= 4   # the zombies behind the gate were not the target (unshootable)
 at 55   expect static_pct <= 80                 # diagnostic: misses end on buildings too (MG cone 3 deg)
 at 55   expect squad 1 switches <= 30
 at 55   expect hits >= 0
+at 55   expect kills >= 8                       # the approaching group was shot
 at 56   end

@@ -265,6 +265,36 @@ int selfTestCorpseGas(GpuContext& gpu, const SimParams& base) {
         check(live0 >= 6 && r.counters[C_LIVE] + 4 <= live0 && credited >= 4, "flame kills zombies in the cone (kills credited to the flamethrower; hit push moves some out of reach)",
               fmt("live %.0f -> %.0f, %.0f kills credited", live0, r.counters[C_LIVE], credited));
     }
+
+    // ---- 5. ground fire hurts zombies standing in it (CorpseGas::groundFire hit rays, no cone rays queued) -----------
+    {
+        std::vector<KillEvent> kills;
+        r.bridge.takeKills(kills);
+        const V3 z1{20.f, 0.f, -20.f};
+        r.sim.requestSpawnLook({z1.x - 0.6f, z1.z - 0.6f, z1.x + 0.6f, z1.z + 0.6f}, 4, 0, 0);
+        r.seconds(1.f);
+        r.read();
+        const uint32_t live0 = r.counters[C_LIVE];
+        SoldierPool pool;
+        SquadList squads;
+        GameContext ctx;
+        ctx.cfg = &cfg; ctx.soldiers = &pool; ctx.squads = &squads; ctx.horde = &r.bridge;
+        const uint32_t shooter = (6u & 0xFFFFu) | (3u << 16);
+        const V3 from{z1.x - 6.f, 1.25f, z1.z};
+        r.seconds(8.f, [&] {   // the cone only lights the ground (its own zombie rays are not queued here)
+            r.gas.queueFlame(coneAt(from, {z1.x, 0.f, z1.z}, 1.f / 30.f, shooter));
+            r.gas.tick(ctx);
+            ctx.time += 1.0 / 30.0;
+        });
+        r.seconds(1.f);
+        r.read();
+        std::vector<KillEvent> k3;
+        r.bridge.takeKills(k3);
+        int credited = 0;
+        for (const KillEvent& k : k3) credited += k.shooterPacked == shooter ? 1 : 0;
+        check(live0 >= 4 && r.gas.groundFireRays() > 0 && credited >= 2, "ground fire kills zombies standing in it (hit rays, credited to the flamethrower)",
+              fmt("live %.0f -> %.0f, %.0f ground-fire rays, %.0f kills credited", live0, r.counters[C_LIVE], (double)r.gas.groundFireRays(), credited));
+    }
     r.gas.shutdown();
     r.bridge.shutdown();
     r.sim.shutdown();

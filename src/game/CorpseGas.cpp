@@ -2,6 +2,8 @@
 #include "game/CorpseGas.h"
 
 #include "game/Config.h"
+#include "game/HordeInterface.h"
+#include "game/NavGrid.h"
 #include "game/Soldiers.h"
 #include "gpu/GpuContext.h"
 #include "sim/CrowdSim.h"
@@ -83,6 +85,7 @@ void CorpseGas::configure(const RotConfig& rot, const FlameConfig& flame) { rot_
 
 void CorpseGas::queueFlame(const FlameCone& c) {
     if (cones_.size() < 256) cones_.push_back(c);
+    if (c.shooterPacked) lastShooter_ = c.shooterPacked;
 }
 
 void CorpseGas::postSim(SDL_GPUCommandBuffer* cmd) {
@@ -272,6 +275,40 @@ void CorpseGas::fireSpots(float x, float z, int maxN, std::vector<std::array<flo
     for (const P& p : pools) out.push_back({p.x, std::min(2.4f, 0.6f + 0.45f * std::sqrt(p.n) * cell_ * 0.5f), p.z, p.k});
 }
 
+// Ground fire hurts zombies standing in it (flame.groundFireDps). Once per readback: 4 knee-high hit rays across each
+// burning cell (two along x, two along z, offset a quarter cell from the centre line) through HordeBridge's bullet path
+// (credited, quiet; deaths / kill records / rewards unchanged). A ray stops at the first zombie, so a crowded cell
+// burns its zombies one per ray per readback; a lone zombie is crossed by ~1.6 rays on average (damage per ray is
+// half the rate). A GPU pass writing the damage queue was removed in the corpse-gas milestone (docs 11).
+void CorpseGas::groundFire(GameContext& ctx) {
+    if (!ctx.horde || !flame_ || flame_->groundFireDps <= 0.f || readbacks_ == groundFireSeen_) return;
+    groundFireSeen_ = readbacks_;
+    const double prev = groundFireAt_;
+    groundFireAt_ = ctx.time;
+    if (prev < 0.0 || stats_.fireCells <= 0) return;
+    const float dt = (float)std::min(ctx.time - prev, 1.0);
+    if (dt <= 0.f) return;
+    const float dmg = 0.5f * flame_->groundFireDps * dt;
+    std::vector<HitRequest> hits;
+    for (uint32_t j = 0; j < gh_ && hits.size() < 1024; ++j)
+        for (uint32_t i = 0; i < gw_ && hits.size() < 1024; ++i) {
+            if (!((cpu_[(size_t)j * gw_ + i] >> 8) & 0xFFu)) continue;
+            const float x0 = ox_ + (float)i * cell_, z0 = oz_ + (float)j * cell_;
+            const float y = (ctx.nav && ctx.nav->ready() ? ctx.nav->surface(x0 + 0.5f * cell_, z0 + 0.5f * cell_) : 0.f) + 0.5f;
+            for (int k = 0; k < 4; ++k) {
+                const float off = (k & 1) ? 0.75f : 0.25f;
+                HitRequest h;
+                h.origin = (k < 2) ? V3{x0 - 0.05f, y, z0 + off * cell_} : V3{x0 + off * cell_, y, z0 - 0.05f};
+                h.dir = (k < 2) ? V3{1, 0, 0} : V3{0, 0, 1};
+                h.maxDist = cell_ + 0.1f; h.damage = dmg; h.shooterPacked = lastShooter_; h.flags = 2u;   // quiet: small puff
+                hits.push_back(h);
+            }
+        }
+    if (hits.empty()) return;
+    groundFireRays_ += hits.size();
+    ctx.horde->queueHits(hits);
+}
+
 void CorpseGas::tick(GameContext& ctx) {
     if (!ctx.soldiers || !ctx.cfg) return;
     SoldierPool& P = *ctx.soldiers;
@@ -279,6 +316,7 @@ void CorpseGas::tick(GameContext& ctx) {
     exposure_.resize(P.capacity(), 0.f);
     std::fill(exposure_.begin(), exposure_.end(), 0.f);
     if (!have_) return;
+    groundFire(ctx);
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
         if (!P.used[i] || !P.alive(i) || P.state[i] == SoldierState::Descending) continue;
         if (P.post[i] == POST_INSIDE) continue;                       // hospital patients are indoors
