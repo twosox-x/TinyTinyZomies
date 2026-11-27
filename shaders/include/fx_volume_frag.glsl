@@ -214,7 +214,6 @@ void main() {
     if (mpp > 0.0) {
         float want = dist * mpp * fxC[i].x;
         v = want <= 0.25 ? 0.25 : (want <= 0.5 ? 0.5 : 1.0);
-        if (kind == 2 && want <= 0.125) v = 0.125;   // the thin stream: half the building voxel up close
     }
     else v = dist > 110.0 ? 0.5 : 0.25;
     int maxSteps = int(fxC[i].y);

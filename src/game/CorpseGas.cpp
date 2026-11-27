@@ -135,7 +135,8 @@ void CorpseGas::postSim(SDL_GPUCommandBuffer* cmd) {
     dispatch(Dispatch{cmd, pField_, {sim_->staticHeight(), field_[cur_]}, {field_[1 - cur_], accum_, out_, list_}, &su, U}, (gw_ + 15) / 16, (gh_ + 15) / 16);
     cur_ = 1 - cur_;
     // 3. zombies in cones / ground fire -> damage queue (indices of the last step's sort, consumed by the next predict)
-    if (sim_->cellGridValid() && sim_->gameIO()) {
+    static const bool noAgents = SDL_getenv("TTZ_GAS_NO_AGENTS") != nullptr;   // DEBUG (temporary)
+    if (sim_->cellGridValid() && sim_->gameIO() && !noAgents) {
         SDL_PushGPUComputeUniformData(cmd, 1, &u, sizeof(u));
         dispatchIndirect(Dispatch{cmd, pAgents_, {sim_->agents(), sim_->counters(), field_[cur_]}, {sim_->gameIO(), out_}, &su, U},
                          sim_->indirect(), I_AGENT_DISPATCH * 4);

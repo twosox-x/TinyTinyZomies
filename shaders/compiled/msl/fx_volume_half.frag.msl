@@ -963,10 +963,6 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
             _2867 = (want <= 0.5) ? 0.5 : 1.0;
         }
         v = _2867;
-        if ((kind == 2) && (want <= 0.125))
-        {
-            v = 0.125;
-        }
     }
     else
     {
@@ -996,10 +992,10 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
         float param_20 = (0.87000000476837158203125 * v) + 0.00999999977648258209228515625;
         float param_21;
         float param_22;
-        bool _2975 = blastRayInterval(param_15, param_16, param_17, param_18, param_19, param_20, param_21, param_22);
+        bool _2967 = blastRayInterval(param_15, param_16, param_17, param_18, param_19, param_20, param_21, param_22);
         float sa = param_21;
         float sb = param_22;
-        if (!_2975)
+        if (!_2967)
         {
             discard_fragment();
         }
@@ -1013,26 +1009,26 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
             int3 c2 = int3(floor((ro + (rd * sa)) / float3(v)));
             float3 tv3 = (((float3(c2) + float3(stp < int3(0))) * v) - ro) * inv;
             tv3 = select(tv3, float3(-1000000015047466219876688855040.0), stp == int3(0));
-            bool _3035 = tv3.x >= tv3.y;
-            bool _3043;
+            bool _3027 = tv3.x >= tv3.y;
+            bool _3035;
+            if (_3027)
+            {
+                _3035 = tv3.x >= tv3.z;
+            }
+            else
+            {
+                _3035 = _3027;
+            }
+            int _3036;
             if (_3035)
             {
-                _3043 = tv3.x >= tv3.z;
+                _3036 = 0;
             }
             else
             {
-                _3043 = _3035;
+                _3036 = (tv3.y >= tv3.z) ? 1 : 2;
             }
-            int _3044;
-            if (_3043)
-            {
-                _3044 = 0;
-            }
-            else
-            {
-                _3044 = (tv3.y >= tv3.z) ? 1 : 2;
-            }
-            int axv = _3044;
+            int axv = _3036;
             if (tv3[axv] > t0)
             {
                 int3 dc = abs(c2 - cell);
@@ -1045,15 +1041,15 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
         }
     }
     bool hit = false;
-    float _3112;
+    float _3104;
     float3 mat;
     float3 param_29;
-    float _3138;
+    float _3130;
     float3 param_36;
-    float _3164;
+    float _3156;
     float3 param_44;
     float3 param_51;
-    int _3224;
+    int _3216;
     for (int k = k0; k < maxSteps; k++)
     {
         float3 q = (float3(cell) + float3(0.5)) * v;
@@ -1065,9 +1061,9 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
             float param_26 = A.w;
             float param_27 = B.z;
             BlastShape param_28 = bs;
-            float _3133 = blastDensity(param_23, param_24, param_25, param_26, param_27, param_28, param_29);
+            float _3125 = blastDensity(param_23, param_24, param_25, param_26, param_27, param_28, param_29);
             mat = param_29;
-            _3112 = _3133;
+            _3104 = _3125;
         }
         else
         {
@@ -1079,9 +1075,9 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
                 float param_33 = A.w;
                 float param_34 = B.w;
                 float param_35 = B.z;
-                float _3159 = wreckDensity(param_30, param_31, param_32, param_33, param_34, param_35, param_36);
+                float _3151 = wreckDensity(param_30, param_31, param_32, param_33, param_34, param_35, param_36);
                 mat = param_36;
-                _3138 = _3159;
+                _3130 = _3151;
             }
             else
             {
@@ -1094,9 +1090,9 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
                     float param_41 = A.w;
                     float param_42 = B.w;
                     float param_43 = B.z;
-                    float _3187 = streamDensity(param_37, param_38, param_39, param_40, param_41, param_42, param_43, param_44);
+                    float _3179 = streamDensity(param_37, param_38, param_39, param_40, param_41, param_42, param_43, param_44);
                     mat = param_44;
-                    _3164 = _3187;
+                    _3156 = _3179;
                 }
                 else
                 {
@@ -1106,15 +1102,15 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
                     float param_48 = A.w;
                     float param_49 = B.w;
                     float param_50 = B.z;
-                    float _3208 = poolDensity(param_45, param_46, param_47, param_48, param_49, param_50, param_51);
+                    float _3200 = poolDensity(param_45, param_46, param_47, param_48, param_49, param_50, param_51);
                     mat = param_51;
-                    _3164 = _3208;
+                    _3156 = _3200;
                 }
-                _3138 = _3164;
+                _3130 = _3156;
             }
-            _3112 = _3138;
+            _3104 = _3130;
         }
-        float d = _3112;
+        float d = _3104;
         if (d > 0.0)
         {
             hit = true;
@@ -1122,13 +1118,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
         }
         if (tMax.x < tMax.y)
         {
-            _3224 = (tMax.x < tMax.z) ? 0 : 2;
+            _3216 = (tMax.x < tMax.z) ? 0 : 2;
         }
         else
         {
-            _3224 = (tMax.y < tMax.z) ? 1 : 2;
+            _3216 = (tMax.y < tMax.z) ? 1 : 2;
         }
-        ax = _3224;
+        ax = _3216;
         tEnter = tMax[ax];
         if (tEnter > tEnd)
         {
@@ -1155,32 +1151,32 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _228 [[buffer
     }
     else
     {
-        float3 _3326;
+        float3 _3318;
         if (mat.y > 0.5)
         {
-            _3326 = float3(0.119999997317790985107421875, 0.115000002086162567138671875, 0.104999996721744537353515625);
+            _3318 = float3(0.119999997317790985107421875, 0.115000002086162567138671875, 0.104999996721744537353515625);
         }
         else
         {
-            _3326 = mix(float3(0.100000001490116119384765625, 0.097999997437000274658203125, 0.09700000286102294921875), float3(0.02199999988079071044921875, 0.0199999995529651641845703125, 0.01899999938905239105224609375), float3(mat.z));
+            _3318 = mix(float3(0.100000001490116119384765625, 0.097999997437000274658203125, 0.09700000286102294921875), float3(0.02199999988079071044921875, 0.0199999995529651641845703125, 0.01899999938905239105224609375), float3(mat.z));
         }
-        float3 alb = _3326;
+        float3 alb = _3318;
         alb *= (0.819999992847442626953125 + (0.36000001430511474609375 * jit));
         float3 param_54 = alb * 2.0;
         float3 param_55 = N;
         float3 param_56 = P;
         float param_57 = 1.0;
         col = shade(param_54, param_55, param_56, param_57, _228);
-        float _3363;
+        float _3355;
         if (blast)
         {
-            _3363 = (1.0 - smoothstep(0.4000000059604644775390625, 1.60000002384185791015625 * sqrt(B.x), A.w)) * (1.0 - mat.y);
+            _3355 = (1.0 - smoothstep(0.4000000059604644775390625, 1.60000002384185791015625 * sqrt(B.x), A.w)) * (1.0 - mat.y);
         }
         else
         {
-            _3363 = 0.0;
+            _3355 = 0.0;
         }
-        float glow = _3363;
+        float glow = _3355;
         col += (((float3(1.60000002384185791015625, 0.3499999940395355224609375, 0.0500000007450580596923828125) * glow) * (0.300000011920928955078125 + (0.699999988079071044921875 * fast::max(-N.y, 0.0)))) * (0.5 + jit));
     }
     float4 clip = _228.viewProj * float4(P, 1.0);
