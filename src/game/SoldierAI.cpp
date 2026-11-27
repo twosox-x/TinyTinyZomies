@@ -187,7 +187,7 @@ bool SoldierAI::findTarget(const GameContext& ctx, uint32_t i, float range, V3& 
                     for (const Cell& c : hash_)
                         if (c.idx != i && dist2D(P.pos[c.idx], t.pos[k]) < 10.f) { s -= 60.f; break; }
                     if (s >= bestS) continue;
-                    if (ctx.nav && !ctx.nav->lineOfSight(eye, t.pos[k] + V3{0, 1.2f, 0})) continue;
+                    if (ctx.nav && ctx.nav->ready() && !shotClear(*ctx.nav, p, t.pos[k] + V3{0, 1.1f, 0}, tuning.sniperMargin)) continue;
                     bestS = s; out = t.pos[k]; any = true;
                 }
             }
@@ -414,6 +414,161 @@ void SoldierAI::leave(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+bool SoldierAI::shotClear(const NavGrid& nav, V3 feet, V3 to, float margin) {
+    V3 d{to.x - feet.x, 0, to.z - feet.z};
+    const float l = std::sqrt(d.x * d.x + d.z * d.z);
+    if (l < 0.5f) return true;
+    d = d * (1.f / l);
+    V3 from = feet + V3{0, 1.4f, 0} + d * 0.5f;   // Combat::muzzleHeight, 0.5 m in front
+    float top = -1e9f, end = 0.f;
+    for (float s = 0.25f; s <= 1.5f; s += 0.25f) {   // Combat::coverReach
+        const float h = nav.surface(feet.x + d.x * s, feet.z + d.z * s);
+        if (h > feet.y + 0.4f) { top = std::max(top, h); end = s; }
+    }
+    if (top > feet.y + 0.4f && top - feet.y <= 2.8f)   // Combat::coverMaxHeight: fired over
+        from = V3{feet.x + d.x * (end + 0.45f), std::max(from.y, top + 0.3f), feet.z + d.z * (end + 0.45f)};
+    // margin: the line to a point that much lower must be clear too (long shots grazing a roof edge / parapet: the
+    // spread cone would clip it)
+    return nav.lineOfSight(from, to) && (margin <= 0.f || nav.lineOfSight(from, to - V3{0, margin, 0}));
+}
+
+const SoldierAI::RoofVantages* SoldierAI::roofVantages(const GameContext& ctx, V3 p, float range) {
+    const NavGrid& nav = *ctx.nav;
+    const uint32_t isl = nav.island(p.x, p.z);
+    if (!isl) return nullptr;
+    for (const RoofVantages& r : roofs_)
+        if (r.island == isl && std::fabs(r.y - p.y) < 1.5f && r.ox == nav.originX() && r.oz == nav.originZ()) return &r;
+    if (roofs_.size() > 32) roofs_.erase(roofs_.begin());
+    RoofVantages R;
+    R.island = isl; R.y = p.y; R.ox = nav.originX(); R.oz = nav.originZ();
+    const float c = nav.cell(), rad = tuning.vantageRadius;
+    // roof-edge cells of this island (a cell of another island / not walkable within 1.5 m), thinned to vantageSpacing
+    std::vector<V3> cand;
+    for (float z = p.z - rad; z <= p.z + rad; z += c)
+        for (float x = p.x - rad; x <= p.x + rad; x += c) {
+            if (nav.island(x, z) != isl) continue;
+            const float y = nav.surface(x, z);
+            if (std::fabs(y - p.y) > 1.0f) continue;
+            bool edge = false;
+            for (int k = 0; k < 8 && !edge; ++k) {
+                const float a = (float)k * kPi / 4.f;
+                edge = nav.island(x + 1.5f * std::cos(a), z + 1.5f * std::sin(a)) != isl;
+            }
+            if (!edge) continue;
+            bool near = false;
+            for (const V3& q : cand) if (dist2D(q, V3{x, 0, z}) < tuning.vantageSpacing) { near = true; break; }
+            if (!near) cand.push_back(V3{x, y, z});
+            if (cand.size() >= 240) break;
+        }
+    // score: street samples (well below the roof) each candidate can shoot into along vantageRays azimuths. One march
+    // per ray: a sample is hit when its aim point is above every earlier occluder slope (= NavGrid::lineOfSight).
+    const int nr = std::clamp(tuning.vantageRays, 4, 24);
+    const float step = c;
+    for (const V3& q : cand) {
+        Vantage v;
+        v.pos = q;
+        for (int k = 0; k < nr; ++k) {
+            const float a = (float)k * 2.f * kPi / (float)nr;
+            const V3 d{std::sin(a), 0, std::cos(a)};
+            V3 o = q + V3{0, 1.4f, 0} + d * 0.5f;
+            float top = -1e9f, end = 0.f;
+            for (float s = 0.25f; s <= 1.5f; s += 0.25f) {
+                const float h = nav.surface(q.x + d.x * s, q.z + d.z * s);
+                if (h > q.y + 0.4f) { top = std::max(top, h); end = s; }
+            }
+            if (top > q.y + 0.4f && top - q.y <= 2.8f) o = V3{q.x + d.x * (end + 0.45f), std::max(o.y, top + 0.3f), q.z + d.z * (end + 0.45f)};
+            float maxSlope = -1e9f, hits = 0.f;
+            for (float s = 0.6f; s < range; s += step) {
+                const float h = nav.surface(o.x + d.x * s, o.z + d.z * s);
+                if (h < q.y - 3.f && s > 15.f && (h + 1.1f - o.y) / s > maxSlope) hits += 1.f;
+                maxSlope = std::max(maxSlope, (h - o.y) / s);
+            }
+            v.sector[k] = hits;
+            v.score += hits;
+        }
+        if (v.score > 0.f) R.v.push_back(v);
+    }
+    std::sort(R.v.begin(), R.v.end(), [](const Vantage& a, const Vantage& b) { return a.score > b.score; });
+    roofs_.push_back(std::move(R));
+    return &roofs_.back();
+}
+
+bool SoldierAI::sniperReposition(GameContext& ctx, uint32_t i, float range) {
+    SoldierPool& P = *ctx.soldiers;
+    const NavGrid& nav = *ctx.nav;
+    const V3 p = P.pos[i];
+    float ground = p.y;
+    for (int k = 0; k < 8; ++k) ground = std::min(ground, nav.surface(p.x + 15.f * std::cos(k * 0.785398f), p.z + 15.f * std::sin(k * 0.785398f)));
+    if (p.y - ground < 2.5f) return false;   // not on a roof
+    const RoofVantages* R = roofVantages(ctx, p, range);
+    if (!R || R->v.empty()) return false;
+    // zombies the field knows within range (isolated ones first: the marksman does not shoot into crowds)
+    struct T { V3 pos; float key; };
+    std::vector<T> tg;
+    if (ctx.horde) {
+        const ZombieField& f = ctx.horde->field();
+        for (const ZombieFieldTile& t : f.tiles)
+            for (uint32_t k = 0; k < t.samples; ++k) {
+                const float d = dist2D(p, t.pos[k]);
+                if (d <= range + 40.f) tg.push_back({t.pos[k], d + (t.count > 3 ? 60.f : 0.f)});
+            }
+    }
+    std::sort(tg.begin(), tg.end(), [](const T& a, const T& b) { return a.key < b.key; });
+    if (tg.size() > 32) tg.resize(32);
+    auto shootable = [&](V3 at) {
+        int n = 0;
+        for (const T& t : tg)
+            if (dist2D(at, t.pos) <= range && shotClear(nav, at, t.pos + V3{0, 1.1f, 0}, tuning.sniperMargin)) ++n;
+        return n;
+    };
+    const int here = tg.empty() ? 0 : shootable(p);
+    if (here > 0) return false;   // something shootable from here: perception locks it
+    const Vantage* best = nullptr;
+    float bestScore = -1.f;
+    if (!tg.empty()) {
+        // prefilter by the static coverage toward the targets' bearings, then count exactly
+        std::vector<std::pair<float, const Vantage*>> pre;
+        for (const Vantage& v : R->v) {
+            float cov = 0.f;
+            for (const T& t : tg) {
+                float a = std::atan2(t.pos.x - v.pos.x, t.pos.z - v.pos.z);
+                if (a < 0) a += 2.f * kPi;
+                const int nr = std::clamp(tuning.vantageRays, 4, 24);
+                cov += v.sector[(int)std::lround(a / (2.f * kPi) * nr) % nr];
+            }
+            pre.push_back({cov - dist2D(v.pos, p) * 0.5f, &v});
+        }
+        std::sort(pre.begin(), pre.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        for (size_t k = 0; k < pre.size() && k < 64; ++k) {
+            const int n = shootable(pre[k].second->pos);
+            const float sc = (float)n * 100.f - dist2D(pre[k].second->pos, p);
+            if (n > 0 && sc > bestScore) { bestScore = sc; best = pre[k].second; }
+        }
+    }
+    if (!best) {   // nothing shootable known: the vantage overlooking the most street (prefer near ones)
+        for (const Vantage& v : R->v) {
+            const float sc = v.score - dist2D(v.pos, p) * 2.f;
+            if (sc > bestScore) { bestScore = sc; best = &v; }
+        }
+        if (best && dist2D(best->pos, P.home[i]) < 1.0f) return false;   // already there
+    }
+    if (!best || dist2D(best->pos, P.home[i]) < 0.5f) return false;
+    // face the bearing it covers best
+    int bk = 0;
+    for (int k = 1; k < 24; ++k) if (best->sector[k] > best->sector[bk]) bk = k;
+    P.home[i] = best->pos;
+    P.homeYaw[i] = (float)bk * 2.f * kPi / (float)std::clamp(tuning.vantageRays, 4, 24);
+    ++vantageMoves_;
+    if (dist2D(best->pos, p) > 0.6f) {
+        P.setState(i, SoldierState::Moving);
+        P.phase[i] |= PH_RETURNING;
+        startPath(ctx, i, best->pos);
+        return true;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     SoldierPool& P = *ctx.soldiers;
     const BalanceConfig& cfg = *ctx.cfg;
@@ -572,21 +727,20 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             // fire only along a clear firing line (muzzle -> target; a wall / container right in front is fired over,
             // as Combat::fire does): rounds into parked cars were most of the "misses" (b1_ai_threat: 50 of 76)
             bool clear = true;
-            if (ctx.nav && ctx.nav->ready()) {
-                V3 from = P.pos[i] + V3{0, 1.4f, 0};
-                const V3 to = L.pos + V3{0, 1.1f - 0.75f * std::clamp(L.prone, 0.f, 1.f), 0};
-                const V3 dir = normalize(V3{to.x - from.x, 0, to.z - from.z});
-                float top = -1e9f, end = 0.f;
-                for (float s = 0.25f; s <= 1.5f; s += 0.25f) {
-                    const float h = ctx.nav->surface(P.pos[i].x + dir.x * s, P.pos[i].z + dir.z * s);
-                    if (h > P.pos[i].y + 0.4f) { top = std::max(top, h); end = s; }
-                }
-                if (top > P.pos[i].y + 0.4f && top - P.pos[i].y <= 2.8f) from = V3{P.pos[i].x + dir.x * (end + 0.45f), std::max(from.y, top + 0.3f), P.pos[i].z + dir.z * (end + 0.45f)};
-                clear = ctx.nav->lineOfSight(from, to);
-            }
+            if (ctx.nav && ctx.nav->ready())
+                clear = shotClear(*ctx.nav, P.pos[i], L.pos + V3{0, 1.1f - 0.75f * std::clamp(L.prone, 0.f, 1.f), 0},
+                                  P.cls[i] == SoldierClass::Sniper ? tuning.sniperMargin : 0.f);
+            // a lock that stays blocked (seen from the eye but not shootable: roof edge, parked car) is dropped so a
+            // shootable one is picked (snipers also re-pick their roof vantage)
+            L.blocked = clear ? 0.f : L.blocked + dt;
             const bool acquired = L.acquire >= w.acquireTime && d <= w.range && !outside && clear;
             if (acquired && !(P.phase[i] & PH_ACQUIRED)) { P.phase[i] |= PH_ACQUIRED; P.fireCooldown[i] = -1.f; }   // Combat arms the clock
             if (!acquired) P.phase[i] &= (uint8_t)~PH_ACQUIRED;
+            if (L.blocked > tuning.blockedDrop) {
+                L.active = false;
+                P.phase[i] &= (uint8_t)~PH_ACQUIRED;
+                if (P.cls[i] == SoldierClass::Sniper) P.scanT[i] = 0.f;
+            }
         } else P.phase[i] &= (uint8_t)~PH_ACQUIRED;
         const bool fromMove = P.resume[i] != SoldierState::Idle;
         const float threatLimit = fromMove ? tuning.threatRadius + 2.f : 1e9f;
@@ -675,60 +829,25 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     }
     case SoldierState::Idle:
     default: {
-        steer(ctx, i, {});
+        // a marksman settles exactly on his vantage cell (a roof-edge shot clears the edge only from right there)
+        const float dh = dist2D(P.pos[i], P.home[i]);
+        if (P.cls[i] == SoldierClass::Sniper && dh > 0.05f && dh < tuning.leash) {
+            const V3 to{P.home[i].x - P.pos[i].x, 0, P.home[i].z - P.pos[i].z};
+            const float v = std::min(ss.walkSpeed, dh * 3.f);
+            steer(ctx, i, to * (v / dh));
+        } else steer(ctx, i, {});
         if (outside) break;
         const float off = wrapPi(P.homeYaw[i] - P.yaw[i]);
         if (std::fabs(off) > 0.05f) P.yaw[i] = wrapPi(P.yaw[i] + std::clamp(off, -tuning.turnRate * 0.5f * dt, tuning.turnRate * 0.5f * dt));
         const int total = P.mag[i] + P.reserve[i];
         const bool low = total < (int)std::ceil(ss.lowAmmoFraction * (float)P.fullLoad(i, cfg));
         if (P.mag[i] > 0 && (L.active || ((perceive || hasClose) && lockNew(false)))) { P.setState(i, SoldierState::Engaging); break; }
-        // rooftop marksman: from the middle of a roof the roof itself hides the street. With nothing in sight he moves
-        // to the roof edge facing the nearest zombies the field knows within range (same roof island), every 8 s.
+        // rooftop marksman: from the middle of a roof the roof itself hides the street. With nothing shootable in
+        // sight he moves to the roof-edge vantage that can shoot the most zombies the field knows within range (or,
+        // with none known, to the vantage overlooking the most street), re-picked every vantageScan s.
         if (P.cls[i] == SoldierClass::Sniper && ctx.nav && ctx.nav->ready() && (P.scanT[i] -= dt) <= 0.f) {
-            P.scanT[i] = 8.f;
-            const NavGrid& nav = *ctx.nav;
-            const V3 p = P.pos[i];
-            float ground = p.y;
-            for (int k = 0; k < 8; ++k) ground = std::min(ground, nav.surface(p.x + 15.f * std::cos(k * 0.785398f), p.z + 15.f * std::sin(k * 0.785398f)));
-            V3 t;
-            if (p.y - ground > 2.5f && nearestSample(ctx, p, w.acquireRange, t)) {
-                const uint32_t isl = nav.island(p.x, p.z);
-                const V3 dir = normalize(V3{t.x - p.x, 0, t.z - p.z});
-                V3 last = p;
-                for (float s = 0.5f; s < 40.f; s += 0.5f) {
-                    const V3 q = p + dir * s;
-                    if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || std::fabs(nav.surface(q.x, q.z) - p.y) > 0.6f) break;
-                    last = q;
-                }
-                V3 edge = last - dir * 0.6f;
-                if (dist2D(edge, p) < 0.6f) edge = p;
-                edge.y = nav.surface(edge.x, edge.z);
-                // better: the nearest spot of this roof (within 40 m) that actually sees one of the nearest zombies over the
-                // roof edge / parapets (LOS from the 2 m eye; 2 m candidate grid, sniper only, every 8 s)
-                V3 tgts[8];
-                int nt = 0;
-                if (const ZombieField* fz = ctx.horde ? &ctx.horde->field() : nullptr)
-                    for (const ZombieFieldTile& tile : fz->tiles)
-                        for (uint32_t k = 0; k < tile.samples && nt < 8; ++k)
-                            if (dist2D(tile.pos[k], p) <= w.range) tgts[nt++] = tile.pos[k] + V3{0, 1.2f, 0};
-                auto sees = [&](V3 e) { for (int k = 0; k < nt; ++k) if (nav.lineOfSight(e, tgts[k])) return true; return false; };
-                if (nt && !sees(p + V3{0, tuning.eyeHeight, 0})) {
-                    float best = 1e9f;
-                    for (float dz = -40.f; dz <= 40.f; dz += 2.f)
-                        for (float dx = -40.f; dx <= 40.f; dx += 2.f) {
-                            const float d = std::sqrt(dx * dx + dz * dz);
-                            if (d > 40.f || d >= best) continue;
-                            const V3 q{p.x + dx, 0, p.z + dz};
-                            if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || std::fabs(nav.surface(q.x, q.z) - p.y) > 1.0f) continue;
-                            if (!sees(V3{q.x, nav.surface(q.x, q.z) + tuning.eyeHeight, q.z})) continue;
-                            best = d; edge = V3{q.x, nav.surface(q.x, q.z), q.z};
-                        }
-                }
-                if (dist2D(edge, P.home[i]) > 1.0f && nav.walkable(edge.x, edge.z)) {
-                    P.home[i] = edge; P.homeYaw[i] = yawTo(edge, t);
-                    if (dist2D(edge, p) > 0.8f) { P.setState(i, SoldierState::Moving); P.phase[i] |= PH_RETURNING; startPath(ctx, i, edge); break; }
-                }
-            }
+            P.scanT[i] = tuning.vantageScan;
+            if (sniperReposition(ctx, i, std::min(w.range, w.acquireRange))) break;
         }
         // clearing an enclosed, uncleared region (B2 territory): with nothing in sight, walk toward the nearest zombie
         // the field knows inside the same region (bounded to the region), then the leash brings the soldier home

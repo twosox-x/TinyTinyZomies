@@ -78,6 +78,13 @@ struct AiTuning {                     // behaviour constants (not balance): kept
     float aimLead = 0.12f;           // s: aim ahead along the zombie velocity (readback latency + flight)
     float switchRatio = 0.6f;        // switch to a new threat this much closer than the lock (similar threats: keep)
     float buddyRadius = 2.5f;        // m: a zombie this close to a squad mate counts as threatening him (mutual support)
+    float blockedDrop = 1.0f;        // s: a lock with no clear firing line for this long is dropped (pick another)
+    // --- rooftop marksman (sniper on a roof): vantage cells precomputed per roof by sampled firing-line rays
+    float vantageRadius = 50.f;      // m around the sniper searched for roof-edge vantage cells (same roof island)
+    float vantageSpacing = 2.0f;     // m between candidate vantage cells
+    int vantageRays = 24;            // azimuths per candidate
+    float vantageScan = 3.f;         // s between re-picks while nothing shootable is in sight
+    float sniperMargin = 0.4f;       // m: a marksman's line must also clear this far below the aim point (no grazing)
 };
 
 class SoldierAI {
@@ -113,6 +120,20 @@ private:
     void assignSlots(GameContext& ctx, Squad& s, V3 dest, float facing);
     void soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i);
     bool findTarget(const GameContext& ctx, uint32_t i, float range, V3& out) const;
+    // Clear firing line from a soldier standing at `feet` to the aim point `to` (muzzle 1.4 m, 0.5 m forward; a low
+    // obstacle right in front is fired over: the same rule as Combat::fire).
+    static bool shotClear(const NavGrid& nav, V3 feet, V3 to, float margin = 0.f);
+    // Rooftop vantage cells: roof-edge cells of one roof island, scored by how much street they can shoot into
+    // (sampled rays, 0..range). Cached per roof (island id + height + nav window origin).
+    struct Vantage { V3 pos; float score = 0.f; float sector[24] = {}; };
+    struct RoofVantages { uint32_t island = 0; float y = 0.f, ox = 0.f, oz = 0.f; std::vector<Vantage> v; };
+    std::vector<RoofVantages> roofs_;
+    const RoofVantages* roofVantages(const GameContext& ctx, V3 p, float range);
+    bool sniperReposition(GameContext& ctx, uint32_t i, float range);   // true: moving to a better vantage
+public:
+    uint64_t vantageMoves() const { return vantageMoves_; }
+private:
+    uint64_t vantageMoves_ = 0;
     // Best immediate threat of soldier i from its exact nearest list (visible, scored by distance, closing speed and
     // pressure on squad mates); n = visible zombies within threatRadius.
     bool bestThreat(const GameContext& ctx, uint32_t i, V3& pos, V3& vel, float& dist, int& n) const;

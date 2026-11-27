@@ -1,14 +1,56 @@
 # Owner feedback: the sniper must be a real long-range unit. A sniper on a 76 m roof picks off isolated zombies
-# ~100-105 m away down the street: accurate, slow deliberate fire, quiet (it does not draw the crowd).
+# 60-200 m away: on landing he moves to the roof-edge vantage overlooking the most street (precomputed per roof by
+# sampled firing-line rays), scans continuously (coarse field + firing line from the muzzle over the edge), re-picks
+# the vantage that can shoot the most known zombies when nothing is shootable; accurate, slow deliberate fire, quiet
+# (it does not draw the crowd). Wave 1: 5 zombies ~100 m down the street. Wave 2: 32 singles on rings of 70-190 m
+# around the building (the spawn pass refuses those inside buildings; some stay hidden behind other blocks).
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_sniper.txt
 at 0.0  camera 20 117 0.6 0.9 160
 at 0.1  buy sniper -48 116              # 76 m roof
 at 24   spawn 3 56 117 2                # isolated, ~104 m away (the spawn pass refuses some street cells)
 at 24.5 spawn 2 52 120 3                # ~100 m
 at 26   expect squad 1 rooftop == 1
-at 70   log
-at 70   expect kills >= 1                # PARTIAL: target acquisition from roofs is still slow (see report)
-at 70   expect hit_pct >= 60
-at 70   expect squad 1 alive == 1
-at 70   expect damage == 0
-at 71   end
+at 45   log
+at 45   expect kills >= 5                # wave 1 (+ the one ambient zombie) within ~20 s of the spawn
+at 45   expect hit_pct >= 70
+at 46.0 spawn 1 6 161 1
+at 46.3 spawn 1 -42 186 1
+at 46.6 spawn 1 -93 170 1
+at 46.9 spawn 1 -118 122 1
+at 47.2 spawn 1 -102 71 1
+at 47.5 spawn 1 -54 46 1
+at 47.8 spawn 1 -3 62 1
+at 48.1 spawn 1 22 110 1
+at 48.4 spawn 1 2 214 1
+at 48.7 spawn 1 -82 221 1
+at 49.0 spawn 1 -146 166 1
+at 49.3 spawn 1 -153 82 1
+at 49.6 spawn 1 -98 18 1
+at 49.9 spawn 1 -14 11 1
+at 50.2 spawn 1 50 66 1
+at 50.5 spawn 1 57 150 1
+at 50.8 spawn 1 -37 266 1
+at 51.1 spawn 1 -146 229 1
+at 51.4 spawn 1 -198 127 1
+at 51.7 spawn 1 -161 18 1
+at 52.0 spawn 1 -59 -34 1
+at 52.3 spawn 1 50 3 1
+at 52.6 spawn 1 102 105 1
+at 52.9 spawn 1 65 214 1
+at 53.2 spawn 1 -109 296 1
+at 53.5 spawn 1 -219 200 1
+at 53.8 spawn 1 -228 55 1
+at 54.1 spawn 1 -132 -55 1
+at 54.4 spawn 1 13 -64 1
+at 54.7 spawn 1 123 32 1
+at 55.0 spawn 1 132 177 1
+at 55.3 spawn 1 36 287 1
+at 56   log
+at 106  log
+at 106  expect kills >= 11               # wave 2: >= 6 isolated zombies at 60-200 m in a minute
+at 106  expect hit_pct >= 55
+at 106  expect hits_static <= 4
+at 106  expect squad 1 alive == 1
+at 106  expect squad 1 rooftop == 1
+at 106  expect damage == 0
+at 107  end

@@ -895,10 +895,16 @@ void MilitaryRenderer::endFrame() {
     }
     cpuInst_.clear();
     const uint32_t base = (uint32_t)atts_.size();
+    // CPU instances share one kMaxCpuInst region (GPU buffer and transfer buffer): canopies and vehicles are reserved
+    // first (whole draws), the buckets get the rest. Never exceed it (an overflow writes past the mapped transfer
+    // buffer and uploads past the instance buffer).
+    if (vehInst_.size() + canopyInst_.size() > (size_t)kMaxCpuInst) { vehDraws_.clear(); vehInst_.clear(); }
+    if (canopyInst_.size() > (size_t)kMaxCpuInst) { canopyDraws_.clear(); canopyInst_.clear(); }
+    const size_t reserved = vehInst_.size() + canopyInst_.size();
     for (size_t m = 0; m < instBuckets_.size(); ++m) {
         auto& b = instBuckets_[m];
         if (b.empty()) continue;
-        size_t n = std::min(b.size(), (size_t)kMaxCpuInst - vehInst_.size() - cpuInst_.size());
+        size_t n = std::min(b.size(), (size_t)kMaxCpuInst - reserved - cpuInst_.size());
         if (!n) break;
         draws_.push_back({&meshes_[m], base + (uint32_t)cpuInst_.size(), (uint32_t)n});
         st_.tris += (uint64_t)meshTris_[m] * n;

@@ -3,9 +3,24 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <regex>
+#include <unordered_map>
 
 namespace ttz {
+
+// Storage-buffer counts of every compute pipeline (from its reflection), checked at each dispatch: a dispatch that
+// binds fewer (or null) buffers than the pipeline declares leaves a descriptor unwritten, which lavapipe's JIT
+// dereferences (intermittent segfaults) and Metal reads as garbage.
+namespace {
+struct PipeInfo {
+    std::string name;
+    uint32_t ro = 0, rw = 0;
+    bool reported = false;
+};
+std::mutex g_pipeMutex;
+std::unordered_map<const SDL_GPUComputePipeline*, PipeInfo> g_pipes;
+} // namespace
 
 static std::string findShaderDir() {
     std::vector<std::string> candidates;
@@ -154,6 +169,13 @@ SDL_GPUComputePipeline* GpuContext::loadCompute(const std::string& name, uint32_
     ci.threadcount_z = r.threadsZ;
     SDL_GPUComputePipeline* p = SDL_CreateGPUComputePipeline(dev_, &ci);
     if (!p) SDL_Log("SDL_CreateGPUComputePipeline(%s) failed: %s", name.c_str(), SDL_GetError());
+    if (r.roStorageBuffers > 8 || r.rwStorageBuffers > 8)
+        SDL_Log("compute shader %s exceeds 8 storage buffers per kind (ro %u, rw %u)", name.c_str(), r.roStorageBuffers,
+                r.rwStorageBuffers);
+    if (p) {
+        std::lock_guard<std::mutex> lock(g_pipeMutex);
+        g_pipes[p] = PipeInfo{name, r.roStorageBuffers, r.rwStorageBuffers, false};
+    }
     return p;
 }
 
@@ -214,16 +236,37 @@ bool GpuContext::downloadNow(SDL_GPUBuffer* src, void* out, uint32_t size, uint3
     return true;
 }
 
+static void validateBindings(const Dispatch& d) {
+    std::lock_guard<std::mutex> lock(g_pipeMutex);
+    auto it = g_pipes.find(d.pipeline);
+    if (it == g_pipes.end() || it->second.reported) return;
+    bool nullBuf = false;
+    uint32_t i = 0;
+    for (SDL_GPUBuffer* b : d.ro)
+        if (i++ < it->second.ro && !b) nullBuf = true;
+    i = 0;
+    for (SDL_GPUBuffer* b : d.rw)
+        if (i++ < it->second.rw && !b) nullBuf = true;
+    if (d.ro.size() < it->second.ro || d.rw.size() < it->second.rw || d.rw.size() > 8 || d.ro.size() > 8 || nullBuf) {
+        SDL_Log("dispatch %s: binds ro %zu / rw %zu buffers, pipeline needs ro %u / rw %u%s", it->second.name.c_str(),
+                d.ro.size(), d.rw.size(), it->second.ro, it->second.rw, nullBuf ? " (null buffer)" : "");
+        it->second.reported = true;
+    }
+}
+
 static SDL_GPUComputePass* beginPass(const Dispatch& d) {
+    validateBindings(d);
     SDL_GPUStorageBufferReadWriteBinding rw[8]{};
     uint32_t n = 0;
-    for (SDL_GPUBuffer* b : d.rw) rw[n++] = SDL_GPUStorageBufferReadWriteBinding{b, false};
+    for (SDL_GPUBuffer* b : d.rw)
+        if (n < 8) rw[n++] = SDL_GPUStorageBufferReadWriteBinding{b, false};
     SDL_GPUComputePass* pass = SDL_BeginGPUComputePass(d.cmd, nullptr, 0, rw, n);
     SDL_BindGPUComputePipeline(pass, d.pipeline);
     if (d.ro.size()) {
-        SDL_GPUBuffer* ro[12];
+        SDL_GPUBuffer* ro[8];
         uint32_t m = 0;
-        for (SDL_GPUBuffer* b : d.ro) ro[m++] = b;
+        for (SDL_GPUBuffer* b : d.ro)
+            if (m < 8) ro[m++] = b;
         SDL_BindGPUComputeStorageBuffers(pass, 0, ro, m);
     }
     if (d.uniforms) SDL_PushGPUComputeUniformData(d.cmd, 0, d.uniforms, d.uniformSize);

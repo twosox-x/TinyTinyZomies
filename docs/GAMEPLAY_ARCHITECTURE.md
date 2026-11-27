@@ -491,6 +491,20 @@ Squads inside an enclosed, uncleared region with nothing in sight walk toward th
 that region (bounded to it), then the leash returns them. Not done: choosing defensive positions behind walls.
 
 **Ranges.** MG 55 m (dense close-mid), rifle 60 m (mid), sniper 220 m (accuracy 0.99, spread 0.12 deg, headshot 0.7,
-noise radius 12 m). A rooftop sniper with nothing in sight moves (every 8 s) to the nearest spot of his roof that sees
-one of the nearest field zombies over the roof edge (from the middle of a roof the roof itself hides the street).
-Test `tests/game/b1_sniper.txt`.
+noise radius 12 m).
+
+**Rooftop sniper (stabilisation pass).** What was wrong: targets were accepted on line of sight from the 2 m eye, but
+the round leaves the 1.4 m muzzle, so from a roof the roof edge / parapet blocked the shot; the clear-firing-line check
+then held fire, and the lock never dropped (its age is reset by every field re-association), so the sniper aimed at an
+unshootable zombie for the rest of the run (b1_sniper: 1 shot in 45 s). Now: `SoldierAI::shotClear` (muzzle 1.4 m,
+0.5 m forward, low cover within 1.5 m fired over: the same rule as `Combat::fire`) is used for the sniper's target
+choice and for every soldier's firing-line check; a lock without a clear line for `blockedDrop` (1 s) is dropped
+(`TargetLock::blocked`). Vantage cells: per roof (NavGrid island + height + window origin, cached) the roof-edge cells
+within 50 m (2 m spacing) are scored by 24 sampled rays out to the weapon range (one march per ray against the height
+grid, counting street samples whose aim point clears every earlier occluder = what `lineOfSight` would accept). On
+landing / when idle with nothing shootable (every 3 s) the sniper walks to the vantage that can shoot the most zombies
+the coarse field knows within range (isolated ones first; exact firing-line count for the 64 vantages best covering
+their bearings), or with none known to the vantage overlooking the most street, and settles exactly on its cell (a
+steep shot clears the edge only from right there). Perception keeps scanning the field (every 3 ticks) with the
+firing-line test. Result: b1_sniper wave 2 (32 singles on rings of 70-190 m, some hidden behind other blocks): ~7 kills
+per minute, no crowd drawn (noise radius 12 m). Test `tests/game/b1_sniper.txt`.
