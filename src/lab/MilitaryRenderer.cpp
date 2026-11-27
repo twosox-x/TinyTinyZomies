@@ -424,6 +424,37 @@ void MilitaryRenderer::muzzleFrame(const MilPoseInput& so, const CharU& C, const
     std::memcpy(outQ, qwep, sizeof(qwep));
 }
 
+void MilitaryRenderer::addHose(const MilPoseInput& so, const CharU& C, const float mountQ[4], const MilInfantry& inf) {
+    const float sc = bodyVoxel_;
+    const bool explicitPose = C.anim[0] > 8.5f;
+    // torso frame (slot 1, root of the skeleton) -> world
+    float e[3] = {explicitPose ? C.rot[1][0] : 0.f, explicitPose ? C.rot[1][1] : 0.f, explicitPose ? C.rot[1][2] : 0.f}, qt[4];
+    eulerXYZToQuat(e, qt);
+    float local[3] = {inf.hoseFrom[0] - kPivot[1][0] * sc, inf.hoseFrom[1] - kPivot[1][1] * sc, inf.hoseFrom[2] - kPivot[1][2] * sc}, r[3];
+    qrotv(qt, local, r);
+    float tp[3] = {kPivot[1][0] * sc + r[0], kPivot[1][1] * sc + r[1], kPivot[1][2] * sc + r[2]}, tr[3], qy[4], w[3];
+    qrotv(C.rootQ, tp, tr);
+    for (int k = 0; k < 3; ++k) tr[k] += C.rootPos[k];
+    yawQuat(so.yaw, qy);
+    qrotv(qy, tr, w);
+    const V3 a{so.pos.x + w[0], so.pos.y + w[1], so.pos.z + w[2]};
+    V3 b;
+    float wq[4];
+    muzzleFrame(so, C, mountQ, inf.hoseTo, b, wq);
+    const V3 d = b - a;
+    const float len = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    if (len < 0.05f || len > 2.5f) return;   // a broken pose (blend through the ground): no stretched hose
+    const int n = std::clamp((int)std::ceil(len / (inf.hoseVoxel * 0.8f)), 2, 48);
+    const float sag = inf.hoseSag * std::clamp(len / 1.0f, 0.3f, 1.2f);
+    const float id[4] = {0, 0, 0, 1};
+    for (int i = 0; i <= n; ++i) {
+        const float t = (float)i / (float)n;
+        V3 p = a + d * t;
+        p.y -= sag * 4.f * t * (1.f - t);
+        addModel(lib_.hoseModel, p, id);
+    }
+}
+
 void MilitaryRenderer::spawnFx(int model, V3 p, V3 v, const float q[4], float life, int kind, float glow) {
     if (fx_.size() >= kMaxFx || model < 0) return;   // FX budget
     Fx f{model, p, v, {0, 0, 0, 1}, 0.f, life, kind};
@@ -633,6 +664,19 @@ void MilitaryRenderer::pushSoldier(const MilPoseInput& so, int lod) {
                 continue;
             }
         }
+        const int flags = C.anim[0] > 8.5f ? (int)C.anim[3] : 0;
+        const int tool = (flags >> 8) & 15;
+        if ((int)a == inf.weaponAtt && (tool || (flags & 4096))) {   // specialists: carbine stowed on the back (bit 12 / tool held)
+            bool put = false;
+            for (const MilitaryLibrary::Slung& sm : lib_.stowMounts)
+                if (sm.cls == inf.cls) {
+                    O.info[1] = 1;
+                    for (int k = 0; k < 3; ++k) O.offset[k] = sm.grip[k] / bodyVoxel_;
+                    eulerXYZToQuat(sm.rot, O.quat);
+                    put = true;
+                }
+            if (put) { attBuckets_[(size_t)A.model].push_back(O); continue; }
+        }
         if ((int)a == inf.weaponAtt && C.anim[0] > 8.5f && (((int)C.anim[3]) & MB_FLAG_SLUNG)) {   // slung: torso * T(grip) * R(rot)
             for (const MilitaryLibrary::Slung& sm : lib_.slungMounts)
                 if (sm.cls == inf.cls) {
@@ -643,6 +687,35 @@ void MilitaryRenderer::pushSoldier(const MilPoseInput& so, int lod) {
         }
         attBuckets_[(size_t)A.model].push_back(O);
     }
+    // specialists: the held tool (flags bits 8..11) takes the weapon's place at the right hand (mount channels), or lies
+    // where the death clip's weapon track puts it once released (bit 7)
+    const int toolId = C.anim[0] > 8.5f ? (((int)C.anim[3] >> 8) & 15) : 0;
+    if (toolId > 0 && lib_.toolModels[toolId] >= 0) {
+        const int tm = lib_.toolModels[toolId];
+        bool dropped = false;
+        if (((int)C.anim[3]) & MB_FLAG_DROPPED) {
+            const MilClip& mc = inf.clips[(size_t)so.clip];
+            float W[MW_STRIDE];
+            if (mc.keyClip >= 0 && mc.keyClip < (int)lib_.keyClips.size() && lib_.keyClips[(size_t)mc.keyClip].sampleWeapon(so.t, W)) {
+                float qy[4], qr[4], q[4], pr[3];
+                yawQuat(so.yaw, qy);
+                eulerXYZToQuat(&W[MW_ROT], qr);
+                qmul(qy, qr, q);
+                qrotv(qy, &W[MW_POS], pr);
+                addModel(tm, {so.pos.x + pr[0], so.pos.y + pr[1], so.pos.z + pr[2]}, q);
+                dropped = true;
+            }
+        }
+        if (!dropped) {
+            AttU O{};
+            O.info[0] = ci; O.info[1] = 5;
+            O.offset[1] = -3.5f;
+            std::memcpy(O.quat, mountQ, sizeof(O.quat));
+            attBuckets_[(size_t)tm].push_back(O);
+        }
+    }
+    // flamer hose: a sagging chain of voxels from the tank valve (torso) to the gun (weapon space), drawn at LOD0 / 1
+    if (inf.hose && lib_.hoseModel >= 0 && lod <= 1 && !so.noWeapon) addHose(so, C, mountQ, inf);
     const int item = C.anim[0] > 8.5f ? ((int)C.anim[3] & 15) : 0;   // hand item at the left hand: (0, -3.5, 0) V in forearmL space
     if (item > 0 && item < 6 && lib_.handItemModels[item] >= 0) {
         AttU O{};

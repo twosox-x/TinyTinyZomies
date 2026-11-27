@@ -58,6 +58,7 @@ private:
     };
     std::vector<Mem> mem_;
     std::vector<double> last_;        // per soldier slot: game time of the last spray (-1 none)
+    std::vector<uint8_t> burnAnim_;   // per soldier slot: burn_ground clip running (ignite / stop edges)
     std::vector<float> fuelAcc_;      // per soldier slot: fractional fuel units used
     std::vector<uint32_t> lastGen_;
     std::vector<NoiseEvent> noise_;

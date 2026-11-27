@@ -15,7 +15,8 @@ const char* stateName(SoldierState s) {
 
 const char* actionName(AnimAction a) {
     static const char* n[] = {"idle", "walk", "run", "aim", "fire", "crouch_aim", "crouch_fire", "reload", "hit", "death_a",
-                              "collect_ammo", "turn_l", "turn_r", "para_descent", "para_land", "para_recover", "enter_building"};
+                              "collect_ammo", "turn_l", "turn_r", "para_descent", "para_land", "para_recover", "enter_building",
+                              "build_hammer", "build_shovel", "build_sandbag", "cut_car", "pry_car", "ignite", "stop", "burn_ground"};
     return (size_t)a < sizeof(n) / sizeof(n[0]) ? n[(size_t)a] : "idle";
 }
 

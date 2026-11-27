@@ -35,9 +35,9 @@ void FlameAI::usePlaceholderAssets(DeployTiming& t) {
 
 void FlameAI::ensure(const GameContext& ctx) {
     const size_t n = ctx.soldiers->capacity();
-    if (last_.size() < n) { last_.resize(n, -1.0); fuelAcc_.resize(n, 0.f); lastGen_.resize(n, ~0u); noiseAt_.resize(n, -1e9); }
+    if (last_.size() < n) { last_.resize(n, -1.0); fuelAcc_.resize(n, 0.f); lastGen_.resize(n, ~0u); noiseAt_.resize(n, -1e9); burnAnim_.resize(n, 0); }
     for (size_t i = 0; i < n; ++i)
-        if (lastGen_[i] != ctx.soldiers->gen[i]) { lastGen_[i] = ctx.soldiers->gen[i]; last_[i] = -1.0; fuelAcc_[i] = 0.f; noiseAt_[i] = -1e9; }
+        if (lastGen_[i] != ctx.soldiers->gen[i]) { lastGen_[i] = ctx.soldiers->gen[i]; last_[i] = -1.0; fuelAcc_[i] = 0.f; noiseAt_[i] = -1e9; burnAnim_[i] = 0; }
 }
 
 bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim) {
@@ -203,7 +203,13 @@ void FlameAI::tick(GameContext& ctx) {
             const float want = std::atan2(tgt.x - P.pos[i].x, tgt.z - P.pos[i].z);
             P.yaw[i] = SoldierAnimator::turnToward(P.yaw[i], want, 7.f * ctx.dt);
             P.vel[i] = {};
-            if (ctx.animator) ctx.animator->request(P.anim[i], needFire ? AnimAction::Fire : AnimAction::Aim);
+            if (ctx.animator) {   // approved flamer clips: ignite -> burn_ground (sweep at the pile) -> stop
+                const bool was = burnAnim_[i] != 0;
+                if (needFire && !was) ctx.animator->request(P.anim[i], AnimAction::FlameIgnite);
+                else if (!needFire && was) ctx.animator->request(P.anim[i], AnimAction::FlameStop);
+                else ctx.animator->request(P.anim[i], needFire ? AnimAction::BurnGround : AnimAction::Aim);
+                burnAnim_[i] = needFire ? 1 : 0;
+            }
             float err = std::remainder(want - P.yaw[i], 6.2831853f);
             if (!needFire) { anySpray = true; continue; }   // burning: hold, facing the pile
             if (std::fabs(err) < 0.35f && (last_[i] < 0.0 || ctx.time - last_[i] >= w.fireInterval - 1e-4)) {

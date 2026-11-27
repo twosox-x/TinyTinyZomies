@@ -16,6 +16,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace ttz {
@@ -95,6 +96,8 @@ struct MilInfantry {
     float support[3] = {0, 0, 0};     // weapon space (m)
     float paraSocket[3] = {0, 1.369f, -0.047f};   // model space: parachute harness socket
     float muzzle[3] = {0, 0, 0};      // muzzle position, body voxels from the forearmR pivot (FX hooks)
+    bool hose = false;                // flamer: procedural hose from the tank (torso) to the gun
+    float hoseFrom[3] = {0, 0, 0}, hoseTo[3] = {0, 0, 0}, hoseSag = 0.18f, hoseVoxel = 0.045f;   // body space / weapon space (m)
 };
 
 struct MilProp {
@@ -113,13 +116,18 @@ struct MilitaryLibrary {
     std::vector<MilKeyClip> keyClips;
     struct Slung { std::string cls; float grip[3]; float rot[3]; };
     std::vector<Slung> slungMounts;
+    std::vector<Slung> stowMounts;    // specialist_anims.json stowMount[class]: weapon on the back while flag bit 12 is set
+    int toolModels[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};   // flags bits 8..11 -> held tool model
+    int hoseModel = -1;               // one hose voxel (flamers)
+    std::unordered_map<std::string, int> ttzmPalette;   // "name/rgba/flags" -> palette index (shared between .ttzm files)
     struct Transition { std::string from, to; float s; bool sync; };
     std::vector<Transition> transitions;   // anims.json transitions (cross-fade seconds, phase sync)
     float transitionTime(const std::string& from, const std::string& to, bool& sync) const;
     int handItemModels[6] = {-1, -1, -1, -1, -1, -1};   // flags bits 0..3: none, rifle mag, MG box, sniper mag, ammo can, belt end   // anims.json slungMount[class]: weapon on the torso while flag bit 6 is set
     std::string animSource;           // anims.json status
     int findClip(const std::string& cls, const std::string& action) const;
-    bool loadAnims(const std::string& dir);
+    bool loadAnims(const std::string& dir, const std::string& stem = "anims");
+    void loadHoses(const std::string& specialistsJson);
     // GAME_DESIGN 14d engineers, PLACEHOLDER until the approved engineer assets exist: a rifleman variant (class stays
     // "rifleman": its clips) with an orange helmet cover and a hi-vis vest, variant name "Engineer (placeholder)".
     // Skipped when the library already has an infantry class "engineer" (approved assets: the game uses those).

@@ -65,7 +65,9 @@ const char* stateName(SoldierState s);
 // What the AI asks the animator to show (SoldierAnim.h maps action -> class clip, cross-fades per anims.json).
 enum class AnimAction : uint8_t {
     Idle, Walk, Run, Aim, Fire, CrouchAim, CrouchFire, Reload, Hit, Death, CollectAmmo, TurnL, TurnR,
-    ParaDescent, ParaLand, ParaRecover, EnterBuilding /* B3a */, Count
+    ParaDescent, ParaLand, ParaRecover, EnterBuilding /* B3a */,
+    // 14d specialists (approved assets, specialist_anims.json): engineer work loops, flamethrower clips
+    BuildHammer, BuildShovel, BuildSandbag, CutCar, PryCar, FlameIgnite, FlameStop, BurnGround, Count
 };
 const char* actionName(AnimAction a);   // anims.json action names ("idle", "para_descent", ...)
 

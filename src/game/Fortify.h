@@ -102,7 +102,7 @@ private:
     std::vector<TerritoryNotice> notices_;
     std::vector<Walls::Destroyed> destroyedScratch_;
     // render
-    struct Props { int straight[2] = {-1, -1}, corner[2] = {-1, -1}, t[2] = {-1, -1}, x[2] = {-1, -1}, end[2] = {-1, -1}, gate[2] = {-1, -1}, container = -1, chute = -1; bool init = false; } props_;
+    struct Props { int straight[2] = {-1, -1}, corner[2] = {-1, -1}, t[2] = {-1, -1}, x[2] = {-1, -1}, end[2] = {-1, -1}, gate[2] = {-1, -1}, container = -1, containerApron = -1, chute = -1; bool init = false; } props_;
 };
 
 } // namespace ttz::game

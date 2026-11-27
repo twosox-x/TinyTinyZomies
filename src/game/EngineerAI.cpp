@@ -237,7 +237,7 @@ bool EngineerAI::work(GameContext& ctx, uint32_t i) {
     P.vel[i] = {};
     const float add = ctx.dt / std::max(0.1f, j.time);
     ++j.workers;
-    worked_[i] = 1;
+    worked_[i] = j.kind == JobKind::Car ? 4 : j.kind == JobKind::GateConvert ? 3 : 1;   // 1 piece, 3 gate, 4 car (2: stepping)
     ++workingNow_;
     switch (j.kind) {
     case JobKind::Car:
@@ -276,9 +276,13 @@ void EngineerAI::postAi(GameContext& ctx) {
             else { P.anim[i].requested = AnimAction::Walk; P.anim[i].requestedSpeed = v; }
             continue;
         }
-        // PLACEHOLDER work loop until the approved engineer clips exist (tools/military_lab): kneeling collect_ammo
-        if (ctx.animator) ctx.animator->request(P.anim[i], AnimAction::CollectAmmo, 0.f);
-        else { P.anim[i].requested = AnimAction::CollectAmmo; P.anim[i].requestedSpeed = 0.f; }
+        // approved engineer work loops (specialist_anims.json): wall pieces -> shovel / sandbag / sledgehammer by member,
+        // gates -> sledgehammer, cars -> torch cutting / crowbar by member. Other classes fall back to idle.
+        static const AnimAction kPiece[3] = {AnimAction::BuildShovel, AnimAction::BuildSandbag, AnimAction::BuildHammer};
+        const AnimAction act = worked_[i] == 4 ? ((i & 1u) ? AnimAction::PryCar : AnimAction::CutCar)
+                             : worked_[i] == 3 ? AnimAction::BuildHammer : kPiece[i % 3u];
+        if (ctx.animator) ctx.animator->request(P.anim[i], act, 0.f);
+        else { P.anim[i].requested = act; P.anim[i].requestedSpeed = 0.f; }
     }
     // gate conversions whose piece is gone (destroyed / undone) are forgotten
     if (ctx.walls)

@@ -279,7 +279,7 @@ void CorpseGas::fireSpots(float x, float z, int maxN, std::vector<std::array<flo
 // burning cell (two along x, two along z, offset a quarter cell from the centre line) through HordeBridge's bullet path
 // (credited, quiet; deaths / kill records / rewards unchanged). A ray stops at the first zombie, so a crowded cell
 // burns its zombies one per ray per readback; a lone zombie is crossed by ~1.6 rays on average (damage per ray is
-// half the rate). A GPU pass writing the damage queue was removed in the corpse-gas milestone (docs 11).
+// 0.6 x the rate). Rays enter from alternating sides each readback, so the hit push does not walk zombies out. A GPU pass writing the damage queue was removed in the corpse-gas milestone (docs 11).
 void CorpseGas::groundFire(GameContext& ctx) {
     if (!ctx.horde || !flame_ || flame_->groundFireDps <= 0.f || readbacks_ == groundFireSeen_) return;
     groundFireSeen_ = readbacks_;
@@ -288,18 +288,20 @@ void CorpseGas::groundFire(GameContext& ctx) {
     if (prev < 0.0 || stats_.fireCells <= 0) return;
     const float dt = (float)std::min(ctx.time - prev, 1.0);
     if (dt <= 0.f) return;
-    const float dmg = 0.5f * flame_->groundFireDps * dt;
+    const float dmg = 0.6f * flame_->groundFireDps * dt;
     std::vector<HitRequest> hits;
     for (uint32_t j = 0; j < gh_ && hits.size() < 1024; ++j)
         for (uint32_t i = 0; i < gw_ && hits.size() < 1024; ++i) {
             if (!((cpu_[(size_t)j * gw_ + i] >> 8) & 0xFFu)) continue;
             const float x0 = ox_ + (float)i * cell_, z0 = oz_ + (float)j * cell_;
             const float y = (ctx.nav && ctx.nav->ready() ? ctx.nav->surface(x0 + 0.5f * cell_, z0 + 0.5f * cell_) : 0.f) + 0.5f;
+            const bool flip = (readbacks_ & 1u) != 0;   // alternate sides per readback: the rounds' small push cancels out
             for (int k = 0; k < 4; ++k) {
                 const float off = (k & 1) ? 0.75f : 0.25f;
+                const float e = flip ? cell_ + 0.05f : -0.05f, sg = flip ? -1.f : 1.f;
                 HitRequest h;
-                h.origin = (k < 2) ? V3{x0 - 0.05f, y, z0 + off * cell_} : V3{x0 + off * cell_, y, z0 - 0.05f};
-                h.dir = (k < 2) ? V3{1, 0, 0} : V3{0, 0, 1};
+                h.origin = (k < 2) ? V3{x0 + e, y, z0 + off * cell_} : V3{x0 + off * cell_, y, z0 + e};
+                h.dir = (k < 2) ? V3{sg, 0, 0} : V3{0, 0, sg};
                 h.maxDist = cell_ + 0.1f; h.damage = dmg; h.shooterPacked = lastShooter_; h.flags = 2u;   // quiet: small puff
                 hits.push_back(h);
             }

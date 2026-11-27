@@ -154,6 +154,7 @@ private:
     void sampleSoldier(const MilPoseInput& so, CharU& C, float mountQ[4], int lod) const;
     bool sampleBody(const MilPoseInput& so, int lod, float* B) const;
     void muzzleFrame(const MilPoseInput& so, const CharU& C, const float mountQ[4], const float wsPoint[3], V3& outP, float outQ[4]) const;
+    void addHose(const MilPoseInput& so, const CharU& C, const float mountQ[4], const MilInfantry& inf);
     void spawnFx(int model, V3 p, V3 v, const float q[4], float life, int kind, float glow = 0.f);
     void addGlow(int model, V3 p, const float q[4], float sxz, float sy);
     void buildMarkers();

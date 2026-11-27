@@ -4,6 +4,7 @@
 #include "sim/Look.h"
 
 #include <SDL3/SDL.h>
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -507,9 +508,17 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
     const uint32_t palN = w[2], vtxN = w[3];
     if (bin.size() < 32 + (size_t)palN * 8 + (size_t)vtxN * 8) { SDL_Log("military: %s truncated", binPath.c_str()); return false; }
     // palette -> city materials, appended after the lab palette (ids remapped)
-    const uint32_t palBase = (uint32_t)palette.size();
+    // palette -> city materials; entries identical to an earlier file's (name, colour, flags) are shared: infantry,
+    // props and specialists use the same lab palette, and the renderer needs room after it (RTS markers, <= 255)
+    std::vector<uint32_t> palMap(palN, 0u);
     for (uint32_t i = 0; i < palN; ++i) {
         uint32_t rgba = w[8 + i * 2], fl = w[8 + i * 2 + 1];
+        char key[160];
+        std::snprintf(key, sizeof(key), "%s/%08x/%x", j["palette"][i]["name"].str.c_str(), rgba, fl);
+        auto it = ttzmPalette.find(key);
+        if (it != ttzmPalette.end()) { palMap[i] = (uint32_t)it->second; continue; }
+        palMap[i] = (uint32_t)palette.size();
+        ttzmPalette[key] = (int)palette.size();
         bool emissive = fl & 1, metal = fl & 2, glass = fl & 4;
         CityMaterial m = mat((rgba & 255) / 255.f, ((rgba >> 8) & 255) / 255.f, ((rgba >> 16) & 255) / 255.f, metal ? 0.45f : 0.85f, metal ? 0.3f : 0.f,
                              (emissive ? MAT_EMISSIVE : 0u) | (glass ? MAT_GLASS : 0u), emissive ? EM_STEADY : EM_NONE, emissive ? 2.f : 0.f);
@@ -528,7 +537,8 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
             v.x = (int16_t)((int)(a & 1023) - 512); v.y = (int16_t)((int)((a >> 10) & 1023) - 512); v.z = (int16_t)((int)((a >> 20) & 1023) - 512);
             uint32_t f = std::min(b & 7u, 5u);
             v.nx = NRM[f][0]; v.ny = NRM[f][1]; v.nz = NRM[f][2];
-            v.mat = (uint8_t)std::min<uint32_t>(255u, palBase + ((b >> 5) & 255u));
+            const uint32_t pi = (b >> 5) & 255u;
+            v.mat = (uint8_t)std::min<uint32_t>(255u, pi < palN ? palMap[pi] : 255u);
             m.verts.push_back(v);
             m.idx.push_back(k);
         }
@@ -546,7 +556,8 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
     auto slotOf = [](const std::string& s) { for (int i = 0; i < 10; ++i) if (s == kSlots[i]) return i; return -1; };
     for (const json::Value& mj : j["models"].arr) {
         const json::Value& parts = mj["parts"];
-        if (inf) {
+        const std::string mcls = mj["class"].str;
+        if (inf && mcls != "tool" && mcls != "site") {
             MilInfantry I;
             I.cls = mj["class"].str; I.variant = mj["label"].str.empty() ? mj["name"].str : mj["label"].str;
             I.ownBody = true;
@@ -614,15 +625,21 @@ bool MilitaryLibrary::loadTtzm(const std::string& jsonPath, const std::string& b
                 P.parts.push_back({model, {(float)pj["pivot"][0].n(), (float)pj["pivot"][1].n(), (float)pj["pivot"][2].n()}});
             }
             if (!P.parts.empty()) P.model = P.parts[0].first;
+            const int toolId = (int)mj["toolId"].n(0);   // specialists.json tools: held by the work clips (flags bits 8..11)
+            if (toolId > 0 && toolId < 16 && P.model >= 0) toolModels[toolId] = P.model;
             props.push_back(P);
         }
     }
     return true;
 }
 
-bool MilitaryLibrary::loadAnims(const std::string& dir) {
+bool MilitaryLibrary::loadAnims(const std::string& dir, const std::string& stem) {
     std::vector<uint8_t> jt, bin;
-    if (!readAll(dir + "/anims.json", jt) || !readAll(dir + "/anims.bin", bin)) { animSource = "no anims.json / anims.bin"; return false; }
+    if (!readAll(dir + "/" + stem + ".json", jt) || !readAll(dir + "/" + stem + ".bin", bin)) {
+        if (stem == "anims") animSource = "no anims.json / anims.bin";
+        return false;
+    }
+    const size_t firstClip = keyClips.size();
     json::Value j;
     if (!json::parse(std::string(jt.begin(), jt.end()), j)) { animSource = "anims.json: parse error"; return false; }
     const size_t dataOff = (size_t)j["dataOffsetBytes"].n(0);   // header before the float data
@@ -638,7 +655,12 @@ bool MilitaryLibrary::loadAnims(const std::string& dir) {
         for (int a = 0; a < 3; ++a) { sm.grip[a] = (float)v["gripFromTorsoPivot"][(size_t)a].n(); sm.rot[a] = (float)v["rot"][(size_t)a].n(); }
         slungMounts.push_back(sm);
     }
-    transitions.clear();
+    for (auto& [cls, v] : j["stowMount"].obj) {   // specialists: weapon strapped on the back while flag bit 12 is set
+        Slung sm{cls, {}, {}};
+        for (int a = 0; a < 3; ++a) { sm.grip[a] = (float)v["gripFromTorsoPivot"][(size_t)a].n(); sm.rot[a] = (float)v["rot"][(size_t)a].n(); }
+        stowMounts.push_back(sm);
+    }
+    if (stem == "anims") transitions.clear();
     for (const json::Value& t : j["transitions"].arr)
         transitions.push_back({t["from"].str, t["to"].str, (float)t["s"].n(0.2), t["sync"].str == "phase"});
     int loaded = 0;
@@ -670,10 +692,10 @@ bool MilitaryLibrary::loadAnims(const std::string& dir) {
         keyClips.push_back(std::move(k));
         ++loaded;
     }
-    // every infantry variant plays its class's clips
+    // every infantry variant plays its class's clips (the clips of this file)
     for (MilInfantry& I : infantry) {
         I.clips.erase(std::remove_if(I.clips.begin(), I.clips.end(), [](const MilClip& c) { return c.keyClip < 0; }), I.clips.end());
-        for (size_t i = 0; i < keyClips.size(); ++i) {
+        for (size_t i = firstClip; i < keyClips.size(); ++i) {
             const MilKeyClip& k = keyClips[i];
             if (k.cls != I.cls || k.body.empty()) continue;
             MilClip c;
@@ -681,28 +703,85 @@ bool MilitaryLibrary::loadAnims(const std::string& dir) {
             I.clips.push_back(c);
         }
     }
-    animSource = "anims: " + std::to_string(loaded) + " clips";
-    SDL_Log("military lab: %s", animSource.c_str());
+    if (stem == "anims") animSource = "anims: " + std::to_string(loaded) + " clips";
+    else animSource += ", " + stem + ": " + std::to_string(loaded) + " clips";
+    SDL_Log("military lab: %s: %d clips", stem.c_str(), loaded);
     return loaded > 0;
 }
 
 bool MilitaryLibrary::load(const std::string& dir, float bodyVoxel) {
     SDL_PathInfo info;
     if (!SDL_GetPathInfo((dir + "/infantry.json").c_str(), &info) && !SDL_GetPathInfo((dir + "/props.json").c_str(), &info)) return false;
-    models.clear(); premeshed.clear(); infantry.clear(); props.clear();
+    models.clear(); premeshed.clear(); infantry.clear(); props.clear(); ttzmPalette.clear();
     basePalette();
     buildLabHelpers();
     premeshed.resize(models.size());
     bool a = loadTtzm(dir + "/infantry.json", dir + "/infantry.ttzm", true, bodyVoxel);
     bool b = loadTtzm(dir + "/props.json", dir + "/props.ttzm", false, bodyVoxel);
     if (!a && !b) return false;
+    // 14d specialists (APPROVED): engineer / flamethrower infantry, their tools (props) and clips
+    const bool sp = loadTtzm(dir + "/specialists.json", dir + "/specialists.ttzm", true, bodyVoxel);
     premeshed.resize(models.size());
     loadAnims(dir);
+    if (sp) loadAnims(dir, "specialist_anims");
+    if (sp) loadHoses(dir + "/specialists.json");
     addEngineerPlaceholder();
     placeholder = false;
     source = dir + " (" + std::to_string(infantry.size()) + " infantry, " + std::to_string(props.size()) + " props)";
     SDL_Log("military lab: loaded %s", source.c_str());
     return true;
+}
+
+// flamer hoses (procedural, MILITARY_ASSETS.md): from a torso point (rest-pose body space) to a weapon point
+void MilitaryLibrary::loadHoses(const std::string& jsonPath) {
+    std::vector<uint8_t> jt;
+    json::Value j;
+    if (!readAll(jsonPath, jt) || !json::parse(std::string(jt.begin(), jt.end()), j)) return;
+    for (const json::Value& mj : j["models"].arr) {
+        const json::Value& h = mj["hose"];
+        if (h.type != json::Value::Object) continue;
+        for (MilInfantry& I : infantry) {
+            if (I.model != mj["name"].str) continue;
+            I.hose = true;
+            for (int k = 0; k < 3; ++k) { I.hoseFrom[k] = (float)h["from"]["pos"][(size_t)k].n(); I.hoseTo[k] = (float)h["to"]["pos"][(size_t)k].n(); }
+            I.hoseSag = (float)h["sag"].n(0.18);
+            I.hoseVoxel = (float)h["voxel"].n(0.045);
+        }
+    }
+    if (hoseModel < 0) {   // one dark rubber voxel (a cube of 1 unit), instanced along the hose
+        const uint8_t m = (uint8_t)palette.size();
+        palette.push_back(mat(0.018f, 0.018f, 0.018f, 0.7f, 0.f, 0, EM_NONE, 0.f, "hoseRubber"));
+        CityMesh cm;
+        cm.scaleXZ = cm.scaleY = 0.5f * 0.045f;
+        static const int N[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+        for (int f = 0; f < 6; ++f) {   // same face layout as meshVoxels (CCW seen from outside), unit cube centred
+            const int* n = N[f];
+            const int d = n[0] ? 0 : n[1] ? 1 : 2, sg = n[0] + n[1] + n[2], u = (d + 1) % 3, w = (d + 2) % 3;
+            int c[4][3];
+            for (int k = 0; k < 4; ++k) {
+                c[k][0] = c[k][1] = c[k][2] = 0;
+                if (sg > 0) c[k][d] = 1;
+                if (k == 1 || k == 2) c[k][u] = 1;
+                if (k == 2 || k == 3) c[k][w] = 1;
+            }
+            int order[4] = {0, 1, 2, 3};
+            if (sg < 0) { order[1] = 3; order[3] = 1; }
+            const uint32_t first = (uint32_t)cm.verts.size();
+            for (int k = 0; k < 4; ++k) {
+                CityVertex cv{};
+                cv.x = (int16_t)(2 * c[order[k]][0] - 1); cv.y = (int16_t)(2 * c[order[k]][1] - 1); cv.z = (int16_t)(2 * c[order[k]][2] - 1);
+                cv.nx = (int8_t)(n[0] * 127); cv.ny = (int8_t)(n[1] * 127); cv.nz = (int8_t)(n[2] * 127); cv.mat = m;
+                cm.verts.push_back(cv);
+            }
+            for (uint32_t i : {0u, 1u, 2u, 0u, 2u, 3u}) cm.idx.push_back(first + i);
+        }
+        MilVoxelModel stub;
+        stub.name = "hose voxel";
+        models.push_back(stub);
+        premeshed.resize(models.size() - 1);
+        premeshed.push_back(std::move(cm));
+        hoseModel = (int)models.size() - 1;
+    }
 }
 
 void MilitaryLibrary::addEngineerPlaceholder() {

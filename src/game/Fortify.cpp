@@ -324,7 +324,8 @@ void Fortifications::afterSubmit(bool sync) {
 
 // ---------------------------------------------------------------------------------------------------------------
 namespace {
-void putProp(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, float sy, float dissolve, float leafOpen = 0.f) {
+// only: -1 all parts; >= 0 only that part; skip: a part left out (container apron during the descent)
+void putProp(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, float sy, float dissolve, float leafOpen = 0.f, int skip = -1, int only = -1) {
     const MilitaryLibrary& lib = mil.library();
     if (prop < 0 || prop >= (int)lib.props.size() || dissolve >= 1.f) return;
     const MilProp& P = lib.props[(size_t)prop];
@@ -341,6 +342,7 @@ void putProp(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, float 
     };
     if (P.parts.empty()) { put(P.model, {0, 0, 0}, 0.f); return; }
     for (size_t k = 0; k < P.parts.size(); ++k) {
+        if ((int)k == skip || (only >= 0 && (int)k != only)) continue;
         float extra = 0.f;
         if (leafOpen > 0.f && P.parts.size() == 3 && k > 0) extra = (k == 1 ? 1.f : -1.f) * leafOpen * 1.4f;   // gate leaves (hinges)
         put(P.parts[k].first, P.parts[k].second, extra);
@@ -362,6 +364,16 @@ void Fortifications::draw(MilitaryRenderer& mil, const GameContext& ctx, float f
             std::snprintf(n, sizeof(n), "wall_%s_gate", v[t]); props_.gate[t] = mil.findProp(n);
         }
         props_.container = mil.findProp("container_supply");
+        props_.containerApron = -1;
+        if (props_.container >= 0) {   // the apron part (model "container_supply/apron")
+            const MilProp& cp = mil.library().props[(size_t)props_.container];
+            for (size_t k = 0; k < cp.parts.size(); ++k) {
+                const int m = cp.parts[k].first;
+                if (m >= 0 && m < (int)mil.library().models.size() && mil.library().models[(size_t)m].name.size() >= 6 &&
+                    mil.library().models[(size_t)m].name.compare(mil.library().models[(size_t)m].name.size() - 6, 6, "/apron") == 0)
+                    props_.containerApron = (int)k;
+            }
+        }
         props_.chute = mil.findProp("para_cargo");
     }
     const float buildT = std::max(0.05f, cfg_ ? cfg_->fort.buildTime : 0.6f);
@@ -420,8 +432,15 @@ void Fortifications::draw(MilitaryRenderer& mil, const GameContext& ctx, float f
             if (!sp.alive || sp.kind != SupplyKind::Container) continue;
             const float alt = sp.phase == 0 ? sp.altitude : 0.f;
             const V3 o{sp.pos.x, sp.pos.y + alt, sp.pos.z};
-            putProp(mil, props_.container, o, sp.yaw, 1.f, 1.f, 0.f);
             const float since = sp.phase == 0 ? -1.f : sp.phase == 1 ? sp.phaseT : land + std::max(0.f, sp.groundT);
+            // the sandbag / barrier apron is not part of the air-dropped load: only the container body (and doors) hang
+            // under the canopies; once it has touched down the apron rises out of the ground (0.6 s build-in)
+            const int apron = props_.containerApron;
+            putProp(mil, props_.container, o, sp.yaw, 1.f, 1.f, 0.f, 0.f, apron);
+            if (apron >= 0 && since >= 0.f) {
+                const float k = std::clamp(since / 0.6f, 0.f, 1.f);
+                putProp(mil, props_.container, {sp.pos.x, sp.pos.y, sp.pos.z}, sp.yaw, 1.f, 0.05f + 0.95f * k * (2.f - k), 0.f, 0.f, -1, apron);
+            }
             if (props_.chute < 0 || since > 3.6f) continue;
             const float c = std::cos(sp.yaw), s = std::sin(sp.yaw);
             // collapsing canopies drift to the side of the container away from walls; with walls on both sides they

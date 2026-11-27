@@ -15,8 +15,8 @@ namespace {
 // Clip timings for the deploy / crate timelines from the approved clips (Deploy / Logistics stay library-free so the
 // headless self-test can link them without the renderer).
 void timingFromLibrary(const MilitaryLibrary& lib, DeployTiming& t, Logistics& lg) {
-    static const char* cls[3] = {"rifleman", "mg", "sniper"};
-    for (int c = 0; c < 3; ++c) {
+    static const char* cls[4] = {"rifleman", "mg", "sniper", "flamer"};   // flamer: approved specialist assets (14d)
+    for (int c = 0; c < 4; ++c) {
         t.variants[(size_t)c].clear();
         for (size_t i = 0; i < lib.infantry.size(); ++i) if (lib.infantry[i].cls == cls[c]) t.variants[(size_t)c].push_back((int)i);
         for (const MilKeyClip& k : lib.keyClips) {
@@ -111,7 +111,8 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
             std::vector<int>& rv = t.variants[(size_t)SoldierClass::Rifleman];
             rv.erase(std::remove_if(rv.begin(), rv.end(), [&](int i) { return lib->infantry[(size_t)i].variant.find("Engineer") != std::string::npos; }), rv.end());
         }
-        FlameAI::usePlaceholderAssets(deploy_.timing);       // 14d: rifleman variants until the flamethrower assets are approved
+        // 14d flamethrowers: the approved "flamer" infantry (specialists.json); the rifleman placeholder only if absent
+        if (deploy_.timing.variants[(size_t)SoldierClass::Flamethrower].empty()) FlameAI::usePlaceholderAssets(deploy_.timing);
         SDL_Log("game: deploy timeline from clips: descent %.1f m/s, land %.2f s, recover %.2f s; crate %.1f m/s",
                 deploy_.timing.descentSpeed[0], deploy_.timing.landDuration[0], deploy_.timing.recoverDuration[0], deploy_.timing.crateDescentSpeed);
     }

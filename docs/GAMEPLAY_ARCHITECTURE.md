@@ -745,7 +745,11 @@ Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h
   per spray over the cone (pattern rotating per spray, `flame.zombieDps` x spray time each, quiet flag) through
   HordeBridge's bullet path (credited: deaths, kill records, rewards, gore unchanged). A GPU pass writing the
   damage queue directly from the cones / ground fire crashed lavapipe in the city game right after flame kills (not
-  in the arena self-test; cause not found) and was removed: ground fire does not hurt zombies yet (PROPOSED). Packed readback (gas, fire, corpses, rotting per cell + stats), async ring of 3,
+  in the arena self-test) and was removed. Ground fire (final stabilisation pass): `CorpseGas::groundFire` queues, once
+  per readback, 4 knee-high hit rays across every burning cell (two along x, two along z, entering from alternating
+  sides so the rounds' push cancels), `0.6 x flame.groundFireDps x dt` each, quiet, credited to the newest cone's
+  shooter, through the same HordeBridge bullet path (self-test "ground fire kills zombies standing in it"; script
+  metric `ground_fire_rays`). Packed readback (gas, fire, corpses, rotting per cell + stats), async ring of 3,
   every 0.25 s.
 - **Gameplay.** `CorpseGas::tick` (after Combat): soldiers standing in gas above `rot.damageThreshold` lose
   `damagePerSecond x level` hp/s (capped), the squad gets `SQ_GAS` (green status pip, "in gas" in the selection
@@ -758,9 +762,14 @@ Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h
   squad seeks the best pile / rotting gas source within `flame.seekRadius` of its post (the player's last order point),
   walks to a stand-off point (its own move order), sprays the pile with a sweep until no corpse is left (readback) or a
   timeout, then returns; a player order onto a pile burns that pile. Never sprays with a soldier inside the cone.
-- **Placeholder** until the approved flamethrower model / clips (tools/military_lab): rifleman variants and clips
-  (`FlameAI::usePlaceholderAssets`, one call in GameWorld); nozzle glow + light at the rifle muzzle
-  (`MilitaryRenderer::fxFlame`, plus a rare ember).
+- **Approved assets** (owner, final pass): `assets/military/specialists.{json,ttzm}` (engineer_a..c, flamer_a..b, six
+  tools, sandbag pile) + `specialist_anims.{json,bin}` are loaded by `MilitaryLibrary::load` after the infantry
+  (`loadAnims(dir, "specialist_anims")` appends; tools / site models become props, `toolModels[toolId]`). Flamethrower
+  squads use the "flamer" variants (`timingFromLibrary`; the rifleman placeholder `FlameAI::usePlaceholderAssets` only
+  when they are missing). Pile burning plays `ignite` -> `burn_ground` -> `stop` (FlameAI, per-soldier edge), zombie
+  engagement the generic `fire`. The hose is procedural (`MilitaryRenderer::addHose`: a sagging chain of 4.5 cm voxels
+  from the manifest's torso point to the gun's hose point, LOD0/1). The flame FX starts at the flamer's nozzle
+  (weapon muzzle point).
 - **Flame look** (owner feedback x3: "like the explosions, voxel-based, not particles", then "one continuous tongue",
   then the Lab v4 spec, docs/MILITARY_ANIMS.md 7.5 / `fx.flame_tongue`): the jet and the ground fire are fx volumes in
   the explosions' path (`shaders/include/fx_volume*.glsl`: DDA through the world voxel grid, half-res + exact-edge
@@ -846,11 +855,16 @@ becomes ground, its cells re-uploaded (zombies, NavGrid patch), kept across wind
 a container). Changes made on the container side: the descent is straight down onto the placed spot (unchanged), the
 collapsing canopies now fall to the side away from walls (or fold straight down onto the roof when walls are on both
 sides) instead of draping over / through an adjacent wall; containers may still be placed flush inside a compound.
+Final pass (owner bug): the `container_supply` apron part (sandbags / barriers) is no longer drawn during the descent;
+it rises out of the ground in 0.6 s after touchdown (`Fortifications::draw`, `putProp` skip / only part). Collision and
+obstacle stamping are unchanged.
 
-**Engineer look.** PLACEHOLDER: "Engineer (placeholder)" = the first rifleman variant with an orange helmet cover and a
-hi-vis vest (`addEngineerPlaceholder`, two palette entries); never used for rifle squads. When the approved engineer
-assets (class "engineer", tools/military_lab) are loaded into the library, `engineerVariants` uses them instead (their
-class clips must exist); the work clip request in `EngineerAI::postAi` is the one line to switch to their build clip.
+**Engineer look.** APPROVED assets (class "engineer", `specialists.json`): `engineerVariants` uses them; the placeholder
+(`addEngineerPlaceholder`) is only built when they are missing. Work loops (`EngineerAI::postAi`): wall pieces ->
+`build_shovel` / `build_sandbag` / `build_hammer` by member, gates -> `build_hammer`, cars -> `cut_car` / `pry_car`
+by member. Held tools: body flags bits 8..11 select the tool model, drawn at the right hand with the clip's mount
+channels (dropped tools follow the death clip's weapon track); the carbine goes to `stowMount` while a tool is held
+(bit 12). Not yet: `death_tool_<tool>` clips when an engineer dies holding a tool (death_a plays), `carry_*` clips.
 
 **Tests.** `tests/game/b4_engineers.txt` (no engineers -> refused, radius, blueprints, queue, undo + refund, build loop,
 mid-piece T split), `tests/game/b4_gate_car.txt` (gate into a wall, gates onto joints, territory closed by gates, soldiers

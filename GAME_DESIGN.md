@@ -208,7 +208,7 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 
 ## 15. Progress and known limitations
 - 2026-11-27: Engineers (14d) implemented (docs/GAMEPLAY_ARCHITECTURE.md 12): engineer squad of 3 (buy, parachute;
-  PLACEHOLDER look: rifleman with hi-vis vest / orange helmet until the approved engineer assets), construction only
+  approved engineer model, tools and work clips since the final stabilisation pass), construction only
   within a radius of an engineer squad (PROPOSED 40 m, UNAPPROVED), walls / gates as blueprints built over time by the
   engineers (shared job queue, progress bars), Ctrl+Z undoes the newest unfinished placement (refund), engineers clear
   parked cars (removed for good, UNAPPROVED price / time). Wall placement: snap onto the middle of a wall (T, split),
@@ -218,7 +218,7 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
   for unfinished parts; cars first in the queue; auto-fill pieces priced pro rata; a gate into a wall is a conversion
   (the wall stands until the gate is fitted). Known limits: barricades / window nests in buildings (B3a) are still
   bought instantly and anywhere; no box selection for several cars (click each, Shift keeps the tool); the work clip
-  is collect_ammo until the approved engineer clips exist.
+  uses the approved build / car-clearing clips.
 - 2026-11-27: Milestone B3a (buildings) implemented: buildings baked as records (BLDG), building selection, capture
   (PROPOSED: a squad at the entrance with no zombie inside or at the door), roles Garrison (olive chevron flag) and
   Hospital (green cross on white) with UNAPPROVED prices, garrison soldiers entering by the door and firing from windows
