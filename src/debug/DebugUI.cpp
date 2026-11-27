@@ -6,6 +6,30 @@
 
 namespace ttz {
 
+void drawPerfHud(AppState& s) {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 10, vp->WorkPos.y + 10), ImGuiCond_Always, ImVec2(1, 0));
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    ImGui::Begin("perf", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoInputs |
+                                      ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    const AppState::PerfHud &a = s.hudAvg, &m = s.hudMax;
+    ImGui::Text("frame %5.2f ms (%3.0f fps)  max %5.1f", a.frame, a.frame > 0 ? 1000.f / a.frame : 0.f, m.frame);
+    ImGui::Text("CPU  vehicles %5.2f  max %5.2f", a.veh, m.veh);
+    ImGui::Text("     sim rec  %5.2f  max %5.2f", a.simRec, m.simRec);
+    ImGui::Text("     render   %5.2f  max %5.2f", a.renderRec, m.renderRec);
+    ImGui::Text("     ui       %5.2f", a.ui);
+    ImGui::Text("GPU-bound wait (swapchain) %5.2f  max %5.2f", a.acquire, m.acquire);
+    const Renderer::FxStats& fx = s.renderer.fxStats();
+    const RenderSettings& rs = s.renderSettings;
+    ImGui::Text("fx vols %u (%u coarse) cover %.2f  merged %u", fx.volumes, fx.coarse, fx.coverage, fx.merged);
+    ImGui::Text("fire lights %u (+%u culled)  particles %u", fx.lights, fx.lightsCulled, s.sim.stats().particlesAlive);
+    ImGui::Text("shadow draws %u  vehicle blasts %u", s.renderer.shadowDrawCalls(), s.vehicles.stats().explosions);
+    ImGui::Text("off:%s%s%s%s%s%s  fx %s  scale %.2f", rs.drawFxVolumes ? "" : " fx", rs.drawParticles ? "" : " particles",
+                rs.chars.drawGibs ? "" : " gibs", rs.fireLights ? "" : " lights", rs.shadowMap ? "" : " shadows", rs.tiltShift ? "" : " dof",
+                rs.fxHalfRes ? (rs.fxResDiv >= 4 ? "1/4 res" : "1/2 res") : "full res", rs.renderScale);
+    ImGui::End();
+}
+
 void drawDebugUI(AppState& s) {
     ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(380, 0), ImGuiCond_FirstUseEver);
@@ -142,6 +166,25 @@ void drawDebugUI(AppState& s) {
         }
     }
 
+    if (ImGui::CollapsingHeader("Performance (explosion cost)")) {
+        RenderSettings& rs = s.renderSettings;
+        ImGui::Checkbox("perf HUD (F3)", &s.perfHud);
+        if (ImGui::Checkbox("A/B: legacy explosion rendering", &rs.perfLegacy)) rs.chars.gibShadows = rs.perfLegacy;
+        ImGui::Checkbox("fx volumes (voxel fireballs / smoke / wreck fires)", &rs.drawFxVolumes);
+        ImGui::Checkbox("fx at reduced resolution", &rs.fxHalfRes);
+        if (rs.fxHalfRes) { ImGui::SameLine(); ImGui::RadioButton("1/2", &rs.fxResDiv, 2); ImGui::SameLine(); ImGui::RadioButton("1/4", &rs.fxResDiv, 4); }
+        ImGui::SliderFloat("fx min px per voxel (LOD)", &rs.fxVoxelPx, 0.5f, 4.f);
+        ImGui::SliderFloat("fx full-quality coverage budget", &rs.fxBudget, 0.05f, 3.f);
+        ImGui::Checkbox("particles (blood, fire, smoke, debris)", &rs.drawParticles);
+        ImGui::Checkbox("body parts (gibs)", &rs.chars.drawGibs);
+        ImGui::Checkbox("body parts cast shadows", &rs.chars.gibShadows);
+        ImGui::Checkbox("fire / blast lights", &rs.fireLights);
+        ImGui::SliderInt("max fire lights", &rs.maxFireLights, 0, 24);
+        ImGui::Checkbox("shadow map", &rs.shadowMap);
+        ImGui::Checkbox("depth of field", &rs.tiltShift);
+        ImGui::SliderFloat("render scale (x window pixels)", &rs.renderScale, 0.25f, 1.f);
+    }
+
     if (ImGui::CollapsingHeader("Look (fog, exposure, miniature)")) {
         RenderSettings& rs = s.renderSettings;
         ImGui::SliderFloat("exposure (x time of day)", &rs.exposure, 0.4f, 2.5f);
@@ -160,6 +203,14 @@ void drawDebugUI(AppState& s) {
             ImGui::SliderFloat("bokeh highlight threshold", &rs.dofHighlightThreshold, 0.3f, 0.95f);
             ImGui::SliderFloat("hexagonal aperture", &rs.dofHexAperture, 0.0f, 1.0f);
             ImGui::Checkbox("show CoC (red near, blue far)", &rs.dofDebug);
+            ImGui::Checkbox("zoom-adaptive DOF (city reads when zoomed out)", &rs.dofZoomAdapt);
+            if (rs.dofZoomAdapt) {
+                ImGui::SliderFloat("full DOF up to (m)", &rs.dofZoomNear, 45.f, 300.f, "%.0f");
+                ImGui::SliderFloat("far DOF at (m)", &rs.dofZoomFar, 45.f, 300.f, "%.0f");
+                ImGui::SliderFloat("far aperture (x)", &rs.dofFarAperture, 0.0f, 1.0f);
+                ImGui::SliderFloat("far max blur (x)", &rs.dofFarMaxBlur, 0.0f, 1.0f);
+                ImGui::SliderFloat("far in-focus band", &rs.dofFarBand, 0.0f, 0.5f);
+            }
         }
     }
 

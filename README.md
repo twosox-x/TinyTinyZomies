@@ -182,6 +182,10 @@ cmake --build build --config Release
 | `--city-window N` | simulation window, N x N cells of 0.75 m (default 512 = 384 m) |
 | `--city-at x z` | centre of the simulation window (default: the spawn point nearest the map centre) |
 | `--city-synth DIR` | write a tiny synthetic package (tests, no bake needed) |
+| `--perf-hud` | on-screen frame time, per-pass CPU timings, swapchain wait (GPU-bound indicator), fx / light counts (**F3** toggles) |
+| `--perf-off LIST` | switch off `fx,particles,gibs,lights,shadows,dof,dofzoom` (comma list) to attribute cost; `legacy` = the explosion rendering before the fx budget work (A/B) |
+| `--fx-full-res` | voxel fx volumes ray-marched at full resolution (default: half resolution + exact-edge composite) |
+| `--render-scale X` | 3D resolution as a fraction of the window's pixels (HiDPI / Retina: 0.5–0.75), upscaled |
 | `--bench-scenarios citymap` | headless game loop, camera flying 1.4 km across the city: frame ms, streaming/upload ms, resident / visible tiles, draws, triangles, instances, GPU MB |
 
 City controls: RTS rig as in City Lab (pivot on the ground, pitch 35–70°, distance 30–300 m). WASD / window edge /

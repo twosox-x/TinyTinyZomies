@@ -1,0 +1,113 @@
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct FxComposite
+{
+    float4x4 invViewProj;
+    float4 cp;
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+    float4 blastsP[8];
+    float4 todP;
+    float4x4 shadowVP;
+    float4 shadowP;
+    float4 dofP;
+};
+
+struct main0_out
+{
+    float4 outColor [[color(0)]];
+    float gl_FragDepth [[depth(any)]];
+};
+
+fragment main0_out main0(constant Frame& _67 [[buffer(0)]], constant FxComposite& _21 [[buffer(1)]], texture2d<float> fxCol [[texture(0)]], texture2d<float> fxVox [[texture(1)]], sampler fxColSmplr [[sampler(0)]], sampler fxVoxSmplr [[sampler(1)]], float4 gl_FragCoord [[position]])
+{
+    main0_out out = {};
+    float2 ndc = float2(((gl_FragCoord.x / _21.cp.x) * 2.0) - 1.0, 1.0 - ((gl_FragCoord.y / _21.cp.y) * 2.0));
+    float4 wp = _21.invViewProj * float4(ndc, 0.5, 1.0);
+    float3 ro = _67.camPos.xyz;
+    float3 rd = fast::normalize((wp.xyz / float3(wp.w)) - ro);
+    float3 inv = (float3(1.0) / (abs(rd) + float3(9.9999999747524270787835121154785e-07))) * sign(rd + float3(9.999999717180685365747194737196e-10));
+    int2 sz = int2(fxVox.get_width(), fxVox.get_height());
+    int2 c0 = int2(gl_FragCoord.xy * _21.cp.zw);
+    float best = 1000000015047466219876688855040.0;
+    int2 pick = int2(-1);
+    int _244;
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            int2 q = clamp(c0 + int2(x, y), int2(0), sz - int2(1));
+            float4 vx = fxVox.read(uint2(q), 0);
+            if (vx.w <= 0.0)
+            {
+                continue;
+            }
+            float ax = floor(vx.w / 8.0);
+            float v = vx.w - (8.0 * ax);
+            float3 ta = ((vx.xyz - float3(0.5 * v)) - ro) * inv;
+            float3 tb = ((vx.xyz + float3(0.5 * v)) - ro) * inv;
+            float3 mn = fast::min(ta, tb);
+            float3 mx = fast::max(ta, tb);
+            float t0 = fast::max(fast::max(mn.x, mn.y), mn.z);
+            float t1 = fast::min(fast::min(mx.x, mx.y), mx.z);
+            if (t1 < fast::max(t0, 0.0))
+            {
+                continue;
+            }
+            bool _235 = mn.x >= mn.y;
+            bool _243;
+            if (_235)
+            {
+                _243 = mn.x >= mn.z;
+            }
+            else
+            {
+                _243 = _235;
+            }
+            if (_243)
+            {
+                _244 = 0;
+            }
+            else
+            {
+                _244 = (mn.y >= mn.z) ? 1 : 2;
+            }
+            int hitAx = _244;
+            float score = fast::max(t0, 0.0) + ((float(hitAx) == ax) ? 0.0 : 0.001000000047497451305389404296875);
+            if (score < best)
+            {
+                best = score;
+                pick = q;
+            }
+        }
+    }
+    if (pick.x < 0)
+    {
+        discard_fragment();
+    }
+    float3 P = ro + (rd * best);
+    float4 clip = _67.viewProj * float4(P, 1.0);
+    out.gl_FragDepth = fast::clamp(clip.z / clip.w, 0.0, 1.0);
+    out.outColor = fxCol.read(uint2(pick), 0);
+    return out;
+}
+

@@ -64,9 +64,10 @@ struct Frame
     float4 todP;
     float4x4 shadowVP;
     float4 shadowP;
+    float4 dofP;
 };
 
-constant spvUnsafeArray<float, 16> _488 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
+constant spvUnsafeArray<float, 16> _500 = spvUnsafeArray<float, 16>({ 0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0 });
 
 struct main0_out
 {
@@ -106,11 +107,13 @@ static inline __attribute__((always_inline))
 float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _69)
 {
     float d = fast::max(length(P - _69.camPos.xyz), 0.001000000047497451305389404296875);
-    float coc = fast::clamp((_69.skyColor.w * (d - _69.sunDir.w)) / d, -1.0, 1.0);
+    float r = (d - _69.sunDir.w) / d;
+    r = sign(r) * fast::max(abs(r) - _69.dofP.x, 0.0);
+    float coc = fast::clamp(_69.skyColor.w * r, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _444 = finish(param, param_1, _69);
-    return float4(_444, 0.5 + (0.5 * coc));
+    float3 _456 = finish(param, param_1, _69);
+    return float4(_456, 0.5 + (0.5 * coc));
 }
 
 static inline __attribute__((always_inline))
@@ -192,7 +195,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _69 [[buffer(
     if (in.vFade < 0.999000012874603271484375)
     {
         int2 q = (int2(gl_FragCoord.xy) / int2(2)) & int2(3);
-        if (((_488[(q.y * 4) + q.x] + 0.5) / 16.0) > in.vFade)
+        if (((_500[(q.y * 4) + q.x] + 0.5) / 16.0) > in.vFade)
         {
             discard_fragment();
         }

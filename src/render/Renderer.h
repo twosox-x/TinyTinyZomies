@@ -34,6 +34,7 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
     Vec4 todP;                  // x night 0..1, y fire-light gain, z moon key light, w hours
     float shadowVP[16];         // world -> shadow map clip
     Vec4 shadowP;               // x on, y m / texel, z depth bias, w uv / texel
+    Vec4 dofP;                  // x in-focus band (|d - focus| / d below it is sharp; zoom-adaptive DOF), yzw unused
 };
 
 // Voxel explosion / fire volumes (shaders/include/fx_volume.glsl): pushed to vertex and fragment uniform slot 1.
@@ -41,7 +42,8 @@ constexpr int kMaxFxVolumes = 24;
 struct FxVolumeUniforms {   // std140
     Vec4 a[kMaxFxVolumes];  // xyz origin, w age (s)
     Vec4 b[kMaxFxVolumes];  // x scale (blast) / footprint length (wreck), y kind (0 blast, 1 wreck), z seed, w strength
-    UVec4 count;
+    Vec4 c[kMaxFxVolumes];  // x voxel LOD bias, y max DDA steps
+    UVec4 count;            // x volumes, y pass, z float bits: min voxel metres per metre of distance
 };
 
 struct RenderSettings {
@@ -64,6 +66,23 @@ struct RenderSettings {
     float dofHighlightThreshold = 0.564f;  // display luma where the highlight boost starts
     float dofHexAperture = 0.0f;     // 0 = round bokeh, 1 = hexagonal (six aperture blades)
     bool dofDebug = false;           // show the CoC (red near, blue far)
+    // zoom-adaptive DOF (RenderSettings::dofAt): the values above apply up to dofZoomNear (camera pivot distance, m);
+    // towards dofZoomFar the aperture and max blur shrink to the *Far fractions and an in-focus band opens
+    // (|d - focus| / d below dofFarBand stays sharp), so the zoomed-out city reads while the top / bottom of the frame
+    // keep a gentle miniature fall-off. Smoothstep in between.
+    bool dofZoomAdapt = true;
+    float dofZoomNear = 70.f, dofZoomFar = 300.f;
+    float dofFarAperture = 0.55f;    // x dofAperture at dofZoomFar
+    float dofFarMaxBlur = 0.55f;     // x dofMaxBlur at dofZoomFar
+    float dofFarBand = 0.12f;        // in-focus band at dofZoomFar (0 at dofZoomNear)
+    struct DofAt { float aperture, maxBlur, band; };
+    DofAt dofAt(float camDist) const {
+        if (!dofZoomAdapt || dofZoomFar <= dofZoomNear) return {dofAperture, dofMaxBlur, 0.f};
+        float t = (camDist - dofZoomNear) / (dofZoomFar - dofZoomNear);
+        t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+        t = t * t * (3.f - 2.f * t);
+        return {dofAperture * (1.f + (dofFarAperture - 1.f) * t), dofMaxBlur * (1.f + (dofFarMaxBlur - 1.f) * t), dofFarBand * t};
+    }
     float saturation = 1.18f, contrast = 1.06f, vignette = 0.12f;
     int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
     CharacterSettings chars;
@@ -76,6 +95,18 @@ struct RenderSettings {
     float shadowRange = 170.f;       // max distance (m) from the pivot the map covers
     float shadowSoftness = 1.0f;     // PCF tap spacing in texels
     bool drawParticles = true;       // blood, fire, smoke, debris
+    // performance (debug panel "Performance" / --perf-off, see docs/OPTIMIZATION.md): attribute and cap explosion cost
+    bool drawFxVolumes = true;       // voxel fireballs / smoke / wreck fires
+    bool fxHalfRes = true;           // fx volumes ray-marched at 1 / fxResDiv resolution, composited with exact voxel edges
+    int fxResDiv = 2;                // 2 = half, 4 = quarter resolution
+    float fxVoxelPx = 1.5f;          // min low-res pixels per voxel (voxel LOD 0.25 / 0.5 / 1 m by distance)
+    float fxBudget = 0.6f;           // fx screen coverage (sum of volume areas / screen) at full quality; the farther
+                                     // volumes beyond it go one voxel LOD coarser with fewer steps
+    bool fireLights = true;          // burning-wreck point lights + explosion flash / fire lights
+    int maxFireLights = 8;           // fire point lights per frame (clustered, off-screen culled)
+    float renderScale = 1.0f;        // 3D resolution x the window's pixels (HiDPI: 0.5-0.75 cuts the fill cost 2-4x)
+    bool perfLegacy = false;         // A/B: the explosion rendering before the budget work (full-res fx, fixed voxel LOD,
+                                     // no budget / merging, 16 unculled fire lights, body parts cast shadows)
 };
 
 class Renderer {
@@ -103,8 +134,13 @@ public:
     uint32_t fxVolumesDrawn() const { return fxDrawn_; }
 
     // Renders the scene into the internal target, then blits into `target` (swapchain) if given.
+    // outW / outH: size of `target` when it differs from the render size (RenderSettings::renderScale; linear upscale)
     void render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
-                const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars = nullptr);
+                const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars = nullptr,
+                uint32_t outW = 0, uint32_t outH = 0);
+    struct FxStats { uint32_t volumes = 0, coarse = 0, merged = 0, lights = 0, lightsCulled = 0; float coverage = 0; };
+    const FxStats& fxStats() const { return fxStats_; }
+    bool mergeBlasts = true;   // chain-reaction blasts inside a young fireball grow it (set per frame from perfLegacy)
     // Split variant for profiling: record the character compute passes only / the scene pass only.
     void prepareCharacters(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const Camera& cam, const CrowdSim& sim,
                            double time, const RenderSettings& rs, CharacterRenderer* chars);
@@ -166,6 +202,14 @@ private:
     std::vector<FxBlast> fxBlasts_;   // voxel fireball volumes (live ~7-10 s, see fxLife in fx_volume.glsl)
     std::vector<FireVolume> fires_;
     uint32_t fxSeed_ = 1;
+    FxStats fxStats_;
+    uint32_t fxMerged_ = 0;
+    // reduced-resolution fx volumes: colour + hit voxel + depth targets, and the full-res composite (MSAA scene pass)
+    SDL_GPUGraphicsPipeline *pFxHalf_ = nullptr, *pFxHalfNear_ = nullptr, *pFxComp_ = nullptr;
+    SDL_GPUTexture *fxCol_ = nullptr, *fxVox_ = nullptr, *fxDepth_ = nullptr;
+    uint32_t fxW_ = 0, fxH_ = 0;
+    void ensureFxTargets(uint32_t w, uint32_t h);
+    float dofMaxBlurEff_ = 0.015f;   // this frame's max blur (zoom-adaptive)
     uint32_t fxDrawn_ = 0;            // voxel volumes drawn last frame (blasts + wreck fires)
 public:
     // Optional extensions (Military Asset Lab): compute work recorded before the scene pass, and draws inside the scene

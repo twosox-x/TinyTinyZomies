@@ -28,6 +28,7 @@ void buildCube(std::vector<CubeVertex>& v, std::vector<uint16_t>& idx) {
 constexpr SDL_GPUTextureFormat kColorFormat = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
 constexpr SDL_GPUTextureFormat kDepthFormat = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
 constexpr SDL_GPUTextureFormat kDofFormat = SDL_GPU_TEXTUREFORMAT_R16G16B16A16_FLOAT;   // half-res DOF layers (HDR bokeh)
+constexpr SDL_GPUTextureFormat kFxVoxFormat = SDL_GPU_TEXTUREFORMAT_R32G32B32A32_FLOAT;   // fx hit voxel (centre, size)
 constexpr uint32_t kDofTile = 8;   // half-res px per near-CoC tile (shaders/post_dof_tile.frag)
 } // namespace
 
@@ -124,6 +125,43 @@ bool Renderer::init(GpuContext& gpu, const Model& zombie, const Sandbox& sb, con
     pParticle_ = makePipeline("particle", "particle", false, false, true);
     pFx_ = makePipeline("fx_volume", "fx_volume", false, false, true);                 // camera inside: far faces
     pFxNear_ = makePipeline("fx_volume", "fx_volume_near", false, false, true, true);  // outside: near faces, early-Z
+    {   // reduced-resolution fx volumes (offscreen: colour + hit voxel, own depth) and their full-res composite
+        SDL_GPUShader* v = gpu_->loadShader("fx_volume.vert", SDL_GPU_SHADERSTAGE_VERTEX);
+        SDL_GPUShader* f0 = gpu_->loadShader("fx_volume_half.frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
+        SDL_GPUShader* f1 = gpu_->loadShader("fx_volume_half_near.frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
+        SDL_GPUShader* pv = gpu_->loadShader("post.vert", SDL_GPU_SHADERSTAGE_VERTEX);
+        SDL_GPUShader* fc = gpu_->loadShader("fx_composite.frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
+        if (!v || !f0 || !f1 || !pv || !fc) return false;
+        SDL_GPUGraphicsPipelineCreateInfo ci{};
+        ci.vertex_shader = v;
+        ci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        ci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        ci.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+        ci.depth_stencil_state.enable_depth_test = true;
+        ci.depth_stencil_state.enable_depth_write = true;
+        ci.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+        SDL_GPUColorTargetDescription ctd[2]{};
+        ctd[0].format = kColorFormat;
+        ctd[1].format = kFxVoxFormat;
+        ci.target_info.color_target_descriptions = ctd;
+        ci.target_info.num_color_targets = 2;
+        ci.target_info.depth_stencil_format = kDepthFormat;
+        ci.target_info.has_depth_stencil_target = true;
+        ci.fragment_shader = f0;
+        ci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_BACK;
+        pFxHalf_ = SDL_CreateGPUGraphicsPipeline(d, &ci);
+        ci.fragment_shader = f1;
+        ci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
+        pFxHalfNear_ = SDL_CreateGPUGraphicsPipeline(d, &ci);
+        ci.vertex_shader = pv;
+        ci.fragment_shader = fc;
+        ci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        ci.multisample_state.sample_count = samples_;
+        ci.target_info.num_color_targets = 1;
+        pFxComp_ = SDL_CreateGPUGraphicsPipeline(d, &ci);
+        for (SDL_GPUShader* sh : {v, f0, f1, pv, fc}) SDL_ReleaseGPUShader(d, sh);
+        if (!pFxHalf_ || !pFxHalfNear_ || !pFxComp_) { SDL_Log("fx half-res pipelines: %s", SDL_GetError()); return false; }
+    }
     pDofPre_ = makePostPipeline("post_dof_prefilter", 1, true);
     pDofTile_ = makePostPipeline("post_dof_tile", 1, true);
     pDofDilate_ = makePostPipeline("post_dof_dilate", 1, true);
@@ -277,6 +315,8 @@ void Renderer::shutdown() {
     if (!gpu_) return;
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
+    for (auto p : {pFxHalf_, pFxHalfNear_, pFxComp_}) if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
+    for (auto t : {fxCol_, fxVox_, fxDepth_}) if (t) SDL_ReleaseGPUTexture(d, t);
     for (auto p : {pBoxShadow_, pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pFx_, pFxNear_, pDofPre_, pDofTile_, pDofDilate_, pDofGather_,
                    pDofFill_, pComposite_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
@@ -329,6 +369,28 @@ void Renderer::ensureTargets(uint32_t w, uint32_t h) {
     depth_ = SDL_CreateGPUTexture(d, &ci);
     targetW_ = w;
     targetH_ = h;
+}
+
+void Renderer::ensureFxTargets(uint32_t w, uint32_t h) {
+    if (w == fxW_ && h == fxH_ && fxCol_) return;
+    SDL_GPUDevice* d = gpu_->device();
+    for (auto t : {fxCol_, fxVox_, fxDepth_}) if (t) SDL_ReleaseGPUTexture(d, t);
+    SDL_GPUTextureCreateInfo ci{};
+    ci.type = SDL_GPU_TEXTURETYPE_2D;
+    ci.width = w;
+    ci.height = h;
+    ci.layer_count_or_depth = 1;
+    ci.num_levels = 1;
+    ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    ci.format = kColorFormat;
+    fxCol_ = SDL_CreateGPUTexture(d, &ci);
+    ci.format = kFxVoxFormat;
+    fxVox_ = SDL_CreateGPUTexture(d, &ci);
+    ci.format = kDepthFormat;
+    ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
+    fxDepth_ = SDL_CreateGPUTexture(d, &ci);
+    fxW_ = w;
+    fxH_ = h;
 }
 
 void Renderer::ensureShadowMap(uint32_t size) {
@@ -408,7 +470,24 @@ bool Renderer::shadowView(const Camera& cam, float aspect, const RenderSettings&
 
 void Renderer::addBlast(float x, float y, float z, float scale) {
     blasts_.push_back({x, y, z, 0.f, std::max(scale, 0.1f)});
-    fxBlasts_.push_back({x, y, z, 0.f, std::clamp(scale, 0.3f, 3.f), (float)((fxSeed_++ * 2654435761u) % 997u)});
+    // chain reactions: a blast going off inside a young fireball (< 0.6 s, within ~its radius) grows that volume
+    // (volume-additive scale, centre pulled towards the new one) instead of stacking a second overlapping ray-march
+    const float sc = std::clamp(scale, 0.3f, 3.f);
+    for (auto it = fxBlasts_.rbegin(); it != fxBlasts_.rend() && mergeBlasts; ++it) {
+        FxBlast& b = *it;
+        if (b.age > 0.6f) continue;
+        const float r = 1.9f * std::pow(std::max(b.scale, sc), 0.8f) + 1.2f;
+        const float dx = x - b.x, dy = y - b.y, dz = z - b.z;
+        if (dx * dx + dy * dy + dz * dz > r * r) continue;
+        const float s3 = b.scale * b.scale * b.scale, n3 = sc * sc * sc, ns = std::min(3.f, std::cbrt(s3 + n3));
+        const float wgt = n3 / (s3 + n3);
+        b.x += dx * wgt; b.y += dy * wgt; b.z += dz * wgt;
+        b.scale = ns;
+        ++fxMerged_;
+        if (blasts_.size() > (size_t)kMaxBlasts) blasts_.erase(blasts_.begin());
+        return;
+    }
+    fxBlasts_.push_back({x, y, z, 0.f, sc, (float)((fxSeed_++ * 2654435761u) % 997u)});
     if (fxBlasts_.size() > (size_t)kMaxFxVolumes) fxBlasts_.erase(fxBlasts_.begin());
     if (blasts_.size() > (size_t)kMaxBlasts) blasts_.erase(blasts_.begin());
 }
@@ -439,7 +518,8 @@ uint32_t Renderer::drawCalls(const RenderSettings& rs, const CharacterRenderer* 
 }
 
 void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_t w, uint32_t h, const Camera& cam,
-                      const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars) {
+                      const CrowdSim& sim, double time, const RenderSettings& rs, CharacterRenderer* chars, uint32_t outW,
+                      uint32_t outH) {
     ensureTargets(w, h);
     ensureShadowMap((uint32_t)rs.shadowMapSize);
     const bool modular = chars && rs.characterModel == 1;
@@ -457,7 +537,10 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const bool dof = rs.tiltShift && !rs.studioLighting && rs.dofStrength > 0.f;
     fu.sunDir = {tl.dir.x, tl.dir.y, tl.dir.z, std::max(1.f, camDist * (1.f + rs.dofFocusOffset))};   // w: thin-lens focus (finishA)
     fu.sunColor = {tl.color.x, tl.color.y, tl.color.z, tl.exposure * rs.exposure};
-    fu.skyColor = {tl.sky.x, tl.sky.y, tl.sky.z, dof ? std::max(1e-3f, rs.dofAperture) : 0.f};   // aperture, 0 = CoC 0
+    const RenderSettings::DofAt da = rs.dofAt(camDist);   // zoom-adaptive aperture / max blur / in-focus band
+    fu.skyColor = {tl.sky.x, tl.sky.y, tl.sky.z, dof ? std::max(1e-3f, da.aperture) : 0.f};   // aperture, 0 = CoC 0
+    fu.dofP = {dof ? da.band : 0.f, 0.f, 0.f, 0.f};
+    dofMaxBlurEff_ = da.maxBlur;
     fu.groundColor = {tl.ground.x, tl.ground.y, tl.ground.z, rs.fogStart * camDist};
     fu.fogColor = {tl.fog.x, tl.fog.y, tl.fog.z, rs.fogDensity};
     fu.todP = {tl.night, 1.f + 0.6f * tl.night, tl.moon ? 1.f : 0.f, rs.tod.hours};
@@ -478,20 +561,57 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         fu.todP = {1.f, 1.f, 0.f, 0.f};   // emissives as at night (the pre-day/night studio look)
     }
     fu.gridP = {sandbox_.originX, sandbox_.originZ, params_.cellSize, 1.0f / params_.cellSize};
-    uint32_t nl = rs.studioLighting ? 0u : (uint32_t)std::min<size_t>(sandbox_.lights.size(), kMaxLights);
+    // dynamic point lights (burning wrecks, lab lights): drop those whose sphere is off-screen, merge fire lights
+    // closer than 6 m (a burning row of cars = a few big lights), cap at maxFireLights (nearest the pivot first)
+    std::vector<PointLight> lights;
+    fxStats_.lightsCulled = 0;
+    if (!rs.studioLighting && rs.fireLights) {
+        float pl[6][4];
+        for (int c = 0; c < 4; ++c) {   // frustum planes (Gribb-Hartmann, depth 0..1)
+            pl[0][c] = vp(3, c) + vp(0, c); pl[1][c] = vp(3, c) - vp(0, c); pl[2][c] = vp(3, c) + vp(1, c);
+            pl[3][c] = vp(3, c) - vp(1, c); pl[4][c] = vp(2, c); pl[5][c] = vp(3, c) - vp(2, c);
+        }
+        auto visible = [&](const PointLight& L) {
+            for (auto& q : pl) {
+                float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+                if ((q[0] * L.x + q[1] * L.y + q[2] * L.z + q[3]) / std::max(n, 1e-6f) < -L.radius) return false;
+            }
+            return true;
+        };
+        for (const PointLight& L : sandbox_.lights) {
+            if (rs.perfLegacy) { if (lights.size() < 16) lights.push_back(L); continue; }
+            if (!visible(L)) { ++fxStats_.lightsCulled; continue; }
+            bool merged = false;
+            for (PointLight& M : lights) {
+                float dx = L.x - M.x, dz = L.z - M.z;
+                if (dx * dx + dz * dz > 36.f || std::fabs(L.radius - M.radius) > 0.5f * M.radius + 4.f) continue;
+                float wa = M.intensity, wb = L.intensity, ws = std::max(wa + wb, 1e-4f);
+                M.x = (M.x * wa + L.x * wb) / ws; M.y = (M.y * wa + L.y * wb) / ws; M.z = (M.z * wa + L.z * wb) / ws;
+                M.radius = std::max(M.radius, L.radius) + 0.5f * std::sqrt(dx * dx + dz * dz);
+                M.intensity = std::max(wa, wb) + 0.35f * std::min(wa, wb);
+                merged = true;
+                break;
+            }
+            if (!merged) lights.push_back(L);
+            if ((int)lights.size() >= std::min(rs.maxFireLights, kMaxLights)) break;
+        }
+    }
+    fxStats_.lights = (uint32_t)lights.size();
+    mergeBlasts = !rs.perfLegacy;
+    uint32_t nl = (uint32_t)lights.size();
     fu.gridDim = {(uint32_t)params_.gridW, (uint32_t)params_.gridH, nl,
                   rs.debugFlags | (rs.shadows && !rs.studioLighting ? 32u : 0u) | (city_ ? 64u : 0u)};
     fu.modelP = {(float)variantRows_, modelHeight_, params_.standHeight, params_.proneHeight};
     const auto& g = sim.goals();
     for (size_t i = 0; i + 1 < g.size() && i / 2 < 4; i += 2) fu.goals[i / 2] = {g[i], 0, g[i + 1], 1};
     for (int i = 0; i < kMaxBlasts; ++i) fu.blasts[i] = {0, 0, 0, -1};
-    for (size_t i = 0; i < blasts_.size(); ++i) {
+    for (size_t i = 0; i < blasts_.size() && rs.fireLights; ++i) {
         fu.blasts[i] = {blasts_[i].x, blasts_[i].y, blasts_[i].z, blasts_[i].age};
         fu.blastsP[i] = {blasts_[i].scale, 0, 0, 0};
     }
     const float lampScale = city_ ? 1.f : tl.night;   // city: the app scales its street lamps (fire lights stay)
     for (uint32_t i = 0; i < nl; ++i) {
-        const PointLight& L = sandbox_.lights[i];
+        const PointLight& L = lights[i];
         fu.lightPos[i] = {L.x, L.y, L.z, L.radius};
         fu.lightCol[i] = {L.r, L.g, L.b, L.intensity * lampScale};
     }
@@ -532,6 +652,101 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     }
     SDL_PushGPUVertexUniformData(cmd, 0, &fu, sizeof(fu));
     SDL_PushGPUFragmentUniformData(cmd, 0, &fu, sizeof(fu));
+
+    // ---- voxel fireballs / smoke / wreck fires: volume list, screen budget, LOD; reduced-resolution pass -------------
+    fxDrawn_ = 0;
+    uint32_t fxN = 0;
+    FxVolumeUniforms fx{};
+    const int fxDiv = std::clamp(rs.fxResDiv, 1, 4);
+    const bool fxHalf = rs.fxHalfRes && fxDiv > 1 && pFxHalf_ && !rs.perfLegacy;
+    SDL_Rect fxScissor{0, 0, 0, 0};
+    fxStats_ = FxStats{0, 0, fxMerged_, fxStats_.lights, fxStats_.lightsCulled, 0.f};
+    if (rs.drawFxVolumes && (!fxBlasts_.empty() || !fires_.empty())) {
+        // nearest first: with conservative depth the near-face pass rejects voxels behind closer ones early
+        struct Vol { Vec4 a, b; float d; };
+        Vol vols[kMaxFxVolumes];
+        uint32_t n = 0;
+        for (auto it = fxBlasts_.rbegin(); it != fxBlasts_.rend() && n < (uint32_t)kMaxFxVolumes; ++it, ++n)
+            vols[n] = {{it->x, it->y, it->z, it->age}, {it->scale, 0.f, it->seed, 1.f}, 0.f};
+        for (const FireVolume& f : fires_) {
+            if (n >= (uint32_t)kMaxFxVolumes) break;
+            vols[n++] = {{f.x, f.y, f.z, (float)time}, {f.length, 1.f, (float)(f.seed % 997u), f.strength}, 0.f};
+        }
+        for (uint32_t k = 0; k < n; ++k) vols[k].d = (vols[k].a.x - e.x) * (vols[k].a.x - e.x) + (vols[k].a.z - e.z) * (vols[k].a.z - e.z);
+        std::stable_sort(vols, vols + n, [](const Vol& a, const Vol& b) { return a.d < b.d; });
+        int sx0 = (int)w, sy0 = (int)h, sx1 = 0, sy1 = 0;
+        float cover = 0.f;
+        for (uint32_t k = 0; k < n; ++k) {
+            fx.a[k] = vols[k].a;
+            fx.b[k] = vols[k].b;
+            // conservative world box (mirrors blastShape / wreckBox in fx_volume.glsl) -> screen coverage and scissor
+            const Vec4& A = vols[k].a;
+            const Vec4& B = vols[k].b;
+            float rx, y0 = A.y - 1.f, y1;
+            if (B.y < 0.5f) {
+                const float sb = std::pow(B.x, 0.8f), ss = std::sqrt(B.x), t = A.w, R = 1.9f * sb;
+                const float r = R * (1.f + 0.22f * t), hc = 0.55f * R + 2.6f * ss * t / (1.f + 0.12f * t);
+                rx = std::max(r * 2.5f + 0.5f, t < 2.4f ? 0.8f + 3.8f * sb + 2.f * ss : 0.f) + 0.4f * t + 0.6f;
+                y1 = A.y + hc + r * 1.6f + 1.f;
+            } else { rx = 0.6f * B.x + 4.5f; y1 = A.y + 14.f; }
+            float vx0 = 1e9f, vy0 = 1e9f, vx1 = -1e9f, vy1 = -1e9f;
+            bool behind = false;
+            for (int c = 0; c < 8; ++c) {
+                const float px = A.x + ((c & 1) ? rx : -rx), py = (c & 2) ? y1 : y0, pz = A.z + ((c & 4) ? rx : -rx);
+                const float cx = vp(0, 0) * px + vp(0, 1) * py + vp(0, 2) * pz + vp(0, 3);
+                const float cy = vp(1, 0) * px + vp(1, 1) * py + vp(1, 2) * pz + vp(1, 3);
+                const float cw = vp(3, 0) * px + vp(3, 1) * py + vp(3, 2) * pz + vp(3, 3);
+                if (cw < 0.5f) { behind = true; break; }
+                vx0 = std::min(vx0, cx / cw); vx1 = std::max(vx1, cx / cw); vy0 = std::min(vy0, cy / cw); vy1 = std::max(vy1, cy / cw);
+            }
+            if (behind) { vx0 = vy0 = -1.f; vx1 = vy1 = 1.f; }
+            vx0 = std::max(vx0, -1.f); vy0 = std::max(vy0, -1.f); vx1 = std::min(vx1, 1.f); vy1 = std::min(vy1, 1.f);
+            const float area = vx1 > vx0 && vy1 > vy0 ? (vx1 - vx0) * (vy1 - vy0) * 0.25f * 0.6f : 0.f;   // ~60 % of its box
+            cover += area;
+            const bool coarse = cover > rs.fxBudget && k > 0 && !rs.perfLegacy;   // over budget: the farther volumes one LOD coarser
+            fx.c[k] = {coarse ? 2.f : 1.f, coarse ? 96.f : 160.f, 0.f, 0.f};
+            fxStats_.coarse += coarse ? 1u : 0u;
+            if (area > 0.f) {
+                sx0 = std::min(sx0, (int)std::floor((vx0 * 0.5f + 0.5f) * (float)w) - 2);
+                sx1 = std::max(sx1, (int)std::ceil((vx1 * 0.5f + 0.5f) * (float)w) + 2);
+                sy0 = std::min(sy0, (int)std::floor((0.5f - vy1 * 0.5f) * (float)h) - 2);
+                sy1 = std::max(sy1, (int)std::ceil((0.5f - vy0 * 0.5f) * (float)h) + 2);
+            }
+        }
+        sx0 = std::max(sx0, 0); sy0 = std::max(sy0, 0); sx1 = std::min(sx1, (int)w); sy1 = std::min(sy1, (int)h);
+        if (sx1 > sx0 && sy1 > sy0) fxScissor = {sx0, sy0, sx1 - sx0, sy1 - sy0};
+        fxStats_.coverage = cover;
+        fxN = n;
+        fxDrawn_ = n;
+        fxStats_.volumes = n;
+        const uint32_t fxTargetH = fxHalf ? std::max(1u, h / (uint32_t)fxDiv) : h;
+        const float voxPerM = rs.perfLegacy ? 0.f : 2.f * std::tan(cam.settings.fovY * 0.5f) / (float)fxTargetH * std::max(0.5f, rs.fxVoxelPx);
+        std::memcpy(&fx.count.z, &voxPerM, 4);
+        fx.count.x = n;
+    }
+    if (fxN > 0 && fxHalf) {   // reduced resolution offscreen: colour + hit voxel + own depth (fx occlude each other)
+        ensureFxTargets(std::max(1u, w / (uint32_t)fxDiv), std::max(1u, h / (uint32_t)fxDiv));
+        SDL_GPUColorTargetInfo fct[2]{};
+        fct[0].texture = fxCol_;
+        fct[1].texture = fxVox_;
+        for (auto& c : fct) { c.load_op = SDL_GPU_LOADOP_CLEAR; c.store_op = SDL_GPU_STOREOP_STORE; c.clear_color = {0, 0, 0, 0}; }
+        SDL_GPUDepthStencilTargetInfo fdt{};
+        fdt.texture = fxDepth_;
+        fdt.clear_depth = 1.0f;
+        fdt.load_op = SDL_GPU_LOADOP_CLEAR;
+        fdt.store_op = SDL_GPU_STOREOP_DONT_CARE;
+        fdt.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        fdt.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+        SDL_GPURenderPass* fp = SDL_BeginGPURenderPass(cmd, fct, 2, &fdt);
+        for (uint32_t passIdx = 0; passIdx < 2; ++passIdx) {
+            fx.count.y = passIdx;
+            SDL_PushGPUVertexUniformData(cmd, 1, &fx, sizeof(fx));
+            SDL_PushGPUFragmentUniformData(cmd, 1, &fx, sizeof(fx));
+            SDL_BindGPUGraphicsPipeline(fp, passIdx ? pFxHalfNear_ : pFxHalf_);
+            SDL_DrawGPUPrimitives(fp, 36, fxN, 0, 0);
+        }
+        SDL_EndGPURenderPass(fp);
+    }
 
     SDL_GPUColorTargetInfo ct{};
     // sky: fog colour in display space (scene shaders write gamma colours), alpha = CoC code of infinity (finishA)
@@ -588,30 +803,28 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         SDL_BindGPUVertexStorageBuffers(pass, 0, pb, 2);
         SDL_DrawGPUPrimitivesIndirect(pass, sim.goreCounters(), G_DRAW_ARGS * 4, 1);
     }
-    fxDrawn_ = 0;
-    if (rs.drawParticles && (!fxBlasts_.empty() || !fires_.empty())) {   // voxel fireballs / smoke / wreck fires
-        // nearest first: with conservative depth the near-face pass rejects voxels behind closer ones early
-        struct Vol { Vec4 a, b; float d; };
-        Vol vols[kMaxFxVolumes];
-        uint32_t n = 0;
-        for (auto it = fxBlasts_.rbegin(); it != fxBlasts_.rend() && n < (uint32_t)kMaxFxVolumes; ++it, ++n)
-            vols[n] = {{it->x, it->y, it->z, it->age}, {it->scale, 0.f, it->seed, 1.f}, 0.f};
-        for (const FireVolume& f : fires_) {
-            if (n >= (uint32_t)kMaxFxVolumes) break;
-            vols[n++] = {{f.x, f.y, f.z, (float)time}, {f.length, 1.f, (float)(f.seed % 997u), f.strength}, 0.f};
-        }
-        for (uint32_t k = 0; k < n; ++k) vols[k].d = (vols[k].a.x - e.x) * (vols[k].a.x - e.x) + (vols[k].a.z - e.z) * (vols[k].a.z - e.z);
-        std::stable_sort(vols, vols + n, [](const Vol& a, const Vol& b) { return a.d < b.d; });
-        FxVolumeUniforms fx{};
-        for (uint32_t k = 0; k < n; ++k) { fx.a[k] = vols[k].a; fx.b[k] = vols[k].b; }
-        fxDrawn_ = n;
+    if (fxN > 0 && !fxHalf) {   // full resolution: ray-marched inside the scene pass
         for (uint32_t passIdx = 0; passIdx < 2; ++passIdx) {   // 0: volumes around the camera, 1: the rest (near faces)
-            fx.count = {n, passIdx, 0, 0};
+            fx.count.y = passIdx;
             SDL_PushGPUVertexUniformData(cmd, 1, &fx, sizeof(fx));
             SDL_PushGPUFragmentUniformData(cmd, 1, &fx, sizeof(fx));
             SDL_BindGPUGraphicsPipeline(pass, passIdx ? pFxNear_ : pFx_);
-            SDL_DrawGPUPrimitives(pass, 36, n, 0, 0);
+            SDL_DrawGPUPrimitives(pass, 36, fxN, 0, 0);
         }
+    } else if (fxN > 0 && fxScissor.w > 0 && fxScissor.h > 0) {   // reduced resolution: exact-edge composite
+        M4 ivp;
+        invert(vp, ivp);
+        struct { float ivp[16]; float cp[4]; } cu{};
+        std::memcpy(cu.ivp, ivp.m, sizeof(cu.ivp));
+        cu.cp[0] = (float)w; cu.cp[1] = (float)h; cu.cp[2] = (float)fxW_ / (float)w; cu.cp[3] = (float)fxH_ / (float)h;
+        SDL_PushGPUFragmentUniformData(cmd, 1, &cu, sizeof(cu));
+        SDL_SetGPUScissor(pass, &fxScissor);
+        SDL_BindGPUGraphicsPipeline(pass, pFxComp_);
+        SDL_GPUTextureSamplerBinding tb[2] = {{fxCol_, nearest_}, {fxVox_, nearest_}};
+        SDL_BindGPUFragmentSamplers(pass, 0, tb, 2);
+        SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
+        SDL_Rect full{0, 0, (int)w, (int)h};
+        SDL_SetGPUScissor(pass, &full);
     }
 
     SDL_GPUBufferBinding zvb{zombieVB_, 0};
@@ -647,10 +860,10 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         bi.source.w = w;
         bi.source.h = h;
         bi.destination.texture = target;
-        bi.destination.w = w;
-        bi.destination.h = h;
+        bi.destination.w = outW ? outW : w;
+        bi.destination.h = outH ? outH : h;
         bi.load_op = SDL_GPU_LOADOP_DONT_CARE;
-        bi.filter = SDL_GPU_FILTER_NEAREST;
+        bi.filter = bi.destination.w == w && bi.destination.h == h ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR;
         SDL_BlitGPUTexture(cmd, &bi);
     }
 }
@@ -679,7 +892,7 @@ void Renderer::postProcess(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, co
         SDL_EndGPURenderPass(pass);
     };
     // max CoC radius in half-res px (the scene alpha encodes CoC / max CoC); the tile dilation must reach that far
-    const float maxCoc = std::clamp(rs.dofMaxBlur * (float)h * 0.5f, 1.f, 48.f);
+    const float maxCoc = std::clamp(dofMaxBlurEff_ * (float)h * 0.5f, 1.f, 48.f);   // zoom-adaptive (RenderSettings::dofAt)
     if (dof) {
         const float dilate = std::ceil(maxCoc / (float)kDofTile);
         float u[12] = {maxCoc, 1.f / (float)hw, 1.f / (float)hh, rs.dofHighlightGain,

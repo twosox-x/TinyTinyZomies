@@ -83,11 +83,13 @@ vec3 finish(vec3 col, vec3 P) {
     return pow(clamp(col, 0.0, 1.0), vec3(1.0 / 2.2));
 }
 // finish() plus the miniature depth of field's circle of confusion in alpha: thin lens focused at sunDir.w (the RTS
-// pivot distance), CoC = aperture * (d - focus) / d (skyColor.w = aperture in units of the max blur radius, 0 = off),
+// pivot distance), CoC = aperture * (d - focus) / d (minus the in-focus band dofP.x) (skyColor.w = aperture in units of the max blur radius, 0 = off),
 // stored as 0.5 + 0.5 * clamp(CoC, -1, 1) (below 0.5 = near field). See shaders/post_dof_*.frag.
 vec4 finishA(vec3 col, vec3 P) {
     float d = max(length(P - camPos.xyz), 1e-3);
-    float coc = clamp(skyColor.w * (d - sunDir.w) / d, -1.0, 1.0);
+    float r = (d - sunDir.w) / d;
+    r = sign(r) * max(abs(r) - dofP.x, 0.0);   // zoom-adaptive in-focus band around the focus distance (0 = thin lens)
+    float coc = clamp(skyColor.w * r, -1.0, 1.0);
     return vec4(finish(col, P), 0.5 + 0.5 * coc);
 }
 float hash12(vec2 p) {

@@ -25,6 +25,7 @@ struct Frame
     float4 todP;
     float4x4 shadowVP;
     float4 shadowP;
+    float4 dofP;
 };
 
 struct LampGrid
@@ -231,14 +232,16 @@ static inline __attribute__((always_inline))
 float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _69)
 {
     float d = fast::max(length(P - _69.camPos.xyz), 0.001000000047497451305389404296875);
-    float coc = fast::clamp((_69.skyColor.w * (d - _69.sunDir.w)) / d, -1.0, 1.0);
+    float r = (d - _69.sunDir.w) / d;
+    r = sign(r) * fast::max(abs(r) - _69.dofP.x, 0.0);
+    float coc = fast::clamp(_69.skyColor.w * r, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _681 = finish(param, param_1, _69);
-    return float4(_681, 0.5 + (0.5 * coc));
+    float3 _693 = finish(param, param_1, _69);
+    return float4(_693, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _69 [[buffer(0)]], const device Mats& _709 [[buffer(1)]], const device LampGrid& _300 [[buffer(2)]], bool gl_FrontFacing [[front_facing]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _69 [[buffer(0)]], const device Mats& _721 [[buffer(1)]], const device LampGrid& _300 [[buffer(2)]], bool gl_FrontFacing [[front_facing]])
 {
     main0_out out = {};
     float3 N = fast::normalize(in.vNormal);
@@ -246,7 +249,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _69 [[buffer(
     {
         N = -N;
     }
-    float3 albedo = _709.mats[in.vMat].albedo.xyz * (0.819999992847442626953125 + (0.36000001430511474609375 * in.vTint));
+    float3 albedo = _721.mats[in.vMat].albedo.xyz * (0.819999992847442626953125 + (0.36000001430511474609375 * in.vTint));
     float ao = mix(0.550000011920928955078125, 1.0, fast::clamp((in.vWorld.y + 0.100000001490116119384765625) / 1.2000000476837158203125, 0.0, 1.0));
     float3 param = albedo * 2.0;
     float3 param_1 = N;

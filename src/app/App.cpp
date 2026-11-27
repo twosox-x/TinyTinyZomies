@@ -87,6 +87,21 @@ bool App::init() {
         t.cycleMinutes = std::max(0.1f, o.dayCycleMinutes);
     }
     if (o.noDof) s_.renderSettings.tiltShift = false;
+    {   // perf toggles (attribute explosion cost on the target machine)
+        RenderSettings& rs = s_.renderSettings;
+        auto off = [&](const char* k) { return ("," + o.perfOff + ",").find(std::string(",") + k + ",") != std::string::npos; };
+        if (off("fx")) rs.drawFxVolumes = false;
+        if (off("particles")) rs.drawParticles = false;
+        if (off("gibs")) rs.chars.drawGibs = false;
+        if (off("lights")) rs.fireLights = false;
+        if (off("shadows")) rs.shadowMap = false;
+        if (off("dof")) rs.tiltShift = false;
+        if (off("dofzoom")) rs.dofZoomAdapt = false;   // the fixed (pre zoom-adaptive) DOF at every zoom
+        if (o.fxFullRes) rs.fxHalfRes = false;
+        if (off("legacy")) { rs.perfLegacy = true; rs.chars.gibShadows = true; }   // A/B: the pre-budget explosion path
+        rs.renderScale = std::clamp(o.renderScale, 0.25f, 1.f);
+        s_.perfHud = o.perfHud;
+    }
     s_.renderSettings.shadows = o.shadowMode != 0;
     s_.renderSettings.shadowMap = o.shadowMode != 2;
     s_.renderSettings.drawGround = !o.noGround;
@@ -248,6 +263,7 @@ void App::handleEvent(const SDL_Event& e) {
         case SDLK_SPACE: s_.paused = !s_.paused; break;
         case SDLK_R: s_.resetRequested = true; break;
         case SDLK_F1: s_.showUI = !s_.showUI; break;
+        case SDLK_F3: s_.perfHud = !s_.perfHud; break;   // on-screen frame time + per-pass CPU timings
         case SDLK_F2: s_.debugCam = !s_.debugCam; applyCameraRig(); break;   // free debug camera (city RTS rig off)
         case SDLK_1: s_.tool = Tool::Explosion; break;
         case SDLK_2: s_.tool = Tool::SetGoal; break;
@@ -462,7 +478,14 @@ void App::frame(double dt) {
     if (s.lab) s.lab->update(s, (float)dt);
     SDL_GPUTexture* swap = nullptr;
     uint32_t w = (uint32_t)s.opt.width, h = (uint32_t)s.opt.height;
+    double ta = nowMs();   // waiting for a swapchain image: large when the GPU is the bottleneck
     if (s.window && !SDL_WaitAndAcquireGPUSwapchainTexture(cmd, s.window, &swap, &w, &h)) swap = nullptr;
+    const float acquireMs = (float)(nowMs() - ta);
+    const uint32_t outW = w, outH = h;   // render scale: the 3D image at a fraction of the window's pixels, upscaled
+    if (s.renderSettings.renderScale < 0.999f) {
+        w = std::max(1u, (uint32_t)((float)w * s.renderSettings.renderScale));
+        h = std::max(1u, (uint32_t)((float)h * s.renderSettings.renderScale));
+    }
     if (s.cityMode) {   // streaming, LOD, uploads (copy passes before the scene pass), street-lamp lights
         {   // key-light shadow casters: the city culls its tiles against the same light box the renderer draws
             M4 lightVP;
@@ -483,7 +506,7 @@ void App::frame(double dt) {
     }
     if (!s.window || swap) {
         s.renderTime += dt;
-        s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings, &s.chars);
+        s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings, &s.chars, outW, outH);
     }
     s.cpuRender.add(nowMs() - t2);
     pr.renderRec = (float)(nowMs() - t2);
@@ -494,6 +517,7 @@ void App::frame(double dt) {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         if (s.showUI) drawDebugUI(s);
+        if (s.perfHud) drawPerfHud(s);
         if (s.showUI && s.lab) s.lab->drawUI(s);
         ImGui::Render();
         ImDrawData* dd = ImGui::GetDrawData();
@@ -516,6 +540,20 @@ void App::frame(double dt) {
     if (!s.window) SDL_WaitForGPUIdle(s.gpu.device());
     pr.gpuRender = (float)(nowMs() - tw);
     s.cpuFrame.add(nowMs() - t0);
+    {   // perf HUD: this frame, and averages / maxima over ~1 s
+        AppState::PerfHud& h0 = s.hud;
+        h0.frame = (float)(nowMs() - t0); h0.veh = pr.vehTotal; h0.simRec = pr.simRec; h0.renderRec = pr.renderRec;
+        h0.ui = (float)s.cpuUI.last; h0.acquire = acquireMs; h0.submitWait = pr.gpuRender;
+        float* a = &s.hudAcc.frame; float* m = &s.hudAccMax.frame; const float* c = &h0.frame;
+        for (int i = 0; i < 7; ++i) { a[i] += c[i]; m[i] = std::max(m[i], c[i]); }
+        ++s.hudFrames;
+        if (nowMs() - s.hudT0 > 1000.0) {
+            float* av = &s.hudAvg.frame;
+            for (int i = 0; i < 7; ++i) av[i] = a[i] / (float)s.hudFrames;
+            s.hudMax = s.hudAccMax;
+            s.hudAcc = {}; s.hudAccMax = {}; s.hudFrames = 0; s.hudT0 = nowMs();
+        }
+    }
     if (perf) {
         const VehicleStats& vs = s.vehicles.stats();
         pr.frame = (float)(nowMs() - t0);

@@ -85,6 +85,7 @@ struct FxVolumes
 {
     float4 fxA[24];
     float4 fxB[24];
+    float4 fxC[24];
     uint4 fxCount;
 };
 
@@ -108,10 +109,11 @@ struct Frame
     float4 todP;
     float4x4 shadowVP;
     float4 shadowP;
+    float4 dofP;
 };
 
-constant spvUnsafeArray<int3, 24> _797 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
-constant spvUnsafeArray<int, 6> _804 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
+constant spvUnsafeArray<int3, 24> _798 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _805 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
 
 struct main0_out
 {
@@ -274,13 +276,13 @@ void wreckBox(thread const float3& c, thread const float& len, thread float3& lo
 }
 
 static inline __attribute__((always_inline))
-void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _663)
+void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _664)
 {
-    if (_663.fxB[i].y < 0.5)
+    if (_664.fxB[i].y < 0.5)
     {
-        float3 param = _663.fxA[i].xyz;
-        float param_1 = _663.fxB[i].x;
-        float param_2 = _663.fxA[i].w;
+        float3 param = _664.fxA[i].xyz;
+        float param_1 = _664.fxB[i].x;
+        float param_2 = _664.fxA[i].w;
         float3 param_3;
         float3 param_4;
         blastBox(param, param_1, param_2, param_3, param_4);
@@ -289,8 +291,8 @@ void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant F
     }
     else
     {
-        float3 param_5 = _663.fxA[i].xyz;
-        float param_6 = _663.fxB[i].x;
+        float3 param_5 = _664.fxA[i].xyz;
+        float param_6 = _664.fxB[i].x;
         float3 param_7;
         float3 param_8;
         wreckBox(param_5, param_6, param_7, param_8);
@@ -299,49 +301,49 @@ void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant F
     }
 }
 
-vertex main0_out main0(constant Frame& _732 [[buffer(0)]], constant FxVolumes& _663 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _733 [[buffer(0)]], constant FxVolumes& _664 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
     int i = int(gl_InstanceIndex);
     int param = i;
     float3 param_1;
     float3 param_2;
-    fxBox(param, param_1, param_2, _663);
+    fxBox(param, param_1, param_2, _664);
     float3 lo = param_1;
     float3 hi = param_2;
     float3 m = float3(2.0);
-    bool _741 = all(_732.camPos.xyz > (lo - m));
-    bool _752;
-    if (_741)
+    bool _742 = all(_733.camPos.xyz > (lo - m));
+    bool _753;
+    if (_742)
     {
-        _752 = all(_732.camPos.xyz < (hi + m));
+        _753 = all(_733.camPos.xyz < (hi + m));
     }
     else
     {
-        _752 = _741;
+        _753 = _742;
     }
-    bool inside = _752;
-    bool _758 = inside != (_663.fxCount.y == 0u);
-    bool _769;
-    if (!_758)
+    bool inside = _753;
+    bool _759 = inside != (_664.fxCount.y == 0u);
+    bool _770;
+    if (!_759)
     {
-        _769 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
+        _770 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
     }
     else
     {
-        _769 = _758;
+        _770 = _759;
     }
-    if (_769)
+    if (_770)
     {
         out.gl_Position = float4(0.0, 0.0, 2.0, 1.0);
         out.vWorld = float3(0.0);
         out.vIdx = i;
         return out;
     }
-    float3 c = float3(_797[((int(gl_VertexIndex) / 6) * 4) + _804[spvSMod(int(gl_VertexIndex), 6)]]);
+    float3 c = float3(_798[((int(gl_VertexIndex) / 6) * 4) + _805[spvSMod(int(gl_VertexIndex), 6)]]);
     out.vWorld = mix(lo, hi, c);
     out.vIdx = i;
-    out.gl_Position = _732.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _733.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

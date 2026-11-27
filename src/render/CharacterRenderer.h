@@ -28,6 +28,8 @@ struct CharacterSettings {
     bool occlusionCull = true;  // conservative culling behind static buildings
     uint32_t forcedAnim = 0;    // ANIM_* override for previews (0 = from simulation state)
     bool quadIndexing = true;   // draw faces as indexed quads (4 shaded vertices per face instead of 6)
+    bool drawGibs = true;       // flying / resting body parts (perf toggle)
+    bool gibShadows = false;    // body parts cast key-light shadows (small, many during explosions: off by default)
 };
 
 struct CharacterStats {         // from the GPU counters (async in the app, exact in benchmarks)

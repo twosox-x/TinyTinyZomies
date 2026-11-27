@@ -156,3 +156,28 @@ Measured on lavapipe unless stated; none of this has been measured on a Mac.
 - Quads save 3–4 % of the frame in the arena scenarios on lavapipe, which is fragment-bound. On Apple GPUs, vertex work and the tiler's parameter buffer scale with vertex count, so the saving may be larger. **Not measured on the Mac yet.**
 - Moon shadows cost nothing measurable (one bilinear lookup per fragment).
 - The siege includes explosions. Its extra 12 % over phase 3 is the gore: more bodies in view, particles and body parts. Gore simulation passes did not change the sim column beyond noise.
+
+## Phase 7: explosion / chain-reaction GPU cost, perf toggles
+
+Assumption: on the Mac the chain-reaction lag is GPU fill (CPU vehicle cost was already cut 6x). Changes (Renderer.cpp,
+shaders/fx_*):
+
+- **Voxel fx volumes at half resolution** (`fxHalfRes`, `fxResDiv` 2 or 4): ray-marched offscreen into colour + the hit
+  voxel (centre, size, entry axis) + own depth, then `fx_composite.frag` runs in the MSAA scene pass (scissored to the
+  volumes' screen box) and re-intersects each full-res pixel's ray with the voxel cubes of the 3x3 nearest low-res
+  texels: silhouettes and depth stay exact (crisp cubes, correct intersections with buildings), ~1/4 of the ray-march.
+- **Voxel LOD by projected size** (`fxVoxelPx` low-res pixels per voxel -> 0.25 / 0.5 / 1 m) and a **screen budget**
+  (`fxBudget`: nearest volumes at full quality, the rest one LOD coarser with 96 instead of 160 steps).
+- **Chain blasts merge**: a blast inside a fireball younger than 0.6 s grows it (volume-additive scale) instead of
+  stacking another overlapping ray-march.
+- **Fire lights**: off-screen lights culled (sphere vs frustum), fires closer than 6 m merged, capped at
+  `maxFireLights` (8, was 16).
+- **Body parts no longer cast key-light shadows** (`gibShadows`); particles never did.
+- **Render scale** (`--render-scale`): the window is HiDPI, so a Retina Mac renders 4x the pixels at 4x MSAA.
+- Not changed: the shadow map re-renders all casters every frame (also outside chains); toggle it off to measure.
+
+Lavapipe, 800x450, camera 45 m over the densest vehicle cluster, 6 blasts/s for 1.5 s (`--spam-blasts 6 1.5 auto 0`),
+GPU render ms (mean): legacy (`--perf-off legacy`) before 560 / spam 795 / after (wreck fires) 915; new 593 / 703 /
+801. Explosion increment over the quiet scene: spam +235 -> +110 ms, burning wrecks +355 -> +209 ms (CPU-emulated,
+direction only). Toggles: debug panel "Performance", `--perf-off fx,particles,gibs,lights,shadows,dof,dofzoom,legacy`,
+`--fx-full-res`, `--render-scale X`, HUD `--perf-hud` / F3 (frame, CPU per pass, swapchain wait = GPU-bound).

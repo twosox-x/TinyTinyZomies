@@ -11,8 +11,12 @@ layout(std140, set = FX_SET, binding = 1) uniform FxVolumes {
     vec4 fxA[MAX_FX_VOLUMES];   // xyz origin (blast centre / wreck centre), w age (s)
     vec4 fxB[MAX_FX_VOLUMES];   // x scale (blast 1 car .. 2.2 tanker; wreck: footprint length m), y kind (0 blast,
                                 // 1 burning wreck), z seed, w strength (wreck fire 0..1)
+    vec4 fxC[MAX_FX_VOLUMES];   // x voxel LOD bias (1 = by screen size, 2 = one level coarser: over the frame budget),
+                                // y max DDA steps
     uvec4 fxCount;              // x number of volumes, y pass: 0 volumes containing the camera (far faces),
-                                // 1 the others (near faces, conservative depth: fx_volume_near.frag)
+                                // 1 the others (near faces, conservative depth: fx_volume_near.frag), z float bits:
+                                // min voxel size per metre of distance (target pixel footprint x px per voxel; 0 =
+                                // legacy rule 0.25 m / 0.5 m beyond 110 m)
 };
 const vec3 FX_WIND = vec3(0.55, 0.0, 0.25);   // drift of smoke (m/s), same direction as the particle smoke had
 

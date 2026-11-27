@@ -8,6 +8,7 @@
 //   ttz --save-config path       write all simulation parameters with their defaults
 //   ttz --lab military [--headless --shots F1,F2 --lab-views closeup,rts110,.. --shot-dir DIR]   Military Asset Lab
 //   ttz --lab military --headless --lab-stress 10,50,100,250,500,1000 [--bench-frames 600] [--lab-zombies 2000]   lab stress bench
+//   ttz --map city --perf-hud [--perf-off fx,particles,gibs,lights,shadows,dof] [--fx-full-res] [--render-scale 0.75]
 //   ttz --map city --headless --frames 900 --spam-blasts 4 10 auto 0 [--spam-start 120] [--perf-split] [--perf-csv f]   click-spam stress
 #include "app/App.h"
 #include "city/CityWorld.h"
@@ -113,6 +114,10 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--spam-start")) o.spamStart = std::atoi(next());
         else if (!std::strcmp(a, "--spam-spread")) o.spamSpread = (float)std::atof(next());
         else if (!std::strcmp(a, "--perf-report")) o.perfReport = true;
+        else if (!std::strcmp(a, "--perf-off")) o.perfOff = next();
+        else if (!std::strcmp(a, "--fx-full-res")) o.fxFullRes = true;
+        else if (!std::strcmp(a, "--perf-hud")) o.perfHud = true;
+        else if (!std::strcmp(a, "--render-scale")) o.renderScale = (float)std::atof(next());
         else if (!std::strcmp(a, "--perf-split")) o.perfSplit = true;
         else if (!std::strcmp(a, "--perf-csv")) o.perfCsv = next();
         else if (!std::strcmp(a, "--bench")) bench = true;

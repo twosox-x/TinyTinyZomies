@@ -16,7 +16,7 @@ layout(std430, set = 0, binding = 4) readonly buffer Agents   { Agent agents[]; 
 layout(std430, set = 0, binding = 5) readonly buffer Corpses  { Corpse corpses[]; };
 layout(std430, set = 0, binding = 6) readonly buffer PoseLib  { vec4 poseLib[]; };
 layout(std140, set = 1, binding = 1) uniform CharDraw {
-    uvec4 draw;   // x size class, y pose evaluated in the vertex shader (comparison mode)
+    uvec4 draw;   // x size class, y pose evaluated in the vertex shader (comparison mode), z 1 = shadow pass without body parts
     vec4  dparams;// x metres per voxel, y render time, z forced animation
 };
 layout(location = 0) out vec3 vWorld;
@@ -31,7 +31,8 @@ void main() {
     SegInst s = segs[cc[CC_CLASS_BASE + draw.x] + uint(gl_InstanceIndex)];
     uint meshId = s.a.z & 0xFFFu, slot = (s.a.z >> 12) & 0xFu;
     uvec4 mi = meshInfo[meshId];
-    if (uint(gl_VertexIndex) >= mi.y) {           // padding to the class size: degenerate, clipped
+    bool skip = draw.z != 0u && (floatBitsToUint(s.b.w) & REF_GIB) != 0u;   // body parts kept out of the shadow map
+    if (uint(gl_VertexIndex) >= mi.y || skip) {   // padding to the class size: degenerate, clipped
         gl_Position = vec4(0.0, 0.0, -2.0, 1.0);
         vWorld = vec3(0.0); vNormal = vec3(0.0, 1.0, 0.0); vRest = vec3(0.0); vAO = 1.0; vInfo = uvec4(0u);
         return;

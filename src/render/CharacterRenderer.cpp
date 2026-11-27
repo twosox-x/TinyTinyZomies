@@ -319,7 +319,7 @@ void CharacterRenderer::prepare(SDL_GPUCommandBuffer* cmd, const CrowdSim& sim, 
     u.ccfg.x = 1;
     dispatchIndirect(D(pCull_, cullRO, {counters_, visList_, segLocal_}), sim.indirect(), I_CORPSE_DISPATCH * 4);
     u.ccfg.x = 2;                                   // flying / resting body parts
-    dispatch(D(pCull_, cullRO, {counters_, visList_, segLocal_}), (sim.gibCapacity() + 255) / 256);
+    if (cs.drawGibs) dispatch(D(pCull_, cullRO, {counters_, visList_, segLocal_}), (sim.gibCapacity() + 255) / 256);
     u.ccfg.x = 0;
     dispatch(D(pPrefix_, {set.classInfo}, {counters_, args_}), 1);
     dispatchIndirect(D(pPose_, {sim.agents(), sim.corpses(), visList_, segLocal_, poseLib_, counters_, sim.gibs()}, {segInsts_}),
@@ -342,7 +342,7 @@ void CharacterRenderer::draw(SDL_GPUCommandBuffer* cmd, SDL_GPURenderPass* pass,
     }
     for (uint32_t c = 0; c < set.maxVerts.size(); ++c) {
         CharDraw d{};
-        d.draw = {c, cs.poseInVertexShader ? 1u : 0u, 0, 0};
+        d.draw = {c, cs.poseInVertexShader ? 1u : 0u, depthOnly && !cs.gibShadows ? 1u : 0u, 0};   // z: no gib shadows
         d.dparams = {scale_, (float)time, (float)cs.forcedAnim, 0};
         SDL_PushGPUVertexUniformData(cmd, 1, &d, sizeof(d));
         if (quads) SDL_DrawGPUIndexedPrimitivesIndirect(pass, args_, c * kArgStride * 4, 1);

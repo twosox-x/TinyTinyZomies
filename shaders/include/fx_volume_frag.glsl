@@ -14,6 +14,11 @@
 layout(location = 0) in vec3 vWorld;
 layout(location = 1) flat in int vIdx;
 layout(location = 0) out vec4 outColor;
+#ifdef FX_HALF
+// reduced-resolution pass (Renderer: fxHalfRes): also the hit voxel (xyz centre, w = voxel size + 8 x entry axis), so
+// fx_composite.frag can re-intersect the exact voxel cubes per full-resolution pixel (crisp edges, exact depth)
+layout(location = 1) out vec4 outVox;
+#endif
 #ifdef FX_NEAR
 // near-face pass (camera outside the box): the voxel hit lies on the ray behind the rasterised entry face, so the depth
 // written is never nearer than the face's -> early depth rejection stays on (volumes behind buildings / earlier voxels)
@@ -154,9 +159,15 @@ void main() {
     int axis0 = tmin.x >= tmin.y && tmin.x >= tmin.z ? 0 : (tmin.y >= tmin.z ? 1 : 2);
     if (t0 < 0.0) { t0 = 0.0; vec3 a = abs(rd); axis0 = a.x >= a.y && a.x >= a.z ? 0 : (a.y >= a.z ? 1 : 2); }
     // voxel size: the building voxel (0.25 m); 0.5 m far away or for very long walks
+    // LOD by projected size: the smallest of 0.25 / 0.5 / 1 m covering the wanted pixels per voxel (fxCount.z), one
+    // level coarser when the frame's fx budget is exceeded (fxC.x); and coarser for walks longer than the step cap
     float dist = length(0.5 * (lo + hi) - ro);
-    float v = dist > 110.0 ? 0.5 : 0.25;
-    if ((t1 - t0) / v > 150.0) v = 0.5;
+    float mpp = uintBitsToFloat(fxCount.z);
+    float v;
+    if (mpp > 0.0) { float want = dist * mpp * fxC[i].x; v = want <= 0.25 ? 0.25 : (want <= 0.5 ? 0.5 : 1.0); }
+    else v = dist > 110.0 ? 0.5 : 0.25;
+    int maxSteps = int(fxC[i].y);
+    if ((t1 - t0) / v > 0.94 * float(maxSteps) && v < 1.0) v *= 2.0;
     vec3 p = ro + rd * (t0 + 1e-4);
     ivec3 cell = ivec3(floor(p / v));
     ivec3 stp = ivec3(sign(rd));
@@ -186,7 +197,7 @@ void main() {
     }
     vec3 mat;
     bool hit = false;
-    for (int k = k0; k < 160; ++k) {
+    for (int k = k0; k < maxSteps; ++k) {
         vec3 q = (vec3(cell) + 0.5) * v;
         float d = blast ? blastDensity(q, A.xyz, B.x, A.w, B.z, bs, mat) : wreckDensity(q, A.xyz, B.x, A.w, B.w, B.z, mat);
         if (d > 0.0) { hit = true; break; }
@@ -219,5 +230,8 @@ void main() {
     gl_FragDepth = max(gl_FragDepth, gl_FragCoord.z);         // float noise at the entry face: keep the promise
 #endif
     outColor = finishA(col, P);
+#ifdef FX_HALF
+    outVox = vec4((vec3(cell) + 0.5) * v, v + 8.0 * float(ax));
+#endif
 }
 #endif

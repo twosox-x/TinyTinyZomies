@@ -70,6 +70,11 @@ struct AppOptions {
     float spamRate = 0, spamSeconds = 0, spamX = 0, spamZ = 0, spamSpread = 10.f;
     int spamStart = 120;
     bool perfReport = false, perfSplit = false;
+    // --perf-off fx,particles,gibs,lights,shadows,dof (comma list: switch those off), --fx-full-res (legacy full-res
+    // fx volumes), --render-scale X (3D resolution x window pixels), --perf-hud (on-screen frame / pass timings)
+    std::string perfOff;
+    bool fxFullRes = false, perfHud = false;
+    float renderScale = 1.f;
     std::string perfCsv;
 };
 
@@ -110,6 +115,13 @@ struct AppState {
     int showcaseRequested = -1;
     class MilitaryLab* lab = nullptr;   // --lab military
 
+    // on-screen perf readout (F3, debug panel "Performance"): last frame / 1 s averages in ms
+    struct PerfHud { float frame = 0, veh = 0, simRec = 0, renderRec = 0, ui = 0, acquire = 0, submitWait = 0; };
+    PerfHud hud, hudAvg, hudMax;
+    int hudFrames = 0;
+    PerfHud hudAcc, hudAccMax;
+    double hudT0 = 0;
+    bool perfHud = false;
     // profiling
     RunningStat cpuFrame, cpuSim, cpuRender, cpuUI, frameTotal;
     FrameHistory history;
