@@ -19,18 +19,18 @@ at 50   move 1 10 120                      # the squad moves away down the stree
 at 60   sethealth 1 20 1                   # TEST HOOK: two soldiers wounded
 at 60   sethealth 1 25 2
 at 61   expect squad 1 wounded == 2
-at 75   log
-at 75   expect bstat admitted == 2
-at 75   expect building patients == 2
-at 75   expect squad_inside 1 == 2
 at 76   camera 26 108 0.6 0.95 70
-at 77   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/hospital.png
-at 95   log
-at 95   expect bstat discharged == 2
-at 95   expect bstat healed >= 140
-at 95   expect squad 1 wounded == 0
-at 95   expect squad_inside 1 == 0
-at 95   expect building patients == 0
+at 78   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/hospital.png
+at 82   log
+at 82   expect bstat admitted == 2             # wounded walk (slow): ~15 s to the door, 2.2 s entering
+at 82   expect building patients == 2
+at 82   expect squad_inside 1 == 2
+at 100  log
+at 100  expect bstat discharged == 2           # 6 hp/s from 20-25 hp to 95 %: ~12.5 s
+at 100  expect bstat healed >= 140
+at 100  expect squad 1 wounded == 0
+at 100  expect squad_inside 1 == 0
+at 100  expect building patients == 0
 at 110  expect squad 1 maxdist 10 120 < 12   # back with the squad
 at 110  bbarricade doors plate
 at 110  bbarricade windows planks

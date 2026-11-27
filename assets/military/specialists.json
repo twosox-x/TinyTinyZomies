@@ -1,0 +1,3629 @@
+{
+ "format": "TTZM",
+ "version": 1,
+ "source": "tools/military_lab/military_lab_v1.html",
+ "labVersion": 1,
+ "note": "positions in metres, model space, rest pose; Y up, front +Z, left +X. See docs/MILITARY_ASSETS.md",
+ "palette": [
+  {
+   "name": "olive",
+   "rgb": "#5b5f3a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "oliveDark",
+   "rgb": "#3f4229",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "oliveLight",
+   "rgb": "#767a4d",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyote",
+   "rgb": "#8a7352",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyoteDark",
+   "rgb": "#675539",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyoteLight",
+   "rgb": "#a48b66",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "rangerGreen",
+   "rgb": "#4c5440",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "rangerDark",
+   "rgb": "#363c2e",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcTan",
+   "rgb": "#a08c68",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcGreen",
+   "rgb": "#6b6f4a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcBrown",
+   "rgb": "#6e5a40",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcLight",
+   "rgb": "#bba886",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "webbing",
+   "rgb": "#55513a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "tan",
+   "rgb": "#b59f78",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "khaki",
+   "rgb": "#9c8a62",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "black",
+   "rgb": "#1f2021",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "blackSoft",
+   "rgb": "#2d2e2c",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "bootBrown",
+   "rgb": "#5a4630",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "gunBlack",
+   "rgb": "#1a1b1d",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gunMetal",
+   "rgb": "#3b3d40",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "metal",
+   "rgb": "#7d8186",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "brass",
+   "rgb": "#b8913a",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "lens",
+   "rgb": "#2c4a5e",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "lensGlint",
+   "rgb": "#6fa0bd",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "suppressor",
+   "rgb": "#4a4b47",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "fde",
+   "rgb": "#a58f6b",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "eyeDark",
+   "rgb": "#17140f",
+   "flags": 0,
+   "noise": 0
+  },
+  {
+   "name": "lip",
+   "rgb": "#6e4a3a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "scarfTan",
+   "rgb": "#b8a887",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "scarfOlive",
+   "rgb": "#6d6b4c",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "scarfBlack",
+   "rgb": "#2b2b2b",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieA",
+   "rgb": "#6f6a45",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieB",
+   "rgb": "#8c7c55",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieC",
+   "rgb": "#4d5233",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "stencil",
+   "rgb": "#d9cf9e",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "stencilYellow",
+   "rgb": "#c9a930",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "skin0",
+   "rgb": "#e0b294",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin1",
+   "rgb": "#c99a76",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin2",
+   "rgb": "#a5764f",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin3",
+   "rgb": "#7f5538",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin4",
+   "rgb": "#5e3d29",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin5",
+   "rgb": "#d6a47c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark0",
+   "rgb": "#af8b73",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark1",
+   "rgb": "#9d785c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark2",
+   "rgb": "#815c3e",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark3",
+   "rgb": "#63422c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark4",
+   "rgb": "#493020",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark5",
+   "rgb": "#a78061",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair0",
+   "rgb": "#2b241e",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair1",
+   "rgb": "#5a4630",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair2",
+   "rgb": "#1e1e22",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair3",
+   "rgb": "#8c7a5c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "sand",
+   "rgb": "#b9a57a",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "sandDark",
+   "rgb": "#9c8961",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "hescoWire",
+   "rgb": "#6e6c62",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "hescoFabric",
+   "rgb": "#c2b48c",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "sandbag",
+   "rgb": "#a99a70",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "sandbagDark",
+   "rgb": "#8a7c56",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "sandbagOlive",
+   "rgb": "#7b7650",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "wood",
+   "rgb": "#8a6a44",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "woodDark",
+   "rgb": "#6a4f31",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "woodLight",
+   "rgb": "#a88a5e",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "rope",
+   "rgb": "#b9a77f",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "steel",
+   "rgb": "#5d6166",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "steelDark",
+   "rgb": "#43474b",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "rust",
+   "rgb": "#6e4a33",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "containerOlive",
+   "rgb": "#55593a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "containerDark",
+   "rgb": "#3d402b",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyOlive",
+   "rgb": "#6a6d48",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyDark",
+   "rgb": "#53563a",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyTan",
+   "rgb": "#a6956d",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyWhite",
+   "rgb": "#d2d0c2",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "line",
+   "rgb": "#cfc8ae",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "strap",
+   "rgb": "#4b4a36",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canvas",
+   "rgb": "#857a58",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "canvasLight",
+   "rgb": "#a79b77",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "white",
+   "rgb": "#e6e4da",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "medGreen",
+   "rgb": "#2f8a4a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "flagOlive",
+   "rgb": "#5d6440",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "flagWhite",
+   "rgb": "#e2e0d6",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "pole",
+   "rgb": "#6a6c6e",
+   "flags": 2,
+   "noise": 0.03
+  },
+  {
+   "name": "concrete",
+   "rgb": "#9a978d",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "radioGreen",
+   "rgb": "#3f4630",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "cotGreen",
+   "rgb": "#5f6646",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "mattress",
+   "rgb": "#7a7d62",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "blanket",
+   "rgb": "#6b5a40",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "hiVis",
+   "rgb": "#e8701e",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "hiVisDark",
+   "rgb": "#b9561a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "reflect",
+   "rgb": "#d9dbd2",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "leather",
+   "rgb": "#7a5636",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "toolSteel",
+   "rgb": "#71757a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "toolHead",
+   "rgb": "#35383b",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "handle",
+   "rgb": "#9a7a4e",
+   "flags": 0,
+   "noise": 0.07
+  },
+  {
+   "name": "hoodSilver",
+   "rgb": "#b4b6ae",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "hoodSilverDark",
+   "rgb": "#8c8e87",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "visorGold",
+   "rgb": "#b8902e",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "nomex",
+   "rgb": "#6e6a52",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "nomexDark",
+   "rgb": "#55523f",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "rubber",
+   "rgb": "#242424",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "tankOlive",
+   "rgb": "#4f5536",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "hazardRed",
+   "rgb": "#9a2a20",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "hazardYellow",
+   "rgb": "#c9a62a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "pilotFlame",
+   "rgb": "#ffb040",
+   "flags": 1,
+   "noise": 0
+  },
+  {
+   "name": "copper",
+   "rgb": "#a8643a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gasRed",
+   "rgb": "#8e2a22",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gasBlack",
+   "rgb": "#2a2c2e",
+   "flags": 2,
+   "noise": 0.04
+  }
+ ],
+ "vertexCount": 47946,
+ "models": [
+  {
+   "name": "engineer_a",
+   "label": "Engineer A (sledge)",
+   "class": "engineer",
+   "bounds": {
+    "min": [
+     -0.330556,
+     0,
+     -0.472222
+    ],
+    "max": [
+     0.330556,
+     1.794444,
+     0.590278
+    ]
+   },
+   "parts": [
+    {
+     "name": "head",
+     "parent": 1,
+     "slot": "head",
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 0,
+     "count": 168,
+     "rigid": true,
+     "voxels": 28
+    },
+    {
+     "name": "torso",
+     "parent": -1,
+     "slot": "torso",
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 168,
+     "count": 348,
+     "rigid": true,
+     "voxels": 90
+    },
+    {
+     "name": "upperArmL",
+     "parent": 1,
+     "slot": "upperArmL",
+     "pivot": [
+      0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 516,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmL",
+     "parent": 2,
+     "slot": "forearmL",
+     "pivot": [
+      0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 600,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "upperArmR",
+     "parent": 1,
+     "slot": "upperArmR",
+     "pivot": [
+      -0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 684,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmR",
+     "parent": 4,
+     "slot": "forearmR",
+     "pivot": [
+      -0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 744,
+     "count": 108,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "thighL",
+     "parent": -1,
+     "slot": "thighL",
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 852,
+     "count": 162,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinL",
+     "parent": 6,
+     "slot": "shinL",
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 1014,
+     "count": 156,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "thighR",
+     "parent": -1,
+     "slot": "thighR",
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 1170,
+     "count": 180,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinR",
+     "parent": 8,
+     "slot": "shinR",
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 1350,
+     "count": 150,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "gear_head",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 1500,
+     "count": 1410,
+     "rigid": true,
+     "voxels": 150
+    },
+    {
+     "name": "gear_torso",
+     "parent": 1,
+     "slot": null,
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 2910,
+     "count": 4356,
+     "rigid": true,
+     "voxels": 1054
+    },
+    {
+     "name": "gear_thighL",
+     "parent": 6,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 7266,
+     "count": 120,
+     "rigid": true,
+     "voxels": 13
+    },
+    {
+     "name": "gear_thighR",
+     "parent": 8,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 7386,
+     "count": 54,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "gear_shinL",
+     "parent": 7,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 7440,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "gear_shinR",
+     "parent": 9,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 7584,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "weapon",
+     "parent": 5,
+     "slot": null,
+     "pivot": [
+      -0.283333,
+      0.613889,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 7728,
+     "count": 408,
+     "rigid": false,
+     "voxels": 43
+    }
+   ],
+   "sockets": [
+    {
+     "name": "parachute",
+     "part": 1,
+     "pos": [
+      0,
+      1.369444,
+      -0.047222
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "name": "eyes",
+     "part": 0,
+     "pos": [
+      0,
+      1.558333,
+      0.141667
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "back",
+     "part": 1,
+     "pos": [
+      0,
+      1.086111,
+      -0.188889
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    },
+    {
+     "name": "muzzle",
+     "part": 16,
+     "pos": [
+      -0.283333,
+      0.708333,
+      0.590278
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 2712,
+   "weapon": {
+    "kind": "carbine",
+    "grip": [
+     0,
+     0,
+     0
+    ],
+    "support": [
+     0,
+     -0.009444,
+     0.330556
+    ],
+    "muzzle": [
+     0,
+     0.094444,
+     0.590278
+    ],
+    "sling": [
+     0,
+     0.047222,
+     -0.188889
+    ],
+    "length": 0.802778,
+    "handOffsetFromElbow": [
+     0,
+     -0.330556,
+     0
+    ]
+   },
+   "poses": {
+    "rest": {
+     "rot": {},
+     "weaponMount": [
+      0,
+      0,
+      0
+     ],
+     "supportError": null
+    },
+    "carry": {
+     "rot": {
+      "torso": [
+       0.06,
+       0.12,
+       0
+      ],
+      "head": [
+       0.05,
+       0.1,
+       0
+      ],
+      "thighR": [
+       -0.08,
+       0,
+       0
+      ],
+      "shinR": [
+       0.12,
+       0,
+       0
+      ],
+      "thighL": [
+       0.05,
+       0,
+       0
+      ],
+      "upperArmR": [
+       -0.189063,
+       -0.119141,
+       0.349609
+      ],
+      "forearmR": [
+       -1.484375,
+       0,
+       0
+      ],
+      "upperArmL": [
+       -1.154102,
+       -0.15957,
+       -0.479492
+      ],
+      "forearmL": [
+       -0.000586,
+       0,
+       0
+      ]
+     },
+     "weaponMount": [
+      2.099447,
+      0.148685,
+      -0.619729
+     ],
+     "supportError": 0.23422
+    }
+   },
+   "look": {
+    "uniform": "mc",
+    "skin": 1,
+    "hair": 0,
+    "boot": "coyoteDark",
+    "gloves": "leather",
+    "rolled": false,
+    "helmetCover": "mc",
+    "vest": "coyote",
+    "pouch": "coyote",
+    "pack": "assault",
+    "packCol": "coyote",
+    "nvg": false,
+    "goggles": false,
+    "scarf": null,
+    "kneepads": true,
+    "holster": false,
+    "radioBack": false,
+    "antenna": false,
+    "radioFront": false,
+    "beard": false,
+    "hat": "helmet",
+    "ghillie": false,
+    "ghillieShoulders": false,
+    "pouchShift": 0,
+    "seed": 211,
+    "packTool": "sledge",
+    "earPro": "olive",
+    "cls": "engineer"
+   },
+   "tools": [
+    "tool_sledgehammer",
+    "tool_shovel",
+    "tool_torch",
+    "tool_crowbar",
+    "tool_sandbag",
+    "tool_panel"
+   ]
+  },
+  {
+   "name": "engineer_b",
+   "label": "Engineer B (shovel)",
+   "class": "engineer",
+   "bounds": {
+    "min": [
+     -0.330556,
+     0,
+     -0.472222
+    ],
+    "max": [
+     0.330556,
+     1.794444,
+     0.590278
+    ]
+   },
+   "parts": [
+    {
+     "name": "head",
+     "parent": 1,
+     "slot": "head",
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8136,
+     "count": 156,
+     "rigid": true,
+     "voxels": 28
+    },
+    {
+     "name": "torso",
+     "parent": -1,
+     "slot": "torso",
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8292,
+     "count": 342,
+     "rigid": true,
+     "voxels": 90
+    },
+    {
+     "name": "upperArmL",
+     "parent": 1,
+     "slot": "upperArmL",
+     "pivot": [
+      0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8634,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmL",
+     "parent": 2,
+     "slot": "forearmL",
+     "pivot": [
+      0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8718,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "upperArmR",
+     "parent": 1,
+     "slot": "upperArmR",
+     "pivot": [
+      -0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8802,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmR",
+     "parent": 4,
+     "slot": "forearmR",
+     "pivot": [
+      -0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8862,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "thighL",
+     "parent": -1,
+     "slot": "thighL",
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 8946,
+     "count": 162,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinL",
+     "parent": 6,
+     "slot": "shinL",
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 9108,
+     "count": 138,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "thighR",
+     "parent": -1,
+     "slot": "thighR",
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 9246,
+     "count": 168,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinR",
+     "parent": 8,
+     "slot": "shinR",
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 9414,
+     "count": 126,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "gear_head",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 9540,
+     "count": 1404,
+     "rigid": true,
+     "voxels": 148
+    },
+    {
+     "name": "gear_torso",
+     "parent": 1,
+     "slot": null,
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 10944,
+     "count": 3858,
+     "rigid": true,
+     "voxels": 1044
+    },
+    {
+     "name": "gear_thighL",
+     "parent": 6,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 14802,
+     "count": 120,
+     "rigid": true,
+     "voxels": 13
+    },
+    {
+     "name": "gear_thighR",
+     "parent": 8,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 14922,
+     "count": 54,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "gear_shinL",
+     "parent": 7,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 14976,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "gear_shinR",
+     "parent": 9,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 15120,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "weapon",
+     "parent": 5,
+     "slot": null,
+     "pivot": [
+      -0.283333,
+      0.613889,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 15264,
+     "count": 408,
+     "rigid": false,
+     "voxels": 43
+    }
+   ],
+   "sockets": [
+    {
+     "name": "parachute",
+     "part": 1,
+     "pos": [
+      0,
+      1.369444,
+      -0.047222
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "name": "eyes",
+     "part": 0,
+     "pos": [
+      0,
+      1.558333,
+      0.141667
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "back",
+     "part": 1,
+     "pos": [
+      0,
+      1.086111,
+      -0.188889
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    },
+    {
+     "name": "muzzle",
+     "part": 16,
+     "pos": [
+      -0.283333,
+      0.708333,
+      0.590278
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 2512,
+   "weapon": {
+    "kind": "carbine",
+    "grip": [
+     0,
+     0,
+     0
+    ],
+    "support": [
+     0,
+     -0.009444,
+     0.330556
+    ],
+    "muzzle": [
+     0,
+     0.094444,
+     0.590278
+    ],
+    "sling": [
+     0,
+     0.047222,
+     -0.188889
+    ],
+    "length": 0.802778,
+    "handOffsetFromElbow": [
+     0,
+     -0.330556,
+     0
+    ]
+   },
+   "poses": {
+    "rest": {
+     "rot": {},
+     "weaponMount": [
+      0,
+      0,
+      0
+     ],
+     "supportError": null
+    },
+    "carry": {
+     "rot": {
+      "torso": [
+       0.06,
+       0.12,
+       0
+      ],
+      "head": [
+       0.05,
+       0.1,
+       0
+      ],
+      "thighR": [
+       -0.08,
+       0,
+       0
+      ],
+      "shinR": [
+       0.12,
+       0,
+       0
+      ],
+      "thighL": [
+       0.05,
+       0,
+       0
+      ],
+      "upperArmR": [
+       -0.189063,
+       -0.119141,
+       0.349609
+      ],
+      "forearmR": [
+       -1.484375,
+       0,
+       0
+      ],
+      "upperArmL": [
+       -1.154102,
+       -0.15957,
+       -0.479492
+      ],
+      "forearmL": [
+       -0.000586,
+       0,
+       0
+      ]
+     },
+     "weaponMount": [
+      2.099447,
+      0.148685,
+      -0.619729
+     ],
+     "supportError": 0.23422
+    }
+   },
+   "look": {
+    "uniform": "rg",
+    "skin": 4,
+    "hair": 2,
+    "boot": "bootBrown",
+    "gloves": "leather",
+    "rolled": true,
+    "helmetCover": "rg",
+    "vest": "rangerGreen",
+    "pouch": "rangerGreen",
+    "pack": "assault",
+    "packCol": "rangerGreen",
+    "nvg": false,
+    "goggles": false,
+    "scarf": null,
+    "kneepads": true,
+    "holster": false,
+    "radioBack": false,
+    "antenna": false,
+    "radioFront": false,
+    "beard": false,
+    "hat": "helmet",
+    "ghillie": false,
+    "ghillieShoulders": false,
+    "pouchShift": 0,
+    "seed": 223,
+    "packTool": "shovel",
+    "welding": true,
+    "cls": "engineer"
+   },
+   "tools": [
+    "tool_sledgehammer",
+    "tool_shovel",
+    "tool_torch",
+    "tool_crowbar",
+    "tool_sandbag",
+    "tool_panel"
+   ]
+  },
+  {
+   "name": "engineer_c",
+   "label": "Engineer C (cutter)",
+   "class": "engineer",
+   "bounds": {
+    "min": [
+     -0.330556,
+     0,
+     -0.472222
+    ],
+    "max": [
+     0.330556,
+     1.794444,
+     0.590278
+    ]
+   },
+   "parts": [
+    {
+     "name": "head",
+     "parent": 1,
+     "slot": "head",
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 15672,
+     "count": 150,
+     "rigid": true,
+     "voxels": 28
+    },
+    {
+     "name": "torso",
+     "parent": -1,
+     "slot": "torso",
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 15822,
+     "count": 372,
+     "rigid": true,
+     "voxels": 90
+    },
+    {
+     "name": "upperArmL",
+     "parent": 1,
+     "slot": "upperArmL",
+     "pivot": [
+      0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16194,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmL",
+     "parent": 2,
+     "slot": "forearmL",
+     "pivot": [
+      0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16254,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "upperArmR",
+     "parent": 1,
+     "slot": "upperArmR",
+     "pivot": [
+      -0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16338,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmR",
+     "parent": 4,
+     "slot": "forearmR",
+     "pivot": [
+      -0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16398,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "thighL",
+     "parent": -1,
+     "slot": "thighL",
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16482,
+     "count": 150,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinL",
+     "parent": 6,
+     "slot": "shinL",
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16632,
+     "count": 132,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "thighR",
+     "parent": -1,
+     "slot": "thighR",
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16764,
+     "count": 126,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinR",
+     "parent": 8,
+     "slot": "shinR",
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 16890,
+     "count": 120,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "gear_head",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 17010,
+     "count": 1410,
+     "rigid": true,
+     "voxels": 148
+    },
+    {
+     "name": "gear_torso",
+     "parent": 1,
+     "slot": null,
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 18420,
+     "count": 4470,
+     "rigid": true,
+     "voxels": 1113
+    },
+    {
+     "name": "gear_thighL",
+     "parent": 6,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 22890,
+     "count": 120,
+     "rigid": true,
+     "voxels": 13
+    },
+    {
+     "name": "gear_thighR",
+     "parent": 8,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 23010,
+     "count": 54,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "gear_shinL",
+     "parent": 7,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 23064,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "gear_shinR",
+     "parent": 9,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 23208,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "weapon",
+     "parent": 5,
+     "slot": null,
+     "pivot": [
+      -0.283333,
+      0.613889,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 23352,
+     "count": 444,
+     "rigid": false,
+     "voxels": 43
+    }
+   ],
+   "sockets": [
+    {
+     "name": "parachute",
+     "part": 1,
+     "pos": [
+      0,
+      1.369444,
+      -0.047222
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "name": "eyes",
+     "part": 0,
+     "pos": [
+      0,
+      1.558333,
+      0.141667
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "back",
+     "part": 1,
+     "pos": [
+      0,
+      1.086111,
+      -0.188889
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    },
+    {
+     "name": "muzzle",
+     "part": 16,
+     "pos": [
+      -0.283333,
+      0.708333,
+      0.590278
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 2708,
+   "weapon": {
+    "kind": "carbine",
+    "grip": [
+     0,
+     0,
+     0
+    ],
+    "support": [
+     0,
+     -0.009444,
+     0.330556
+    ],
+    "muzzle": [
+     0,
+     0.094444,
+     0.590278
+    ],
+    "sling": [
+     0,
+     0.047222,
+     -0.188889
+    ],
+    "length": 0.802778,
+    "handOffsetFromElbow": [
+     0,
+     -0.330556,
+     0
+    ]
+   },
+   "poses": {
+    "rest": {
+     "rot": {},
+     "weaponMount": [
+      0,
+      0,
+      0
+     ],
+     "supportError": null
+    },
+    "carry": {
+     "rot": {
+      "torso": [
+       0.06,
+       0.12,
+       0
+      ],
+      "head": [
+       0.05,
+       0.1,
+       0
+      ],
+      "thighR": [
+       -0.08,
+       0,
+       0
+      ],
+      "shinR": [
+       0.12,
+       0,
+       0
+      ],
+      "thighL": [
+       0.05,
+       0,
+       0
+      ],
+      "upperArmR": [
+       -0.189063,
+       -0.119141,
+       0.349609
+      ],
+      "forearmR": [
+       -1.484375,
+       0,
+       0
+      ],
+      "upperArmL": [
+       -1.154102,
+       -0.15957,
+       -0.479492
+      ],
+      "forearmL": [
+       -0.000586,
+       0,
+       0
+      ]
+     },
+     "weaponMount": [
+      2.099447,
+      0.148685,
+      -0.619729
+     ],
+     "supportError": 0.23422
+    }
+   },
+   "look": {
+    "uniform": "olive",
+    "skin": 2,
+    "hair": 1,
+    "boot": "black",
+    "gloves": "black",
+    "rolled": false,
+    "helmetCover": "olive",
+    "vest": "olive",
+    "pouch": "olive",
+    "pack": "assault",
+    "packCol": "olive",
+    "nvg": false,
+    "goggles": false,
+    "scarf": null,
+    "kneepads": true,
+    "holster": false,
+    "radioBack": false,
+    "antenna": false,
+    "radioFront": false,
+    "beard": true,
+    "hat": "helmet",
+    "ghillie": false,
+    "ghillieShoulders": false,
+    "pouchShift": 0,
+    "seed": 239,
+    "packTool": "gas",
+    "welding": true,
+    "rifleFurn": "fde",
+    "cls": "engineer"
+   },
+   "tools": [
+    "tool_sledgehammer",
+    "tool_shovel",
+    "tool_torch",
+    "tool_crowbar",
+    "tool_sandbag",
+    "tool_panel"
+   ]
+  },
+  {
+   "name": "flamer_a",
+   "label": "Flamethrower A (fire hood)",
+   "class": "flamer",
+   "bounds": {
+    "min": [
+     -0.354167,
+     0,
+     -0.472222
+    ],
+    "max": [
+     0.330556,
+     1.841667,
+     0.873611
+    ]
+   },
+   "parts": [
+    {
+     "name": "head",
+     "parent": 1,
+     "slot": "head",
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 23796,
+     "count": 84,
+     "rigid": true,
+     "voxels": 28
+    },
+    {
+     "name": "torso",
+     "parent": -1,
+     "slot": "torso",
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 23880,
+     "count": 318,
+     "rigid": true,
+     "voxels": 90
+    },
+    {
+     "name": "upperArmL",
+     "parent": 1,
+     "slot": "upperArmL",
+     "pivot": [
+      0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24198,
+     "count": 36,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmL",
+     "parent": 2,
+     "slot": "forearmL",
+     "pivot": [
+      0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24234,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "upperArmR",
+     "parent": 1,
+     "slot": "upperArmR",
+     "pivot": [
+      -0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24294,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmR",
+     "parent": 4,
+     "slot": "forearmR",
+     "pivot": [
+      -0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24354,
+     "count": 60,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "thighL",
+     "parent": -1,
+     "slot": "thighL",
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24414,
+     "count": 120,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinL",
+     "parent": 6,
+     "slot": "shinL",
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24534,
+     "count": 126,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "thighR",
+     "parent": -1,
+     "slot": "thighR",
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24660,
+     "count": 126,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinR",
+     "parent": 8,
+     "slot": "shinR",
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 24786,
+     "count": 150,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "gear_head",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 24936,
+     "count": 1380,
+     "rigid": true,
+     "voxels": 286
+    },
+    {
+     "name": "gear_torso",
+     "parent": 1,
+     "slot": null,
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 26316,
+     "count": 5820,
+     "rigid": true,
+     "voxels": 771
+    },
+    {
+     "name": "gear_thighL",
+     "parent": 6,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 32136,
+     "count": 120,
+     "rigid": true,
+     "voxels": 13
+    },
+    {
+     "name": "gear_thighR",
+     "parent": 8,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 32256,
+     "count": 54,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "weapon",
+     "parent": 5,
+     "slot": null,
+     "pivot": [
+      -0.283333,
+      0.613889,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 32310,
+     "count": 858,
+     "rigid": false,
+     "voxels": 73
+    }
+   ],
+   "sockets": [
+    {
+     "name": "parachute",
+     "part": 1,
+     "pos": [
+      0,
+      1.369444,
+      -0.047222
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "name": "eyes",
+     "part": 0,
+     "pos": [
+      0,
+      1.558333,
+      0.141667
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "back",
+     "part": 1,
+     "pos": [
+      0,
+      1.086111,
+      -0.188889
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    },
+    {
+     "name": "muzzle",
+     "part": 14,
+     "pos": [
+      -0.283333,
+      0.661111,
+      0.887778
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "hose_tank",
+     "part": 1,
+     "pos": [
+      -0.118056,
+      0.755556,
+      -0.330556
+     ],
+     "dir": [
+      0,
+      -1,
+      0
+     ]
+    },
+    {
+     "name": "pilot",
+     "part": 14,
+     "pos": [
+      -0.283333,
+      0.566667,
+      0.887778
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 3124,
+   "weapon": {
+    "kind": "flamer",
+    "grip": [
+     0,
+     0,
+     0
+    ],
+    "support": [
+     0,
+     -0.056667,
+     0.330556
+    ],
+    "muzzle": [
+     0,
+     0.047222,
+     0.887778
+    ],
+    "sling": [
+     0,
+     0.047222,
+     -0.094444
+    ],
+    "length": 1.038889,
+    "handOffsetFromElbow": [
+     0,
+     -0.330556,
+     0
+    ]
+   },
+   "poses": {
+    "rest": {
+     "rot": {},
+     "weaponMount": [
+      0,
+      0,
+      0
+     ],
+     "supportError": null
+    },
+    "carry": {
+     "rot": {
+      "torso": [
+       0.1,
+       0.18,
+       0
+      ],
+      "head": [
+       -0.02,
+       0.12,
+       0
+      ],
+      "thighR": [
+       -0.08,
+       0,
+       0
+      ],
+      "shinR": [
+       0.12,
+       0,
+       0
+      ],
+      "thighL": [
+       0.05,
+       0,
+       0
+      ],
+      "upperArmR": [
+       0.085938,
+       0.002344,
+       0
+      ],
+      "forearmR": [
+       -1.35,
+       0,
+       0
+      ],
+      "upperArmL": [
+       -0.90625,
+       -0.003516,
+       -0.6
+      ],
+      "forearmL": [
+       0,
+       0,
+       0
+      ]
+     },
+     "weaponMount": [
+      1.266046,
+      0.016652,
+      -0.120069
+     ],
+     "supportError": 0.308072
+    }
+   },
+   "look": {
+    "uniform": "olive",
+    "skin": 0,
+    "hair": 0,
+    "boot": "black",
+    "gloves": "leather",
+    "rolled": false,
+    "helmetCover": "mc",
+    "vest": "olive",
+    "pouch": "olive",
+    "pack": "assault",
+    "packCol": "coyote",
+    "nvg": false,
+    "goggles": false,
+    "scarf": null,
+    "kneepads": false,
+    "holster": false,
+    "radioBack": false,
+    "antenna": false,
+    "radioFront": false,
+    "beard": false,
+    "hat": "helmet",
+    "ghillie": false,
+    "ghillieShoulders": false,
+    "pouchShift": 0,
+    "seed": 251,
+    "hood": "proximity",
+    "cls": "flamer"
+   },
+   "hose": {
+    "from": {
+     "part": "torso",
+     "pos": [
+      -0.118056,
+      0.755556,
+      -0.330556
+     ]
+    },
+    "to": {
+     "part": "weapon",
+     "pos": [
+      0,
+      -0.094444,
+      -0.141667
+     ]
+    },
+    "length": 1.25,
+    "voxel": 0.045,
+    "color": "#242424",
+    "sag": 0.18
+   },
+   "weaponPoints": {
+    "pilot": [
+     0,
+     -0.047222,
+     0.887778
+    ],
+    "nozzle": [
+     0,
+     0.047222,
+     0.887778
+    ]
+   }
+  },
+  {
+   "name": "flamer_b",
+   "label": "Flamethrower B (mask)",
+   "class": "flamer",
+   "bounds": {
+    "min": [
+     -0.354167,
+     0,
+     -0.472222
+    ],
+    "max": [
+     0.330556,
+     1.794444,
+     0.873611
+    ]
+   },
+   "parts": [
+    {
+     "name": "head",
+     "parent": 1,
+     "slot": "head",
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33168,
+     "count": 30,
+     "rigid": true,
+     "voxels": 28
+    },
+    {
+     "name": "torso",
+     "parent": -1,
+     "slot": "torso",
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33198,
+     "count": 300,
+     "rigid": true,
+     "voxels": 90
+    },
+    {
+     "name": "upperArmL",
+     "parent": 1,
+     "slot": "upperArmL",
+     "pivot": [
+      0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33498,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmL",
+     "parent": 2,
+     "slot": "forearmL",
+     "pivot": [
+      0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33582,
+     "count": 108,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "upperArmR",
+     "parent": 1,
+     "slot": "upperArmR",
+     "pivot": [
+      -0.283333,
+      1.275,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33690,
+     "count": 84,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "forearmR",
+     "parent": 4,
+     "slot": "forearmR",
+     "pivot": [
+      -0.283333,
+      0.944444,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33774,
+     "count": 108,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "thighL",
+     "parent": -1,
+     "slot": "thighL",
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 33882,
+     "count": 144,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinL",
+     "parent": 6,
+     "slot": "shinL",
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 34026,
+     "count": 144,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "thighR",
+     "parent": -1,
+     "slot": "thighR",
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 34170,
+     "count": 192,
+     "rigid": true,
+     "voxels": 16
+    },
+    {
+     "name": "shinR",
+     "parent": 8,
+     "slot": "shinR",
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.094444,
+     "first": 34362,
+     "count": 174,
+     "rigid": true,
+     "voxels": 18
+    },
+    {
+     "name": "gear_head",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      1.322222,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 34536,
+     "count": 1656,
+     "rigid": true,
+     "voxels": 274
+    },
+    {
+     "name": "gear_torso",
+     "parent": 1,
+     "slot": null,
+     "pivot": [
+      0,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 36192,
+     "count": 5838,
+     "rigid": true,
+     "voxels": 771
+    },
+    {
+     "name": "gear_thighL",
+     "parent": 6,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 42030,
+     "count": 120,
+     "rigid": true,
+     "voxels": 13
+    },
+    {
+     "name": "gear_thighR",
+     "parent": 8,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.755556,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 42150,
+     "count": 54,
+     "rigid": true,
+     "voxels": 4
+    },
+    {
+     "name": "gear_shinL",
+     "parent": 7,
+     "slot": null,
+     "pivot": [
+      0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 42204,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "gear_shinR",
+     "parent": 9,
+     "slot": null,
+     "pivot": [
+      -0.141667,
+      0.377778,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 42348,
+     "count": 144,
+     "rigid": true,
+     "voxels": 14
+    },
+    {
+     "name": "weapon",
+     "parent": 5,
+     "slot": null,
+     "pivot": [
+      -0.283333,
+      0.613889,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 42492,
+     "count": 858,
+     "rigid": false,
+     "voxels": 73
+    }
+   ],
+   "sockets": [
+    {
+     "name": "parachute",
+     "part": 1,
+     "pos": [
+      0,
+      1.369444,
+      -0.047222
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "name": "eyes",
+     "part": 0,
+     "pos": [
+      0,
+      1.558333,
+      0.141667
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "back",
+     "part": 1,
+     "pos": [
+      0,
+      1.086111,
+      -0.188889
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    },
+    {
+     "name": "muzzle",
+     "part": 16,
+     "pos": [
+      -0.283333,
+      0.661111,
+      0.887778
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "hose_tank",
+     "part": 1,
+     "pos": [
+      -0.118056,
+      0.755556,
+      -0.330556
+     ],
+     "dir": [
+      0,
+      -1,
+      0
+     ]
+    },
+    {
+     "name": "pilot",
+     "part": 16,
+     "pos": [
+      -0.283333,
+      0.566667,
+      0.887778
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 3394,
+   "weapon": {
+    "kind": "flamer",
+    "grip": [
+     0,
+     0,
+     0
+    ],
+    "support": [
+     0,
+     -0.056667,
+     0.330556
+    ],
+    "muzzle": [
+     0,
+     0.047222,
+     0.887778
+    ],
+    "sling": [
+     0,
+     0.047222,
+     -0.094444
+    ],
+    "length": 1.038889,
+    "handOffsetFromElbow": [
+     0,
+     -0.330556,
+     0
+    ]
+   },
+   "poses": {
+    "rest": {
+     "rot": {},
+     "weaponMount": [
+      0,
+      0,
+      0
+     ],
+     "supportError": null
+    },
+    "carry": {
+     "rot": {
+      "torso": [
+       0.1,
+       0.18,
+       0
+      ],
+      "head": [
+       -0.02,
+       0.12,
+       0
+      ],
+      "thighR": [
+       -0.08,
+       0,
+       0
+      ],
+      "shinR": [
+       0.12,
+       0,
+       0
+      ],
+      "thighL": [
+       0.05,
+       0,
+       0
+      ],
+      "upperArmR": [
+       0.085938,
+       0.002344,
+       0
+      ],
+      "forearmR": [
+       -1.35,
+       0,
+       0
+      ],
+      "upperArmL": [
+       -0.90625,
+       -0.003516,
+       -0.6
+      ],
+      "forearmL": [
+       0,
+       0,
+       0
+      ]
+     },
+     "weaponMount": [
+      1.266046,
+      0.016652,
+      -0.120069
+     ],
+     "supportError": 0.308072
+    }
+   },
+   "look": {
+    "uniform": "mc",
+    "skin": 3,
+    "hair": 2,
+    "boot": "coyoteDark",
+    "gloves": "black",
+    "rolled": false,
+    "helmetCover": "coyote",
+    "vest": "coyote",
+    "pouch": "coyote",
+    "pack": "assault",
+    "packCol": "coyote",
+    "nvg": false,
+    "goggles": false,
+    "scarf": null,
+    "kneepads": true,
+    "holster": false,
+    "radioBack": false,
+    "antenna": false,
+    "radioFront": false,
+    "beard": false,
+    "hat": "helmet",
+    "ghillie": false,
+    "ghillieShoulders": false,
+    "pouchShift": 0,
+    "seed": 263,
+    "hood": "nomex",
+    "gunBody": "oliveDark",
+    "cls": "flamer"
+   },
+   "hose": {
+    "from": {
+     "part": "torso",
+     "pos": [
+      -0.118056,
+      0.755556,
+      -0.330556
+     ]
+    },
+    "to": {
+     "part": "weapon",
+     "pos": [
+      0,
+      -0.094444,
+      -0.141667
+     ]
+    },
+    "length": 1.25,
+    "voxel": 0.045,
+    "color": "#242424",
+    "sag": 0.18
+   },
+   "weaponPoints": {
+    "pilot": [
+     0,
+     -0.047222,
+     0.887778
+    ],
+    "nozzle": [
+     0,
+     0.047222,
+     0.887778
+    ]
+   }
+  },
+  {
+   "name": "tool_sledgehammer",
+   "label": "Sledgehammer",
+   "class": "tool",
+   "bounds": {
+    "min": [
+     -0.070833,
+     -0.165278,
+     -0.2125
+    ],
+    "max": [
+     0.070833,
+     0.165278,
+     0.731944
+    ]
+   },
+   "parts": [
+    {
+     "name": "tool",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 43350,
+     "count": 312,
+     "rigid": true,
+     "voxels": 64
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "support",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      -0.118056
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "tip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.661111
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 104,
+   "footprint": [
+    0.141667,
+    0.944444
+   ],
+   "height": 0.330556,
+   "anchor": "self",
+   "toolId": 1
+  },
+  {
+   "name": "tool_shovel",
+   "label": "Shovel",
+   "class": "tool",
+   "bounds": {
+    "min": [
+     -0.118056,
+     -0.023611,
+     -0.070833
+    ],
+    "max": [
+     0.118056,
+     0.070833,
+     1.015278
+    ]
+   },
+   "parts": [
+    {
+     "name": "tool",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 43662,
+     "count": 348,
+     "rigid": true,
+     "voxels": 49
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "support",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.377778
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "tip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.944444
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 116,
+   "footprint": [
+    0.236111,
+    1.086111
+   ],
+   "height": 0.094444,
+   "anchor": "self",
+   "toolId": 2
+  },
+  {
+   "name": "tool_torch",
+   "label": "Cutting torch",
+   "class": "tool",
+   "bounds": {
+    "min": [
+     -0.070833,
+     -0.118056,
+     -0.2125
+    ],
+    "max": [
+     0.023611,
+     0.070833,
+     0.495833
+    ]
+   },
+   "parts": [
+    {
+     "name": "tool",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 44010,
+     "count": 282,
+     "rigid": true,
+     "voxels": 19
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "support",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0.188889
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "tip",
+     "part": 0,
+     "pos": [
+      0,
+      -0.118056,
+      0.495833
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 94,
+   "footprint": [
+    0.094444,
+    0.708333
+   ],
+   "height": 0.188889,
+   "anchor": "self",
+   "toolId": 3
+  },
+  {
+   "name": "tool_crowbar",
+   "label": "Crowbar / pry bar",
+   "class": "tool",
+   "bounds": {
+    "min": [
+     -0.023611,
+     -0.118056,
+     -0.2125
+    ],
+    "max": [
+     0.023611,
+     0.023611,
+     0.543056
+    ]
+   },
+   "parts": [
+    {
+     "name": "tool",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 44292,
+     "count": 138,
+     "rigid": true,
+     "voxels": 16
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "support",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      -0.141667
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "tip",
+     "part": 0,
+     "pos": [
+      0,
+      -0.094444,
+      0.519444
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 46,
+   "footprint": [
+    0.047222,
+    0.755556
+   ],
+   "height": 0.141667,
+   "anchor": "self",
+   "toolId": 4
+  },
+  {
+   "name": "tool_sandbag",
+   "label": "Sandbag (carried)",
+   "class": "tool",
+   "bounds": {
+    "min": [
+     0.023611,
+     -0.070833,
+     -0.165278
+    ],
+    "max": [
+     0.543056,
+     0.070833,
+     0.165278
+    ]
+   },
+   "parts": [
+    {
+     "name": "tool",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 44430,
+     "count": 918,
+     "rigid": true,
+     "voxels": 157
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "support",
+     "part": 0,
+     "pos": [
+      0.472222,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "tip",
+     "part": 0,
+     "pos": [
+      0.236111,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 306,
+   "footprint": [
+    0.519444,
+    0.330556
+   ],
+   "height": 0.141667,
+   "anchor": "self",
+   "toolId": 5
+  },
+  {
+   "name": "tool_panel",
+   "label": "Gabion panel (folded)",
+   "class": "tool",
+   "bounds": {
+    "min": [
+     -0.070833,
+     -0.023611,
+     -0.495833
+    ],
+    "max": [
+     0.023611,
+     0.826389,
+     0.495833
+    ]
+   },
+   "parts": [
+    {
+     "name": "tool",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.047222,
+     "first": 45348,
+     "count": 1374,
+     "rigid": true,
+     "voxels": 452
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "support",
+     "part": 0,
+     "pos": [
+      0,
+      0.755556,
+      -0.283333
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "tip",
+     "part": 0,
+     "pos": [
+      0,
+      0.401389,
+      0
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 458,
+   "footprint": [
+    0.094444,
+    0.991667
+   ],
+   "height": 0.85,
+   "anchor": "self",
+   "toolId": 6
+  },
+  {
+   "name": "sandbag_pile",
+   "label": "Sandbag pile (site)",
+   "class": "site",
+   "bounds": {
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     0.95,
+     0.6,
+     0.4
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 46722,
+     "count": 1224,
+     "rigid": true,
+     "voxels": 1402
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grab",
+     "part": 0,
+     "pos": [
+      0.45,
+      0.45,
+      0.2
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    }
+   ],
+   "triangles": 408,
+   "footprint": [
+    0.95,
+    0.4
+   ],
+   "height": 0.6,
+   "anchor": "ground"
+  }
+ ]
+}

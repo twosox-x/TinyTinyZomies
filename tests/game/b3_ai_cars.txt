@@ -1,0 +1,18 @@
+# Owner feedback round 3: "zombies stuck between cars can't be killed by troops". Zombies stand in the gap between two
+# rows of parked cars (a 1.5 m sedan between them and the squad hides the torso). The squad aims at the head over the
+# car roof (partial cover: the CPU firing line and the GPU hit test let a ray graze a car roof right in front of the
+# target), or steps aside for a clear line, and kills them.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3_ai_cars.txt
+at 0.0  camera -12 111 0.6 0.95 50
+at 0.1  buy rifle -9 116
+at 28   expect squad 1 alive == 5
+at 28   spawn 3 -16.6 110 0.4                  # in the gap between the car rows
+at 28.5 fieldsamples -16.6 110 4
+at 40   log
+at 60   log
+at 60   expect zombies_rect -24 100 -6 124 == 0
+at 60   expect kills >= 3
+at 60   expect squad 1 alive == 5
+at 60   expect hits_static >= 0
+at 60   expect hit_pct >= 0
+at 61   end

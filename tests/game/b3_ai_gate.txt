@@ -1,0 +1,24 @@
+# Owner feedback round 3: "this MG squad is shooting a zombie that is hiding behind the gate and ignoring other
+# targets". Zombies shut in a walled compound press on its gate (the gate blocks zombies AND rounds: the GPU stops
+# rounds at the zombies' grid); an MG squad stands outside, next to the gate, while a group approaches along the street.
+# The squad must engage the approaching group (reachable, closing in) instead of the unreachable zombies behind the
+# gate, and must not pour rounds into the gate.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3_ai_gate.txt
+at 0.0  camera -6 122 0.6 0.95 70
+at 0.1  wall reinforced -6 125 -22 125 -22 133 -6 133
+at 1.0  wall gate -6 133 -6 125
+at 1.5  expect gates == 2
+at 2.0  spawn 6 -12 129 1.5                    # shut in the compound
+at 2.1  buy mg -1 121                          # outside, next to the gate
+at 30   expect squad 1 alive == 3
+at 30   spawn 10 22 112 2                      # the approaching group (~25 m)
+at 40   log
+at 55   log
+at 55   expect squad 1 alive == 3
+at 55   expect zombies_rect -40 100 45 124 == 0   # the approaching group is dead
+at 55   expect zombies_rect -21 126 -7 132 >= 4   # the zombies behind the gate were not the target (unshootable)
+at 55   expect kills >= 9
+at 55   expect static_pct <= 35                 # few rounds into the gate / walls / cars
+at 55   expect squad 1 switches <= 30
+at 55   expect hits >= 0
+at 56   end

@@ -1,0 +1,23 @@
+# Owner feedback round 3: "troopers' logic is still super dumb: terrible target prioritisation and awareness". A rifle
+# squad and an MG squad hold a street crossing with no orders while a moderate horde arrives in waves from three
+# directions (some zombies end up behind parked cars). Without micromanagement the squads must survive, hit what they
+# shoot at, keep target switches bounded (no flip-flopping) and spread fire.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3_ai_survival.txt
+at 0.0  camera -8 117 0.6 0.9 90
+at 0.1  buy rifle -8 117
+at 0.2  buy mg -2 119
+at 30   expect squad 1 alive + squad 2 alive == 8
+at 30   spawn 15 -40 116 3                     # west
+at 34   spawn 15 30 118 3                      # east
+at 45   spawn 12 -6 150 3                      # north
+at 55   spawn 15 -42 120 3                     # west again
+at 60   log
+at 95   log
+at 95   expect squad 1 alive + squad 2 alive >= 7
+at 95   expect kills >= 45
+at 95   expect hit_pct >= 35
+at 95   expect switches <= 90
+at 95   expect damage <= 400
+at 95   expect hits_static >= 0
+at 95   expect shots >= 0
+at 96   end

@@ -7,21 +7,26 @@
     "mg":       { "damage": 0.5, "headshotChance": 0.08, "range": 55, "accuracy": 0.6, "spreadDeg": 1.8, "fireInterval": 0.083,
                   "magazine": 100, "reserve": 300, "reloadTime": 4.0, "noise": 1.6, "noiseRadius": 120, "acquireTime": 0.6, "acquireRange": 60 },
     "sniper":   { "damage": 1.2, "headshotChance": 0.7, "range": 220, "accuracy": 0.99, "spreadDeg": 0.12, "fireInterval": 1.9,
-                  "magazine": 5, "reserve": 40, "reloadTime": 2.4, "noise": 0.1, "noiseRadius": 12, "acquireTime": 1.0, "acquireRange": 230 }
+                  "magazine": 5, "reserve": 40, "reloadTime": 2.4, "noise": 0.1, "noiseRadius": 12, "acquireTime": 1.0, "acquireRange": 230 },
+    "flamethrower": { "damage": 0.0, "headshotChance": 0.0, "range": 9, "accuracy": 1.0, "spreadDeg": 0.0, "fireInterval": 0.1,
+                  "magazine": 120, "reserve": 240, "reloadTime": 3.0, "noise": 1.8, "noiseRadius": 110, "acquireTime": 0.3, "acquireRange": 14 }
   },
   "soldiers": {
     "rifleman": { "health": 100, "walkSpeed": 1.3, "runSpeed": 3.8, "lowAmmoFraction": 0.25, "resupplySearchRadius": 60 },
     "mg":       { "health": 120, "walkSpeed": 1.2, "runSpeed": 3.2, "lowAmmoFraction": 0.3,  "resupplySearchRadius": 60 },
-    "sniper":   { "health": 80,  "walkSpeed": 1.3, "runSpeed": 3.8, "lowAmmoFraction": 0.3,  "resupplySearchRadius": 80 }
+    "sniper":   { "health": 80,  "walkSpeed": 1.3, "runSpeed": 3.8, "lowAmmoFraction": 0.3,  "resupplySearchRadius": 80 },
+    "flamethrower": { "health": 110, "walkSpeed": 1.2, "runSpeed": 3.4, "lowAmmoFraction": 0.3, "resupplySearchRadius": 80 }
   },
   "squads": {
     "rifle":  { "size": 5, "price": 1000, "formationSpacing": 2.0 },
     "mg":     { "size": 3, "price": 1400, "formationSpacing": 2.2 },
-    "sniper": { "size": 1, "price": 700,  "formationSpacing": 0.0 }
+    "sniper": { "size": 1, "price": 700,  "formationSpacing": 0.0 },
+    "flamethrower": { "size": 2, "price": 900, "formationSpacing": 2.0 },
+    "engineer": { "size": 3, "price": 1200, "formationSpacing": 2.0 }
   },
   "economy": { "startFunding": 5000, "baseIncomePerMin": 300, "territoryIncomePerKm2PerMin": 0,
                "killReward": { "soldier": 5, "explosion": 5, "other": 0 }, "containerPrice": 1500, "airdropPrice": 400 },
-  "logistics": { "containerStock": { "rifle": 3000, "mg": 2000, "sniper": 300 }, "crateStock": { "rifle": 600, "mg": 400, "sniper": 60 },
+  "logistics": { "containerStock": { "rifle": 3000, "mg": 2000, "sniper": 300, "fuel": 1200 }, "crateStock": { "rifle": 600, "mg": 400, "sniper": 60, "fuel": 300 },
                  "containerSlots": 4, "crateSlots": 2, "collectRadius": 1.2, "airdropAltitude": 60, "airdropScatter": 4,
                  "runnerCarryMagazines": 6, "runnerTrigger": 0.45 },
   "ambient": { "note": "UNAPPROVED. Idle city population and roaming (CityAmbient, sim_predict). densityPerHa: zombies per hectare of open ground; group chances per placed group; behaviour: wander speed m/s, pause fraction, alert memory s (dispersal after noise), separation, lurker / crawler fractions, drift-field wavelength m.",
@@ -33,7 +38,15 @@
             "wallHeight": { "cheap": 1.6, "reinforced": 2.4 }, "gatePriceMul": 3, "damagePerZombie": 1.0, "pressureThreshold": 3,
             "buildTime": 0.6, "territoryCell": 1.0, "minRegionArea": 16, "incomePerHectarePerMin": 1000, "clearDelay": 3, "lossTime": 20,
             "containerNeedsTerritory": false, "containerAltitude": 40, "containerDescentSpeed": 7, "containerLandDuration": 1.0 },
+  "engineers": { "note": "UNAPPROVED / PROPOSED (GAME_DESIGN 14d engineers, squad of 3 riflemen-engineers). Construction (walls, gates, gates placed into walls) and car clearing can only be ordered within radius m of an engineer squad; work in engineer-seconds per item (3 engineers work 3x as fast); carPrice per parked car cleared. workRange: m from the work spot; carSearch: click tolerance m.",
+                  "radius": 40, "pieceTime": 6, "gateTime": 9, "carTime": 24, "carPrice": 50, "workRange": 3.2, "carSearch": 3 },
   "threat": { "attackReach": 0.9, "damagePerSecond": 12, "awarenessRadius": 60, "soldierAttraction": 1.0 },
+  "rot": { "note": "UNAPPROVED (GAME_DESIGN 14d corpse rot, APPROVED mechanic). Corpses start rotting after delay s and emit poison gas into a 2 m grid (emission ramps to full over ramp s: the gas spreads further the longer they stay); diffusion / decay per s; troops in gas above damageThreshold take damagePerSecond x level hp/s (capped); squads warn above warnLevel; soldier paths avoid cells above navAvoidLevel (extra cost).",
+           "enabled": true, "delay": 45, "ramp": 120, "emitPerCorpse": 0.010, "diffusion": 0.30, "decay": 0.020, "maxGas": 4,
+           "damageThreshold": 0.15, "damagePerSecond": 1.5, "maxDamagePerSecond": 5, "warnLevel": 0.10, "navAvoidLevel": 0.35, "navCost": 6 },
+  "flame": { "note": "UNAPPROVED (GAME_DESIGN 14d flamethrower squad, size PROPOSED 2). Cone half angle deg; zombie damage / s in the cone; sprayed 2 m cells burn groundFireTime s (contained, no spread: PROPOSED); corpses ignite after corpseIgnite s of fire and burn corpseBurnTime s, then are gone (gas source removed). Autonomy: seeks piles (>= seekMinCorpses corpses per 2 m cell) or gas within seekRadius of its post. Fuel = weapons.flamethrower magazine / reserve (fuel units), resupplied from containers / crates (logistics fuel stock).",
+             "coneDeg": 18, "zombieDps": 1.6, "groundFireTime": 4, "groundFireDps": 0.5, "corpseIgnite": 0.6, "corpseBurnTime": 4,
+             "seekRadius": 35, "seekInterval": 2, "seekMinCorpses": 3, "standoff": 6, "friendlyClearance": 1.2 },
   "reanimation": { "enabled": true, "delayMin": 8, "delayMax": 20, "riseTime": 1.6, "healthMul": 3.0 },
   "stamina": { "max": 100, "drainRun": 5, "regenWalk": 6, "regenRest": 12, "minToRun": 15, "resumeRun": 40,
                "sprintScale": 1.15, "threatRadius": 30 },

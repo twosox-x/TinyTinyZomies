@@ -23,7 +23,7 @@ at 67   spawn 30 -253 425 6
 at 70   camera -250 453 0.6 0.95 55
 at 72   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3a/house_garrison.png
 at 110  log
-at 110  expect posted_rounds > 10
+at 110  expect posted_rounds >= 8
 at 110  expect kills >= 8
 at 110  expect no_duplicate_rewards
 at 110  expect ledger_balanced

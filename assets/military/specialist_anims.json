@@ -1,0 +1,2962 @@
+{
+ "format": "TTZA",
+ "version": 1,
+ "source": "tools/military_lab/military_lab_v1.html",
+ "doc": "docs/MILITARY_ANIMS.md (section 7: specialists)",
+ "models": "assets/military/specialists.json",
+ "sampleRate": 30,
+ "strides": {
+  "body": 44,
+  "canopy": 12,
+  "weapon": 7
+ },
+ "dataOffsetBytes": 32,
+ "floatCount": 151804,
+ "slots": [
+  "head",
+  "torso",
+  "upperArmL",
+  "forearmL",
+  "upperArmR",
+  "forearmR",
+  "thighL",
+  "shinL",
+  "thighR",
+  "shinR"
+ ],
+ "handItems": {
+  "none": 0,
+  "rifleMag": 1,
+  "mgBox": 2,
+  "sniperMag": 3,
+  "ammoCan": 4,
+  "belt": 5
+ },
+ "flags": {
+  "stowed": 4096,
+  "toolShift": 8,
+  "toolMask": 15
+ },
+ "tools": {
+  "1": "tool_sledgehammer",
+  "2": "tool_shovel",
+  "3": "tool_torch",
+  "4": "tool_crowbar",
+  "5": "tool_sandbag",
+  "6": "tool_panel"
+ },
+ "classes": [
+  "engineer",
+  "flamer"
+ ],
+ "classModels": {
+  "engineer": [
+   "engineer_a",
+   "engineer_b",
+   "engineer_c"
+  ],
+  "flamer": [
+   "flamer_a",
+   "flamer_b"
+  ]
+ },
+ "slungMount": {
+  "engineer": {
+   "part": "torso",
+   "gripFromTorsoPivot": [
+    0.056667,
+    0.396667,
+    0.34
+   ],
+   "rot": [
+    1.570796,
+    -0.585217,
+    1.570796
+   ]
+  },
+  "flamer": {
+   "part": "torso",
+   "gripFromTorsoPivot": [
+    0.056667,
+    0.396667,
+    0.358889
+   ],
+   "rot": [
+    1.570796,
+    -0.585217,
+    1.570796
+   ]
+  }
+ },
+ "stowMount": {
+  "engineer": {
+   "part": "torso",
+   "gripFromTorsoPivot": [
+    -0.122778,
+    0.188889,
+    -0.458056
+   ],
+   "rot": [
+    -1.570796,
+    0.523611,
+    1.570796
+   ]
+  }
+ },
+ "weaponPoints": {
+  "engineer": {
+   "support": [
+    0,
+    -0.009444,
+    0.330556
+   ],
+   "muzzle": [
+    0,
+    0.094444,
+    0.590278
+   ],
+   "sling": [
+    0,
+    0.047222,
+    -0.188889
+   ],
+   "butt": [
+    0,
+    0.070833,
+    -0.259722
+   ],
+   "magwell": [
+    0,
+    -0.113333,
+    0.141667
+   ],
+   "charge": [
+    0,
+    0.151111,
+    -0.075556
+   ]
+  },
+  "flamer": {
+   "support": [
+    0,
+    -0.056667,
+    0.330556
+   ],
+   "muzzle": [
+    0,
+    0.047222,
+    0.887778
+   ],
+   "sling": [
+    0,
+    0.047222,
+    -0.094444
+   ],
+   "butt": [
+    0,
+    0.047222,
+    -0.165278
+   ],
+   "valve": [
+    0.118056,
+    0.717778,
+    -0.311667
+   ],
+   "valveApproach": [
+    0.207778,
+    0.623333,
+    -0.17
+   ],
+   "pilot": [
+    0,
+    -0.047222,
+    0.887778
+   ],
+   "hose": [
+    0,
+    -0.094444,
+    -0.141667
+   ]
+  }
+ },
+ "transitions": [
+  {
+   "from": "*",
+   "to": "stow_weapon",
+   "s": 0.15
+  },
+  {
+   "from": "stow_weapon",
+   "to": "build_*",
+   "s": 0.25
+  },
+  {
+   "from": "stow_weapon",
+   "to": "carry_*",
+   "s": 0.25
+  },
+  {
+   "from": "stow_weapon",
+   "to": "cut_car",
+   "s": 0.3
+  },
+  {
+   "from": "stow_weapon",
+   "to": "pry_car",
+   "s": 0.3
+  },
+  {
+   "from": "build_*",
+   "to": "draw_weapon",
+   "s": 0.25
+  },
+  {
+   "from": "carry_*",
+   "to": "draw_weapon",
+   "s": 0.2
+  },
+  {
+   "from": "cut_car",
+   "to": "draw_weapon",
+   "s": 0.35
+  },
+  {
+   "from": "pry_car",
+   "to": "draw_weapon",
+   "s": 0.3
+  },
+  {
+   "from": "draw_weapon",
+   "to": "idle",
+   "s": 0.15
+  },
+  {
+   "from": "draw_weapon",
+   "to": "aim",
+   "s": 0.15
+  },
+  {
+   "from": "build_*",
+   "to": "death_tool_*",
+   "s": 0.1
+  },
+  {
+   "from": "carry_*",
+   "to": "death_tool_*",
+   "s": 0.1
+  },
+  {
+   "from": "aim",
+   "to": "ignite",
+   "s": 0.06
+  },
+  {
+   "from": "ignite",
+   "to": "fire",
+   "s": 0
+  },
+  {
+   "from": "fire",
+   "to": "stop",
+   "s": 0
+  },
+  {
+   "from": "stop",
+   "to": "aim",
+   "s": 0.06
+  },
+  {
+   "from": "aim",
+   "to": "burn_ground",
+   "s": 0.25
+  },
+  {
+   "from": "burn_ground",
+   "to": "aim",
+   "s": 0.25
+  },
+  {
+   "from": "*",
+   "to": "*",
+   "s": 0.2,
+   "note": "all v1 rules (anims.json transitions) apply to the standard clips"
+  }
+ ],
+ "fx": {
+  "voxel": "axis-aligned cubes; flame and embers emissive (HDR fireColour ramp of shaders/include/fx_volume_frag.glsl), smoke lit; sizes m, colours sRGB, life s",
+  "inherits": "anims.json fx (v1, approved): muzzle_flash.rifle for the carbine, shell_eject, footstep, body_fall",
+  "shell_eject_port": {
+   "carbine": [
+    -0.05,
+    0.08,
+    0.1
+   ]
+  },
+  "flame_stream": {
+   "emitter": "weapon muzzle (nozzle), direction weapon +Z; on while a clip with stream:'flame' plays, or between flame_start and flame_stop",
+   "rate": 90,
+   "speed": [
+    13,
+    15
+   ],
+   "spread": 0.035,
+   "gravity": 5,
+   "drag": 0.6,
+   "life": [
+    0.5,
+    0.62
+   ],
+   "range": "about 8 m (ballistic, droops at the end)",
+   "size": {
+    "start": 0.06,
+    "end": 0.24,
+    "curve": "sqrt(age / life)",
+    "note": "chunky cubes, axis-aligned in world space (like the explosion voxels)"
+   },
+   "color": {
+    "ramp": [
+     [
+      0,
+      "#fff4c8"
+     ],
+     [
+      0.15,
+      "#ffd25a"
+     ],
+     [
+      0.4,
+      "#ff8c22"
+     ],
+     [
+      0.75,
+      "#d9461a"
+     ],
+     [
+      1,
+      "#6a1c0a"
+     ]
+    ],
+    "emissive": true,
+    "hdr": "fireColour(k) of fx_volume_frag.glsl, k = age / life"
+   },
+   "jitter": "per-voxel position noise 0.04 m and a 15 % brightness flicker per frame (hash of particle id + frame)",
+   "snap": "positions snapped to a 0.06 m world grid when drawing (reads as voxels, not sprites)",
+   "endOfLife": "each flame voxel becomes a smoke voxel (below) at its last position; if it hits the ground (y <= 0) or a wall first it becomes a ground_fire seed at the hit point"
+  },
+  "flame_smoke": {
+   "size": [
+    0.18,
+    0.45
+   ],
+   "color": [
+    [
+     "0",
+     "#4a423b"
+    ],
+    [
+     "1",
+     "#7a746c"
+    ]
+   ],
+   "alpha": [
+    0.8,
+    0
+   ],
+   "rise": 1.3,
+   "drift": "FX_WIND (0.55, 0, 0.25) m/s, as the volume smoke",
+   "life": 1.4,
+   "every": 3,
+   "note": "one smoke voxel per 3 flame voxels"
+  },
+  "ground_fire": {
+   "seeds": "flame voxels hitting the ground merge into pools on a 0.25 m world grid (the explosion / building voxel size)",
+   "pool": {
+    "cell": 0.25,
+    "radiusGrow": "0.25 m per 6 seeds, max 1.25 m",
+    "heightVoxels": [
+     1,
+     4
+    ],
+    "flicker": "column height = 1 + floor(3 * noise(cell, 6 Hz))",
+    "life": 7,
+    "fadeOut": 2
+   },
+   "color": "same fireColour ramp, column base k = 0.2, top k = 0.85; embers (#ff6a1e, 0.06 m) at the base for the last 2 s",
+   "smoke": {
+    "perPool": 1,
+    "column": "dark smoke voxels 0.25 m rising 1.5 m/s, 4-6 m high, drift FX_WIND",
+    "color": "#2f2a26"
+   },
+   "engine": "proposed FX volume kind 2 (ground fire) in fx_volume.glsl: origin = pool centre, B.x = radius, B.w = strength (seeds), B.z seed; density = disc * flicker noise, like wreckDensity but low",
+   "gameplay": "a pool burns corpses inside its radius (corpse rot stops) and damages zombies standing in it; the light (#ff8a3a, 6 m) also lights the night scene"
+  },
+  "corpse_burn": {
+   "note": "a corpse inside a ground_fire pool: dark char tint over 3 s (multiply #2a2520), then the corpse dissolves with the canopy voxel dissolve (MILITARY_ANIMS 2.3.3) over 2.5 s, leaving a 0.25 m ash decal (#3a3633)"
+  },
+  "pilot": {
+   "point": "weapon space weaponPoints.pilot",
+   "voxels": 2,
+   "size": 0.03,
+   "colors": [
+    "#ffb040",
+    "#7fb6ff"
+   ],
+   "flicker": "alternate every 2 frames, scale 0.7..1.0",
+   "when": "flamer alive and gun in hands (not slung, not dropped)"
+  },
+  "pilot_flare": {
+   "voxels": 5,
+   "size": [
+    0.04,
+    0.09
+   ],
+   "color": "#ffd25a",
+   "life": 0.15
+  },
+  "cut_sparks": {
+   "emitter": "tool tip (tool_torch socket 'tip'), on while a clip with stream:'cut_sparks' plays",
+   "rate": 40,
+   "size": 0.025,
+   "colors": [
+    "#fff3b0",
+    "#ffb040"
+   ],
+   "speed": [
+    1.5,
+    3.5
+   ],
+   "cone": 1,
+   "gravity": 9.8,
+   "bounce": 0.3,
+   "life": 0.45,
+   "flame": {
+    "voxels": 3,
+    "size": 0.03,
+    "color": "#cfe6ff",
+    "length": 0.08
+   }
+  },
+  "hammer_hit": {
+   "at": "tool tip at the tool_hit event",
+   "sparks": {
+    "count": 4,
+    "size": 0.03,
+    "color": "#ffd27a",
+    "life": 0.2
+   },
+   "dust": {
+    "count": 5,
+    "size": 0.06,
+    "color": "ground",
+    "life": 0.4
+   }
+  },
+  "dig": {
+   "at": "tool tip",
+   "count": 4,
+   "size": 0.06,
+   "color": "#6b5a40",
+   "life": 0.35
+  },
+  "dirt_toss": {
+   "at": "tool tip",
+   "count": 7,
+   "size": [
+    0.05,
+    0.08
+   ],
+   "color": [
+    "#6b5a40",
+    "#857053"
+   ],
+   "vel": [
+    0,
+    2.6,
+    2.2
+   ],
+   "spread": 0.6,
+   "gravity": 9.8,
+   "life": 0.7
+  },
+  "hose": {
+   "from": "torso socket hose_tank",
+   "to": "weapon hose fitting",
+   "voxel": 0.045,
+   "color": "#242424",
+   "sag": 0.18,
+   "note": "catenary-like sag; drawn as a chain of voxels every 0.045 m; while the gun is dropped the hose follows it (max length 1.25 m, else hidden)"
+  }
+ },
+ "clips": [
+  {
+   "name": "engineer/idle",
+   "class": "engineer",
+   "action": "idle",
+   "duration": 3,
+   "frames": 90,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 0,
+     "stride": 44,
+     "frames": 90
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.023,
+    "footSlide": 0.0008
+   }
+  },
+  {
+   "name": "engineer/walk",
+   "class": "engineer",
+   "action": "walk",
+   "duration": 0.92,
+   "frames": 28,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.3,
+   "stride": 1.196,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.46,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 3960,
+     "stride": 44,
+     "frames": 28
+    }
+   ],
+   "check": {
+    "supportError": 0.019,
+    "minY": -0.022,
+    "footSlide": 0.0173
+   }
+  },
+  {
+   "name": "engineer/run",
+   "class": "engineer",
+   "action": "run",
+   "duration": 0.72,
+   "frames": 22,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 3.8,
+   "stride": 2.736,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.36,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 5192,
+     "stride": 44,
+     "frames": 22
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.021,
+    "footSlide": 0.0077
+   }
+  },
+  {
+   "name": "engineer/turn_l",
+   "class": "engineer",
+   "action": "turn_l",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 6160,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.019,
+    "footSlide": 0.0038
+   }
+  },
+  {
+   "name": "engineer/turn_r",
+   "class": "engineer",
+   "action": "turn_r",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    -1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "L"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 7260,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.026,
+    "footSlide": 0.0079
+   }
+  },
+  {
+   "name": "engineer/aim",
+   "class": "engineer",
+   "action": "aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 8360,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.04,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/fire",
+   "class": "engineer",
+   "action": "fire",
+   "duration": 0.9,
+   "frames": 27,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 3.33,
+   "events": [
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0,
+     "type": "recoil",
+     "kick": 0.12
+    },
+    {
+     "t": 0.3,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "recoil",
+     "kick": 0.12
+    },
+    {
+     "t": 0.6,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "recoil",
+     "kick": 0.12
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 11000,
+     "stride": 44,
+     "frames": 27
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.04,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/crouch_aim",
+   "class": "engineer",
+   "action": "crouch_aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 12188,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/crouch_fire",
+   "class": "engineer",
+   "action": "crouch_fire",
+   "duration": 0.9,
+   "frames": 27,
+   "loop": true,
+   "rootMotion": false,
+   "rate": 3.33,
+   "events": [
+    {
+     "t": 0,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.3,
+     "type": "shell_eject",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "muzzle_flash",
+     "fx": "rifle"
+    },
+    {
+     "t": 0.6,
+     "type": "shell_eject",
+     "fx": "rifle"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 14828,
+     "stride": 44,
+     "frames": 27
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/reload",
+   "class": "engineer",
+   "action": "reload",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.42,
+     "type": "mag_out"
+    },
+    {
+     "t": 1.5,
+     "type": "mag_in"
+    },
+    {
+     "t": 1.88,
+     "type": "bolt"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 16016,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.04,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/hit",
+   "class": "engineer",
+   "action": "hit",
+   "duration": 0.6,
+   "frames": 19,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.06,
+     "type": "hit"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 19228,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.019,
+    "footSlide": 0.0014
+   }
+  },
+  {
+   "name": "engineer/death_a",
+   "class": "engineer",
+   "action": "death_a",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6912,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 20064,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 21692,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.046,
+    "weaponMinY": 0.005,
+    "restMinY": 0
+   }
+  },
+  {
+   "name": "engineer/death_b",
+   "class": "engineer",
+   "action": "death_b",
+   "duration": 1.4,
+   "frames": 43,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0.15111,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.4,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.4,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6792,
+     "type": "weapon_land"
+    },
+    {
+     "t": 0.8,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 21951,
+     "stride": 44,
+     "frames": 43
+    },
+    {
+     "type": "weapon",
+     "offset": 23843,
+     "stride": 7,
+     "frames": 43
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.062,
+    "weaponMinY": 0.005,
+    "restMinY": 0
+   }
+  },
+  {
+   "name": "engineer/death_c",
+   "class": "engineer",
+   "action": "death_c",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0.14167,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.65,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6823,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 24144,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 25772,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.062,
+    "weaponMinY": 0.005,
+    "restMinY": 0
+   }
+  },
+  {
+   "name": "engineer/collect_ammo",
+   "class": "engineer",
+   "action": "collect_ammo",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 1.25,
+     "type": "grab"
+    },
+    {
+     "t": 2.05,
+     "type": "stow"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 26031,
+     "stride": 44,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0003,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/enter_building",
+   "class": "engineer",
+   "action": "enter_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 1.5,
+     "type": "door",
+     "z": 1.2
+    },
+    {
+     "t": 1.8,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 30299,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "engineer/exit_building",
+   "class": "engineer",
+   "action": "exit_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.9,
+     "type": "door",
+     "z": 0.6
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 33511,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.047,
+    "footSlide": 0.0132
+   }
+  },
+  {
+   "name": "engineer/stairs_up",
+   "class": "engineer",
+   "action": "stairs_up",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 36723,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/stairs_down",
+   "class": "engineer",
+   "action": "stairs_down",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    -0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 38043,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/para_descent",
+   "class": "engineer",
+   "action": "para_descent",
+   "duration": 4.8,
+   "frames": 144,
+   "loop": true,
+   "rootMotion": false,
+   "descentSpeed": 5,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 39363,
+     "stride": 44,
+     "frames": 144
+    },
+    {
+     "type": "canopy",
+     "offset": 45699,
+     "stride": 12,
+     "frames": 144
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/para_land",
+   "class": "engineer",
+   "action": "para_land",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    -0.28333,
+    0,
+    -0.09444,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "touchdown"
+    },
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.4,
+     "type": "canopy_ground"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 47427,
+     "stride": 44,
+     "frames": 46
+    },
+    {
+     "type": "canopy",
+     "offset": 49451,
+     "stride": 12,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0.0123
+   }
+  },
+  {
+   "name": "engineer/para_recover",
+   "class": "engineer",
+   "action": "para_recover",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 1.25,
+     "type": "harness_release"
+    },
+    {
+     "t": 2.15,
+     "type": "weapon_draw"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 50003,
+     "stride": 44,
+     "frames": 97
+    },
+    {
+     "type": "canopy",
+     "offset": 54271,
+     "stride": 12,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0012,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/idle",
+   "class": "flamer",
+   "action": "idle",
+   "duration": 3,
+   "frames": 90,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 55435,
+     "stride": 44,
+     "frames": 90
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.023,
+    "footSlide": 0.0008
+   }
+  },
+  {
+   "name": "flamer/walk",
+   "class": "flamer",
+   "action": "walk",
+   "duration": 0.92,
+   "frames": 28,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.3,
+   "stride": 1.196,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.46,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 59395,
+     "stride": 44,
+     "frames": 28
+    }
+   ],
+   "check": {
+    "supportError": 0.0201,
+    "minY": -0.022,
+    "footSlide": 0.0173
+   }
+  },
+  {
+   "name": "flamer/run",
+   "class": "flamer",
+   "action": "run",
+   "duration": 0.72,
+   "frames": 22,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 3.8,
+   "stride": 2.736,
+   "phase0": "L heel strike",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.36,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 60627,
+     "stride": 44,
+     "frames": 22
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.021,
+    "footSlide": 0.0077
+   }
+  },
+  {
+   "name": "flamer/turn_l",
+   "class": "flamer",
+   "action": "turn_l",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 61595,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.019,
+    "footSlide": 0.0038
+   }
+  },
+  {
+   "name": "flamer/turn_r",
+   "class": "flamer",
+   "action": "turn_r",
+   "duration": 0.8,
+   "frames": 25,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    -1.5708
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 0.7,
+     "type": "footstep",
+     "foot": "L"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 62695,
+     "stride": 44,
+     "frames": 25
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.026,
+    "footSlide": 0.0079
+   }
+  },
+  {
+   "name": "flamer/aim",
+   "class": "flamer",
+   "action": "aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 63795,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.045,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/fire",
+   "class": "flamer",
+   "action": "fire",
+   "duration": 2.4,
+   "frames": 72,
+   "loop": true,
+   "rootMotion": false,
+   "stream": "flame",
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 66435,
+     "stride": 44,
+     "frames": 72
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.045,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/crouch_aim",
+   "class": "flamer",
+   "action": "crouch_aim",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 69603,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/crouch_fire",
+   "class": "flamer",
+   "action": "crouch_fire",
+   "duration": 2.4,
+   "frames": 72,
+   "loop": true,
+   "rootMotion": false,
+   "stream": "flame",
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 72243,
+     "stride": 44,
+     "frames": 72
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/reload",
+   "class": "flamer",
+   "action": "reload",
+   "duration": 2.6,
+   "frames": 79,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.7,
+     "type": "valve"
+    },
+    {
+     "t": 1.2,
+     "type": "pressurise"
+    },
+    {
+     "t": 2.2,
+     "type": "pilot_relight"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 75411,
+     "stride": 44,
+     "frames": 79
+    }
+   ],
+   "check": {
+    "supportError": 0.0342,
+    "minY": -0.045,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/hit",
+   "class": "flamer",
+   "action": "hit",
+   "duration": 0.6,
+   "frames": 19,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.06,
+     "type": "hit"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 78887,
+     "stride": 44,
+     "frames": 19
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.019,
+    "footSlide": 0.0014
+   }
+  },
+  {
+   "name": "flamer/death_a",
+   "class": "flamer",
+   "action": "death_a",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6825,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 79723,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 81351,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.044,
+    "weaponMinY": 0.005,
+    "restMinY": 0
+   }
+  },
+  {
+   "name": "flamer/death_b",
+   "class": "flamer",
+   "action": "death_b",
+   "duration": 1.4,
+   "frames": 43,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0.15111,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.4,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.4,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.663,
+     "type": "weapon_land"
+    },
+    {
+     "t": 0.8,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 81610,
+     "stride": 44,
+     "frames": 43
+    },
+    {
+     "type": "weapon",
+     "offset": 83502,
+     "stride": 7,
+     "frames": 43
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.058,
+    "weaponMinY": 0.005,
+    "restMinY": 0
+   }
+  },
+  {
+   "name": "flamer/death_c",
+   "class": "flamer",
+   "action": "death_c",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0.14167,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.65,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6701,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 83803,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 85431,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.065,
+    "weaponMinY": 0.005,
+    "restMinY": 0
+   }
+  },
+  {
+   "name": "flamer/collect_ammo",
+   "class": "flamer",
+   "action": "collect_ammo",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 1.25,
+     "type": "grab"
+    },
+    {
+     "t": 2.05,
+     "type": "stow"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 85690,
+     "stride": 44,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0007,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/enter_building",
+   "class": "flamer",
+   "action": "enter_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "R"
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 1.5,
+     "type": "door",
+     "z": 1.2
+    },
+    {
+     "t": 1.8,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 89958,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.04,
+    "footSlide": 0.0094
+   }
+  },
+  {
+   "name": "flamer/exit_building",
+   "class": "flamer",
+   "action": "exit_building",
+   "duration": 2.4,
+   "frames": 73,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    1.68,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.6,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.9,
+     "type": "door",
+     "z": 0.6
+    },
+    {
+     "t": 1.2,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 93170,
+     "stride": 44,
+     "frames": 73
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": -0.04,
+    "footSlide": 0.0094
+   }
+  },
+  {
+   "name": "flamer/stairs_up",
+   "class": "flamer",
+   "action": "stairs_up",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 96382,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/stairs_down",
+   "class": "flamer",
+   "action": "stairs_down",
+   "duration": 1,
+   "frames": 30,
+   "loop": true,
+   "rootMotion": true,
+   "stairs": {
+    "rise": 0.175,
+    "tread": 0.28
+   },
+   "delta": [
+    0,
+    -0.35,
+    0.56,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.5,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 97702,
+     "stride": 44,
+     "frames": 30
+    }
+   ],
+   "check": {
+    "supportError": 0.0002,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/para_descent",
+   "class": "flamer",
+   "action": "para_descent",
+   "duration": 4.8,
+   "frames": 144,
+   "loop": true,
+   "rootMotion": false,
+   "descentSpeed": 5,
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 99022,
+     "stride": 44,
+     "frames": 144
+    },
+    {
+     "type": "canopy",
+     "offset": 105358,
+     "stride": 12,
+     "frames": 144
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": null,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/para_land",
+   "class": "flamer",
+   "action": "para_land",
+   "duration": 1.5,
+   "frames": 46,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    -0.28333,
+    0,
+    -0.09444,
+    0
+   ],
+   "events": [
+    {
+     "t": 0,
+     "type": "touchdown"
+    },
+    {
+     "t": 0.55,
+     "type": "body_fall"
+    },
+    {
+     "t": 1.4,
+     "type": "canopy_ground"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 107086,
+     "stride": 44,
+     "frames": 46
+    },
+    {
+     "type": "canopy",
+     "offset": 109110,
+     "stride": 12,
+     "frames": 46
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0.0123
+   }
+  },
+  {
+   "name": "flamer/para_recover",
+   "class": "flamer",
+   "action": "para_recover",
+   "duration": 3.2,
+   "frames": 97,
+   "loop": false,
+   "rootMotion": true,
+   "delta": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "events": [
+    {
+     "t": 1.25,
+     "type": "harness_release"
+    },
+    {
+     "t": 2.15,
+     "type": "weapon_draw"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 109662,
+     "stride": 44,
+     "frames": 97
+    },
+    {
+     "type": "canopy",
+     "offset": 113930,
+     "stride": 12,
+     "frames": 97
+    }
+   ],
+   "check": {
+    "supportError": 0.0011,
+    "minY": 0,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/stow_weapon",
+   "class": "engineer",
+   "action": "stow_weapon",
+   "duration": 1.1,
+   "frames": 34,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.75,
+     "type": "stow"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 115094,
+     "stride": 44,
+     "frames": 34
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.019,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/draw_weapon",
+   "class": "engineer",
+   "action": "draw_weapon",
+   "duration": 1,
+   "frames": 31,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.3,
+     "type": "draw"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 116590,
+     "stride": 44,
+     "frames": 31
+    }
+   ],
+   "check": {
+    "supportError": 0.0001,
+    "minY": -0.019,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "engineer/build_hammer",
+   "class": "engineer",
+   "action": "build_hammer",
+   "duration": 1.5,
+   "frames": 45,
+   "loop": true,
+   "rootMotion": false,
+   "work": "hammer",
+   "events": [
+    {
+     "t": 0.84,
+     "type": "tool_hit",
+     "fx": "hammer_hit"
+    },
+    {
+     "t": 0.84,
+     "type": "work_tick"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 117954,
+     "stride": 44,
+     "frames": 45
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.017,
+    "footSlide": 0.0004,
+    "toolMinY": 0.13
+   }
+  },
+  {
+   "name": "engineer/build_shovel",
+   "class": "engineer",
+   "action": "build_shovel",
+   "duration": 2.2,
+   "frames": 66,
+   "loop": true,
+   "rootMotion": false,
+   "work": "shovel",
+   "toolGround": 0.1,
+   "events": [
+    {
+     "t": 0.6,
+     "type": "dig",
+     "fx": "dig"
+    },
+    {
+     "t": 1.45,
+     "type": "toss",
+     "fx": "dirt_toss"
+    },
+    {
+     "t": 1.45,
+     "type": "work_tick"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 119934,
+     "stride": 44,
+     "frames": 66
+    }
+   ],
+   "check": {
+    "supportError": 0.0123,
+    "minY": -0.02,
+    "footSlide": 0.0016,
+    "toolMinY": -0.048
+   }
+  },
+  {
+   "name": "engineer/build_sandbag",
+   "class": "engineer",
+   "action": "build_sandbag",
+   "duration": 2.8,
+   "frames": 84,
+   "loop": true,
+   "rootMotion": false,
+   "work": "sandbag",
+   "events": [
+    {
+     "t": 0.7,
+     "type": "grab"
+    },
+    {
+     "t": 1.95,
+     "type": "place"
+    },
+    {
+     "t": 1.95,
+     "type": "work_tick"
+    },
+    {
+     "t": 2.3,
+     "type": "pat"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 122838,
+     "stride": 44,
+     "frames": 84
+    }
+   ],
+   "check": {
+    "supportError": 0.2577,
+    "minY": -0.021,
+    "footSlide": 0.0038,
+    "toolMinY": 0.183
+   }
+  },
+  {
+   "name": "engineer/carry_sandbag",
+   "class": "engineer",
+   "action": "carry_sandbag",
+   "duration": 0.96,
+   "frames": 29,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.1,
+   "stride": 1.056,
+   "phase0": "L heel strike",
+   "carry": "sandbag",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.48,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 126534,
+     "stride": 44,
+     "frames": 29
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.021,
+    "footSlide": 0.0073,
+    "toolMinY": 0.866
+   }
+  },
+  {
+   "name": "engineer/carry_panel",
+   "class": "engineer",
+   "action": "carry_panel",
+   "duration": 0.96,
+   "frames": 29,
+   "loop": true,
+   "rootMotion": false,
+   "speed": 1.1,
+   "stride": 1.056,
+   "phase0": "L heel strike",
+   "carry": "panel",
+   "events": [
+    {
+     "t": 0,
+     "type": "footstep",
+     "foot": "L"
+    },
+    {
+     "t": 0.48,
+     "type": "footstep",
+     "foot": "R"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 127810,
+     "stride": 44,
+     "frames": 29
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.021,
+    "footSlide": 0.0073,
+    "toolMinY": 0.551
+   }
+  },
+  {
+   "name": "engineer/cut_car",
+   "class": "engineer",
+   "action": "cut_car",
+   "duration": 2.4,
+   "frames": 72,
+   "loop": true,
+   "rootMotion": false,
+   "stream": "cut_sparks",
+   "work": "cut",
+   "events": [
+    {
+     "t": 0,
+     "type": "work_tick"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 129086,
+     "stride": 44,
+     "frames": 72
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0,
+    "toolMinY": 0.847
+   }
+  },
+  {
+   "name": "engineer/pry_car",
+   "class": "engineer",
+   "action": "pry_car",
+   "duration": 2,
+   "frames": 60,
+   "loop": true,
+   "rootMotion": false,
+   "work": "pry",
+   "events": [
+    {
+     "t": 0.55,
+     "type": "pry_creak"
+    },
+    {
+     "t": 1.55,
+     "type": "pry_creak"
+    },
+    {
+     "t": 1.6,
+     "type": "work_tick"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 132254,
+     "stride": 44,
+     "frames": 60
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.012,
+    "footSlide": 0.0004,
+    "toolMinY": 0.575
+   }
+  },
+  {
+   "name": "engineer/death_tool_sledgehammer",
+   "class": "engineer",
+   "action": "death_tool_sledgehammer",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "dropTool": "sledgehammer",
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6736,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 134894,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 136522,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.007,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.062,
+    "weaponMinY": 0.005,
+    "restMinY": 0,
+    "toolMinY": 0.128
+   }
+  },
+  {
+   "name": "engineer/death_tool_shovel",
+   "class": "engineer",
+   "action": "death_tool_shovel",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "dropTool": "shovel",
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.653,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 136781,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 138409,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.0446,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.062,
+    "weaponMinY": 0.005,
+    "restMinY": 0,
+    "toolMinY": -0.019
+   }
+  },
+  {
+   "name": "engineer/death_tool_torch",
+   "class": "engineer",
+   "action": "death_tool_torch",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "dropTool": "torch",
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6794,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 138668,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 140296,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0.0448,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.043,
+    "weaponMinY": 0.005,
+    "restMinY": 0,
+    "toolMinY": 0.563
+   }
+  },
+  {
+   "name": "engineer/death_tool_crowbar",
+   "class": "engineer",
+   "action": "death_tool_crowbar",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "dropTool": "crowbar",
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6802,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 140555,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 142183,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.049,
+    "weaponMinY": 0.005,
+    "restMinY": 0,
+    "toolMinY": 0.365
+   }
+  },
+  {
+   "name": "engineer/death_tool_sandbag",
+   "class": "engineer",
+   "action": "death_tool_sandbag",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "dropTool": "sandbag",
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    },
+    {
+     "t": 0.6655,
+     "type": "weapon_land"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 142442,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 144070,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.067,
+    "weaponMinY": 0.005,
+    "restMinY": 0,
+    "toolMinY": 0.911
+   }
+  },
+  {
+   "name": "engineer/death_tool_panel",
+   "class": "engineer",
+   "action": "death_tool_panel",
+   "duration": 1.2,
+   "frames": 37,
+   "loop": false,
+   "rootMotion": true,
+   "dropTool": "panel",
+   "delta": [
+    0,
+    0,
+    -0.24556,
+    0
+   ],
+   "events": [
+    {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.5848,
+     "type": "weapon_land"
+    },
+    {
+     "t": 0.6,
+     "type": "body_fall"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 144329,
+     "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 145957,
+     "stride": 7,
+     "frames": 37
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": 0,
+    "footSlide": 0,
+    "weaponGap": 0.065,
+    "weaponMinY": 0.005,
+    "restMinY": 0,
+    "toolMinY": 0.398
+   }
+  },
+  {
+   "name": "flamer/ignite",
+   "class": "flamer",
+   "action": "ignite",
+   "duration": 0.5,
+   "frames": 16,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.08,
+     "type": "pilot_flare"
+    },
+    {
+     "t": 0.3,
+     "type": "flame_start",
+     "fx": "flame"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 146216,
+     "stride": 44,
+     "frames": 16
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.045,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/stop",
+   "class": "flamer",
+   "action": "stop",
+   "duration": 0.45,
+   "frames": 15,
+   "loop": false,
+   "rootMotion": false,
+   "events": [
+    {
+     "t": 0.05,
+     "type": "flame_stop",
+     "fx": "flame"
+    }
+   ],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 146920,
+     "stride": 44,
+     "frames": 15
+    }
+   ],
+   "check": {
+    "supportError": 0,
+    "minY": -0.045,
+    "footSlide": 0
+   }
+  },
+  {
+   "name": "flamer/burn_ground",
+   "class": "flamer",
+   "action": "burn_ground",
+   "duration": 3.2,
+   "frames": 96,
+   "loop": true,
+   "rootMotion": false,
+   "stream": "flame",
+   "events": [],
+   "tracks": [
+    {
+     "type": "body",
+     "offset": 147580,
+     "stride": 44,
+     "frames": 96
+    }
+   ],
+   "check": {
+    "supportError": 0.0677,
+    "minY": -0.045,
+    "footSlide": 0
+   }
+  }
+ ]
+}

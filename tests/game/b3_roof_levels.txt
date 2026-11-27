@@ -1,0 +1,32 @@
+# Owner feedback round 3: "can't place snipers on roofs of buildings that have a base roof and then a top roof". The
+# tower at x -5 .. 14, z 72 .. 101 has a podium roof (16.7 / 17.45 m), a roof ring at 137.5 m and a top roof at 147.5 m:
+# every level is a surface of its own (the clicked one; footprint per level). Drops by command and through the UI pick.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3_roof_levels.txt
+at 0.0  camera -2 84 0.6 0.9 220
+at 0.1  buy sniper -3 80                       # podium, lower level (16.7 m)
+at 0.2  buy sniper -4 76                       # podium, upper step (17.45 m)
+at 0.3  buy sniper 1 90                        # tower ring (137.45 m)
+at 0.4  buy sniper 8 84                        # tower top (147.45 m)
+at 0.5  camera -12 86 1.57 0.75 90             # podium seen from the west, the tower behind it
+at 0.6  key c
+at 0.7  click left -3 92                       # podium through the UI pick
+at 1.0  expect squads == 5
+at 1.0  expect refused == 0
+at 30   log
+at 30   expect landed == 5
+at 30   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop == 5
+at 30   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside == 0
+at 30   expect squad 1 y >= 16.2
+at 30   expect squad 2 y >= 16.2
+at 30   expect squad 3 y >= 137
+at 30   expect squad 4 y >= 147
+at 30   expect squad 5 y >= 16.2
+at 30   expect squad 5 y <= 18
+at 75   log
+at 75   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop == 5
+at 75   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside == 0
+at 75   expect squad 1 y >= 16.2
+at 75   expect squad 3 y >= 137
+at 75   expect squad 4 y >= 147
+at 75   expect squad 5 y <= 18
+at 76   end

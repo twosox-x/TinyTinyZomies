@@ -90,11 +90,15 @@ set(TTZ_GAME_CORE
   src/game/Logistics.cpp
   src/game/Deploy.cpp
   src/game/Walls.cpp
+  src/game/EngineerAI.cpp
   src/game/Territory.cpp
   src/game/FortSelfTest.cpp
   src/game/Reanimation.cpp
   src/game/Buildings.cpp
   src/game/BuildingPlay.cpp
+  src/game/CorpseGas.cpp
+  src/game/CorpseGasTest.cpp
+  src/game/FlameAI.cpp
   src/lab/MilitaryAssets.cpp)
 add_executable(ttz
   src/main.cpp
@@ -136,6 +140,7 @@ add_executable(ttz
   src/game/FortScript.cpp
   src/game/BuildingGame.cpp
   src/game/VerticalScript.cpp
+  src/game/CorpseGasRender.cpp
   src/game/TerritoryGpu.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
 target_link_libraries(ttz PRIVATE SDL3::SDL3 imgui ttz_zstd)
