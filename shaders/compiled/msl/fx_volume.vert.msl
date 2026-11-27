@@ -114,8 +114,8 @@ struct Frame
     float4 shadowP2;
 };
 
-constant spvUnsafeArray<int3, 24> _798 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
-constant spvUnsafeArray<int, 6> _805 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
+constant spvUnsafeArray<int3, 24> _997 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _1004 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
 
 struct main0_out
 {
@@ -136,16 +136,16 @@ BlastShape blastShape(thread const float3& c, thread const float& s, thread cons
     b.hc = (0.550000011920928955078125 * R) + (((2.599999904632568359375 * ss) * t) / (1.0 + (0.119999997317790985107421875 * t)));
     b.drift = (float3(0.550000011920928955078125, 0.0, 0.25) * t) * 0.60000002384185791015625;
     b.ball = (c + float3(0.0, b.hc, 0.0)) + b.drift;
-    float _161;
+    float _189;
     if (s > 1.39999997615814208984375)
     {
-        _161 = smoothstep(0.4000000059604644775390625, 2.0, t);
+        _189 = smoothstep(0.4000000059604644775390625, 2.0, t);
     }
     else
     {
-        _161 = 0.25 * smoothstep(0.60000002384185791015625, 2.5, t);
+        _189 = 0.25 * smoothstep(0.60000002384185791015625, 2.5, t);
     }
-    b.flt = _161;
+    b.flt = _189;
     b.stemR = (R * ((s > 1.39999997615814208984375) ? 0.37999999523162841796875 : 0.2199999988079071044921875)) * smoothstep(0.25, 1.2000000476837158203125, t);
     b.ringR = 0.800000011920928955078125 + ((3.7999999523162841796875 * sb) * (1.0 - exp((-t) / 0.300000011920928955078125)));
     b.ringT = (0.3499999940395355224609375 + (0.1500000059604644775390625 * t)) * ss;
@@ -176,14 +176,14 @@ void blastBoxRef(thread const float3& c, thread const BlastShape& b, thread floa
     if (b.ringK > 0.0)
     {
         float e = (b.ringR + (b.ringT * 1.60000002384185791015625)) + 0.5;
-        float3 _303 = lo;
-        float2 _310 = fast::min(_303.xz, c.xz - float2(e));
-        lo.x = _310.x;
-        lo.z = _310.y;
-        float3 _315 = hi;
-        float2 _322 = fast::max(_315.xz, c.xz + float2(e));
-        hi.x = _322.x;
-        hi.z = _322.y;
+        float3 _331 = lo;
+        float2 _338 = fast::min(_331.xz, c.xz - float2(e));
+        lo.x = _338.x;
+        lo.z = _338.y;
+        float3 _343 = hi;
+        float2 _350 = fast::max(_343.xz, c.xz + float2(e));
+        hi.x = _350.x;
+        hi.z = _350.y;
     }
 }
 
@@ -198,17 +198,17 @@ BlastBounds blastBounds(thread const float3& c, thread const BlastShape& b, thre
     BlastBounds o;
     o.ball = short(kb > 0.0);
     o.stem = short((b.stemR > 0.00999999977648258209228515625) && (1.5499999523162841796875 > thr));
-    bool _359 = b.ringK > 0.0;
-    bool _367;
-    if (_359)
+    bool _387 = b.ringK > 0.0;
+    bool _395;
+    if (_387)
     {
-        _367 = (b.ringK + 0.699999988079071044921875) > thr;
+        _395 = (b.ringK + 0.699999988079071044921875) > thr;
     }
     else
     {
-        _367 = _359;
+        _395 = _387;
     }
-    o.ring = short(_367);
+    o.ring = short(_395);
     o.ballC = b.ball;
     o.ballR = float3(1.0 + (0.550000011920928955078125 * b.flt), 1.0 - (0.449999988079071044921875 * b.flt), 1.0 + (0.550000011920928955078125 * b.flt)) * (b.r * fast::max(kb, 0.0));
     o.lo = float3(1000000000.0);
@@ -278,13 +278,63 @@ void wreckBox(thread const float3& c, thread const float& len, thread float3& lo
 }
 
 static inline __attribute__((always_inline))
-void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _664)
+float3 flameDir(thread const int& i, constant FxVolumes& _693)
 {
-    if (_664.fxB[i].y < 0.5)
+    float y = _693.fxC[i].z;
+    float p = _693.fxC[i].w;
+    return float3(sin(y) * cos(p), sin(p), cos(y) * cos(p));
+}
+
+static inline __attribute__((always_inline))
+float3 flameCentre(thread const float3& o, thread const float3& d, thread const float& L, thread const float& s)
+{
+    float3 c = o + (d * s);
+    c.y -= ((0.550000011920928955078125 * (s * s)) / 81.0);
+    c.y = fast::max(c.y, (o.y - 1.25) + 0.20000000298023223876953125);
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float flameRadius(thread const float& s)
+{
+    return 0.070000000298023223876953125 + (0.1500000059604644775390625 * s);
+}
+
+static inline __attribute__((always_inline))
+void streamBox(thread const float3& o, thread const float3& d, thread const float& L, thread float3& lo, thread float3& hi)
+{
+    float3 param = o;
+    float3 param_1 = d;
+    float param_2 = L;
+    float param_3 = L;
+    float3 e = flameCentre(param, param_1, param_2, param_3);
+    float param_4 = L;
+    float r = (flameRadius(param_4) * 1.5) + 0.60000002384185791015625;
+    lo = fast::min(o, e) - float3(r);
+    hi = fast::max(o, e) + float3(r, r + 1.2000000476837158203125, r);
+    lo.y = fast::max(lo.y, o.y - 1.4500000476837158203125);
+}
+
+static inline __attribute__((always_inline))
+void poolBox(thread const float3& c, thread const float& R, thread float3& lo, thread float3& hi)
+{
+    float rf = (R * 1.5) + 0.5;
+    lo = c - float3(rf, 0.60000002384185791015625, rf);
+    hi = (c + float3(rf, 4.19999980926513671875, rf)) + float3(1.64999997615814208984375, 0.0, 0.75);
+    float3 _813 = lo;
+    float2 _815 = _813.xz + float2(0.0);
+    lo.x = _815.x;
+    lo.z = _815.y;
+}
+
+static inline __attribute__((always_inline))
+void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant FxVolumes& _693)
+{
+    if (_693.fxB[i].y < 0.5)
     {
-        float3 param = _664.fxA[i].xyz;
-        float param_1 = _664.fxB[i].x;
-        float param_2 = _664.fxA[i].w;
+        float3 param = _693.fxA[i].xyz;
+        float param_1 = _693.fxB[i].x;
+        float param_2 = _693.fxA[i].w;
         float3 param_3;
         float3 param_4;
         blastBox(param, param_1, param_2, param_3, param_4);
@@ -293,59 +343,87 @@ void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant F
     }
     else
     {
-        float3 param_5 = _664.fxA[i].xyz;
-        float param_6 = _664.fxB[i].x;
-        float3 param_7;
-        float3 param_8;
-        wreckBox(param_5, param_6, param_7, param_8);
-        lo = param_7;
-        hi = param_8;
+        if (_693.fxB[i].y < 1.5)
+        {
+            float3 param_5 = _693.fxA[i].xyz;
+            float param_6 = _693.fxB[i].x;
+            float3 param_7;
+            float3 param_8;
+            wreckBox(param_5, param_6, param_7, param_8);
+            lo = param_7;
+            hi = param_8;
+        }
+        else
+        {
+            if (_693.fxB[i].y < 2.5)
+            {
+                int param_9 = i;
+                float3 param_10 = _693.fxA[i].xyz;
+                float3 param_11 = flameDir(param_9, _693);
+                float param_12 = _693.fxB[i].x;
+                float3 param_13;
+                float3 param_14;
+                streamBox(param_10, param_11, param_12, param_13, param_14);
+                lo = param_13;
+                hi = param_14;
+            }
+            else
+            {
+                float3 param_15 = _693.fxA[i].xyz;
+                float param_16 = _693.fxB[i].x;
+                float3 param_17;
+                float3 param_18;
+                poolBox(param_15, param_16, param_17, param_18);
+                lo = param_17;
+                hi = param_18;
+            }
+        }
     }
 }
 
-vertex main0_out main0(constant Frame& _733 [[buffer(0)]], constant FxVolumes& _664 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _932 [[buffer(0)]], constant FxVolumes& _693 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
     int i = int(gl_InstanceIndex);
     int param = i;
     float3 param_1;
     float3 param_2;
-    fxBox(param, param_1, param_2, _664);
+    fxBox(param, param_1, param_2, _693);
     float3 lo = param_1;
     float3 hi = param_2;
     float3 m = float3(2.0);
-    bool _742 = all(_733.camPos.xyz > (lo - m));
-    bool _753;
-    if (_742)
+    bool _941 = all(_932.camPos.xyz > (lo - m));
+    bool _952;
+    if (_941)
     {
-        _753 = all(_733.camPos.xyz < (hi + m));
+        _952 = all(_932.camPos.xyz < (hi + m));
     }
     else
     {
-        _753 = _742;
+        _952 = _941;
     }
-    bool inside = _753;
-    bool _759 = inside != (_664.fxCount.y == 0u);
-    bool _770;
-    if (!_759)
+    bool inside = _952;
+    bool _958 = inside != (_693.fxCount.y == 0u);
+    bool _969;
+    if (!_958)
     {
-        _770 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
+        _969 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
     }
     else
     {
-        _770 = _759;
+        _969 = _958;
     }
-    if (_770)
+    if (_969)
     {
         out.gl_Position = float4(0.0, 0.0, 2.0, 1.0);
         out.vWorld = float3(0.0);
         out.vIdx = i;
         return out;
     }
-    float3 c = float3(_798[((int(gl_VertexIndex) / 6) * 4) + _805[spvSMod(int(gl_VertexIndex), 6)]]);
+    float3 c = float3(_997[((int(gl_VertexIndex) / 6) * 4) + _1004[spvSMod(int(gl_VertexIndex), 6)]]);
     out.vWorld = mix(lo, hi, c);
     out.vIdx = i;
-    out.gl_Position = _733.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _932.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

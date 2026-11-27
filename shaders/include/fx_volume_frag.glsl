@@ -103,6 +103,51 @@ float wreckDensity(vec3 q, vec3 c, float len, float t, float k, float seed, out 
     return ds;
 }
 
+// Flame stream (kind 2): a tapered, drooping, turbulent tube of burning fuel from the nozzle; white-yellow core near the
+// nozzle cooling to orange / red along it, eroding at the tip into rising soot; strength k fades it in / out (erosion).
+float streamDensity(vec3 q, vec3 o, vec3 d, float L, float t, float k, float seed, out vec3 mat) {
+    mat = vec3(0.0);
+    float s = dot(q - o, d);
+    if (s < 0.0 || s > L + 1.0) return -1.0;
+    vec3 c = flameCentre(o, d, L, s);
+    float r = flameRadius(s);
+    vec3 dq = q - c;
+    float u = s / L;
+    // soot: above the tip, rising and drifting
+    float rise = max(dq.y, 0.0);
+    float f = 1.0 - length(vec3(dq.x, dq.y * (rise > 0.0 ? 0.8 : 1.3), dq.z)) / r;
+    float thr = 0.12 + 0.9 * (1.0 - k) + 0.75 * smoothstep(0.75, 1.1, u);
+    if (f + 0.6 < thr) return -1.0;
+    float n = fbm(q * 1.7 + vec3(seed, seed * 0.37, seed * 1.3) - d * t * 9.0 - vec3(0.0, t * 2.5, 0.0));
+    float dens = f + 0.6 * n - thr;
+    if (dens <= 0.0) return dens;
+    float T = clamp(1.05 - 0.85 * u + 0.35 * n + 0.45 * f - 0.25 * smoothstep(0.0, 0.8, rise / r), 0.0, 1.0);
+    if (u > 0.8 && rise > 0.35 * r) T = min(T, 0.04 + 0.2 * n);   // tip: cooled into soot
+    mat = vec3(T, 0.0, 1.0);
+    return dens;
+}
+// Ground-fire pool (kind 3): low flame tongues over burning fuel / bodies, thin dark smoke wisps eroding by ~4 m.
+float poolDensity(vec3 q, vec3 c, float R, float t, float k, float seed, out vec3 mat) {
+    mat = vec3(0.0);
+    float y = q.y - (c.y - 0.3);
+    if (y < 0.0) return -1.0;
+    float ff = 1.0 - length(q.xz - c.xz) / R - y / (0.45 + 0.9 * k);
+    if (ff > -0.6) {
+        float n = fbm(q * 1.5 + vec3(seed, seed - t * 4.5, seed * 0.5));
+        float df = ff + 0.6 * n - 0.12 - 0.5 * (1.0 - k);
+        if (df > 0.0) { mat = vec3(clamp(0.3 + 0.8 * ff + 0.3 * n, 0.0, 1.0), 0.0, 1.0); return df; }
+    }
+    if (y < 0.8) return -1.0;
+    vec3 axis = c + FX_WIND * (y - 0.8) * 0.6;
+    float rc = (0.35 + 0.1 * y) * (0.5 + 0.5 * k);
+    float fsm = 1.0 - length(q.xz - axis.xz) / rc;
+    float thr = 0.25 + 1.4 * (y / 4.0) + 0.6 * (1.0 - k);
+    if (fsm + 0.7 < thr) return -1.0;
+    float n2 = fbm(q * 0.8 + vec3(seed * 3.0, seed - t * 2.2, seed * 2.0));
+    mat = vec3(0.0, 0.0, 0.7);
+    return fsm + 0.7 * n2 - thr;
+}
+
 // Ray interval [ta, tb] (hull) where a blast's parts, inflated by m (boxes: their own >= 0.5 m margins), can be: the ellipsoid of the ball, the stem's
 // box, the ring's cylinder slab. Voxels whose centre has density > 0 lie wholly inside the parts inflated by the
 // voxel's half diagonal, so the walk can skip what is before ta and stop after tb.
@@ -149,7 +194,9 @@ void main() {
         bs = blastShape(A.xyz, B.x, A.w);
         bb = blastBounds(A.xyz, bs, B.x, A.w);
         blastBoxRef(A.xyz, bs, lo, hi);
-    } else wreckBox(A.xyz, B.x, lo, hi);
+    } else fxBox(i, lo, hi);
+    const int kind = int(B.y + 0.5);   // 0 blast, 1 wreck, 2 flame stream, 3 ground-fire pool
+    vec3 fdir = kind == 2 ? flameDir(i) : vec3(0.0);
     vec3 ro = camPos.xyz, rd = normalize(vWorld - ro);
     vec3 inv = 1.0 / (abs(rd) + 1e-6) * sign(rd + 1e-9);
     vec3 ta = (lo - ro) * inv, tb = (hi - ro) * inv;
@@ -164,7 +211,11 @@ void main() {
     float dist = length(0.5 * (lo + hi) - ro);
     float mpp = uintBitsToFloat(fxCount.z);
     float v;
-    if (mpp > 0.0) { float want = dist * mpp * fxC[i].x; v = want <= 0.25 ? 0.25 : (want <= 0.5 ? 0.5 : 1.0); }
+    if (mpp > 0.0) {
+        float want = dist * mpp * fxC[i].x;
+        v = want <= 0.25 ? 0.25 : (want <= 0.5 ? 0.5 : 1.0);
+        if (kind == 2 && want <= 0.125) v = 0.125;   // the thin stream: half the building voxel up close
+    }
     else v = dist > 110.0 ? 0.5 : 0.25;
     int maxSteps = int(fxC[i].y);
     if ((t1 - t0) / v > 0.94 * float(maxSteps) && v < 1.0) v *= 2.0;
@@ -199,7 +250,10 @@ void main() {
     bool hit = false;
     for (int k = k0; k < maxSteps; ++k) {
         vec3 q = (vec3(cell) + 0.5) * v;
-        float d = blast ? blastDensity(q, A.xyz, B.x, A.w, B.z, bs, mat) : wreckDensity(q, A.xyz, B.x, A.w, B.w, B.z, mat);
+        float d = blast ? blastDensity(q, A.xyz, B.x, A.w, B.z, bs, mat)
+                : kind == 1 ? wreckDensity(q, A.xyz, B.x, A.w, B.w, B.z, mat)
+                : kind == 2 ? streamDensity(q, A.xyz, fdir, B.x, A.w, B.w, B.z, mat)
+                            : poolDensity(q, A.xyz, B.x, A.w, B.w, B.z, mat);
         if (d > 0.0) { hit = true; break; }
         ax = tMax.x < tMax.y ? (tMax.x < tMax.z ? 0 : 2) : (tMax.y < tMax.z ? 1 : 2);
         tEnter = tMax[ax];
