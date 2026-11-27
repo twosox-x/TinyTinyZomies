@@ -29,7 +29,9 @@ public:
     float hitCooldown = 3.f;                   // s between hit reactions of one soldier (no constant interruptions)
     float collectTime = 3.2f;                  // s, collect_ammo clip (grab at 1.25 s)
     float muzzleHeight = 1.4f, aimHeight = 1.1f;
-    float aimLead = 0.12f;           // s: lead along an exact lock's velocity (SoldierAI exact locks)
+    float aimLead = 0.12f;
+    float coverReach = 1.5f, coverMaxHeight = 2.8f;   // m: walls / containers right in front are fired over
+    uint64_t roundsOverCover() const { return overCover_; }           // s: lead along an exact lock's velocity (SoldierAI exact locks)
     float noiseMergeRadius = 8.f;
     uint32_t maxAttractors = kMaxAttractors;
 
@@ -51,6 +53,7 @@ private:
     void fire(GameContext& ctx, uint32_t i, bool synthetic);
     void reload(GameContext& ctx, uint32_t i);
     void grab(GameContext& ctx, SupplyAccess& sup, uint32_t i);
+    uint64_t overCover_ = 0;
     uint64_t syntheticRounds_ = 0, reloads_ = 0, collected_ = 0, kills_ = 0, handedOver_ = 0;
     double damageTaken_ = 0;
     std::vector<HitRequest> hits_;

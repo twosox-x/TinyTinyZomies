@@ -7,6 +7,7 @@
 #include "game/NavGrid.h"
 #include "game/SoldierAnim.h"
 #include "game/Soldiers.h"
+#include "game/Territory.h"
 
 #include <algorithm>
 #include <cmath>
@@ -666,6 +667,53 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         const int total = P.mag[i] + P.reserve[i];
         const bool low = total < (int)std::ceil(ss.lowAmmoFraction * (float)P.fullLoad(i, cfg));
         if (P.mag[i] > 0 && (L.active || ((perceive || hasClose) && lockNew(false)))) { P.setState(i, SoldierState::Engaging); break; }
+        // rooftop marksman: from the middle of a roof the roof itself hides the street. With nothing in sight he moves
+        // to the roof edge facing the nearest zombies the field knows within range (same roof island), every 8 s.
+        if (P.cls[i] == SoldierClass::Sniper && ctx.nav && ctx.nav->ready() && (P.scanT[i] -= dt) <= 0.f) {
+            P.scanT[i] = 8.f;
+            const NavGrid& nav = *ctx.nav;
+            const V3 p = P.pos[i];
+            float ground = p.y;
+            for (int k = 0; k < 8; ++k) ground = std::min(ground, nav.surface(p.x + 15.f * std::cos(k * 0.785398f), p.z + 15.f * std::sin(k * 0.785398f)));
+            V3 t;
+            if (p.y - ground > 2.5f && nearestSample(ctx, p, w.acquireRange, t)) {
+                const uint32_t isl = nav.island(p.x, p.z);
+                const V3 dir = normalize(V3{t.x - p.x, 0, t.z - p.z});
+                V3 last = p;
+                for (float s = 0.5f; s < 40.f; s += 0.5f) {
+                    const V3 q = p + dir * s;
+                    if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || std::fabs(nav.surface(q.x, q.z) - p.y) > 0.6f) break;
+                    last = q;
+                }
+                V3 edge = last - dir * 0.6f;
+                if (dist2D(edge, p) < 0.6f) edge = p;
+                edge.y = nav.surface(edge.x, edge.z);
+                if (dist2D(edge, P.home[i]) > 1.0f && nav.walkable(edge.x, edge.z)) {
+                    P.home[i] = edge; P.homeYaw[i] = yawTo(edge, t);
+                    if (dist2D(edge, p) > 0.8f) { P.setState(i, SoldierState::Moving); P.phase[i] |= PH_RETURNING; startPath(ctx, i, edge); break; }
+                }
+            }
+        }
+        // clearing an enclosed, uncleared region (B2 territory): with nothing in sight, walk toward the nearest zombie
+        // the field knows inside the same region (bounded to the region), then the leash brings the soldier home
+        if (ctx.territory && P.mag[i] + P.reserve[i] > 0 && P.retry[i] <= 0.f) {
+            const Region* rg = ctx.territory->regionAt(P.pos[i].x, P.pos[i].z);
+            if (rg && rg->state == RegionState::Uncleared && rg->zombies > 0) {
+                V3 z;
+                const float reach = std::max(rg->x1 - rg->x0, rg->z1 - rg->z0) + 6.f;
+                if (nearestSample(ctx, P.pos[i], reach, z) && ctx.territory->regionAt(z.x, z.z) == rg && dist2D(z, P.pos[i]) > 3.f) {
+                    const V3 dir = normalize(V3{P.pos[i].x - z.x, 0, P.pos[i].z - z.z});
+                    V3 g = z + dir * 3.f;
+                    if (ctx.nav && ctx.nav->ready()) { V3 o; if (ctx.nav->nearestWalkable(g, 2.f, o, ctx.nav->island(P.pos[i].x, P.pos[i].z))) g = o; }
+                    P.setState(i, SoldierState::Moving);
+                    P.phase[i] |= PH_RETURNING;   // not a player order: threats interrupt, the leash returns him after
+                    startPath(ctx, i, g);
+                    P.retry[i] = 4.f;
+                    ++hunts_;
+                    break;
+                }
+            }
+        }
         if (dist2D(P.pos[i], P.home[i]) > tuning.leash && !hasClose) {
             P.setState(i, SoldierState::Moving);
             P.phase[i] |= PH_RETURNING;

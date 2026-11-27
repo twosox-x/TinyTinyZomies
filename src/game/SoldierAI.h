@@ -102,6 +102,7 @@ public:
         bool stuck = false;
     };
     SquadStatus status(const GameContext& ctx, SquadId id) const;
+    uint64_t hunts() const { return hunts_; }   // trips toward zombies left inside an enclosed uncleared region
     uint8_t threats(uint32_t i) const { return i < threats_.size() ? threats_[i] : 0; }   // visible zombies within threatRadius (debug overlay)
 
 private:
@@ -117,7 +118,8 @@ private:
     bool bestThreat(const GameContext& ctx, uint32_t i, V3& pos, V3& vel, float& dist, int& n) const;
     const SoldierContact* contactOf(const GameContext& ctx, uint32_t i) const;
     std::vector<int> contactIndex_;
-    std::vector<uint8_t> threats_;  // soldier slot -> index into horde contacts (rebuilt per tick)
+    std::vector<uint8_t> threats_;
+    uint64_t hunts_ = 0;  // soldier slot -> index into horde contacts (rebuilt per tick)
     // Pace of a move: run speed x (sprint when threatened and fresh), walk when tired / wounded / ordered to walk.
     float paceFor(GameContext& ctx, uint32_t i, bool forceRun, bool forceWalk, bool highStakes, bool& running) const;
     bool nearestSample(const GameContext& ctx, V3 p, float r, V3& out) const;

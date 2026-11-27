@@ -3,6 +3,7 @@
 #include "game/Combat.h"
 
 #include "game/Config.h"
+#include "game/NavGrid.h"
 #include "game/SoldierAnim.h"
 #include "game/Soldiers.h"
 
@@ -29,7 +30,28 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
     ++roundsFired_;
     if (synthetic) ++syntheticRounds_;
     const V3 fw{std::sin(P.yaw[i]), 0, std::cos(P.yaw[i])};
-    const V3 origin = P.pos[i] + V3{0, muzzleHeight, 0} + fw * 0.5f;
+    V3 origin = P.pos[i] + V3{0, muzzleHeight, 0} + fw * 0.5f;
+    // Firing over cover: a wall / container / low obstacle right in front (within coverReach, at most coverMaxHeight
+    // above the feet) does not stop the soldier's own rounds. The round starts just past it, above its top (the
+    // soldier leans / raises the weapon over it); the hit ray then ignores that obstacle (GPU stops rays at static cells).
+    if (ctx.nav && ctx.nav->ready()) {
+        const V3 tgt = P.target[i].active ? P.target[i].pos : P.pos[i] + fw * 10.f;
+        V3 d{tgt.x - P.pos[i].x, 0, tgt.z - P.pos[i].z};
+        const float l = std::sqrt(d.x * d.x + d.z * d.z);
+        if (l > 1.f) {
+            d = d * (1.f / l);
+            const float base = P.pos[i].y;
+            float top = -1e9f, end = 0.f;
+            for (float s = 0.25f; s <= coverReach; s += 0.25f) {
+                const float h = ctx.nav->surface(P.pos[i].x + d.x * s, P.pos[i].z + d.z * s);
+                if (h > base + 0.4f) { top = std::max(top, h); end = s; }
+            }
+            if (top > base + 0.4f && top - base <= coverMaxHeight) {
+                origin = V3{P.pos[i].x + d.x * (end + 0.45f), std::max(origin.y, top + 0.3f), P.pos[i].z + d.z * (end + 0.45f)};
+                ++overCover_;
+            }
+        }
+    }
     // exact locks: lead the zombie along its velocity (readback latency + flight time); field locks: the sample point
     const V3 aim = P.target[i].pos + P.target[i].vel * aimLead + V3{0, aimHeight, 0};
     // Accuracy: cone = spreadDeg / accuracy (accuracy 1 -> spreadDeg), wider while wounded.

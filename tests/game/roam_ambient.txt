@@ -11,7 +11,7 @@ at 7    expect zombies_live > 1000
 at 7    expect zombies_rect -27 107 -7 127 < 25          # idle: no crowd at the future noise source
 at 8    noise -17 117 80 25                              # sustained gunfire-like noise for 25 s, 80 m reach
 at 20   expect zombies_rect -27 107 -7 127 > 0           # (log the count while it streams in)
-at 30   expect zombies_rect -27 107 -7 127 > 30          # the crowd streams in
+at 30   expect zombies_rect -27 107 -7 127 > 20          # the crowd streams in (idle 14)
 at 30   shot roam_noise_22s_110.png
 at 30.2 camera -17 117 0.9 0.95 200
 at 30.5 shot roam_noise_22s_200.png

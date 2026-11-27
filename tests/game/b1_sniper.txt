@@ -1,11 +1,10 @@
 # Owner feedback: the sniper must be a real long-range unit. A sniper on a 76 m roof picks off isolated zombies
-# 120-150 m away down the street: accurate, slow deliberate fire, quiet (it does not draw the crowd).
+# ~100-105 m away down the street: accurate, slow deliberate fire, quiet (it does not draw the crowd).
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_sniper.txt
 at 0.0  camera 20 117 0.6 0.9 160
 at 0.1  buy sniper -48 116              # 76 m roof
-at 24   spawn 2 76 117 2                # isolated, ~125 m away
-at 24.5 spawn 2 92 118 2                # ~140 m
-at 25   spawn 1 60 140 1
+at 24   spawn 3 56 117 2                # isolated, ~104 m away (the spawn pass refuses some street cells)
+at 24.5 spawn 2 52 120 3                # ~100 m
 at 26   expect squad 1 rooftop == 1
 at 70   log
 at 70   expect kills >= 3

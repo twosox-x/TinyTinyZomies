@@ -73,6 +73,7 @@ struct SoldierPool {
     std::vector<int> carry;          // ammo runner: rounds carried for squad mates (not his own reserve)
     std::vector<uint8_t> runner;     // ammo runner role: 0 none, 1 on the way to / at a supply point, 2 handing out
     std::vector<SoldierId> deliverTo;// ammo runner: the squad mate he is walking to / handing rounds to
+    std::vector<float> scanT;        // SoldierAI: s until a rooftop marksman re-picks his firing position
     std::vector<uint8_t> unarmed;    // Reanimation: the weapon lies on the ground (rising body drawn without it)
 
     SoldierId spawn(SoldierClass c, int infantryIndex, SquadId sq, int slot, V3 p, float yawRad, uint32_t seed);
