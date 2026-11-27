@@ -6,7 +6,9 @@
 #include "render/Renderer.h"
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <array>
+#include <cmath>
 
 namespace ttz::game {
 
@@ -80,15 +82,39 @@ void CorpseGasRender::shutdown(AppState& app) {
     gas_ = nullptr;
 }
 
-void CorpseGasRender::fireVolumes(float camX, float camZ, std::vector<FireVolume>& out, int maxN) const {
-    if (!gas_ || !app_) return;
+void CorpseGasRender::noteFlames(const std::vector<FxEvent>& fx, double time, float range) {
+    for (const FxEvent& e : fx) {
+        if (e.kind != FxKind::Flame) continue;
+        const uint32_t id = e.soldier.packed();
+        auto it = std::find_if(streams_.begin(), streams_.end(), [&](const Stream& s) { return s.id == id; });
+        if (it == streams_.end()) { streams_.push_back({}); it = streams_.end() - 1; it->id = id; it->start = time; }
+        if (time - it->last > 0.6) it->start = time;   // a new burst
+        it->o = e.pos; it->d = e.dir; it->last = time; it->range = range;
+    }
+    streams_.erase(std::remove_if(streams_.begin(), streams_.end(), [&](const Stream& s) { return time - s.last > 1.0; }), streams_.end());
+}
+
+void CorpseGasRender::flameVolumes(float camX, float camZ, double time, std::vector<FlameVolume>& out, int maxStreams, int maxPools) const {
+    std::vector<const Stream*> live;
+    for (const Stream& s : streams_) if (time - s.last < 0.45) live.push_back(&s);
+    std::sort(live.begin(), live.end(), [&](const Stream* a, const Stream* b) {
+        return (a->o.x - camX) * (a->o.x - camX) + (a->o.z - camZ) * (a->o.z - camZ) < (b->o.x - camX) * (b->o.x - camX) + (b->o.z - camZ) * (b->o.z - camZ);
+    });
+    for (size_t k = 0; k < live.size() && (int)k < maxStreams; ++k) {
+        const Stream& s = *live[k];
+        const float in = (float)std::clamp((time - s.start) / 0.12, 0.0, 1.0), outF = (float)std::clamp(1.0 - (time - s.last - 0.15) / 0.3, 0.0, 1.0);
+        const float yaw = std::atan2(s.d.x, s.d.z), pitch = std::asin(std::clamp(s.d.y, -1.f, 1.f));
+        // the stream grows to its reach over the first 0.2 s of a burst
+        const float reach = s.range * (float)std::clamp((time - s.start) / 0.2, 0.25, 1.0);
+        out.push_back({s.o.x, s.o.y, s.o.z, reach, yaw, pitch, std::min(in, outF), s.id * 2654435761u, 2});
+    }
+    if (!gas_) return;
     std::vector<std::array<float, 4>> spots;
-    gas_->fireSpots(camX, camZ, maxN, spots);
-    for (const auto& s : spots) {
-        float y = app_->cityRenderer.heightAt(s[0], s[2]);
-        if (!(y > -50.f && y < 3.f)) y = 0.f;   // piles burn in the street (a roof's fire volume would float)
-        FireVolume f{s[0], y + 0.2f, s[2], 1.6f, s[3] * 0.55f, (uint32_t)(s[0] * 31.f + s[2] * 17.f)};
-        out.push_back(f);
+    gas_->fireSpots(camX, camZ, maxPools, spots);
+    for (const auto& p : spots) {
+        float y = app_ ? app_->cityRenderer.heightAt(p[0], p[2]) : 0.f;
+        if (!(y > -50.f && y < 3.f)) y = 0.f;
+        out.push_back({p[0], y + 0.05f, p[2], p[1], 0.f, 0.f, p[3], (uint32_t)(p[0] * 31.f + p[2] * 17.f), 3});
     }
 }
 

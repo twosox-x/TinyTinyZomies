@@ -121,8 +121,8 @@ public:
     uint32_t fxShotRay(const MilPoseInput& s, V3 hit, bool tracer, bool casing);
     // Bright emissive streak travelling from `from` to `to` (style 0 rifle, 1 MG, 2 sniper: thinner, faster).
     uint32_t fxTracer(V3 from, V3 to, int style);
-    // Flamethrower spray (GAME_DESIGN 14d, game FxKind::Flame): nozzle glow at the posed muzzle of `s` and a burst of
-    // emissive voxels streaming along `dir` (drag, lift, ground spread) that reach about `range` m. Bounded by kMaxFx.
+    // Flamethrower spray (GAME_DESIGN 14d, game FxKind::Flame): nozzle glow + light at the posed muzzle of `s` and a rare
+    // small ember along `dir`. The flame stream itself is a voxel fx volume (Renderer::setFlameVolumes, kind 2).
     void fxFlame(const MilPoseInput& s, V3 dir, float range);
     void fxTracerEnd(uint32_t id, float distFromStart);     // shorten / lengthen a live tracer (hit resolved)
     float tracerLength = 9.f;                               // m, visible streak behind the head

@@ -2,14 +2,18 @@
 // Corpse gas / ground fire rendering (GAME_DESIGN 14d), game binary only (needs the Renderer). One indirect instanced
 // draw (shaders/gas.vert / gas.frag) of the cells game_gas_field listed: a low translucent voxel haze slab per gassed
 // cell (0.25 m height steps: blocky, low patches that never hide the battlefield), sparse rising puffs where it is thick,
-// flies over rotting bodies, flickering emissive voxels on ground fire. Registered as a Renderer extension (scene pass,
-// after the characters). Burning piles also become small voxel fire volumes (fx_volume wreck-fire style).
+// flies over rotting bodies, a few glowing embers on ground fire. Registered as a Renderer extension (scene pass, after
+// the characters). The fire itself (flame streams, ground-fire pools) is drawn as voxel volumes in the explosions' style
+// (Renderer::setFlameVolumes -> fx_volume kinds 2 / 3, half-res fx path and budget).
+#include "game/GameEvents.h"
+
 #include <SDL3/SDL_gpu.h>
 #include <vector>
 
 namespace ttz {
 struct AppState;
 struct FireVolume;
+struct FlameVolume;
 }
 
 namespace ttz::game {
@@ -20,13 +24,19 @@ class CorpseGasRender {
 public:
     bool init(AppState& app, CorpseGas& gas);
     void shutdown(AppState& app);
-    void fireVolumes(float camX, float camZ, std::vector<FireVolume>& out, int maxN = 6) const;
+    // Flamethrower fire in the explosions' voxel-volume style (fx_volume kinds 2 / 3): one stream per spraying
+    // flamethrower (from FxKind::Flame events; fades in 0.12 s, out 0.3 s after the last spray) + ground-fire pools
+    // (clustered burning gas cells). Bounded: maxStreams + maxPools, nearest to the camera.
+    void noteFlames(const std::vector<FxEvent>& fx, double time, float range);
+    void flameVolumes(float camX, float camZ, double time, std::vector<FlameVolume>& out, int maxStreams = 6, int maxPools = 6) const;
     float hazeAlpha = 1.f;     // x the shader's base opacity (UI / screenshots)
 private:
     AppState* app_ = nullptr;
     CorpseGas* gas_ = nullptr;
     SDL_GPUGraphicsPipeline* pipe_ = nullptr;
     int ext_ = 0;
+    struct Stream { uint32_t id = 0; V3 o, d; double start = 0, last = -1e9; float range = 9.f; };
+    std::vector<Stream> streams_;
 };
 
 } // namespace ttz::game

@@ -322,6 +322,7 @@ void GameWorld::postSim(AppState& app, SDL_GPUCommandBuffer* cmd) {
 void GameWorld::render(AppState& app, float frameDt) {
     render_.setSelection(ui_.selection().squads);   // in-world selection rings (WS-B); GameUI draws the screen-space status
     render_.update(app, ctx_, frameDt, (float)(accumulator_ / kTickDt), events_.fx);
+    gasRender_.noteFlames(events_.fx, app.renderTime, cfg_.weapon[(size_t)SoldierClass::Flamethrower].range);   // 14d voxel flame volumes
 }
 
 void GameWorld::drawUI(AppState& app) { ui_.draw(app, ctx_, commands_); }

@@ -757,12 +757,20 @@ Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h
   walks to a stand-off point (its own move order), sprays the pile with a sweep until no corpse is left (readback) or a
   timeout, then returns; a player order onto a pile burns that pile. Never sprays with a soldier inside the cone.
 - **Placeholder** until the approved flamethrower model / clips (tools/military_lab): rifleman variants and clips
-  (`FlameAI::usePlaceholderAssets`, one call in GameWorld), flame stream from the rifle muzzle
-  (`MilitaryRenderer::fxFlame`, emissive voxels with drag / lift, kind 9 in the FX pool, bounded by kMaxFx).
+  (`FlameAI::usePlaceholderAssets`, one call in GameWorld); nozzle glow + light at the rifle muzzle
+  (`MilitaryRenderer::fxFlame`, plus a rare ember).
+- **Flame look (owner feedback: "like the explosions, voxel-based, not particles").** The flame stream and the ground
+  fire are fx volumes in the explosions' path (`shaders/include/fx_volume*.glsl`, DDA through the world voxel grid,
+  half-res + exact-edge composite, shared 24-volume list and screen budget): kind 2 = stream (nozzle, yaw / pitch in
+  `fxC.zw`, reach; a tapered, drooping tube that pools along the ground, turbulence scrolling along it, white-yellow
+  core cooling to orange / red, eroding at the tip into rising soot; 0.125 m voxels up close), kind 3 = ground-fire
+  pool (low tongues over the burning cells + thin smoke wisps eroding by ~4 m). `Renderer::setFlameVolumes`
+  (`FlameVolume` in `sim/Sandbox.h`), fed per frame by `CorpseGasRender::flameVolumes` (streams from the FxKind::Flame
+  events: fade in 0.12 s / out 0.3 s, reach grows over 0.2 s; pools = burning gas cells clustered within 2.6 m; at most
+  6 + 6, nearest the camera).
 - **Rendering.** One indirect instanced draw of the listed gas cells, 9 voxel boxes each: translucent low haze slab
   (0.25 m height steps, alpha <= 0.42, destination alpha kept for the DOF), sparse rising puffs, flies over rotting
-  bodies, flickering emissive ground-fire voxels. Burning piles also get small wreck-style voxel fire volumes
-  (`GameWorld::fireVolumes`, nearest 6). Corpse colour itself is unchanged (rendering agent: rot level is in info.z).
+  bodies, a sparse ember over ground fire (the fire itself: fx volumes above). Corpse colour itself is unchanged (rendering agent: rot level is in info.z).
 - **Tests.** Self-test section *corpse gas / flamethrowers* (`TTZ_SELFTEST_GAS=1` stops after it, `TTZ_SELFTEST_NO_GAS`
   skips): squad / class / fuel type, fuel per spray time, friendly-fire block, fuel resupply conserved, no gas before
   the rot delay and gas after it, spread grows, soldier in gas loses health + SQ_GAS (outside: none), a sprayed pile

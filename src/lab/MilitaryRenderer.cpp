@@ -478,14 +478,16 @@ void MilitaryRenderer::fxFlame(const MilPoseInput& so, V3 dir, float range) {
     soldierEvent(so, C, {0, "muzzle_flash", kind == "sniper" ? "rifle" : kind});   // nozzle glow + light, sets lastMuzzle_
     const float l = length(dir);
     const V3 d = l > 1e-3f ? dir * (1.f / l) : V3{0, 0, 1};
-    for (int k = 0; k < 6 && fx_.size() < kMaxFx; ++k) {
-        const uint32_t h = (uint32_t)fx_.size() * 2654435761u + (uint32_t)k * 40503u + flameSeq_++ * 977u;
+    ++flameSeq_;
+    // the flame itself is an fx volume (game: Renderer::setFlameVolumes); here only the nozzle glow + a rare ember
+    for (int k = 0; k < ((flameSeq_ % 3u) == 0u ? 1 : 0) && fx_.size() < kMaxFx; ++k) {
+        const uint32_t h = (uint32_t)fx_.size() * 2654435761u + (uint32_t)k * 40503u + flameSeq_ * 977u;
         const float j0 = hashf(h) - 0.5f, j1 = hashf(h ^ 0x9E37u) - 0.5f, j2 = hashf(h * 3u + 1u);
         const float life = 0.42f + 0.22f * j2;
         const float speed = range * 2.9f * (0.75f + 0.45f * hashf(h + 7u));
         V3 v = d * speed + V3{j0 * 3.2f, j1 * 2.2f + 0.6f, (hashf(h + 11u) - 0.5f) * 3.2f};
-        Fx f{lib_.flameModels[0], lastMuzzle_ + d * (0.15f * (float)k), v, {0, 0, 0, 1}, 0.f, life, 9};
-        f.b = 0.8f + 0.5f * j2;   // size scale
+        Fx f{lib_.flameModels[0], lastMuzzle_ + d * (0.15f * (float)k), v * 0.6f, {0, 0, 0, 1}, 0.f, life, 9};
+        f.b = 0.35f + 0.2f * j2;   // small ember
         fx_.push_back(f);
     }
 }

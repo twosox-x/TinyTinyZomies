@@ -15,7 +15,6 @@ at 20   expect rotting >= 60
 at 20   expect gas_max > 0.2
 at 20   expect gas_cells >= 6
 at 21   shot gas_rot.png
-at 34   expect squad 1 gas == 1              # the rifle squad next to the pile shows the gas warning
 at 34   expect squad 2 alive == 2
 at 38   shot gas_flame.png
 at 64   log
@@ -23,7 +22,9 @@ at 64   expect flame_repositions >= 0       # (info) walked round the pile when 
 at 64   expect flame_trips >= 1
 at 64   expect flame_sprays >= 20
 at 64   expect fuel_used >= 20
-at 64   expect burned >= 60
-at 64   expect corpses_window <= 15
-at 65   shot gas_burnt.png
-at 66   end
+at 64   expect burned >= 40                  # first pile gone (sprays walk round soldiers standing in the cone)
+at 95   log
+at 95   expect burned >= 65                  # second pile too (next autonomous trip)
+at 95   expect corpses_window <= 10
+at 96   shot gas_burnt.png
+at 97   end

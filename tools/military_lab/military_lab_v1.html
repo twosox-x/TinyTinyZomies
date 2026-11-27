@@ -2150,6 +2150,8 @@ function buildSpecialists() {
 
 // ---- limb interpenetration (Phase 7b owner fix): hands / forearms / held tool must never enter the head, helmet, torso
 // or torso gear. Inscribed-sphere test per voxel pair (cube half-extents), returns the worst penetration (V) and where.
+const LIMB_TOL = { head: 0.1, gear_head: 0.1, torso: 0.1, gear_torso: 0.3 };
+let AVOID_ON = true;
 function limbIntrusion(model, fr, toolName) {
   const rot = {}; SLOTS.forEach((sl, i) => rot[sl] = [fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2]]);
   const F = fk(rot);
@@ -2161,20 +2163,31 @@ function limbIntrusion(model, fr, toolName) {
     const W = mmul(F.forearmR.R, eulerMat([fr[36], fr[37], fr[38]])), o = handPos(F, "R");
     for (const q of toolCells(toolName).cells) limbs.push({ p: vadd(o, mvec(W, q)), h: 0.25, part: "tool" });
   }
-  let worst = 0, at = null, dir = null, limb = null;
-  for (const a of limbs) for (const b of core) { const pen = a.h + b.h - vlen(vsub(a.p, b.p)); if (pen > worst) { worst = pen; at = a.part + "/" + b.part; dir = vsub(a.p, b.p); limb = a.part; } }
-  return { pen: worst, at, dir, limb };
+  // tolerance (V): head / helmet / torso body 0.1 V (~1 cm, faces touching); soft torso gear (pouches, pack) 0.3 V
+  // (~3 cm grazing, as in the approved Stage A clips: rifleman idle 2.5 cm, walk 3.7 cm against the pouches)
+  let worst = 0, at = null, dir = null, limb = null, raw = 0;
+  for (const a of limbs) for (const b of core) { const pen = a.h + b.h - vlen(vsub(a.p, b.p)), ex = pen - LIMB_TOL[b.part]; raw = Math.max(raw, pen);
+    if (ex > worst) { worst = ex; at = a.part + "/" + b.part; dir = vsub(a.p, b.p); limb = a.part; } }
+  return { pen: worst, raw, at, dir, limb };
 }
 
+// the left hand slides along a handle (tools with `slide`): nearest comfortable point to the left shoulder (torso space)
+function slideSupportFor(name, place) {
+  const T = TOOLS[name]; if (!T.slide || !place) return T.support;
+  const z = mvec(place.W, [0, 0, 1]), sh = vsub(PIVOT.upperArmL, PIVOT.torso);
+  let best = T.support[2], be = Infinity;
+  for (let s = T.slide[0]; s <= T.slide[1] + 1e-6; s += 0.25) { const d = vlen(vsub(vadd(place.gripT, vscale(z, s)), sh)); const e = 100 * Math.max(0, d - 6.3) ** 2 + 0.02 * (s - T.support[2]) ** 2; if (e < be) { be = e; best = s; } }
+  return [0, 0, best];
+}
 // work clips (field avoid): push the held tool / free hand targets out of the head, helmet, torso and torso gear until
 // the hands, forearms and tool are clear (limbIntrusion < 0.04 V); the converter re-checks every frame (abort > 1 cm)
 function avoidIntrusion(c, S, fr, model) {
   const byId = Object.fromEntries(Object.entries(TOOL_ID).map(([k, v]) => [v, k]));
   for (let it = 0; it < 40; it++) {
     const id = (fr.out[43] >> TOOL_SHIFT) & 15, r = limbIntrusion(model, fr.out, id ? byId[id] : null);
-    if (r.pen < 0.04) break;
-    const d = vscale(vnorm(mvec(mT(eulerMat(S.torso)), r.dir)), Math.min(0.5, r.pen + 0.08));
-    if (S.wpn && (r.limb === "tool" || r.limb === "forearmR" || (r.limb === "forearmL" && S.sw > 0.5))) S.wpn = { gripT: vadd(S.wpn.gripT, d), W: S.wpn.W };
+    if (!AVOID_ON || r.pen <= 0) break;
+    const d = vscale(vnorm(mvec(mT(eulerMat(S.torso)), r.dir)), Math.min(0.4, r.pen + 0.05));
+    if (S.wpn && (r.limb === "tool" || r.limb === "forearmR" || (r.limb === "forearmL" && S.sw > 0.5))) { S.wpn = { gripT: vadd(S.wpn.gripT, d), W: S.wpn.W }; if (id && S.sw > 0) S.st = slideSupportFor(byId[id], S.wpn); }
     else if (r.limb === "forearmR" && S.rightT) S.rightT = vadd(S.rightT, d);
     else if (r.limb === "forearmL" && S.leftT) S.leftT = vadd(S.leftT, d);
     else if (r.limb === "forearmL") { S.leftT = vadd([2.2, -1.2, 1.0], d); S.leftRot = null; }
@@ -2233,15 +2246,8 @@ function authorEngineerWork(add) {
   const stanceL = [1.5, 0, 0.35], stanceR = [-1.5, 0, -0.45];
   const X = [1, 0, 0];
   const tool = n => TOOLS[n];
-  // the left hand slides along a handle (tools with `slide`): nearest comfortable point to the left shoulder (torso space)
-  const slideSupport = (name, place) => {
-    const T = tool(name); if (!T.slide || !place) return T.support;
-    const z = mvec(place.W, [0, 0, 1]), sh = vsub(PIVOT.upperArmL, PIVOT.torso);
-    let best = T.support[2], be = Infinity;
-    for (let s = T.slide[0]; s <= T.slide[1] + 1e-6; s += 0.25) { const d = vlen(vsub(vadd(place.gripT, vscale(z, s)), sh)); const e = 100 * Math.max(0, d - 6.3) ** 2 + 0.02 * (s - T.support[2]) ** 2; if (e < be) { be = e; best = s; } }
-    return [0, 0, best];
-  };
-  const W1 = (S, name, place) => Object.assign(S, { tool: TOOL_ID[name], stowed: true, wpn: place, sw: 1, st: slideSupport(name, place), poleR: S.poleR || [-1, -0.25, -0.35], poleL: S.poleL || [1, -0.25, -0.35] });
+  const slideSupport = slideSupportFor;
+  const W1 = (S, name, place) => Object.assign(S, { tool: TOOL_ID[name], stowed: true, wpn: place, sw: 1, st: slideSupport(name, place), poleR: S.poleR || [-1, -0.3, 0.3], poleL: S.poleL || [0.6, -0.8, 0.6] });
 
   // ---- stow / draw the carbine (weapon to the back of the ruck over the right shoulder)
   const over = (torso) => placeB(torso, [-2.6, 13.6, -0.6], [0.2, 0.95, -0.25], [0, 0, -1]);
@@ -2262,8 +2268,10 @@ function authorEngineerWork(add) {
     const dur = 1.5, pel = [0, -0.9, 0], fL = [1.9, 0, 1.6], fR = [-1.9, 0, -1.1];
     // keys: t, grip (body V), handle dir, torso pitch
     // the swing arcs BESIDE the head on the right (grip x <= -3 V while above the shoulders), elbows out
-    const K = [[0, [-3.4, 13.0, 1.4, -0.3, 0.6, -1, -0.05]], [0.5, [-3.8, 14.6, -0.4, -0.25, 0.5, -1, -0.12]], [0.72, [-3.0, 11.4, 3.6, -0.12, 0.55, 1, 0.3]], [0.84, [-1.0, 7.6, 4.8, 0.05, -0.62, 1, 0.62]],
-               [0.98, [-1.0, 8.1, 4.6, 0.05, -0.55, 1, 0.58]], [1.5, [-3.4, 13.0, 1.4, -0.3, 0.6, -1, -0.05]]];
+    // hands stay IN FRONT of the face / chest (z >= 3 V) so the left forearm crosses clear of the body; the hammer head
+    // goes up and back past the right side of the helmet (beside the head, never over it)
+    const K = [[0, [-2.8, 13.2, 3.6, -0.3, 0.7, -0.75, -0.05]], [0.5, [-3.0, 14.6, 3.0, -0.3, 0.75, -0.55, -0.15]], [0.72, [-2.4, 11.6, 4.6, -0.12, 0.55, 1, 0.3]], [0.84, [-1.0, 7.6, 5.4, 0.05, -0.62, 1, 0.62]],
+               [0.98, [-1.0, 8.1, 5.2, 0.05, -0.55, 1, 0.58]], [1.5, [-2.8, 13.2, 3.6, -0.3, 0.7, -0.75, -0.05]]];
     add(cls, "build_hammer", { duration: dur, loop: true, avoid: true, work: "hammer", events: [{ t: 0.84, type: "tool_hit", fx: "hammer_hit" }, { t: 0.84, type: "work_tick" }], gen: t => {
       const k = keyLerp(K, t), torso = [k[6], 0.12, 0];
       const S = { torso, head: [0.25 + 0.4 * Math.max(0, k[6]), -0.05, 0], pelvis: [pel[0], pel[1] - 0.3 * Math.max(0, k[6]), pel[2] - 0.3 * Math.max(0, k[6])], legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
@@ -2273,9 +2281,9 @@ function authorEngineerWork(add) {
   // ---- build_shovel (loop 2.2 s): drive the blade in, lever, lift, toss into the gabion to the right-front
   {
     const dur = 2.2, fL = [1.8, 0, 1.4], fR = [-1.8, 0, -1.2];
-    const K = [[0, [-1.6, 11.0, 0.6, 0.12, -0.8, 0.6, 0.45, -1.4]], [0.45, [-1.2, 10.4, 1.2, 0.05, -0.85, 0.5, 0.7, -2.0]], [0.75, [-1.2, 8.8, 0.9, 0.0, -0.45, 0.9, 0.8, -2.4]],
-               [1.15, [-1.6, 9.8, 1.6, -0.25, 0.1, 1.0, 0.3, -1.2]], [1.45, [-2.6, 12.0, 2.6, -0.6, 0.45, 0.7, 0.05, -0.6]], [1.6, [-2.6, 12.4, 2.4, -0.6, 0.55, 0.6, 0.0, -0.5]],
-               [2.2, [-1.6, 11.0, 0.6, 0.12, -0.8, 0.6, 0.45, -1.4]]];
+    const K = [[0, [-3.2, 11.0, 2.6, 0.2, -0.8, 0.6, 0.45, -1.4]], [0.45, [-3.0, 10.4, 3.2, 0.15, -0.85, 0.5, 0.7, -2.0]], [0.75, [-3.0, 8.8, 3.0, 0.1, -0.45, 0.9, 0.8, -2.4]],
+               [1.15, [-3.2, 9.8, 3.4, -0.15, 0.1, 1.0, 0.3, -1.2]], [1.45, [-3.6, 12.0, 4.0, -0.5, 0.45, 0.7, 0.05, -0.6]], [1.6, [-3.6, 12.4, 3.8, -0.5, 0.55, 0.6, 0.0, -0.5]],
+               [2.2, [-3.2, 11.0, 2.6, 0.2, -0.8, 0.6, 0.45, -1.4]]];
     add(cls, "build_shovel", { duration: dur, loop: true, avoid: true, work: "shovel", toolGround: 0.1, events: [{ t: 0.6, type: "dig", fx: "dig" }, { t: 1.45, type: "toss", fx: "dirt_toss" }, { t: 1.45, type: "work_tick" }], gen: t => {
       const k = keyLerp(K, t), torso = [k[6], -0.15 + 0.3 * smooth((t - 1.1) / 0.4) * (1 - smooth((t - 1.6) / 0.5)), 0];
       const S = { torso, head: [0.2 + 0.3 * k[6], -0.1, 0], pelvis: [0, k[7] * 0.8, -0.2], legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true };
@@ -2293,7 +2301,7 @@ function authorEngineerWork(add) {
       const S = { torso, head: [0.2 + 0.4 * bend, 0, 0], pelvis: pel, legs: { L: { foot: fL }, R: { foot: fR } }, footL: true, footR: true, stowed: true };
       const holding = t >= 0.7 && t < 1.95;
       // bag path: pile -> chest -> wall (clip space), bag flat (own Y up), long axis across the body
-      const chest = [-1.8, 11.0, 3.4];
+      const chest = [-2.4, 11.0, 4.8];
       let g = t < 1.3 ? vlerp(pileGrip, chest, smooth((t - 0.75) / 0.55)) : vlerp(chest, wallGrip, smooth((t - 1.35) / 0.55));
       if (holding) {
         const gb = vsub(g, pel), xh = mvec(eulerMat([0, yaw * 0.6, 0]), X);
@@ -2324,7 +2332,7 @@ function authorEngineerWork(add) {
   };
   carryWalk("carry_sandbag", "sandbag", (S, u, sw) => {
     const torso = [-0.06 + 0.02 * Math.cos(u * Math.PI * 4), -0.05 * sw, 0]; S.torso = torso; S.head = [0.12, 0.04 * sw, 0];
-    return W1(S, "sandbag", placeB(torso, [-2.4, 10.6 + 0.15 * Math.cos(u * Math.PI * 4), 3.3], [0, 0, 1], X));
+    return W1(S, "sandbag", placeB(torso, [-2.5, 10.4 + 0.15 * Math.cos(u * Math.PI * 4), 4.3], [0, 0, 1], X));
   });
   carryWalk("carry_panel", "panel", (S, u, sw) => {
     const torso = [0.04, -0.05 * sw, 0.07]; S.torso = torso; S.head = [0.05, 0.05 * sw, -0.05];
@@ -2336,7 +2344,7 @@ function authorEngineerWork(add) {
     const dur = 2.4, kneelP = [0, -3.55, -0.3];
     add(cls, "cut_car", { duration: dur, loop: true, avoid: true, stream: "cut_sparks", work: "cut", events: [{ t: 0, type: "work_tick" }], gen: t => {
       const sx = 1.4 * Math.sin(t / dur * Math.PI * 2), torso = [0.32, 0.1 * sx / 1.4, 0];
-      const tip = [sx, 7.4, 8.0], dir = vnorm([0.0, -0.25, 1]);
+      const tip = [sx, 7.4, 9.4], dir = vnorm([0.0, -0.25, 1]);
       const T = tool("torch"), gripC = vsub(tip, vadd(vscale(dir, T.tip[2]), [0, T.tip[1], 0]));
       const S = { torso, head: [0.35, 0.25 * sx / 1.4, 0], pelvis: kneelP, legs: { L: { foot: [1.7, 0, 3.6] }, R: { thigh: [0.08, 0, -0.05], shin: [1.62, 0, 0] } }, footL: true, ground: 0 };
       return W1(S, "torch", placeB(torso, vsub(gripC, kneelP), dir, X));
@@ -2344,7 +2352,7 @@ function authorEngineerWork(add) {
   }
   // ---- pry_car (loop 2.0 s): crowbar tip in a door gap / wheel arch 0.8 m up, heave back twice, leaning on the lever
   {
-    const dur = 2.0, tip = [0.3, 8.6, 8.4], fL = [1.7, 0, 1.6], fR = [-1.6, 0, -1.6];
+    const dur = 2.0, tip = [0.3, 8.6, 9.2], fL = [1.7, 0, 1.6], fR = [-1.6, 0, -1.6];
     add(cls, "pry_car", { duration: dur, loop: true, avoid: true, work: "pry", events: [{ t: 0.55, type: "pry_creak" }, { t: 1.55, type: "pry_creak" }, { t: 1.6, type: "work_tick" }], gen: t => {
       const h = Math.max(0, Math.sin(t / dur * Math.PI * 4 - 0.6)) ** 1.5;   // two heaves per loop
       const torso = [0.45 - 0.5 * h, 0.15, 0], pel = [0, -0.9 - 0.6 * h, -0.3 - 0.9 * h];
@@ -3055,11 +3063,11 @@ function workSet(act, spots) {
   const box = (x, y, z, sx, sy, sz, col) => { const b = addExtra(new THREE.Mesh(cubeGeo, new THREE.MeshStandardMaterial({ color: col, roughness: 1 }))); b.scale.set(sx, sy, sz); b.position.set(x, y, z); b.castShadow = b.receiveShadow = true; return b; };
   for (const [x, z, ry] of spots) {
     const R = (dx, dz) => [x + Math.cos(ry) * dx + Math.sin(ry) * dz, z - Math.sin(ry) * dx + Math.cos(ry) * dz];
-    if (act === "build_hammer") { const p = R(-0.04, 1.0); box(p[0], 0.14, p[1], 0.09, 0.28, 0.09, 0x6a4f31); const w = inst("wall_cheap_end"); const q = R(0, 1.75); w.position.set(q[0], 0, q[1]); w.rotation.y = ry + Math.PI / 2; addExtra(w); }
+    if (act === "build_hammer") { const p = R(-0.1, 1.07); box(p[0], 0.14, p[1], 0.09, 0.28, 0.09, 0x6a4f31); const w = inst("wall_cheap_end"); const q = R(0, 1.85); w.position.set(q[0], 0, q[1]); w.rotation.y = ry + Math.PI / 2; addExtra(w); }
     if (act === "build_shovel") { const w = inst("wall_cheap_straight"); const q = R(-1.4, 1.4); w.position.set(q[0], 0, q[1]); w.rotation.y = ry; w.scale.set(0.5, 0.62, 1); addExtra(w); const p = R(0.0, 0.95); box(p[0], 0.08, p[1], 0.9, 0.16, 0.6, 0x9c8961); }
     if (act === "build_sandbag") { const p = R(-0.35, 0.8); const b = box(p[0], 0.42, p[1], 1.3, 0.84, 0.5, 0xa99a70); b.rotation.y = ry; const pile = inst("sandbag_pile"); const q = R(0.68, -0.3); pile.position.set(q[0], 0, q[1]); pile.rotation.y = ry - Math.PI / 2; addExtra(pile); }
-    if (act === "cut_car" || act === "pry_car") { const p = R(0, 0.8 + 0.9); const c = box(p[0], 0.75, p[1], 4.2, 1.1, 1.8, 0x6d7a86); c.rotation.y = ry; const c2 = box(p[0], 1.55, p[1], 2.2, 0.55, 1.6, 0x56616b); c2.rotation.y = ry;
-      for (const dx of [-1.35, 1.35]) { const wq = R(dx, 0.78); const wh = box(wq[0], 0.33, wq[1], 0.66, 0.66, 0.1, 0x1d1d1d); wh.rotation.y = ry; } }
+    if (act === "cut_car" || act === "pry_car") { const p = R(0, 0.88 + 0.9); const c = box(p[0], 0.75, p[1], 4.2, 1.1, 1.8, 0x6d7a86); c.rotation.y = ry; const c2 = box(p[0], 1.55, p[1], 2.2, 0.55, 1.6, 0x56616b); c2.rotation.y = ry;
+      for (const dx of [-1.35, 1.35]) { const wq = R(dx, 0.86); const wh = box(wq[0], 0.33, wq[1], 0.66, 0.66, 0.1, 0x1d1d1d); wh.rotation.y = ry; } }
   }
 }
 function surfFor(a) { const ox = a.outer.position.x, oz = a.outer.position.z, base = a.surfH || 0; return (x, z) => { const wx = ox + x, wz = oz + z; const inRoof = Math.abs(wx - ROOF.x) < ROOF.w / 2 && Math.abs(wz - ROOF.z) < ROOF.d / 2; return (inRoof ? ROOF.h : 0) - base; }; }

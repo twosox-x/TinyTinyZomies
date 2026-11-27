@@ -5,7 +5,7 @@
 //   0     low haze slab over the cell, height in 0.25 m voxel steps with the gas level (blocky patches; translucent)
 //   1, 2  sparse rising gas puffs (0.5 m voxels) where the gas is thick
 //   3..5  flies: tiny dark voxels circling over rotting bodies
-//   6..8  ground fire: flickering emissive voxels (contained in the cell)
+//   6     ground fire: a sparse rising ember (the flames are fx_volume pools, Renderer::setFlameVolumes); 7, 8 unused
 // Unused boxes collapse to a point (no fragments).
 #define FRAME_SET 1
 #include "common.glsl"
@@ -75,10 +75,10 @@ void main() {
         size = vec3(s);
         col = vec4(0.015, 0.015, 0.012, 1.0);
         on = true;
-    } else if (box >= 6 && fire > 0.0) {   // ground fire: flickering emissive voxels
-        float ph = fract(t * (1.2 + 0.8 * h3) + h1);
-        float s = mix(0.42, 0.12, ph) * clamp(fire, 0.3, 1.0);
-        lo = vec3(c0.x + 0.15 + h1 * (gOrigin.z - 0.3 - s), ground + ph * 1.1, c0.y + 0.15 + h2 * (gOrigin.z - 0.3 - s));
+    } else if (box == 6 && fire > 0.0 && h3 < 0.5) {   // ground fire: a sparse rising ember (the fire is an fx volume)
+        float ph = fract(t * (0.6 + 0.5 * h3) + h1);
+        float s = 0.07;
+        lo = vec3(c0.x + 0.15 + h1 * (gOrigin.z - 0.3 - s), ground + 0.4 + ph * 2.5, c0.y + 0.15 + h2 * (gOrigin.z - 0.3 - s));
         size = vec3(s);
         vec3 hot = mix(vec3(9.0, 6.5, 2.4), vec3(5.5, 1.6, 0.25), smoothstep(0.0, 0.5, ph));
         col = vec4(mix(hot, vec3(1.6, 0.25, 0.04), smoothstep(0.5, 1.0, ph)), 0.95);

@@ -592,8 +592,10 @@ void App::frame(double dt) {
         s.renderer.setLights(lamps);
         std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns
         s.vehicles.fireVolumes(p.x, p.z, 10, fireVols);
-        if (s.game) s.game->fireVolumes(p.x, p.z, fireVols);   // GAME_DESIGN 14d: burning corpse piles
         s.renderer.setFireVolumes(fireVols);
+        std::vector<FlameVolume> flameVols;   // GAME_DESIGN 14d: flamethrower streams + ground fire (voxel volumes)
+        if (s.game) s.game->flameVolumes(p.x, p.z, s.renderTime, flameVols);
+        s.renderer.setFlameVolumes(flameVols);
     }
     if ((!s.window || swap) && !skipRender) {
         s.renderTime += dt;

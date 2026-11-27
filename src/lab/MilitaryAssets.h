@@ -131,7 +131,7 @@ struct MilitaryLibrary {
            FX_FLASH_M0, FX_FLASH_M1, FX_FLASH_M2,   // MG muzzle flash, 3 frames
            FX_COUNT };
     int fxModels[FX_COUNT] = {};      // docs/MILITARY_ANIMS.md 6: voxel FX meshes
-    // flamethrower stream voxels (GAME_DESIGN 14d, MilitaryRenderer::fxFlame): hot core / flame / soot, one voxel each
+    // flamethrower embers (GAME_DESIGN 14d, MilitaryRenderer::fxFlame; the flame itself is an fx volume): core / flame / soot
     int flameModels[3] = {-1, -1, -1};
     int flashModel = -1, rulerModel = -1, gridModel = -1, chuteOpenModel = -1, chuteCollapsedModel = -1, dropCrateModel = -1, tracerModel = -1;
     bool placeholder = true;

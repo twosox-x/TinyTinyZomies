@@ -119,7 +119,7 @@ public:
     const CorpseGas& gas() const { return gas_; }
     CorpseGas& gas() { return gas_; }
     const FlameAI& flameAI() const { return flame_; }
-    void fireVolumes(float camX, float camZ, std::vector<FireVolume>& out) const { gasRender_.fireVolumes(camX, camZ, out); }
+    void flameVolumes(float camX, float camZ, double time, std::vector<FlameVolume>& out) const { gasRender_.flameVolumes(camX, camZ, time, out); }
 
 private:
     void tick(AppState& app);

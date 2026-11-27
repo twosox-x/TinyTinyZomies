@@ -249,17 +249,31 @@ int CorpseGas::corpsesNear(V3 c, float r) const {
 
 void CorpseGas::fireSpots(float x, float z, int maxN, std::vector<std::array<float, 4>>& out) const {
     if (!have_ || maxN <= 0) return;
-    struct S { float d; std::array<float, 4> v; };
+    // every burning cell (ground fire, burning bodies), clustered into pools of <= ~2.5 m: x z centre, radius, strength
+    struct S { float d, x, z, k; };
     std::vector<S> all;
     for (uint32_t c = 0; c < cells_; ++c) {
         const uint32_t v = cpu_[c];
-        if (!(v >> 8 & 0xFFu) || !(v >> 16 & 0xFFu)) continue;   // burning bodies only (bare ground fire: gas.vert voxels)
+        const float fire = (float)(v >> 8 & 0xFFu) / 32.f;
+        if (fire <= 0.f) continue;
         const float wx = ox_ + ((float)(c % gw_) + 0.5f) * cell_, wz = oz_ + ((float)(c / gw_) + 0.5f) * cell_;
-        const float d = (wx - x) * (wx - x) + (wz - z) * (wz - z);
-        all.push_back({d, {wx, 0.f, wz, std::min(1.f, 0.35f + 0.1f * (float)(v >> 16 & 0xFFu))}});
+        const float bodies = (float)(v >> 16 & 0xFFu);
+        all.push_back({(wx - x) * (wx - x) + (wz - z) * (wz - z), wx, wz, std::min(1.f, 0.35f + 0.25f * fire + 0.1f * bodies)});
     }
     std::sort(all.begin(), all.end(), [](const S& a, const S& b) { return a.d < b.d; });
-    for (size_t k = 0; k < all.size() && (int)k < maxN; ++k) out.push_back(all[k].v);
+    struct P { float x, z, n, k; };
+    std::vector<P> pools;
+    for (const S& s : all) {
+        bool merged = false;
+        for (P& p : pools)
+            if ((p.x - s.x) * (p.x - s.x) + (p.z - s.z) * (p.z - s.z) < 2.6f * 2.6f) {
+                p.x = (p.x * p.n + s.x) / (p.n + 1.f); p.z = (p.z * p.n + s.z) / (p.n + 1.f); p.n += 1.f; p.k = std::max(p.k, s.k);
+                merged = true;
+                break;
+            }
+        if (!merged) { if ((int)pools.size() >= maxN) continue; pools.push_back({s.x, s.z, 1.f, s.k}); }
+    }
+    for (const P& p : pools) out.push_back({p.x, std::min(2.4f, 0.6f + 0.45f * std::sqrt(p.n) * cell_ * 0.5f), p.z, p.k});
 }
 
 void CorpseGas::tick(GameContext& ctx) {

@@ -94,8 +94,9 @@ public:
     SDL_GPUBuffer* fieldBuffer() const { return field_[cur_]; }
     SDL_GPUBuffer* listBuffer() const { return list_; }
     const std::vector<FlameCone>& recentCones() const { return drawn_; }   // cones of the last update (FX)
-    // burning piles (fire cells with corpses) for the voxel fire volumes, nearest to (x, z) first
-    void fireSpots(float x, float z, int maxN, std::vector<std::array<float, 4>>& out) const;   // x y z strength
+    // ground fire (burning cells, clustered into pools) for the voxel fire volumes, nearest to (x, z) first:
+    // x, radius (m), z, strength 0..1
+    void fireSpots(float x, float z, int maxN, std::vector<std::array<float, 4>>& out) const;
 
 private:
     GpuContext* gpu_ = nullptr;
