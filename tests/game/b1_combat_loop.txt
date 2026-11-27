@@ -1,0 +1,39 @@
+# Milestone B1 acceptance: deploy (5 / 3 / 1 by parachute, street + rooftop), autonomous fight, ammo use, kill rewards,
+# (move orders: b1_resupply.txt). City seed1, default window (pivot -17 117). Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b1_combat_loop.txt
+at 0.1  buy rifle -11 117
+at 0.1  buy mg -5 102
+at 0.1  buy sniper -41 117                 # rooftop (76 m tower)
+at 0.2  expect squads == 3
+at 0.2  expect spent == 3100
+at 0.2  expect squad 1 size == 5
+at 0.2  expect squad 2 size == 3
+at 0.2  expect squad 3 size == 1
+at 1    expect landed == 0                 # everyone is under canopy at first
+at 24   expect landed == 9
+at 24   expect squad 1 parachuted == 5
+at 24   expect squad 2 parachuted == 3
+at 24   expect squad 3 parachuted == 1
+at 24   expect squad 1 deploying == 0
+at 24   expect squad 3 deploying == 0
+at 24   log
+at 25   spawn 220 25 150 10                # horde ~45 m north-east of the squads
+at 25   spawn 120 -60 150 8                # a second group for the sniper / rifle flank
+at 60   log
+at 60   expect shots > 0
+at 60   expect kills >= 10
+at 60   expect squad 1 ammo < squad 1 ammo_start
+at 60   expect squad 2 ammo < squad 2 ammo_start
+at 90   log
+at 90   expect funding_reward_matches_kills
+at 90   expect no_duplicate_rewards
+at 90   expect dupes == 0
+at 90   expect ledger_balanced
+at 90   expect passive_total >= 440        # 300 / min base income for ~90 s
+at 110  log
+at 110  expect squad 3 alive == 1          # the rooftop sniper is out of reach (no stairs / climbing to 76 m)
+at 110  expect kills > 40
+at 110  expect funding_reward_matches_kills
+at 110  expect no_duplicate_rewards
+at 110  expect ledger_balanced
+at 111  end
