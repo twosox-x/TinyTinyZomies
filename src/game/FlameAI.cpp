@@ -165,7 +165,7 @@ void FlameAI::tick(GameContext& ctx) {
             const uint32_t i = id.index;
             const SoldierState st = P.state[i];
             if (st == SoldierState::Moving || st == SoldierState::Forming) arrived = false;
-            if (st != SoldierState::Idle && !(st == SoldierState::Moving && m.phase == 2)) continue;
+            if (st != SoldierState::Idle) continue;   // moving / fighting / reloading members are the AI's
             const V3 tgt = m.target;
             if (dist2(P.pos[i], tgt) > reach * reach || P.mag[i] <= 0) continue;
             if (std::fabs(P.pos[i].y - (ctx.nav && ctx.nav->ready() ? ctx.nav->surface(tgt.x, tgt.z) : P.pos[i].y)) > 2.5f) continue;   // roof vs street

@@ -615,7 +615,10 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     if (dof && rs.dofAutoFocus && city_) {
         const float want = measureFocus(cam, w, h);
         const double dtf = time - focusTime_;
-        if (focusDist_ <= 0.f || dtf <= 0.0 || dtf > 0.5) focusDist_ = want;
+        const V3 de = e - focusEye_;
+        const bool cut = dot(de, de) > 0.04f * camDist * camDist;   // camera cut (view preset, jump): no glide
+        focusEye_ = e;
+        if (focusDist_ <= 0.f || dtf <= 0.0 || dtf > 0.5 || cut) focusDist_ = want;
         else {
             const float k = 1.f - std::exp(-(float)dtf / std::max(0.01f, rs.dofFocusTime));
             focusDist_ = std::exp(std::log(focusDist_) + (std::log(want) - std::log(focusDist_)) * k);

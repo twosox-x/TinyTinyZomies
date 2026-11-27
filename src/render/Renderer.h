@@ -237,6 +237,7 @@ private:
     float dofMaxBlurEff_ = 0.015f;   // this frame's max blur (zoom-adaptive)
     float focusDist_ = -1.f;          // smoothed auto-focus distance (m), < 0 = not yet measured
     double focusTime_ = 0.0;
+    V3 focusEye_{};
     float measureFocus(const Camera& cam, uint32_t w, uint32_t h) const;   // scene distance under the screen centre
     uint32_t fxDrawn_ = 0;            // voxel volumes drawn last frame (blasts + wreck fires)
 public:
