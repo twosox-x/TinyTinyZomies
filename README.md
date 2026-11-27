@@ -209,6 +209,13 @@ How it works (details in `src/city/*.h`):
   0.5 m collision samples per cell (buildings, cars, props, curbs; water is a low wall). Zombies spawn at the
   package's street spawn points. Moon shadows and blood / scorch decals cover the window.
 
+## Gameplay mode (Phase 7B, in progress)
+
+`./build/ttz --map city --game` runs the gameplay layer (`src/game/`, docs/GAMEPLAY_ARCHITECTURE.md). Milestone B1 is
+being built: at this step the mode only wires the interfaces (HUD bar, no soldiers yet). Balance values come from
+`config/balance.json` and are **UNAPPROVED**. Headless scenarios: `--game-script FILE` (exit code = failed
+expectations), `--game-sync` (deterministic readbacks), `--balance FILE`.
+
 ## Benchmark workflow for the development Mac
 
 These commands produce the numbers this environment cannot. Run them on the Mac and paste the printed tables into `docs/BENCHMARKS.md`, or send them over.
@@ -268,6 +275,7 @@ Export a glTF/GLB from Blockbench with groups named `head`, `body`, `arm_left`, 
 - [Character standard](docs/CHARACTER_STANDARD.md)
 - [Asset pipeline](docs/ASSET_PIPELINE.md)
 - [Optimisation report](docs/OPTIMIZATION.md)
+- [Gameplay architecture (Phase 7B)](docs/GAMEPLAY_ARCHITECTURE.md)
 - [Third-party notices](THIRD_PARTY_NOTICES.md)
 
 ## Military Asset Lab (owner review of the military assets)

@@ -2,6 +2,10 @@
 #include "app/SelfTest.h"
 
 #include "city/CityVehicles.h"
+#include "game/Combat.h"
+#include "game/Config.h"
+#include "game/Economy.h"
+#include "game/Soldiers.h"
 
 #include "render/CharacterRenderer.h"
 #include "render/Math.h"
@@ -516,8 +520,45 @@ void testVehicles(World& w, GpuContext& gpu, const SimParams& params) {
 }
 } // namespace
 
+// Gameplay core (CPU, docs/GAMEPLAY_ARCHITECTURE.md 3.7): balance file, approved squad compositions, kill dedupe,
+// handle generations, deterministic spread. Workstreams extend this section with their acceptance tests.
+void testGameCore() {
+    using namespace game;
+    std::printf("game core\n");
+    BalanceConfig cfg;
+    std::string err;
+    const bool loaded = cfg.load(std::string(TTZ_SOURCE_DIR) + "/config/balance.json", &err);
+    check(loaded && cfg.status == "UNAPPROVED" && !cfg.approved(), "balance.json loads and is labelled UNAPPROVED", loaded ? cfg.status : err);
+    check(cfg.squad[0].size == 5 && cfg.squad[1].size == 3 && cfg.squad[2].size == 1 && cfg.squad[1].cls == SoldierClass::MachineGunner,
+          "squad compositions: rifle 5, machine gun 3, sniper 1", fmt("%.0f / %.0f / %.0f", cfg.squad[0].size, cfg.squad[1].size, cfg.squad[2].size));
+    Economy eco;
+    eco.reset(cfg);
+    const double f0 = eco.funding();
+    KillEvent k;
+    k.cause = KillCause::Soldier;
+    int credited = 0;
+    for (uint64_t seq : {1ull, 2ull, 2ull, 3ull, 1ull, 3ull, 4ull}) { k.seq = seq; credited += eco.creditKill(k, 0.0) ? 1 : 0; }
+    check(credited == 4 && eco.kills() == 4 && std::fabs(eco.funding() - (f0 + 4 * cfg.economy.killReward[0])) < 1e-6,
+          "kill rewards deduplicated by sequence number", fmt("credited %.0f of 7 records, funding +%.0f", credited, eco.funding() - f0));
+    const double f1 = eco.funding();
+    check(!eco.spend(f1 + 1, "too much", 0) && eco.funding() == f1 && eco.spend(100, "squad", 0) && eco.funding() == f1 - 100,
+          "purchases: unaffordable refused without charge, affordable charged once", "");
+    SoldierPool pool;
+    SquadId sq;
+    sq.index = 0; sq.gen = 1;
+    SoldierId a = pool.spawn(SoldierClass::Rifleman, 0, sq, 0, {}, 0, 1);
+    pool.release(a);
+    SoldierId b = pool.spawn(SoldierClass::Sniper, 0, sq, 0, {}, 0, 2);
+    check(a.index == b.index && !pool.valid(a) && pool.valid(b), "soldier handles: a reused slot invalidates the old handle", "");
+    uint32_t r1 = 7, r2 = 7;
+    V3 d1 = Combat::spreadDir({0, 0, 1}, 2.f, r1), d2 = Combat::spreadDir({0, 0, 1}, 2.f, r2);
+    check(d1.x == d2.x && d1.y == d2.y && d1.z == d2.z && d1.z > std::cos(2.01f * 3.14159265f / 180.f), "shot spread is deterministic and inside the cone", "");
+}
+
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
     auto t0 = std::chrono::steady_clock::now();
+    testGameCore();
+    if (std::getenv("TTZ_SELFTEST_GAME")) return g_fail ? 1 : 0;   // only the gameplay core
     World w;
     w.gpu = &gpu;
     w.p = params;

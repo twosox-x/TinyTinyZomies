@@ -17,6 +17,7 @@
 #include <vector>
 
 namespace ttz {
+namespace game { class GameWorld; }
 
 struct AppOptions {
     int traceEvery = 0;           // headless: log stats every N frames
@@ -76,6 +77,11 @@ struct AppOptions {
     bool fxFullRes = false, perfHud = false;
     float renderScale = 1.f;
     std::string perfCsv;
+    // --game: gameplay mode on the baked city (src/game/GameWorld.h; docs/GAMEPLAY_ARCHITECTURE.md)
+    bool game = false;
+    std::string gameScript;        // --game-script FILE: headless scenario (exit code = failed expectations)
+    bool gameSync = false;         // --game-sync: wait for each horde readback (deterministic tests)
+    std::string balance = "config/balance.json";   // --balance FILE
 };
 
 enum class Tool : int { Explosion = 0, SetGoal = 1, Spawn = 2 };
@@ -114,6 +120,8 @@ struct AppState {
     bool resetRequested = false, paramsDirty = false;
     int showcaseRequested = -1;
     class MilitaryLab* lab = nullptr;   // --lab military
+    game::GameWorld* game = nullptr;   // --game
+    int exitCode = 0;
 
     // on-screen perf readout (F3, debug panel "Performance"): last frame / 1 s averages in ms
     struct PerfHud { float frame = 0, veh = 0, simRec = 0, renderRec = 0, ui = 0, acquire = 0, submitWait = 0; };

@@ -2,6 +2,7 @@
 
 #include "city/CityWorld.h"
 #include "debug/DebugUI.h"
+#include "game/GameWorld.h"
 #include "lab/MilitaryLab.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -55,6 +56,7 @@ bool App::init() {
     s_.opt.config = cfg;
     s_.params.load(cfg);
     if (o.lab == "military") { o.cityMap = true; o.cityFollow = false; }   // the lab diorama is a fixed patch of the city
+    if (o.game) o.cityMap = true;                                          // gameplay runs on the baked city
     s_.sandbox.build(s_.params.cellSize, s_.params.gridW, s_.params.gridH);
     if (o.cityMap && !initCity()) return false;
     if (!s_.zombieModel.load(dataPath("assets/models/zombie.glb"), s_.params.standHeight)) return false;
@@ -132,6 +134,14 @@ bool App::init() {
     if (o.lab == "military") {
         s_.lab = new MilitaryLab();
         if (!s_.lab->init(s_)) { SDL_Log("military lab: init failed"); return false; }
+    }
+    if (o.game) {
+        s_.game = new game::GameWorld();
+        game::GameOptions go;
+        go.balancePath = dataPath(o.balance);
+        go.script = o.gameScript;
+        go.syncReadback = o.gameSync;
+        if (!s_.game->init(s_, go)) { SDL_Log("game: init failed"); return false; }
     }
     if (s_.cityMode && o.headless && o.frames > 0 && o.cityBench == 0) s_.cityRenderer.flush(s_.camera, (float)o.width / (float)o.height);
     return true;
@@ -254,6 +264,7 @@ void App::handleEvent(const SDL_Event& e) {
     if (s_.window) ImGui_ImplSDL3_ProcessEvent(&e);
     bool uiMouse = s_.window && ImGui::GetIO().WantCaptureMouse;
     bool uiKeys = s_.window && ImGui::GetIO().WantCaptureKeyboard;
+    if (s_.game && !uiMouse && s_.game->handleEvent(s_, e)) return;   // gameplay input first (selection, orders, tools)
     switch (e.type) {
     case SDL_EVENT_QUIT: s_.quit = true; break;
     case SDL_EVENT_KEY_DOWN:
@@ -290,7 +301,7 @@ void App::handleEvent(const SDL_Event& e) {
         if (e.button.button == SDL_BUTTON_MIDDLE) mmbDown_ = true;
         if (e.button.button == SDL_BUTTON_RIGHT) rmbDown_ = true;
         if (e.button.button == SDL_BUTTON_LEFT && (SDL_GetModState() & SDL_KMOD_ALT)) altDrag_ = true;
-        else if (e.button.button == SDL_BUTTON_LEFT && !s_.lab) {   // the lab has no gameplay tools
+        else if (e.button.button == SDL_BUTTON_LEFT && !s_.lab && !s_.game) {   // the lab has no gameplay tools; --game has its own
             int w, h;
             SDL_GetWindowSize(s_.window, &w, &h);
             V3 hit;
@@ -446,6 +457,7 @@ void App::frame(double dt) {
     }
     pr.vehTotal = (float)(nowMs() - tv);
     double ts = nowMs();
+    if (s.game) s.game->preSim(s, cmd, dt);   // game ticks (30 Hz) + horde inputs, before the simulation steps
     if (!s.paused) {
         s.simAccumulator += dt * s.simSpeed;
         const double fdt = s.sim.params().fixedDt;
@@ -460,6 +472,7 @@ void App::frame(double dt) {
         }
     }
     s.stepsLastFrame = steps;
+    if (s.game) s.game->postSim(s, cmd);       // horde queries + async readback, after the last step
     s.sim.writeDrawArgs(cmd, s.renderer.zombieIndexCount());
     s.sim.recordStatsReadback(cmd);
     s.cpuSim.add(nowMs() - t1);
@@ -476,6 +489,7 @@ void App::frame(double dt) {
     s.renderer.update((float)dt);
     s.renderSettings.tod.advance((float)dt);
     if (s.lab) s.lab->update(s, (float)dt);
+    if (s.game) s.game->render(s, (float)dt);
     SDL_GPUTexture* swap = nullptr;
     uint32_t w = (uint32_t)s.opt.width, h = (uint32_t)s.opt.height;
     double ta = nowMs();   // waiting for a swapchain image: large when the GPU is the bottleneck
@@ -519,6 +533,7 @@ void App::frame(double dt) {
         if (s.showUI) drawDebugUI(s);
         if (s.perfHud) drawPerfHud(s);
         if (s.showUI && s.lab) s.lab->drawUI(s);
+        if (s.game) s.game->drawUI(s);
         ImGui::Render();
         ImDrawData* dd = ImGui::GetDrawData();
         if (swap && dd->DisplaySize.x > 0) {
@@ -535,6 +550,10 @@ void App::frame(double dt) {
     s.cpuUI.add(nowMs() - t3);
     SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
     s.sim.onFrameSubmitted(fence);
+    if (s.game) {
+        s.game->afterSubmit(s);
+        if (s.game->finished()) { s.exitCode = s.game->exitCode(); s.quit = true; }   // --game-script ended
+    }
     // Without a swapchain nothing paces the CPU: keep headless runs to one frame in flight.
     double tw = nowMs();
     if (!s.window) SDL_WaitForGPUIdle(s.gpu.device());
@@ -803,7 +822,7 @@ int App::run(const AppOptions& opt) {
         }
     }
     shutdown();
-    return 0;
+    return s_.exitCode;
 }
 
 void App::shutdown() {
@@ -820,6 +839,11 @@ void App::shutdown() {
         s_.lab->shutdown();
         delete s_.lab;
         s_.lab = nullptr;
+    }
+    if (s_.game) {
+        s_.game->shutdown(s_);
+        delete s_.game;
+        s_.game = nullptr;
     }
     s_.simWindow.shutdown();
     s_.cityRenderer.shutdown();

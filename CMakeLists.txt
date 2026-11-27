@@ -73,6 +73,18 @@ target_compile_definitions(ttz_zstd PRIVATE ZSTD_DISABLE_ASM=1 ZSTD_LEGACY_SUPPO
 set_target_properties(ttz_zstd PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # ---- engine ----------------------------------------------------------------------
+# Gameplay core (Phase 7B, docs/GAMEPLAY_ARCHITECTURE.md): CPU modules without App / ImGui / renderer dependencies,
+# shared by the game and the headless self-test.
+set(TTZ_GAME_CORE
+  src/game/Config.cpp
+  src/game/Economy.cpp
+  src/game/Soldiers.cpp
+  src/game/NavGrid.cpp
+  src/game/SoldierAnim.cpp
+  src/game/SoldierAI.cpp
+  src/game/Combat.cpp
+  src/game/Logistics.cpp
+  src/game/Deploy.cpp)
 add_executable(ttz
   src/main.cpp
   src/app/App.cpp
@@ -97,7 +109,13 @@ add_executable(ttz
   src/debug/DebugUI.cpp
   src/debug/Profiler.cpp
   src/lab/MilitaryAssets.cpp
-  src/lab/MilitaryLab.cpp)
+  src/lab/MilitaryLab.cpp
+  ${TTZ_GAME_CORE}
+  src/game/GameWorld.cpp
+  src/game/HordeBridge.cpp
+  src/game/GameScript.cpp
+  src/game/GameUI.cpp
+  src/game/GameRender.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})
 target_link_libraries(ttz PRIVATE SDL3::SDL3 imgui ttz_zstd)
 target_compile_definitions(ttz PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
@@ -140,7 +158,8 @@ add_executable(ttz_selftest
   src/city/CityAsset.cpp
   src/city/CityAssetFormat.cpp
   src/city/CityWorld.cpp
-  src/city/CityVehicles.cpp)
+  src/city/CityVehicles.cpp
+  ${TTZ_GAME_CORE})
 target_include_directories(ttz_selftest PRIVATE src)
 target_link_libraries(ttz_selftest PRIVATE SDL3::SDL3 ttz_zstd)
 target_compile_definitions(ttz_selftest PRIVATE TTZ_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
