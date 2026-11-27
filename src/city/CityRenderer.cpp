@@ -61,6 +61,7 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
         ci.target_info.has_depth_stencil_target = true;
         (k == 0 ? pipe_ : pipeNoCull_) = SDL_CreateGPUGraphicsPipeline(d, &ci);
         if (k == 0) pipeShadow_ = makeShadowPipeline(gpu, ci);   // same vertex stage, depth only
+        if (k == 0) pipeShadowExt_ = makeShadowPipeline(gpu, ci, "city_shadow.frag");   // external draws: + voxel dissolve
         SDL_ReleaseGPUShader(d, v);
         SDL_ReleaseGPUShader(d, f);
         if (!(k == 0 ? pipe_ : pipeNoCull_)) {
@@ -192,9 +193,9 @@ void CityRenderer::shutdown() {
     indirectCap_ = 0;
     if (instTB_) SDL_ReleaseGPUTransferBuffer(d, instTB_);
     instTB_ = nullptr;
-    for (auto p : {pipe_, pipeNoCull_, pipeShadow_})
+    for (auto p : {pipe_, pipeNoCull_, pipeShadow_, pipeShadowExt_})
         if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
-    pipe_ = pipeNoCull_ = pipeShadow_ = nullptr;
+    pipe_ = pipeNoCull_ = pipeShadow_ = pipeShadowExt_ = nullptr;
     gpu_ = nullptr;
 }
 
@@ -848,8 +849,9 @@ void CityRenderer::drawShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd
 
 void CityRenderer::drawExternalShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* insts,
                                       const std::vector<ExtDraw>& draws) {
-    if (draws.empty() || !insts || !pipeShadow_) return;
-    SDL_BindGPUGraphicsPipeline(pass, pipeShadow_);
+    SDL_GPUGraphicsPipeline* pipe = pipeShadowExt_ ? pipeShadowExt_ : pipeShadow_;
+    if (draws.empty() || !insts || !pipe) return;
+    SDL_BindGPUGraphicsPipeline(pass, pipe);
     SDL_BindGPUVertexStorageBuffers(pass, 0, &insts, 1);
     for (const ExtDraw& d : draws) {
         if (!d.mesh || !d.mesh->vb || !d.count) continue;

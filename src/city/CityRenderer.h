@@ -166,7 +166,7 @@ private:
 
     GpuContext* gpu_ = nullptr;
     CityAsset* asset_ = nullptr;
-    SDL_GPUGraphicsPipeline *pipe_ = nullptr, *pipeNoCull_ = nullptr, *pipeShadow_ = nullptr;
+    SDL_GPUGraphicsPipeline *pipe_ = nullptr, *pipeNoCull_ = nullptr, *pipeShadow_ = nullptr, *pipeShadowExt_ = nullptr;   // Ext: lab draws (dissolve)
     bool boxInPlanes(const float (*planes)[4], int n, const float* mn, const float* mx) const;
     float shadowPlanes_[5][4];                    // light clip box minus its near plane (depth clamped)
     bool shadowCull_ = false;

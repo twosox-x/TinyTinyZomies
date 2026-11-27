@@ -14,6 +14,7 @@ namespace {
 constexpr uint32_t kMaxChars = 1280, kMaxAtts = 28672, kMaxCpuInst = 8192, kMaxPlaceholderChars = 64;
 constexpr uint32_t kMaxFx = 4000, kMaxFlashLights = 4;
 constexpr float kPi = 3.14159265f;
+constexpr float kCanopyHold = 2.5f, kCanopyDissolve = 2.5f;   // parachute canopies after canopy_ground (MILITARY_ANIMS.md 2.3.3)
 static_assert(sizeof(MilitaryLab::CharU) == 240 && sizeof(MilitaryLab::AttU) == 48);
 using Inst = CityRenderer::GpuInstance;
 
@@ -347,6 +348,10 @@ bool MilitaryLab::applyView(AppState& s, const std::string& v) {
     else if (v == "props") s.camera.setImmediate(world(0.f, kPropsZ - 0.5f * kPropsRowGap, 0.8f), frameYaw_ + kPi - 0.25f, 24.f * deg, 24.f);
     else if (v == "parachute") s.camera.setImmediate({dropAt.x, dropAt.y + dropAlt + 4.f, dropAt.z}, frameYaw_ - 0.5f, 8.f * deg, 22.f);
     else if (v == "landing") s.camera.setImmediate({dropAt.x, dropAt.y + 1.2f, dropAt.z}, frameYaw_ + 2.3f, 18.f * deg, 9.f);
+    else if (v == "cratedrop") {   // the cargo drop after landing (canopy hold / dissolve)
+        for (const Drop& d : drops_) if (d.cargo) s.camera.setImmediate({d.xz.x, d.xz.y + 0.8f, d.xz.z}, frameYaw_ + 2.0f, 24.f * deg, 9.f);
+    }
+    else if (v == "roofland" && roofDrop) s.camera.setImmediate({roofDrop->xz.x, roofDrop->xz.y + 1.f, roofDrop->xz.z}, frameYaw_ + 0.8f, 30.f * deg, 12.f);
     else if (v == "roof" && roofFound_) s.camera.setImmediate({roof_.x, roof_.y + roofAlt + 1.5f, roof_.z}, frameYaw_ + 0.8f, 28.f * deg, 14.f);
     else if (v == "roofhigh" && roofFound_) s.camera.setImmediate({roof_.x, roof_.y + roofAlt + 4.f, roof_.z}, frameYaw_ + 0.8f, 16.f * deg, 30.f);
     else return false;
@@ -631,7 +636,20 @@ void MilitaryLab::pushSoldier(const Soldier& so, int lod, CharU* out) {
         O.info[0] = ci; O.info[1] = (uint32_t)A.slot;
         std::memcpy(O.offset, A.offset, sizeof(A.offset));
         std::memcpy(O.quat, (int)a == inf.weaponAtt ? mountQ : A.quat, sizeof(float) * 4);
-        if ((int)a == inf.weaponAtt && C.anim[0] > 8.5f && (((int)C.anim[3]) & 64)) {   // slung: torso * T(grip) * R(rot)
+        if ((int)a == inf.weaponAtt && C.anim[0] > 8.5f && (((int)C.anim[3]) & MB_FLAG_DROPPED)) {   // released (death clips): own track
+            const MilClip& mc = inf.clips[(size_t)so.clip];
+            float W[MW_STRIDE];
+            if (mc.keyClip >= 0 && mc.keyClip < (int)lib_.keyClips.size() && lib_.keyClips[(size_t)mc.keyClip].sampleWeapon(so.t, W)) {
+                float qy[4], qr[4], q[4], pr[3];
+                yawQuat(so.yaw, qy);
+                eulerXYZToQuat(&W[MW_ROT], qr);
+                qmul(qy, qr, q);
+                qrotv(qy, &W[MW_POS], pr);
+                putInst(A.model, {so.pos.x + pr[0], so.pos.y + pr[1], so.pos.z + pr[2]}, q);
+                continue;
+            }
+        }
+        if ((int)a == inf.weaponAtt && C.anim[0] > 8.5f && (((int)C.anim[3]) & MB_FLAG_SLUNG)) {   // slung: torso * T(grip) * R(rot)
             for (const MilitaryLibrary::Slung& sm : lib_.slungMounts)
                 if (sm.cls == inf.cls) {
                     O.info[1] = 1;
@@ -734,6 +752,7 @@ void MilitaryLab::updateDrops(AppState& s, float dt) {
         float speed = cDesc >= 0 ? std::max(1.f, lib_.keyClips[(size_t)cDesc].descentSpeed) : 5.f;
         float prev = d.t;
         d.t += dt;
+        if (d.groundT >= 0.f) d.groundT += dt;
         const MilKeyClip* cur = d.phase == 0 ? (cDesc >= 0 ? &lib_.keyClips[(size_t)cDesc] : nullptr)
                               : d.phase == 1 ? (cLand >= 0 ? &lib_.keyClips[(size_t)cLand] : nullptr)
                               : d.phase == 2 ? (cRec >= 0 ? &lib_.keyClips[(size_t)cRec] : nullptr) : nullptr;
@@ -746,6 +765,7 @@ void MilitaryLab::updateDrops(AppState& s, float dt) {
                         if (!(cur->sampleCanopy(d.t, d.relCanopy)) && land) land->sampleCanopy(land->duration, d.relCanopy);
                         d.relPos = d.xz;
                     }
+                    if (e.type == "canopy_ground" && d.groundT < 0.f) d.groundT = d.t - e.t;   // canopy settled: dissolve clock
                     if ((e.type == "canopy_ground" || e.type == "crate_touch" || e.type == "touchdown") && fxOn_)
                         for (int k = 0; k < 8; ++k) {
                             float a = k * kPi / 4.f;
@@ -763,7 +783,7 @@ void MilitaryLab::updateDrops(AppState& s, float dt) {
             }
         } else if (d.phase == 2) {
             if (!cur || d.t >= cur->duration) { d.phase = 3; d.t = 0.f; }
-        } else if (d.t > 4.f) { d.phase = 0; d.t = 0.f; d.released = false; }
+        } else if (d.t > 6.f) { d.phase = 0; d.t = 0.f; d.released = false; d.groundT = -1.f; }   // demo loop: drop again
         (void)s;
     }
 }
@@ -812,6 +832,9 @@ void MilitaryLab::drawDrop(const Drop& d) {
         Cn[MC_VISIBLE] = d.phase == 0 ? 1.f : 0.f;
     }
     if (Cn[MC_VISIBLE] < 0.5f) return;
+    // after canopy_ground: hold kCanopyHold s, then dissolve voxel by voxel over kCanopyDissolve s (canopy + lines), removed
+    const float dis = d.groundT < 0.f ? 0.f : std::clamp((d.groundT - kCanopyHold) / kCanopyDissolve, 0.f, 1.f);
+    if (dis >= 1.f) return;
     const MilProp* para = findProp(d.cargo ? "para_cargo" : "para_infantry");
     float qr[4], q[4], pr[3];
     eulerXYZToQuat(&Cn[MC_ROT], qr);
@@ -825,7 +848,7 @@ void MilitaryLab::drawDrop(const Drop& d) {
     if (para)
         for (const auto& [m, pv] : para->parts) {   // own draws: per-drop clamp (roof footprint, street outside)
             Inst gi{};
-            gi.pos[0] = pivot.x; gi.pos[1] = pivot.y; gi.pos[2] = pivot.z; gi.pos[3] = 2.f;
+            gi.pos[0] = pivot.x; gi.pos[1] = pivot.y; gi.pos[2] = pivot.z; gi.pos[3] = 2.f + 0.9f * dis;   // kind 2 + dissolve (city.vert)
             std::memcpy(gi.quat, q, sizeof(gi.quat));
             std::memcpy(gi.paint, paint, sizeof(gi.paint));
             CityRenderer::ExtDraw ed{&meshes_[(size_t)m], (uint32_t)canopyInst_.size(), 1};
@@ -961,7 +984,7 @@ void MilitaryLab::update(AppState& s, float dt) {
         for (size_t k = 0; k < s.opt.shotFrames.size() && k < s.opt.labViews.size(); ++k)
             if ((int)s.frameIndex == std::max(0, s.opt.shotFrames[k] - 8)) {
                 const std::string& v = s.opt.labViews[k];
-                // view+options: +studio +notilt +inf=N +prop=N +clip=NAME|N +t=SECONDS +stress=N +drop=SECONDS +fire +hold
+                // view+options: +studio +notilt +inf=N +prop=N +clip=NAME|N +t=SECONDS +once +freeze +stress=N +drop=SECONDS +fire +hold
                 std::string name = v.substr(0, v.find('+'));
                 s.renderSettings.studioLighting = v.find("+studio") != std::string::npos;
                 s.renderSettings.tiltShift = v.find("+notilt") == std::string::npos;
@@ -977,9 +1000,14 @@ void MilitaryLab::update(AppState& s, float dt) {
                     animTime_ = 0.f; playing_ = true;
                 }
                 if (const char* p = opt("+t=")) animTime_ = (float)std::atof(p);
+                if (v.find("+once") != std::string::npos) loop_ = false;   // one-shot clips hold their last frame
+                if (opt("+clip=") && opt("+t=")) {   // exact pose: no cross-fade from the previous clip
+                    sel_ = Soldier{}; sel_.inf = selIndex_; sel_.clip = clip_; sel_.t = animTime_;
+                    if (v.find("+freeze") != std::string::npos) playing_ = false;   // hold exactly this clip time
+                }
                 if (const char* p = opt("+drop=")) {   // every drop to a sequence time (30 Hz steps, events included)
                     float T = (float)std::atof(p);
-                    for (Drop& d : drops_) { d.phase = 0; d.t = 0.f; d.alt = 0.f; d.released = false; };
+                    for (Drop& d : drops_) { d.phase = 0; d.t = 0.f; d.alt = 0.f; d.released = false; d.groundT = -1.f; };
                     for (float tt = 0.f; tt < T; tt += 1.f / 30.f) updateDrops(s, std::min(1.f / 30.f, T - tt));
                     fx_.clear();
                 }

@@ -16,8 +16,9 @@ struct ShadowMapBinding {
 // Depth-only copy of a scene pipeline description: the vertex stage and input layout are kept, the fragment stage is
 // the empty shadow_depth.frag, no colour targets, single-sampled, no culling (thin voxel walls cast from both sides),
 // slope-scaled depth bias, depth clamping (casters between the sun and the near plane still cast).
-inline SDL_GPUGraphicsPipeline* makeShadowPipeline(GpuContext& gpu, SDL_GPUGraphicsPipelineCreateInfo ci) {
-    SDL_GPUShader* f = gpu.loadShader("shadow_depth.frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
+// frag: the depth-only fragment stage (default: empty); casters that discard (dissolve) pass their own.
+inline SDL_GPUGraphicsPipeline* makeShadowPipeline(GpuContext& gpu, SDL_GPUGraphicsPipelineCreateInfo ci, const char* frag = "shadow_depth.frag") {
+    SDL_GPUShader* f = gpu.loadShader(frag, SDL_GPU_SHADERSTAGE_FRAGMENT);
     if (!f) return nullptr;
     ci.fragment_shader = f;
     ci.target_info = {};

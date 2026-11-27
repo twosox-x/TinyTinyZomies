@@ -12,6 +12,9 @@ layout(location = 1) in vec3 vNormal;
 layout(location = 2) flat in uint vMat;
 layout(location = 3) flat in vec4 vPaint;
 layout(location = 4) flat in float vPhase;
+layout(location = 5) flat in float vDissolve;
+layout(location = 6) in vec3 vCell;
+#include "dissolve.glsl"
 layout(location = 0) out vec4 outColor;
 struct Mat { vec4 albedo; vec4 emis; uvec4 info; };   // albedo: linear rgb, w gloss; emis: x night, y mode, z roughness
 layout(std430, set = 2, binding = 1) readonly buffer Mats    { Mat mats[]; };
@@ -77,6 +80,7 @@ float wallBlood(vec3 P, vec3 N, float u) {
 float sq(float t, float hz) { return step(0.5, fract(t * hz)); }
 
 void main() {
+    if (voxelDissolved(vCell, vDissolve)) discard;   // lab canopies after landing (docs/MILITARY_ANIMS.md 2.3.3)
     Mat m = mats[vMat];
     vec3 N = normalize(vNormal);
     vec3 albedo = m.albedo.rgb;

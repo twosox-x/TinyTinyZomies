@@ -37,7 +37,8 @@ const sandbox = { console, Math };
 vm.createContext(sandbox);
 const lib = vm.runInContext(html.slice(a, b) + `
 ;({ buildAll, buildAnims, PALETTE, PAL, partFaces, quadsCulled, quadsGreedy, rigidGroup, DIRS, CORN, V_M, PROP_M, SLOTS, PIVOT, HAND, MIL_VERSION,
-     ANIM_VERSION, ANIM_HZ, BODY_STRIDE, CANOPY_STRIDE, CRATE_STRIDE, HAND_ITEM, ANIM_CLASSES })`, sandbox, { filename: "military_lab_v1.html" });
+     ANIM_VERSION, ANIM_HZ, BODY_STRIDE, CANOPY_STRIDE, CRATE_STRIDE, HAND_ITEM, ANIM_CLASSES,
+     WEAPON_STRIDE, FLAG_DROPPED, posedBodyCells, posedMinY, weaponCells, fk, eulerMat, mvec, vadd, mmul })`, sandbox, { filename: "military_lab_v1.html" });
 
 const t0 = Date.now();
 const { infantry, props } = lib.buildAll();
@@ -226,6 +227,8 @@ function bakeAnims(infantry) {
     push("body", lib.BODY_STRIDE, c.gen ? c.body : null);
     push("canopy", lib.CANOPY_STRIDE, c.canopy);
     push("crate", lib.CRATE_STRIDE, c.crate);
+    push("weapon", lib.WEAPON_STRIDE, c.weapon);
+    if (c.weapon) checkDeath(c);
     const out = { name: c.name, class: c.cls, action: c.action, duration: c.duration, frames: c.frames, loop: !!c.loop, rootMotion: !!c.rootMotion };
     for (const k of ["speed", "stride", "descentSpeed", "rate", "stairs", "phase0"]) if (c[k] !== undefined) out[k] = c[k];
     if (c.delta) out.delta = c.delta;
@@ -239,7 +242,7 @@ function bakeAnims(infantry) {
   fs.writeFileSync(path.join(ROOT, "assets/military/anims.bin"), buf);
   const vrr = v => v.map(r6);
   const manifest = { format: "TTZA", version: lib.ANIM_VERSION, source: path.relative(ROOT, SRC), doc: "docs/MILITARY_ANIMS.md", sampleRate: lib.ANIM_HZ,
-    strides: { body: lib.BODY_STRIDE, canopy: lib.CANOPY_STRIDE, crate: lib.CRATE_STRIDE }, dataOffsetBytes: 32, floatCount: floats.length,
+    strides: { body: lib.BODY_STRIDE, canopy: lib.CANOPY_STRIDE, crate: lib.CRATE_STRIDE, weapon: lib.WEAPON_STRIDE }, dataOffsetBytes: 32, floatCount: floats.length,
     slots: lib.SLOTS, handItems: lib.HAND_ITEM, classes: lib.ANIM_CLASSES,
     classModels: { rifleman: infantry.filter(m => m.cls === "rifleman").map(m => m.name), mg: infantry.filter(m => m.cls === "mg").map(m => m.name), sniper: infantry.filter(m => m.cls === "sniper").map(m => m.name), crate: ["crate_ammo_drop", "para_cargo"] },
     slungMount: Object.fromEntries(Object.entries(A.slung).map(([k, p]) => [k, { part: "torso", gripFromTorsoPivot: vrr(p.gripT.map(v => v * lib.V_M)), rot: vrr(matEulerJS(p.W)) }])),
@@ -247,7 +250,38 @@ function bakeAnims(infantry) {
     transitions: A.transitions, fx: A.fx, clips };
   fs.writeFileSync(path.join(ROOT, "assets/military/anims.json"), JSON.stringify(manifest, null, 1) + "\n");
   console.log(`\nanims: ${clips.length} clips, ${floats.length} floats, ${buf.length} bytes`);
-  for (const c of clips) console.log(`  ${c.name.padEnd(28)} ${c.duration.toFixed(2).padStart(5)} s ${c.loop ? "loop" : "once"} ${String(c.frames).padStart(4)} fr  sup ${c.check.supportError} m  minY ${c.check.minY}`);
+  for (const c of clips) console.log(`  ${c.name.padEnd(28)} ${c.duration.toFixed(2).padStart(5)} s ${c.loop ? "loop" : "once"} ${String(c.frames).padStart(4)} fr  sup ${c.check.supportError} m  minY ${c.check.minY}${c.check.weaponGap !== undefined ? `  weapon gap ${c.check.weaponGap} m, weapon minY ${c.check.weaponMinY}, rest body minY ${c.check.restMinY}` : ""}`);
+}
+// Death clips with a dropped weapon (docs/MILITARY_ANIMS.md 2.5), checked on the exported frames:
+//   - the body never below the ground at rest (full voxel set of the last frame, tolerance 1 cm)
+//   - after weapon_drop no weapon voxel below the ground on any frame
+//   - at rest the weapon lies flat (side down) BESIDE the body: >= 2 cm from every body voxel in the ground plane (so
+//     never under the raised back / a limb, never through the body)
+function checkDeath(c) {
+  const model = infantry.find(m => m.cls === c.cls), V = lib.V_M, n = c.body.length;
+  const ev = (c.events || []).find(e => e.type === "weapon_drop");
+  if (!ev) throw new Error(`${c.name}: weapon track without a weapon_drop event`);
+  const WC = lib.weaponCells(model), bad = [];
+  const pose = fr => { const rot = {}; lib.SLOTS.forEach((s, i) => rot[s] = [fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2]]); return { rot, rootPos: [fr[30] / V, fr[31] / V, fr[32] / V], rootRot: [fr[33], fr[34], fr[35]] }; };
+  const wPlace = w => ({ pos: [w[0] / V, w[1] / V, w[2] / V], R: lib.eulerMat([w[3], w[4], w[5]]) });
+  const cellsAt = P => WC.cells.map(q => lib.vadd(P.pos, lib.mvec(P.R, q)));
+  let weaponMinY = Infinity;
+  for (let f = Math.round(ev.t * lib.ANIM_HZ); f < n; f++) {
+    if (!(c.body[f][43] & lib.FLAG_DROPPED)) bad.push(`frame ${f}: dropped flag missing`);
+    const P = wPlace(c.weapon[f]), ext = WC.h * (Math.abs(P.R[3]) + Math.abs(P.R[4]) + Math.abs(P.R[5]));
+    for (const q of cellsAt(P)) weaponMinY = Math.min(weaponMinY, (q[1] - ext) * V);
+  }
+  if (weaponMinY < -0.002) bad.push(`weapon below ground after the drop (${weaponMinY.toFixed(3)} m)`);
+  const L = pose(c.body[n - 1]);
+  const bodyMin = lib.posedMinY(model, L.rot, L.rootRot, L.rootPos, null, "dropped", true) * V;
+  if (bodyMin < -0.01) bad.push(`body below ground at rest (${bodyMin.toFixed(3)} m)`);
+  const body = lib.posedBodyCells(model, L.rot, L.rootRot, L.rootPos), P = wPlace(c.weapon[n - 1]);
+  let gap = Infinity;
+  for (const q of cellsAt(P)) for (const b of body) gap = Math.min(gap, (Math.hypot(q[0] - b.p[0], q[2] - b.p[2]) - WC.h * 1.2 - b.h * 1.2) * V);   // ground plane
+  if (gap < 0.02) bad.push(`weapon at rest under / touching the body (ground-plane gap ${gap.toFixed(3)} m)`);
+  if (Math.abs(Math.abs(P.R[3]) - 1) > 0.05) bad.push(`weapon at rest not flat (side axis y ${P.R[3].toFixed(2)})`);
+  if (bad.length) throw new Error(`${c.name}: ${bad.join("; ")}`);
+  c.stats.weaponMinY = +weaponMinY.toFixed(3); c.stats.weaponGap = +gap.toFixed(3); c.stats.restMinY = +bodyMin.toFixed(3);
 }
 function matEulerJS(m) { const b = Math.asin(Math.max(-1, Math.min(1, m[2]))); let a, c; if (Math.abs(m[2]) < 0.9999999) { a = Math.atan2(-m[5], m[8]); c = Math.atan2(-m[1], m[0]); } else { a = Math.atan2(m[7], m[4]); c = 0; } return [a, b, c]; }
 console.log(`\ndone in ${((Date.now() - t0) / 1000).toFixed(1)} s; all greedy meshes verified lossless; rest-pose float / coplanar checks passed`);

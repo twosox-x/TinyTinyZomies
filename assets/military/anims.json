@@ -7,10 +7,11 @@
  "strides": {
   "body": 44,
   "canopy": 12,
-  "crate": 6
+  "crate": 6,
+  "weapon": 7
  },
  "dataOffsetBytes": 32,
- "floatCount": 173424,
+ "floatCount": 175881,
  "slots": [
   "head",
   "torso",
@@ -966,8 +967,16 @@
    ],
    "events": [
     {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
      "t": 0.6,
      "type": "body_fall"
+    },
+    {
+     "t": 0.6919,
+     "type": "weapon_land"
     }
    ],
    "tracks": [
@@ -976,12 +985,21 @@
      "offset": 20064,
      "stride": 44,
      "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 21692,
+     "stride": 7,
+     "frames": 37
     }
    ],
    "check": {
     "supportError": 0.0002,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.047,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -1004,6 +1022,14 @@
      "type": "body_fall"
     },
     {
+     "t": 0.4,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6785,
+     "type": "weapon_land"
+    },
+    {
      "t": 0.8,
      "type": "body_fall"
     }
@@ -1011,15 +1037,24 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 21692,
+     "offset": 21951,
      "stride": 44,
+     "frames": 43
+    },
+    {
+     "type": "weapon",
+     "offset": 23843,
+     "stride": 7,
      "frames": 43
     }
    ],
    "check": {
     "supportError": 0.0002,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.044,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -1038,22 +1073,39 @@
    ],
    "events": [
     {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
      "t": 0.65,
      "type": "body_fall"
+    },
+    {
+     "t": 0.6818,
+     "type": "weapon_land"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 23584,
+     "offset": 24144,
      "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 25772,
+     "stride": 7,
      "frames": 37
     }
    ],
    "check": {
     "supportError": 0.0002,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.041,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -1077,7 +1129,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 25212,
+     "offset": 26031,
      "stride": 44,
      "frames": 97
     }
@@ -1132,7 +1184,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 29480,
+     "offset": 30299,
      "stride": 44,
      "frames": 73
     }
@@ -1177,7 +1229,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 32692,
+     "offset": 33511,
      "stride": 44,
      "frames": 73
     }
@@ -1221,7 +1273,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 35904,
+     "offset": 36723,
      "stride": 44,
      "frames": 30
     }
@@ -1265,7 +1317,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 37224,
+     "offset": 38043,
      "stride": 44,
      "frames": 30
     }
@@ -1289,13 +1341,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 38544,
+     "offset": 39363,
      "stride": 44,
      "frames": 144
     },
     {
      "type": "canopy",
-     "offset": 44880,
+     "offset": 45699,
      "stride": 12,
      "frames": 144
     }
@@ -1337,13 +1389,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 46608,
+     "offset": 47427,
      "stride": 44,
      "frames": 46
     },
     {
      "type": "canopy",
-     "offset": 48632,
+     "offset": 49451,
      "stride": 12,
      "frames": 46
     }
@@ -1381,13 +1433,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 49184,
+     "offset": 50003,
      "stride": 44,
      "frames": 97
     },
     {
      "type": "canopy",
-     "offset": 53452,
+     "offset": 54271,
      "stride": 12,
      "frames": 97
     }
@@ -1410,7 +1462,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 54616,
+     "offset": 55435,
      "stride": 44,
      "frames": 90
     }
@@ -1447,7 +1499,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 58576,
+     "offset": 59395,
      "stride": 44,
      "frames": 28
     }
@@ -1484,7 +1536,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 59808,
+     "offset": 60627,
      "stride": 44,
      "frames": 22
     }
@@ -1524,7 +1576,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 60776,
+     "offset": 61595,
      "stride": 44,
      "frames": 25
     }
@@ -1564,7 +1616,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 61876,
+     "offset": 62695,
      "stride": 44,
      "frames": 25
     }
@@ -1587,7 +1639,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 62976,
+     "offset": 63795,
      "stride": 44,
      "frames": 60
     }
@@ -1759,7 +1811,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 65616,
+     "offset": 66435,
      "stride": 44,
      "frames": 30
     }
@@ -1782,7 +1834,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 66936,
+     "offset": 67755,
      "stride": 44,
      "frames": 60
     }
@@ -1954,7 +2006,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 69576,
+     "offset": 70395,
      "stride": 44,
      "frames": 30
     }
@@ -2002,7 +2054,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 70896,
+     "offset": 71715,
      "stride": 44,
      "frames": 127
     }
@@ -2030,7 +2082,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 76484,
+     "offset": 77303,
      "stride": 44,
      "frames": 19
     }
@@ -2057,22 +2109,39 @@
    ],
    "events": [
     {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
      "t": 0.6,
      "type": "body_fall"
+    },
+    {
+     "t": 0.6824,
+     "type": "weapon_land"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 77320,
+     "offset": 78139,
      "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 79767,
+     "stride": 7,
      "frames": 37
     }
    ],
    "check": {
     "supportError": 0,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.063,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -2095,6 +2164,14 @@
      "type": "body_fall"
     },
     {
+     "t": 0.4,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.6593,
+     "type": "weapon_land"
+    },
+    {
      "t": 0.8,
      "type": "body_fall"
     }
@@ -2102,15 +2179,24 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 78948,
+     "offset": 80026,
      "stride": 44,
+     "frames": 43
+    },
+    {
+     "type": "weapon",
+     "offset": 81918,
+     "stride": 7,
      "frames": 43
     }
    ],
    "check": {
     "supportError": 0,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.042,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -2129,22 +2215,39 @@
    ],
    "events": [
     {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
      "t": 0.65,
      "type": "body_fall"
+    },
+    {
+     "t": 0.6805,
+     "type": "weapon_land"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 80840,
+     "offset": 82219,
      "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 83847,
+     "stride": 7,
      "frames": 37
     }
    ],
    "check": {
     "supportError": 0,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.055,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -2168,7 +2271,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 82468,
+     "offset": 84106,
      "stride": 44,
      "frames": 97
     }
@@ -2223,7 +2326,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 86736,
+     "offset": 88374,
      "stride": 44,
      "frames": 73
     }
@@ -2268,7 +2371,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 89948,
+     "offset": 91586,
      "stride": 44,
      "frames": 73
     }
@@ -2312,7 +2415,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 93160,
+     "offset": 94798,
      "stride": 44,
      "frames": 30
     }
@@ -2356,7 +2459,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 94480,
+     "offset": 96118,
      "stride": 44,
      "frames": 30
     }
@@ -2380,13 +2483,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 95800,
+     "offset": 97438,
      "stride": 44,
      "frames": 144
     },
     {
      "type": "canopy",
-     "offset": 102136,
+     "offset": 103774,
      "stride": 12,
      "frames": 144
     }
@@ -2428,13 +2531,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 103864,
+     "offset": 105502,
      "stride": 44,
      "frames": 46
     },
     {
      "type": "canopy",
-     "offset": 105888,
+     "offset": 107526,
      "stride": 12,
      "frames": 46
     }
@@ -2472,13 +2575,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 106440,
+     "offset": 108078,
      "stride": 44,
      "frames": 97
     },
     {
      "type": "canopy",
-     "offset": 110708,
+     "offset": 112346,
      "stride": 12,
      "frames": 97
     }
@@ -2501,7 +2604,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 111872,
+     "offset": 113510,
      "stride": 44,
      "frames": 90
     }
@@ -2538,7 +2641,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 115832,
+     "offset": 117470,
      "stride": 44,
      "frames": 28
     }
@@ -2575,7 +2678,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 117064,
+     "offset": 118702,
      "stride": 44,
      "frames": 22
     }
@@ -2615,7 +2718,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 118032,
+     "offset": 119670,
      "stride": 44,
      "frames": 25
     }
@@ -2655,7 +2758,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 119132,
+     "offset": 120770,
      "stride": 44,
      "frames": 25
     }
@@ -2678,7 +2781,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 120232,
+     "offset": 121870,
      "stride": 44,
      "frames": 60
     }
@@ -2731,7 +2834,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 122872,
+     "offset": 124510,
      "stride": 44,
      "frames": 57
     }
@@ -2754,7 +2857,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 125380,
+     "offset": 127018,
      "stride": 44,
      "frames": 60
     }
@@ -2801,7 +2904,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 128020,
+     "offset": 129658,
      "stride": 44,
      "frames": 57
     }
@@ -2841,7 +2944,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 130528,
+     "offset": 132166,
      "stride": 44,
      "frames": 88
     }
@@ -2869,7 +2972,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 134400,
+     "offset": 136038,
      "stride": 44,
      "frames": 19
     }
@@ -2896,22 +2999,39 @@
    ],
    "events": [
     {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
      "t": 0.6,
      "type": "body_fall"
+    },
+    {
+     "t": 0.6814,
+     "type": "weapon_land"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 135236,
+     "offset": 136874,
      "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 138502,
+     "stride": 7,
      "frames": 37
     }
    ],
    "check": {
     "supportError": 0.0001,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.042,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -2934,6 +3054,14 @@
      "type": "body_fall"
     },
     {
+     "t": 0.4,
+     "type": "weapon_drop"
+    },
+    {
+     "t": 0.664,
+     "type": "weapon_land"
+    },
+    {
      "t": 0.8,
      "type": "body_fall"
     }
@@ -2941,15 +3069,24 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 136864,
+     "offset": 138761,
      "stride": 44,
+     "frames": 43
+    },
+    {
+     "type": "weapon",
+     "offset": 140653,
+     "stride": 7,
      "frames": 43
     }
    ],
    "check": {
     "supportError": 0.0001,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.052,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -2968,22 +3105,39 @@
    ],
    "events": [
     {
+     "t": 0.3,
+     "type": "weapon_drop"
+    },
+    {
      "t": 0.65,
      "type": "body_fall"
+    },
+    {
+     "t": 0.6707,
+     "type": "weapon_land"
     }
    ],
    "tracks": [
     {
      "type": "body",
-     "offset": 138756,
+     "offset": 140954,
      "stride": 44,
+     "frames": 37
+    },
+    {
+     "type": "weapon",
+     "offset": 142582,
+     "stride": 7,
      "frames": 37
     }
    ],
    "check": {
     "supportError": 0.0001,
     "minY": 0,
-    "footSlide": 0
+    "footSlide": 0,
+    "weaponGap": 0.06,
+    "weaponMinY": 0.005,
+    "restMinY": 0
    }
   },
   {
@@ -3007,7 +3161,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 140384,
+     "offset": 142841,
      "stride": 44,
      "frames": 97
     }
@@ -3062,7 +3216,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 144652,
+     "offset": 147109,
      "stride": 44,
      "frames": 73
     }
@@ -3107,7 +3261,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 147864,
+     "offset": 150321,
      "stride": 44,
      "frames": 73
     }
@@ -3151,7 +3305,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 151076,
+     "offset": 153533,
      "stride": 44,
      "frames": 30
     }
@@ -3195,7 +3349,7 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 152396,
+     "offset": 154853,
      "stride": 44,
      "frames": 30
     }
@@ -3219,13 +3373,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 153716,
+     "offset": 156173,
      "stride": 44,
      "frames": 144
     },
     {
      "type": "canopy",
-     "offset": 160052,
+     "offset": 162509,
      "stride": 12,
      "frames": 144
     }
@@ -3267,13 +3421,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 161780,
+     "offset": 164237,
      "stride": 44,
      "frames": 46
     },
     {
      "type": "canopy",
-     "offset": 163804,
+     "offset": 166261,
      "stride": 12,
      "frames": 46
     }
@@ -3311,13 +3465,13 @@
    "tracks": [
     {
      "type": "body",
-     "offset": 164356,
+     "offset": 166813,
      "stride": 44,
      "frames": 97
     },
     {
      "type": "canopy",
-     "offset": 168624,
+     "offset": 171081,
      "stride": 12,
      "frames": 97
     }
@@ -3341,13 +3495,13 @@
    "tracks": [
     {
      "type": "canopy",
-     "offset": 169788,
+     "offset": 172245,
      "stride": 12,
      "frames": 96
     },
     {
      "type": "crate",
-     "offset": 170940,
+     "offset": 173397,
      "stride": 6,
      "frames": 96
     }
@@ -3383,13 +3537,13 @@
    "tracks": [
     {
      "type": "canopy",
-     "offset": 171516,
+     "offset": 173973,
      "stride": 12,
      "frames": 106
     },
     {
      "type": "crate",
-     "offset": 172788,
+     "offset": 175245,
      "stride": 6,
      "frames": 106
     }

@@ -620,6 +620,7 @@ bool MilitaryLibrary::loadAnims(const std::string& dir) {
             if (ty == "body" && stride == MB_STRIDE) k.body = std::move(data);
             else if (ty == "canopy" && stride == MC_STRIDE) k.canopy = std::move(data);
             else if (ty == "crate" && stride == 6) k.crate = std::move(data);
+            else if (ty == "weapon" && stride == MW_STRIDE) k.weapon = std::move(data);
             k.frames = std::max(k.frames, (int)fr);
         }
         for (const json::Value& e : c["events"].arr) k.events.push_back({(float)e["t"].n(), e["type"].str, e["fx"].str});

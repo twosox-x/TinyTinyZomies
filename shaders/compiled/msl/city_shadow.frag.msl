@@ -1,0 +1,37 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct main0_in
+{
+    float vDissolve [[user(locn5), flat]];
+    float3 vCell [[user(locn6)]];
+};
+
+static inline __attribute__((always_inline))
+bool voxelDissolved(thread const float3& cell, thread const float& d)
+{
+    if (d <= 0.0)
+    {
+        return false;
+    }
+    float3 c = floor(cell);
+    float3 q = fract((c * float3(0.103100001811981201171875, 0.10300000011920928955078125, 0.097300000488758087158203125)) + float3(0.37000000476837158203125));
+    q += float3(dot(q, q.yzx + float3(33.3300018310546875)));
+    float h = fract((q.x + q.y) * q.z);
+    return h < (d * 1.00010001659393310546875);
+}
+
+fragment void main0(main0_in in [[stage_in]])
+{
+    float3 param = in.vCell;
+    float param_1 = in.vDissolve;
+    if (voxelDissolved(param, param_1))
+    {
+        discard_fragment();
+    }
+}
+

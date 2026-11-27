@@ -63,6 +63,8 @@ struct main0_out
     uint vMat [[user(locn2)]];
     float4 vPaint [[user(locn3)]];
     float vPhase [[user(locn4)]];
+    float vDissolve [[user(locn5)]];
+    float3 vCell [[user(locn6)]];
     float4 gl_Position [[position]];
 };
 
@@ -78,7 +80,7 @@ float3 qrot(thread const float4& q, thread const float3& v)
     return v + (cross(q.xyz, cross(q.xyz, v) + (v * q.w)) * 2.0);
 }
 
-vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _314 [[buffer(0)]], constant CityDraw& _41 [[buffer(1)]], const device Insts& _99 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
+vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _340 [[buffer(0)]], constant CityDraw& _41 [[buffer(1)]], const device Insts& _103 [[buffer(2)]], uint gl_InstanceIndex [[instance_id]])
 {
     main0_out out = {};
     float3 p = _41.origin.xyz + (float3(in.inPos.xyz) * _41.qscale.xyx);
@@ -86,15 +88,19 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _314 [[buffer(0
     out.vMat = uint(in.inNrm.w) & 255u;
     out.vPaint = float4(0.0);
     out.vPhase = 0.0;
+    out.vDissolve = 0.0;
+    out.vCell = float3(0.0);
     if (_41.mode.x == 1u)
     {
-        uint _105 = _41.mode.y + uint(int(gl_InstanceIndex));
+        uint _109 = _41.mode.y + uint(int(gl_InstanceIndex));
         Inst I;
-        I.pos = _99.inst[_105].pos;
-        I.quat = _99.inst[_105].quat;
-        I.paint = _99.inst[_105].paint;
+        I.pos = _103.inst[_109].pos;
+        I.quat = _103.inst[_109].quat;
+        I.paint = _103.inst[_109].paint;
         if (I.pos.w > 1.5)
         {
+            out.vDissolve = fast::clamp((I.pos.w - 2.0) / 0.89999997615814208984375, 0.0, 1.0);
+            out.vCell = ((float3(in.inPos.xyz) * 0.5) - (n * 0.25)) + float3(0.5);
             float2 sh = float2(as_type<half2>(as_type<uint>(I.paint.z)));
             float4 param = I.quat;
             float3 param_1 = float3((p.x * I.paint.x) + (sh.x * p.y), p.y * I.paint.y, (p.z * I.paint.x) + (sh.y * p.y));
@@ -102,50 +108,51 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _314 [[buffer(0
             float g = I.paint.w;
             if ((_41.clampH.w > 0.5) && (g > (-1000.0)))
             {
-                bool _186 = p.x >= _41.clampRect.x;
-                bool _194;
-                if (_186)
+                bool _207 = p.x >= _41.clampRect.x;
+                bool _215;
+                if (_207)
                 {
-                    _194 = p.x <= _41.clampRect.z;
+                    _215 = p.x <= _41.clampRect.z;
                 }
                 else
                 {
-                    _194 = _186;
+                    _215 = _207;
                 }
-                bool _202;
-                if (_194)
+                bool _223;
+                if (_215)
                 {
-                    _202 = p.z >= _41.clampRect.y;
+                    _223 = p.z >= _41.clampRect.y;
                 }
                 else
                 {
-                    _202 = _194;
+                    _223 = _215;
                 }
-                bool _210;
-                if (_202)
+                bool _231;
+                if (_223)
                 {
-                    _210 = p.z <= _41.clampRect.w;
+                    _231 = p.z <= _41.clampRect.w;
                 }
                 else
                 {
-                    _210 = _202;
+                    _231 = _223;
                 }
-                float _211;
-                if (_210)
+                float _232;
+                if (_231)
                 {
-                    _211 = _41.clampH.x;
+                    _232 = _41.clampH.x;
                 }
                 else
                 {
-                    _211 = _41.clampH.y;
+                    _232 = _41.clampH.y;
                 }
-                g = _211;
+                g = _232;
             }
             float x = (p.y - g) / 0.07999999821186065673828125;
             if ((g > (-1000.0)) && (x < 20.0))
             {
                 p.y = g + (0.07999999821186065673828125 * log(1.0 + exp(x)));
             }
+            p.y -= (0.0599999986588954925537109375 * out.vDissolve);
         }
         else
         {
@@ -163,17 +170,17 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _314 [[buffer(0
         {
             if (I.pos.w < 0.5)
             {
-                bool _275 = (in.inPos.w & 1) != 0;
-                bool _281;
-                if (_275)
+                bool _302 = (in.inPos.w & 1) != 0;
+                bool _308;
+                if (_302)
                 {
-                    _281 = I.paint.w > 0.5;
+                    _308 = I.paint.w > 0.5;
                 }
                 else
                 {
-                    _281 = _275;
+                    _308 = _302;
                 }
-                if (_281)
+                if (_308)
                 {
                     out.vPaint = float4(I.paint.xyz, 1.0);
                 }
@@ -186,7 +193,7 @@ vertex main0_out main0(main0_in in [[stage_in]], constant Frame& _314 [[buffer(0
     }
     out.vWorld = p;
     out.vNormal = n;
-    out.gl_Position = _314.viewProj * float4(p, 1.0);
+    out.gl_Position = _340.viewProj * float4(p, 1.0);
     return out;
 }
 

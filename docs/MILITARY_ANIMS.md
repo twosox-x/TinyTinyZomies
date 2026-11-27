@@ -27,7 +27,7 @@ seconds. Axes: the model convention (Y up, front +Z, model's left +X, feet at y 
 
 ## 2. Tracks (in `anims.bin`, f32)
 
-Each clip has one or more tracks: `{ "type": "body" | "canopy" | "crate", "offset": <float index into the bin>,
+Each clip has one or more tracks: `{ "type": "body" | "canopy" | "crate" | "weapon", "offset": <float index into the bin>,
 "stride": <floats per frame>, "frames": n }`. Frame `f` of a track starts at float `offset + f * stride`.
 
 ### 2.1 `body` track, stride 44
@@ -40,7 +40,7 @@ Each clip has one or more tracks: `{ "type": "body" | "canopy" | "crate", "offse
 | 36..38 | `weaponMount` | Euler XYZ of the weapon in `forearmR` space (the pose value `R_mount` of MILITARY_ASSETS.md) |
 | 39 | `supportW` | 0..1 weight of the left-hand constraint (1 = left hand on `supportTarget`) |
 | 40..42 | `supportTarget` | weapon space, metres: where the left hand is (usually the weapon's `support` point; the bolt handle during a sniper bolt cycle; MG feed cover during a belt swap) |
-| 43 | `flags` | integer stored as float: bits 0..3 `handItem` (0 none, 1 rifle magazine, 2 MG ammo box, 3 sniper magazine, 4 ammo can, 5 belt end), bit 4 left foot planted, bit 5 right foot planted, bit 6 weapon slung (drawn at the `sling` mount, see §2.4) |
+| 43 | `flags` | integer stored as float: bits 0..3 `handItem` (0 none, 1 rifle magazine, 2 MG ammo box, 3 sniper magazine, 4 ammo can, 5 belt end), bit 4 left foot planted, bit 5 right foot planted, bit 6 weapon slung (drawn at the `sling` mount, §2.1.1), bit 7 weapon dropped (drawn from the clip's `weapon` track, §2.5) |
 
 Model-space transform of a part (body slot or attachment), with `M_root = T(rootPos) · R(rootRot)`:
 ```
@@ -118,15 +118,55 @@ canopy that topples over an edge drapes down the facade.
 | `<cls>/para_recover` | no | sit up, kneel, release the harness (event `harness_release`: from here the canopy track no longer follows the soldier, it stays where it lies), stand up, ready the weapon; ends in the class `idle` pose (blend 0.2 s into idle / walk). |
 
 Switching: play `para_descent` until `feetHeight <= surface`, then cut to `para_land` frame 0 with a 0.1 s blend
-(the descent pose and the land frame 0 are designed to match). The canopy prop stays drawn after the sequence;
-the engine fades or removes it later (not part of the clip).
+(the descent pose and the land frame 0 are designed to match). After landing the canopy (and its lines) stays where
+it lies, then dissolves and is removed (§2.3.3).
 
 ### 2.3.2 Crate sequence (`crate/descent`, `crate/land`)
 
 `crate` track (stride 6): `pos` (base centre of `crate_ammo_drop`, clip space) + `rot` (Euler XYZ). Canopy track
 as above, pivot at the crate's `parachute` socket while attached. `crate/descent` loops (3.2 s), `descentSpeed`
 **6.0 m/s**; `crate/land` (3.5 s): impact, small bounce (0.12 m), settle with a slight tilt, canopy collapses and
-drapes beside / over the crate.
+drapes beside / over the crate. The crate stays (it is the supply); the canopy and lines dissolve (§2.3.3).
+
+### 2.3.3 Canopy removal after landing (voxel dissolve)
+
+Not part of the clip data; timing is driven by the `canopy_ground` event (soldier: `para_land` t = 1.4 s; crate:
+`crate/land` t = 2.2 s). Applies to the whole parachute prop (`para_infantry` / `para_cargo`: canopy **and** lines);
+the soldier and the crate are never dissolved.
+
+| Phase | Time after `canopy_ground` | What happens |
+|---|---|---|
+| hold | 0 – 2.5 s | canopy lies as the clip left it (soldier: frozen at `harness_release`) |
+| dissolve | 2.5 – 5.0 s | `d = (t − 2.5) / 2.5` grows 0 → 1: every voxel has a random threshold in [0, 1) (hash of its integer voxel coordinate in the undeformed prop), it is discarded once `d` passes it; the prop also sinks `0.06 · d` m |
+| removed | ≥ 5.0 s | prop no longer drawn (and no longer casts a shadow) |
+
+Engine (src/lab/MilitaryLab, `kCanopyHold` / `kCanopyDissolve`): the canopy instance is kind 2 with
+`pos.w = 2 + 0.9 · d`; `shaders/city.vert` derives the voxel id from the quantised vertex position (half-cell units,
+stepped half a cell inwards along the face normal, so a greedy quad covers the right voxels), `shaders/city.frag` and
+the lab's shadow pipeline `shaders/city_shadow.frag` share `include/dissolve.glsl`, so the shadow dissolves with the
+surface. The HTML lab mirrors it (`dissolveMat`: same hash, the `customDepthMaterial` discards too).
+
+### 2.5 `weapon` track, stride 7 (death clips: dropped weapon)
+
+| Floats | Channel |
+|---|---|
+| 0..2 | `pos`: weapon grip origin, clip space, metres |
+| 3..5 | `rot`: Euler XYZ of the weapon in clip space (continuous, lerp-safe) |
+| 6 | `attached`: 1 while still in the hand (the values then equal the hand placement), 0 after the drop |
+
+From the `weapon_drop` frame on, body flag **bit 7** is set and the weapon is drawn from this track
+(`world = agent · T(pos) · R(rot)`) instead of the right hand; before it, as usual (`weaponMount`). Authoring
+(`bakeWeaponDrop` in the Lab library): release with the hand's velocity, ballistic fall (g = 9.8) while turning to
+lie flat **on its side** (weapon X axis vertical, barrel along its release heading), one 5 cm bounce with a small rock
+about the barrel, then rest. The rest spot is the nearest spot to the natural landing point that is clear (in the ground
+plane) of every body voxel of the final pose; every frame the weapon is lifted so no voxel goes below the ground. The left hand lets go
+(`supportW` → 0) at the drop; ground contact of the body ignores the released weapon.
+
+Converter checks (`checkDeath`, abort on failure), reported in `check`: `weaponMinY` (lowest weapon voxel after the
+drop, ≥ 0), `weaponGap` (rest clearance weapon ↔ body voxels measured in the ground plane, so the weapon is beside the body and
+never under the raised back or a limb, ≥ 2 cm; measured 4–6 cm), `restMinY` (lowest body
+voxel of the last frame, full voxel set, ≥ −1 cm; measured 0). Engines that ignore bit 7 still get a valid (old-style)
+in-hand weapon from `weaponMount`.
 
 ## 3. Events
 
@@ -146,7 +186,8 @@ drapes beside / over the crate.
 | `hit` | | damage reaction peak |
 | `body_fall` | | death: body hits the ground (dust) |
 | `door` | | enter/exit: crossing the door plane (clip space z of the threshold in field `z`) |
-| `touchdown`, `harness_release`, `canopy_ground` | | parachute |
+| `touchdown`, `harness_release`, `canopy_ground` | | parachute (`canopy_ground` also starts the canopy hold / dissolve clock, §2.3.3) |
+| `weapon_drop`, `weapon_land` | | death clips: the weapon leaves the right hand / hits the ground (sound, small dust) (§2.5) |
 | `crate_touch`, `crate_bounce` | | crate |
 
 ## 4. Blending and transitions
@@ -207,7 +248,7 @@ Exact values are in each clip's `speed`, `delta` and `stairs` fields. Every clip
 | crouch_aim / crouch_fire | 2.0 / as fire | yes | kneeling on the right knee; MG shouldered when kneeling |
 | reload | rifle 2.4 / MG 4.2 / sniper 2.9 | no | rifle: mag out → pouch → mag in → charging handle; MG: cover open → box off → new box from the pack → belt → cover closed; sniper: bolt back → mag swap → bolt forward |
 | hit | 0.6 | no | jolt back, weapon knocked off line |
-| death_a / _b / _c | 1.2 / 1.4 / 1.2 | no | flat on the ground by 0.6–0.8 s; backwards onto the back / crumple forward face down / spun onto the side; hold the last frame (corpse) |
+| death_a / _b / _c | 1.2 / 1.4 / 1.2 | no | flat on the ground by 0.6–0.8 s; backwards onto the back / crumple forward face down / spun onto the side; the weapon is released (`weapon_drop` 0.3 / 0.4 / 0.3 s) and falls to lie flat beside the body (§2.5); hold the last frame (corpse) |
 | collect_ammo | 3.2 | no | kneel at a crate 0.85 m ahead, grab (`grab`), stow on the vest (`stow`), stand |
 | enter_building / exit_building | 2.4 | no | weapon up / scanning; root motion 1.68 m |
 | stairs_up / stairs_down | 1.0 | yes | root motion per cycle |

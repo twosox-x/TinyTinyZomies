@@ -46,6 +46,9 @@ struct MilAttachment {
 // supportTarget[3], flags. canopy frame (12): pos[3], rot[3], radial, height, clamp, visible, shear x, z. crate (6): pos, rot.
 enum { MB_ROT = 0, MB_ROOTPOS = 30, MB_ROOTROT = 33, MB_MOUNT = 36, MB_SUPPORTW = 39, MB_SUPPORT = 40, MB_FLAGS = 43, MB_STRIDE = 44 };
 enum { MC_POS = 0, MC_ROT = 3, MC_RADIAL = 6, MC_HEIGHT = 7, MC_CLAMP = 8, MC_VISIBLE = 9, MC_SHEAR = 10, MC_STRIDE = 12 };
+// weapon frame (7, death clips): pos[3] (grip, clip space m), rot[3] (Euler XYZ, clip space), attached 0/1. Used while body
+// flag bit 7 (MB_FLAG_DROPPED) is set: the weapon was released (`weapon_drop`) and lies / falls on its own.
+enum { MW_POS = 0, MW_ROT = 3, MW_ATTACHED = 6, MW_STRIDE = 7, MB_FLAG_SLUNG = 64, MB_FLAG_DROPPED = 128 };
 struct MilFxEvent {
     float t = 0.f;
     std::string type;                             // muzzle_flash, tracer, shell_eject, suppressed, footstep, ...
@@ -57,13 +60,14 @@ struct MilKeyClip {
     float delta[4] = {0, 0, 0, 0};
     bool loop = true, rootMotion = false;
     int frames = 0;
-    std::vector<float> body, canopy, crate;       // frames * stride (empty = no such track)
+    std::vector<float> body, canopy, crate, weapon;   // frames * stride (empty = no such track)
     std::vector<MilFxEvent> events;
     // t in seconds (wrapped for loops, clamped otherwise); out has the track's stride; false if the track is absent
     bool sample(const std::vector<float>& track, int stride, float t, float* out) const;
     bool sampleBody(float t, float* out) const { return sample(body, MB_STRIDE, t, out); }
     bool sampleCanopy(float t, float* out) const { return sample(canopy, MC_STRIDE, t, out); }
     bool sampleCrate(float t, float* out) const { return sample(crate, 6, t, out); }
+    bool sampleWeapon(float t, float* out) const { return sample(weapon, MW_STRIDE, t, out); }
 };
 
 struct MilClip {

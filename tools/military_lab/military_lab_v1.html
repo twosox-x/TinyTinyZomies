@@ -1071,7 +1071,7 @@ function rigidGroup(model, part) {
    left hand on the support point, feet planted, body resting on the ground).
    Internal units: body voxels V (as PIVOT), converted to metres on output.
    ===================================================================================== */
-const ANIM_VERSION = 1, ANIM_HZ = 30, BODY_STRIDE = 44, CANOPY_STRIDE = 12, CRATE_STRIDE = 6;
+const ANIM_VERSION = 1, ANIM_HZ = 30, BODY_STRIDE = 44, CANOPY_STRIDE = 12, CRATE_STRIDE = 6;   // WEAPON_STRIDE 7 (death clips), below
 const ANIM_CLASSES = ["rifleman", "mg", "sniper"];
 const CLS_WEAPON = { rifleman: "rifle", mg: "mg", sniper: "sniper" };
 const HAND_ITEM = { none: 0, rifleMag: 1, mgBox: 2, sniperMag: 3, ammoCan: 4, belt: 5 };
@@ -1264,7 +1264,7 @@ function finalizeFrame(cls, S, model) {
   } else { rot.upperArmL = free[0]; rot.forearmL = free[1]; }
   // ground: lift (or lock) the body so its lowest voxel rests on y = 0
   if (S.ground !== undefined && model) {
-    const mn = posedMinY(model, rot, rootRot, rootPos, S.slung ? slungPlacement(cls) : null, mount);
+    const mn = posedMinY(model, rot, rootRot, rootPos, S.slung ? slungPlacement(cls) : null, S.dropped ? "dropped" : mount, !!S.dropped);
     rootPos[1] += S.ground >= 1 ? -mn : Math.max(0, -mn) * (1 - S.ground) + (-mn) * S.ground;
   }
   const out = new Array(BODY_STRIDE).fill(0);
@@ -1284,12 +1284,13 @@ function slungPlacement(cls) {
   return { gripT: [0.6, 4.2, front], W };
 }
 // lowest point of the posed model (metres -> V via unit), for ground contact
-function posedMinY(model, rot, rootRot, rootPos, slung, mount) {
+function posedMinY(model, rot, rootRot, rootPos, slung, mount, full) {
   const F = fk(rot), R0 = eulerMat(rootRot);
   let mn = Infinity;
   for (const p of model.parts) {
     let Rw, origin, off;
     if (p.name === "weapon") {
+      if (mount === "dropped") continue;   // released weapon: own track (death clips), checked separately
       if (slung) { const tR = F.torso.R; Rw = mmul(R0, mmul(tR, slung.W)); origin = vadd(rootPos, mvec(R0, vadd(F.torso.pos, mvec(tR, slung.gripT)))); }
       else { const W = mmul(F.forearmR.R, eulerMat(mount)); Rw = mmul(R0, W); origin = vadd(rootPos, mvec(R0, handPos(F, "R"))); }
       off = [0, 0, 0];
@@ -1300,12 +1301,108 @@ function posedMinY(model, rot, rootRot, rootPos, slung, mount) {
     const sc = p.set.size * p.unitM / V_M, h = sc / 2, ext = h * (Math.abs(Rw[3]) + Math.abs(Rw[4]) + Math.abs(Rw[5]));
     const k = p.unitM / V_M;
     if (!p._cells) p._cells = [...p.set.map.values()].filter((c, i) => i % 2 === 0 || p.set.map.size < 400).map(c => [c.x * k, c.y * k, c.z * k]);
-    for (const c of p._cells) {
+    if (!p._cellsAll) p._cellsAll = [...p.set.map.values()].map(c => [c.x * k, c.y * k, c.z * k]);
+    for (const c of (full ? p._cellsAll : p._cells)) {
       const y = origin[1] + Rw[3] * (c[0] - off[0]) + Rw[4] * (c[1] - off[1]) + Rw[5] * (c[2] - off[2]) - ext;
       if (y < mn) mn = y;
     }
   }
   return mn;
+}
+// posed voxel cells of the body (every part but the weapon): centres in clip space (V) + half extent (V)
+function posedBodyCells(model, rot, rootRot, rootPos) {
+  const F = fk(rot), R0 = eulerMat(rootRot), out = [];
+  for (const p of model.parts) {
+    if (p.name === "weapon") continue;
+    const slot = p.slot || p.gearOf; if (!slot) continue;
+    const Rw = mmul(R0, F[slot].R), origin = vadd(rootPos, mvec(R0, F[slot].pos)), off = PIVOT[slot], k = p.unitM / V_M, h = p.set.size * k / 2;
+    for (const c of p.set.map.values()) { const l = [c.x * k - off[0], c.y * k - off[1], c.z * k - off[2]]; out.push({ p: vadd(origin, mvec(Rw, l)), h }); }
+  }
+  return out;
+}
+// weapon voxel cells in weapon space (grip origin, V) + half extent (V)
+function weaponCells(model) {
+  const p = model.parts.find(q => q.name === "weapon"); if (!p) return { cells: [], h: 0 };
+  const k = p.unitM / V_M;
+  return { cells: [...p.set.map.values()].map(c => [c.x * k, c.y * k, c.z * k]), h: p.set.size * k / 2 };
+}
+// lowest weapon point (V, relative to the grip origin) for a weapon-to-clip rotation R
+function weaponLow(WC, R) { const ext = WC.h * (Math.abs(R[3]) + Math.abs(R[4]) + Math.abs(R[5])); let mn = Infinity; for (const c of WC.cells) mn = Math.min(mn, R[3] * c[0] + R[4] * c[1] + R[5] * c[2] - ext); return mn; }
+// closest approach between the weapon (placement pos V, rotation R) and body cells, measured in the ground plane (so the
+// weapon is beside the body, not under the raised back or a limb): min over pairs of (xz centre distance - radii), V
+function weaponBodyGap(WC, pos, R, body, stopBelow) {
+  if (!body.hash) { body.hash = new Map(); for (const b of body) { const k = Math.floor(b.p[0] / 2) + "," + Math.floor(b.p[2] / 2); if (!body.hash.has(k)) body.hash.set(k, []); body.hash.get(k).push(b); } }
+  let g = Infinity;
+  const rw = WC.h * 1.2;
+  for (const c of WC.cells) {
+    const q = vadd(pos, mvec(R, c)), i0 = Math.floor(q[0] / 2), k0 = Math.floor(q[2] / 2);
+    for (let di = -1; di <= 1; di++) for (let dk = -1; dk <= 1; dk++) {
+      const L = body.hash.get((i0 + di) + "," + (k0 + dk)); if (!L) continue;
+      for (const b of L) { g = Math.min(g, Math.hypot(q[0] - b.p[0], q[2] - b.p[2]) - rw - b.h * 1.2); }   // ground plane: beside, never under / over
+    }
+    if (stopBelow !== undefined && g < stopBelow) return g;
+  }
+  return g;
+}
+// Death clips: the weapon leaves the hand at `weapon_drop`, falls (ballistic from the hand velocity, turning flat), bounces
+// once and rests flat on its side on the ground BESIDE the body (rest spot searched for clearance from every body voxel
+// of the final pose). Writes the clip's weapon track (7 floats / frame: pos m, rot Euler XYZ, attached 0/1, clip space)
+// and sets flag bit 7 (FLAG_DROPPED) from the drop frame on.
+const WEAPON_STRIDE = 7, FLAG_DROPPED = 128, WEAPON_CLEARANCE = 0.04;
+function bakeWeaponDrop(c, raw, model) {
+  const n = raw.length, tr = c.weaponDrop, fr0 = Math.round(tr * ANIM_HZ);
+  const place = fr => { const F = fk(fr.rot), R0 = eulerMat(fr.rootRot); return { pos: vadd(fr.rootPos, mvec(R0, handPos(F, "R"))), R: mmul(R0, mmul(F.forearmR.R, eulerMat(fr.out.slice(36, 39)))) }; };
+  const P0 = place(raw[fr0]), Pm = place(raw[Math.max(0, fr0 - 1)]);
+  const vel = vscale(vsub(P0.pos, Pm.pos), ANIM_HZ);            // V / s
+  const WC = weaponCells(model), G = 9.8 / V_M;
+  const last = raw[n - 1], body = posedBodyCells(model, last.rot, last.rootRot, last.rootPos);
+  // flat on its side: weapon X axis vertical (side down nearest to the release roll), barrel along its release heading
+  const zr = [P0.R[2], 0, P0.R[8]], hd = Math.atan2(zr[0], zr[2]), sgn = P0.R[3] >= 0 ? 1 : -1;
+  const restR = yaw => { const z = [Math.sin(yaw), 0, Math.cos(yaw)], x = [0, sgn, 0], y = vcross(z, x); return colsMat(x, y, z); };
+  // natural landing spot: ballistic estimate from the release, then the nearest spot with clearance from the body
+  const tFall0 = Math.sqrt(2 * Math.max(1, P0.pos[1]) / G);
+  const nat = [P0.pos[0] + vel[0] * tFall0 * 0.6, 0, P0.pos[2] + vel[2] * tFall0 * 0.6];
+  let best = null;
+  for (let r = 0; r <= 14 && !best; r += 0.5) {
+    for (let a = 0; a < 24 && !best; a++) for (const dy of [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05]) {
+      if (r === 0 && a > 0) break;
+      const ang = a / 24 * Math.PI * 2, R = restR(hd + dy);
+      const pos = [nat[0] + r * Math.cos(ang), 0, nat[2] + r * Math.sin(ang)]; pos[1] = -weaponLow(WC, R) + 0.003 / V_M;
+      const gap = weaponBodyGap(WC, pos, R, body, WEAPON_CLEARANCE / V_M) * V_M;
+      if (gap >= WEAPON_CLEARANCE) { best = { pos, R, gap }; break; }
+    }
+  }
+  if (!best) throw new Error(c.name + ": no clear rest spot for the dropped weapon");
+  const qR = matQuat(best.R), q0 = matQuat(P0.R);
+  // fall time: ballistic from the release height / vertical velocity down to the rest height
+  const dyF = P0.pos[1] - best.pos[1], tHit = Math.max(0.25, (vel[1] + Math.sqrt(vel[1] * vel[1] + 2 * G * Math.max(0, dyF))) / G);
+  const tB = 0.24, hop = 0.05 / V_M;
+  c.weapon = [];
+  for (let f = 0; f < n; f++) {
+    const t = f / ANIM_HZ;
+    let pos, R, att = 0;
+    if (f < fr0) { const P = place(raw[f]); pos = P.pos; R = P.R; att = 1; }
+    else {
+      const s = t - tr;
+      if (s < tHit) {
+        const u = s / tHit;
+        pos = [lerp(P0.pos[0], best.pos[0], u), P0.pos[1] + vel[1] * s - 0.5 * G * s * s, lerp(P0.pos[2], best.pos[2], u)];
+        R = quatMat(qnlerp(q0, qR, smooth(Math.min(1, u * 1.15))));
+      } else {
+        const b = s - tHit, k = b < tB ? Math.sin(Math.PI * b / tB) : 0;
+        const wob = b < tB * 1.6 ? 0.12 * Math.sin(Math.PI * b / (tB * 0.8)) * Math.exp(-b * 6) : 0;   // small rock about the barrel
+        R = mmul(best.R, eulerMat([0, 0, wob]));
+        pos = [best.pos[0], best.pos[1] + hop * k, best.pos[2]];
+      }
+      pos[1] = Math.max(pos[1], -weaponLow(WC, R) + 0.005 / V_M);   // never below the ground
+      c.body[f][43] |= FLAG_DROPPED;
+    }
+    const e = matEuler(R);
+    if (f > 0) for (let k = 0; k < 3; k++) { const pv = c.weapon[f - 1][3 + k]; while (e[k] - pv > Math.PI) e[k] -= 2 * Math.PI; while (e[k] - pv < -Math.PI) e[k] += 2 * Math.PI; }   // continuous for lerp
+    c.weapon.push([pos[0] * V_M, pos[1] * V_M, pos[2] * V_M, e[0], e[1], e[2], att]);
+  }
+  c.events.push({ t: tr, type: "weapon_drop" }, { t: +(tr + tHit).toFixed(4), type: "weapon_land" });
+  c.weaponRest = { gap: +best.gap.toFixed(3) };
 }
 
 /* ---- gait (in-place locomotion and root-motion walks) ---- */
@@ -1387,7 +1484,8 @@ function buildAnims(infantry) {
       if (c.crateFn) c.crate.push(c.crateFn(t));
     }
     if (c.gen && c.checkGround !== false) {
-      for (let f = 0; f < n; f += 3) { const fr = raw[f]; const mn = posedMinY(rep[c.cls], fr.rot, fr.rootRot, fr.rootPos, (fr.out[43] & FLAG_SLUNG) ? slungPlacement(c.cls) : null, fr.out.slice(36, 39)); minY = Math.min(minY, mn * V_M); }
+      if (c.weaponDrop !== undefined) bakeWeaponDrop(c, raw, rep[c.cls]);
+      for (let f = 0; f < n; f += 3) { const fr = raw[f]; const mn = posedMinY(rep[c.cls], fr.rot, fr.rootRot, fr.rootPos, (fr.out[43] & FLAG_SLUNG) ? slungPlacement(c.cls) : null, (fr.out[43] & FLAG_DROPPED) ? "dropped" : fr.out.slice(36, 39)); minY = Math.min(minY, mn * V_M); }
     }
     // foot sliding: while a foot is flagged planted, its sole (world = clip + agent travel) must not move
     let slide = 0;
@@ -1404,6 +1502,7 @@ function buildAnims(infantry) {
       }
     }
     c.stats = { supportError: +maxSup.toFixed(4), minY: minY === Infinity ? null : +minY.toFixed(3), footSlide: +slide.toFixed(4) };
+    if (c.weaponRest) c.stats.weaponGap = c.weaponRest.gap;
     // delta: ground-plane displacement (+ yaw for turns); vertical offsets of deaths / landings are pose, not motion
     if (c.gen) { const a = c.body[0], b = c.body[n - 1]; c.delta = c.rootMotion ? [b[30] - a[30], 0, b[32] - a[32], c.action.startsWith("turn") ? b[34] - a[34] : 0].map(v => +v.toFixed(5)) : null; }
     if (c.deltaOverride) c.delta = c.deltaOverride;
@@ -1596,30 +1695,30 @@ function authorClass(cls, model, add) {
 
   // ---- deaths
   // A: shot in the chest, knees buckle, falls backwards onto the back, arms flung
-  add(cls, "death_a", { duration: 1.2, loop: false, rootMotion: true, events: [{ t: 0.6, type: "body_fall" }], gen: t => {
+  add(cls, "death_a", { duration: 1.2, loop: false, rootMotion: true, weaponDrop: 0.3, events: [{ t: 0.6, type: "body_fall" }], gen: t => {
     const k1 = smooth(t / 0.25), k2 = smooth((t - 0.15) / 0.45), k3 = smooth((t - 0.6) / 0.2);
     const torso = [carryTorso[0] - 0.5 * k1 + 0.4 * k2 - 0.2 * k3, carryTorso[1] * (1 - k2), 0.1 * k1];
     return { torso, head: [-0.5 * k1 + 0.3 * k3, 0.3 * k2, 0.2 * k2], pelvis: [0, -1.5 * k1, -2.6 * k2], rootRot: [-1.5 * k2 - 0.07 * k3, 0.2 * k2, 0.1 * k2],
       legs: { L: { thigh: [-0.3 * k1 - 0.5 * k2 + 0.4 * k3, 0, 0.15 * k2], shin: [0.9 * k1 - 0.3 * k2, 0, 0] }, R: { thigh: [-0.1 * k1 - 0.2 * k2, 0, -0.25 * k2], shin: [0.7 * k1 + 0.2 * k2, 0, 0] } },
-      wpn: kickPlacement(carryT, [0.8 * k1, -0.9 * k2, 0.8 * k2, 1.0 * k1]), sw: 1 - k1, leftRot: { upper: [-1.3 * k2, 0, 0.3 + 1.0 * k2], fore: [-0.2, 0, 0] },
-      poleR: [-1, 0.5, -0.4], ground: k3 };
+      wpn: kickPlacement(carryT, [0.8 * k1, -0.9 * k2, 0.8 * k2, 1.0 * k1]), sw: t >= 0.3 ? 0 : 1 - k1, leftRot: { upper: [-1.3 * k2, 0, 0.3 + 1.0 * k2], fore: [-0.2, 0, 0] },
+      poleR: [-1, 0.5, -0.4], ground: k3, dropped: t >= 0.3 - 1e-6 };
   } });
   // B: crumples forward: knees, then face down, weapon falls in front
-  add(cls, "death_b", { duration: 1.4, loop: false, rootMotion: true, events: [{ t: 0.4, type: "body_fall" }, { t: 0.8, type: "body_fall" }], gen: t => {
+  add(cls, "death_b", { duration: 1.4, loop: false, rootMotion: true, weaponDrop: 0.4, events: [{ t: 0.4, type: "body_fall" }, { t: 0.8, type: "body_fall" }], gen: t => {
     const k1 = smooth(t / 0.4), k2 = smooth((t - 0.4) / 0.4), k3 = smooth((t - 0.8) / 0.25);
     const torso = [carryTorso[0] + 0.5 * k1 - 0.3 * k2, carryTorso[1] * (1 - k1) - 0.2 * k2, 0.15 * k2];
     return { torso, head: [0.4 * k1 - 0.6 * k2, -0.3 * k2, 0.1], pelvis: [0, -3.7 * k1 + 1.5 * k2, 1.6 * k2], rootRot: [1.35 * k2 + 0.1 * k3, -0.25 * k2, 0.1 * k2],
       legs: { L: { thigh: [-0.15 * k1 + 0.3 * k2, 0, 0.1 * k2], shin: [1.6 * k1 - 1.3 * k2, 0, 0] }, R: { thigh: [0.1 * k1 + 0.2 * k2, 0, -0.15 * k2], shin: [1.5 * k1 - 1.1 * k2, 0, 0] } },
-      wpn: kickPlacement(carryT, [0, 0.9 * k1 - 0.6 * k2, -0.3 * k2, -1.0 * k1]), sw: 1 - k2, leftRot: { upper: [-0.6 - 1.5 * k2, 0, 0.3], fore: [-0.5 * (1 - k2), 0, 0] },
-      ground: 0.5 * k1 + 0.5 * k3 + (k3 > 0.99 ? 0 : 0) };
+      wpn: kickPlacement(carryT, [0, 0.9 * k1 - 0.6 * k2, -0.3 * k2, -1.0 * k1]), sw: t >= 0.4 ? 0 : 1 - smooth((t - 0.22) / 0.18), leftRot: { upper: [-0.6 - 1.5 * k2, 0, 0.3], fore: [-0.5 * (1 - k2), 0, 0] },
+      ground: 0.5 * k1 + 0.5 * k3, dropped: t >= 0.4 - 1e-6 };
   } });
   // C: spun by a hit to the shoulder, falls on the side
-  add(cls, "death_c", { duration: 1.2, loop: false, rootMotion: true, events: [{ t: 0.65, type: "body_fall" }], gen: t => {
+  add(cls, "death_c", { duration: 1.2, loop: false, rootMotion: true, weaponDrop: 0.3, events: [{ t: 0.65, type: "body_fall" }], gen: t => {
     const k1 = smooth(t / 0.35), k2 = smooth((t - 0.2) / 0.45), k3 = smooth((t - 0.65) / 0.25);
     const torso = [carryTorso[0] + 0.25 * k1, carryTorso[1] + 0.9 * k1, -0.3 * k2];
     return { torso, head: [0.2, 0.4 * k1, -0.4 * k2], pelvis: [1.5 * k2, -2.2 * k1, 0], rootRot: [0, 1.4 * k1, 1.45 * k2 + 0.08 * k3],
       legs: { L: { thigh: [-0.6 * k2, 0, 0.2 * k2], shin: [1.0 * k1 - 0.2 * k2, 0, 0] }, R: { thigh: [0.3 * k1, 0, -0.1], shin: [0.9 * k1, 0, 0] } },
-      wpn: kickPlacement(carryT, [0.5 * k1, 0.5 * k1 - 1.0 * k2, 0.6 * k2, 0]), sw: 1 - k1, leftRot: { upper: [-0.3, 0, 0.3 + 1.2 * k1], fore: [-0.6, 0, 0] }, ground: k3 };
+      wpn: kickPlacement(carryT, [0.5 * k1, 0.5 * k1 - 1.0 * k2, 0.6 * k2, 0]), sw: t >= 0.3 ? 0 : 1 - k1, leftRot: { upper: [-0.3, 0, 0.3 + 1.2 * k1], fore: [-0.6, 0, 0] }, ground: k3, dropped: t >= 0.3 - 1e-6 };
   } });
 
   // ---- collect ammunition: kneel at a crate (in front, 0.75 m), grab with the left hand, stow on the vest, stand
@@ -2124,13 +2223,16 @@ function makeActor(modelName, x, z, heading) {
   return a;
 }
 const mWork = new THREE.Matrix4();
-function applyBody(a, fr) {
+function applyBody(a, fr, wfr) {
   const G = a.G;
   SLOTS.forEach((s, i) => G[s].rotation.set(fr[i * 3], fr[i * 3 + 1], fr[i * 3 + 2], "XYZ"));
   a.root.position.set(fr[30], fr[31], fr[32]); a.root.rotation.set(fr[33], fr[34], fr[35], "XYZ");
   const slung = (fr[43] & FLAG_SLUNG) !== 0, w = G.weapon;
   if (w) {
-    if (slung) {
+    if ((fr[43] & FLAG_DROPPED) && wfr) {   // released (death clips): weapon track in clip space (MILITARY_ANIMS.md 2.5)
+      if (w.parent !== a.outer) a.outer.add(w);
+      w.position.set(wfr[0], wfr[1], wfr[2]); w.rotation.set(wfr[3], wfr[4], wfr[5], "XYZ");
+    } else if (slung) {
       if (w.parent !== G.torso) G.torso.add(w);
       const P = AN.slung[a.model.cls === "mg" ? "mg" : a.model.cls]; const m = P.W;
       w.position.set(P.gripT[0] * V_M, P.gripT[1] * V_M, P.gripT[2] * V_M);
@@ -2148,7 +2250,7 @@ function poseActor(a, clip, t, dt) {
   if (a.clip !== clip) { if (a.clip && a.last) { a.prev = a.last; a.blend = 0; } a.clip = clip; clearMarks(a); }
   let fr = sampleTrack(clip, "body", clipTime(clip, t));
   if (a.blend < 1 && a.prev) { a.blend = Math.min(1, a.blend + (dt || 0) / 0.2); fr = blendBody(a.prev, fr, smooth(a.blend)); }
-  a.last = fr; applyBody(a, fr);
+  a.last = fr; applyBody(a, fr, clip.weapon ? sampleTrack(clip, "weapon", clipTime(clip, t)) : null);
   return fr;
 }
 function clearMarks(a) { for (const m of a.marks) scene.remove(m); a.marks = []; a.lastFlags = 0; }
@@ -2204,12 +2306,39 @@ function drawFx(a, clip, t) {
   }
 }
 // ---- canopy deformation (MILITARY_ANIMS §2.3): affine about the pivot + soft clamp onto the surface
+// voxel dissolve (MILITARY_ANIMS.md 2.3.3, engine: shaders/include/dissolve.glsl): per-voxel random threshold, aCell = the
+// undeformed position in voxel units, half a cell inside the face; the shadow (customDepthMaterial) dissolves with it
+const DISSOLVE_GLSL = `uniform float uDis; varying vec3 vCell;
+  bool voxelDissolved(vec3 cell, float d) { if (d <= 0.0) return false; vec3 c = floor(cell); vec3 q = fract(c * vec3(0.1031, 0.1030, 0.0973) + 0.37); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z) < d * 1.0001; }`;
+function dissolveMat(base, uni) {
+  const m = base.clone();
+  m.onBeforeCompile = sh => {
+    sh.uniforms.uDis = uni;
+    sh.vertexShader = "attribute vec3 aCell; varying vec3 vCell;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n vCell = aCell;");
+    sh.fragmentShader = DISSOLVE_GLSL + "\n" + sh.fragmentShader.replace("void main() {", "void main() {\n if (voxelDissolved(vCell, uDis)) discard;");
+  };
+  return m;
+}
 function makeCanopy(propName, parent) {
   const r = inst(propName); parent.add(r);
-  const meshes = []; r.traverse(o => { if (o.isMesh && o.geometry.attributes.position) { o.userData.orig = o.geometry.attributes.position.array.slice(); o.frustumCulled = false; meshes.push(o); } });
+  const uni = { value: 0 }, meshes = [];
+  r.traverse(o => {
+    if (!(o.isMesh && o.geometry.attributes.position)) return;
+    const pos = o.geometry.attributes.position.array, nrm = o.geometry.attributes.normal.array, part = o.parent.userData.part;
+    const unit = part ? part.set.size * part.unitM : 0.05, cell = new Float32Array(pos.length);
+    for (let i = 0; i < pos.length; i++) cell[i] = pos[i] / unit - nrm[i] * 0.25 + 0.5;
+    o.geometry.setAttribute("aCell", new THREE.Float32BufferAttribute(cell, 3));
+    o.material = dissolveMat(o.material, uni);
+    o.customDepthMaterial = dissolveMat(new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking }), uni);
+    o.userData.orig = pos.slice(); o.frustumCulled = false; meshes.push(o);
+  });
   r.userData.markers.forEach(m => m.visible = false);
-  return { root: r, meshes };
+  return { root: r, meshes, uni };
 }
+// canopy hold + dissolve after canopy_ground (engine: MilitaryLab kCanopyHold / kCanopyDissolve)
+const CANOPY_HOLD = 2.5, CANOPY_DISSOLVE = 2.5;
+function canopyDissolve(sinceGround) { return sinceGround < 0 ? 0 : clamp01((sinceGround - CANOPY_HOLD) / CANOPY_DISSOLVE); }
+function setDissolve(c, d) { c.uni.value = d; if (d >= 1) c.root.visible = false; for (const m of c.meshes) m.position.y = -0.06 * d; }
 function deformCanopy(c, fr, surf) {
   c.root.visible = fr[9] > 0.5;
   const R = eulerMat([fr[3], fr[4], fr[5]]), rad = fr[6], hs = fr[7], clampOn = fr[8] > 0.5, s = 0.08, shx = fr[10], shz = fr[11];
@@ -2271,7 +2400,10 @@ function surfFor(a) { const ox = a.outer.position.x, oz = a.outer.position.z, ba
 function paraState(a, T) {   // demo timeline for one paratrooper: descent -> land -> recover -> idle
   const D = (a.startH - a.surfH) / CLIP[a.cls + "/para_descent"].descentSpeed;
   const land = CLIP[a.cls + "/para_land"], rec = CLIP[a.cls + "/para_recover"], idle = CLIP[a.cls + "/idle"];
-  const ld = land.delta;
+  const ld = land.delta, tg = D + land.events.find(e => e.type === "canopy_ground").t;
+  const r = paraState0(a, T, D, land, rec, idle, ld); r.sinceGround = T < tg ? -1 : T - tg; return r;
+}
+function paraState0(a, T, D, land, rec, idle, ld) {
   if (T < D) return { clip: CLIP[a.cls + "/para_descent"], t: T, y: a.startH - 5 * T, off: [0, 0] };
   if (T < D + land.duration) return { clip: land, t: T - D, y: a.surfH, off: [0, 0] };
   if (T < D + land.duration + rec.duration) return { clip: rec, t: T - D - land.duration, y: a.surfH, off: [ld[0], ld[2]] };
@@ -2305,6 +2437,7 @@ function animUpdate(dt) {
       if (a.canopy) {
         const cc = s.canopyFrom || s.clip, ct = s.canopyFrom ? s.canopyFrom.duration : s.t;
         const cf = sampleTrack(cc, "canopy", ct); if (cf) deformCanopy(a.canopy, cf, surfFor(a));
+        setDissolve(a.canopy, canopyDissolve(s.sinceGround));
       }
       footMarks(a, fr);
     }
@@ -2314,6 +2447,8 @@ function animUpdate(dt) {
       p.outer.position.y = inAir ? p.startH - desc.descentSpeed * T : 0;
       const cr = sampleTrack(clip, "crate", t); p.crate.position.set(cr[0], cr[1], cr[2]); p.crate.rotation.set(cr[3], cr[4], cr[5], "XYZ");
       deformCanopy(p.canopy, sampleTrack(clip, "canopy", t), () => 0);
+      const tg = land.events.find(e => e.type === "canopy_ground").t;
+      setDissolve(p.canopy, canopyDissolve(inAir ? -1 : T - D - tg));
     }
   } else if (anim.scene === "rts") {
     for (const a of actors) {

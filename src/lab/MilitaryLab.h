@@ -65,6 +65,7 @@ private:
         int phase = 0;             // 0 descent, 1 land, 2 recover, 3 settled
         float t = 0, alt = 0, hold = 0;
         bool released = false;     // harness released: canopy frozen
+        float groundT = -1.f;      // seconds since canopy_ground (-1: not yet): hold, then voxel dissolve (MILITARY_ANIMS.md 2.3.3)
         float relCanopy[MC_STRIDE] = {};
         V3 relPos{};
         float clamp[8] = {0, 0, 0, 0, 0, 0, 0, 0};   // canopy clamp: roof footprint rect + heights (city.vert)

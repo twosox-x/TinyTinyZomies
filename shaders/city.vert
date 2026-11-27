@@ -20,6 +20,8 @@ layout(location = 1) out vec3 vNormal;
 layout(location = 2) flat out uint vMat;
 layout(location = 3) flat out vec4 vPaint;   // rgb, w = 1 paint this vertex
 layout(location = 4) flat out float vPhase;
+layout(location = 5) flat out float vDissolve;   // deformed props: 0..1 voxel dissolve (city.frag / city_shadow.frag discard)
+layout(location = 6) out vec3 vCell;             // deformed props: undeformed model position in voxel units (inside the face's voxel)
 vec3 qrot(vec4 q, vec3 v) { return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v); }
 void main() {
     vec3 p = origin.xyz + vec3(inPos.xyz) * qscale.xyx;
@@ -27,9 +29,15 @@ void main() {
     vMat = uint(inNrm.w) & 255u;
     vPaint = vec4(0.0);
     vPhase = 0.0;
+    vDissolve = 0.0;
+    vCell = vec3(0.0);
     if (mode.x == 1u) {
         Inst I = inst[mode.y + uint(gl_InstanceIndex)];
         if (I.pos.w > 1.5) {   // deformed prop (parachute canopy, docs/MILITARY_ANIMS.md 2.3): xz radial / y height scale
+            // dissolve (2.3.3): pos.w = 2 + 0.9 * d. Voxel id from the quantised position (half-cell units, cells centred on
+            // integers): step half a cell inwards along the face normal, so every fragment of a face reads its own voxel.
+            vDissolve = clamp((I.pos.w - 2.0) / 0.9, 0.0, 1.0);
+            vCell = vec3(inPos.xyz) * 0.5 - n * 0.25 + 0.5;
             vec2 sh = unpackHalf2x16(floatBitsToUint(I.paint.z));   // shear x, z (collapse drift), proportional to height
             p = I.pos.xyz + qrot(I.quat, vec3(p.x * I.paint.x + sh.x * p.y, p.y * I.paint.y, p.z * I.paint.x + sh.y * p.y));
             float g = I.paint.w;   // soft ground clamp (paint.w = surface height, < -1000 off); roof footprint: street outside
@@ -37,6 +45,7 @@ void main() {
                 g = (p.x >= clampRect.x && p.x <= clampRect.z && p.z >= clampRect.y && p.z <= clampRect.w) ? clampH.x : clampH.y;
             float x = (p.y - g) / 0.08;
             if (g > -1000.0 && x < 20.0) p.y = g + 0.08 * log(1.0 + exp(x));
+            p.y -= 0.06 * vDissolve;   // slight sink while it dissolves
         } else p = I.pos.xyz + qrot(I.quat, p);
         n = qrot(I.quat, n);
         if (I.pos.w > 1.5) {}
