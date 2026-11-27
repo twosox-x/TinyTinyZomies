@@ -36,6 +36,10 @@ struct PointLight { float x, y, z, radius, r, g, b, intensity; };
 // A burning wreck drawn as a voxel flame + smoke volume (Renderer::setFireVolumes, shaders/fx_volume.frag): box centre,
 // footprint length (m), strength 0..1, noise seed.
 struct FireVolume { float x, y, z, length, strength; uint32_t seed; };
+// Flamethrower fire as voxel volumes (GAME_DESIGN 14d, same fx_volume path / style as the explosions):
+// kind 2 = flame stream (x y z nozzle, length = reach m, yaw / pitch of the spray direction, strength 0..1 fading in / out),
+// kind 3 = ground-fire pool (x y z ground centre, length = radius m, strength 0..1). Renderer::setFlameVolumes.
+struct FlameVolume { float x, y, z, length, yaw, pitch, strength; uint32_t seed; int kind; };
 
 struct Sandbox {
     float originX = -96.f, originZ = -96.f, cellSize = 0.75f;

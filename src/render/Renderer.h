@@ -141,6 +141,7 @@ public:
     // flash + fire light + a voxel fireball / smoke / dust volume (scale: effect size, 1 car .. 2.2 fuel tanker)
     void addBlast(float x, float y, float z, float scale = 1.f);
     void setFireVolumes(const std::vector<FireVolume>& fires) { fires_ = fires; }   // burning wrecks, this frame
+    void setFlameVolumes(const std::vector<FlameVolume>& f) { flames_ = f; }        // flamethrower streams / ground fire (14d)
     void update(float dt);   // ages blast effects
     uint32_t fxVolumesDrawn() const { return fxDrawn_; }
 
@@ -226,6 +227,7 @@ private:
     struct FxBlast { float x, y, z, age, scale, seed; };
     std::vector<FxBlast> fxBlasts_;   // voxel fireball volumes (live ~7-10 s, see fxLife in fx_volume.glsl)
     std::vector<FireVolume> fires_;
+    std::vector<FlameVolume> flames_;
     uint32_t fxSeed_ = 1;
     FxStats fxStats_;
     uint32_t fxMerged_ = 0;

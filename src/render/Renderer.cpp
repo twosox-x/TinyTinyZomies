@@ -771,13 +771,17 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const bool fxHalf = rs.fxHalfRes && fxDiv > 1 && pFxHalf_ && !rs.perfLegacy;
     SDL_Rect fxScissor{0, 0, 0, 0};
     fxStats_ = FxStats{0, 0, fxMerged_, fxStats_.lights, fxStats_.lightsCulled, 0.f};
-    if (rs.drawFxVolumes && (!fxBlasts_.empty() || !fires_.empty())) {
+    if (rs.drawFxVolumes && (!fxBlasts_.empty() || !fires_.empty() || !flames_.empty())) {
         // nearest first: with conservative depth the near-face pass rejects voxels behind closer ones early
-        struct Vol { Vec4 a, b; float d; };
+        struct Vol { Vec4 a, b; float d; Vec4 c{}; };
         Vol vols[kMaxFxVolumes];
         uint32_t n = 0;
         for (auto it = fxBlasts_.rbegin(); it != fxBlasts_.rend() && n < (uint32_t)kMaxFxVolumes; ++it, ++n)
             vols[n] = {{it->x, it->y, it->z, it->age}, {it->scale, 0.f, it->seed, 1.f}, 0.f};
+        for (const FlameVolume& f : flames_) {   // 14d flamethrower streams / ground-fire pools (kind 2 / 3; c.zw = yaw, pitch)
+            if (n >= (uint32_t)kMaxFxVolumes) break;
+            vols[n++] = {{f.x, f.y, f.z, (float)time}, {f.length, (float)f.kind, (float)(f.seed % 997u), f.strength}, 0.f, {0.f, 0.f, f.yaw, f.pitch}};
+        }
         for (const FireVolume& f : fires_) {
             if (n >= (uint32_t)kMaxFxVolumes) break;
             vols[n++] = {{f.x, f.y, f.z, (float)time}, {f.length, 1.f, (float)(f.seed % 997u), f.strength}, 0.f};
@@ -798,7 +802,9 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
                 const float r = R * (1.f + 0.22f * t), hc = 0.55f * R + 2.6f * ss * t / (1.f + 0.12f * t);
                 rx = std::max(r * 2.5f + 0.5f, t < 2.4f ? 0.8f + 3.8f * sb + 2.f * ss : 0.f) + 0.4f * t + 0.6f;
                 y1 = A.y + hc + r * 1.6f + 1.f;
-            } else { rx = 0.6f * B.x + 4.5f; y1 = A.y + 14.f; }
+            } else if (B.y < 1.5f) { rx = 0.6f * B.x + 4.5f; y1 = A.y + 14.f; }
+            else if (B.y < 2.5f) { rx = B.x * 1.1f + 2.5f; y0 = A.y - 2.5f; y1 = A.y + 3.f; }   // stream: around the nozzle
+            else { rx = 1.6f * B.x + 1.f; y1 = A.y + 5.f; }                                     // ground-fire pool
             float vx0 = 1e9f, vy0 = 1e9f, vx1 = -1e9f, vy1 = -1e9f;
             bool behind = false;
             for (int c = 0; c < 8; ++c) {
@@ -814,7 +820,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
             const float area = vx1 > vx0 && vy1 > vy0 ? (vx1 - vx0) * (vy1 - vy0) * 0.25f * 0.6f : 0.f;   // ~60 % of its box
             cover += area;
             const bool coarse = cover > rs.fxBudget && k > 0 && !rs.perfLegacy;   // over budget: the farther volumes one LOD coarser
-            fx.c[k] = {coarse ? 2.f : 1.f, coarse ? 96.f : 160.f, 0.f, 0.f};
+            fx.c[k] = {coarse ? 2.f : 1.f, coarse ? 96.f : 160.f, vols[k].c.z, vols[k].c.w};
             fxStats_.coarse += coarse ? 1u : 0u;
             if (area > 0.f) {
                 sx0 = std::min(sx0, (int)std::floor((vx0 * 0.5f + 0.5f) * (float)w) - 2);

@@ -564,7 +564,13 @@ Now:
   clicked surface, same island); recovery steps in `steer` now stay on the same level (< 0.6 m).
 Tests: `b3_ai_gate.txt`, `b3_ai_cars.txt`, `b3_roof_crate.txt`, `b3_roof_levels.txt`, `b3_ai_survival.txt`
 (script metrics `static_pct`, `switches`, `sidesteps`, squad fields `switches` / `rounds`).
-RESULTS_PLACEHOLDER
+Results (lavapipe, heavily loaded host): `b3_roof_levels` 17 / 17 (snipers on the 16.7 / 17.45 m podium, the 137.45 m
+ring and the 147.45 m top of one tower, plus a UI-pick drop on the podium; all still on their level after 75 s);
+`b3_roof_crate` 10 / 10 (crates land on the 17.4 m and 147.4 m roofs, each dry sniper collects 45 rounds);
+`b3_ai_cars` the 3 zombies in the gap between the car rows were dead 12 s after appearing (3 kills, 20 rounds, no
+losses; the run was cut by the host before the final expects). `b3_ai_gate` / `b3_ai_survival` thresholds are first
+guesses: both runs crashed in the Vulkan driver (segfault at the same address as concurrent `build/ttz` runs of
+other scripts) before their checks.
 
 ## 8. Milestone B3a: buildings (capture, garrison, hospital, fortification; GAME_DESIGN 6 / 7 / 14b; PROPOSED, values UNAPPROVED)
 
