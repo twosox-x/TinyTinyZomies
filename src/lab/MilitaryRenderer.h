@@ -122,8 +122,8 @@ public:
     // Bright emissive streak travelling from `from` to `to` (style 0 rifle, 1 MG, 2 sniper: thinner, faster).
     uint32_t fxTracer(V3 from, V3 to, int style);
     void fxTracerEnd(uint32_t id, float distFromStart);     // shorten / lengthen a live tracer (hit resolved)
-    float tracerLength = 7.f;                               // m, visible streak behind the head
-    float tracerWidth = 1.f;                                // x the minimum angular width (~2 px at 1080p)
+    float tracerLength = 9.f;                               // m, visible streak behind the head
+    float tracerWidth = 1.5f;                               // x the minimum angular width (1.5: ~3 px at 1080p)
     float flashScale = 1.f;                                 // x the minimum angular size of muzzle flashes (~3 px)
     void clearFx() { fx_.clear(); flashes_.clear(); }
     void updateFx(float dt);                                // age / move FX, emit their instances (before endFrame)

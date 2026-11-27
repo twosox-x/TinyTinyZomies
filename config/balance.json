@@ -2,9 +2,9 @@
   "status": "UNAPPROVED",
   "note": "Ranges after owner feedback: MG 55 m (dense close-mid crowds), rifle 60 m (mid), sniper 220 m (long, isolated targets, quiet). Provisional playtest values (GAME_DESIGN.md 2, 14b). None of these numbers is approved by the owner. killReward.explosion > 0 is a provisional YES to OWNER question 1 (explosion kills pay); set it to 0 to pay soldier kills only.",
   "weapons": {
-    "rifleman": { "damage": 0.6, "headshotChance": 0.15, "range": 60, "accuracy": 0.8, "spreadDeg": 1.5, "fireInterval": 0.3,
+    "rifleman": { "damage": 0.6, "headshotChance": 0.15, "range": 60, "accuracy": 0.8, "spreadDeg": 0.8, "fireInterval": 0.3,
                   "magazine": 30, "reserve": 180, "reloadTime": 2.4, "noise": 1.0, "noiseRadius": 80, "acquireTime": 0.4, "acquireRange": 65 },
-    "mg":       { "damage": 0.5, "headshotChance": 0.08, "range": 55, "accuracy": 0.6, "spreadDeg": 3.0, "fireInterval": 0.083,
+    "mg":       { "damage": 0.5, "headshotChance": 0.08, "range": 55, "accuracy": 0.6, "spreadDeg": 1.8, "fireInterval": 0.083,
                   "magazine": 100, "reserve": 300, "reloadTime": 4.0, "noise": 1.6, "noiseRadius": 120, "acquireTime": 0.6, "acquireRange": 60 },
     "sniper":   { "damage": 1.2, "headshotChance": 0.7, "range": 220, "accuracy": 0.99, "spreadDeg": 0.12, "fireInterval": 1.9,
                   "magazine": 5, "reserve": 40, "reloadTime": 2.4, "noise": 0.1, "noiseRadius": 12, "acquireTime": 1.0, "acquireRange": 230 }

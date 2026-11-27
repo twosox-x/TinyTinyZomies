@@ -91,6 +91,7 @@ struct WallEnv {
     std::function<float(float, float)> solid;      // ground + parked vehicles
     std::function<bool(float, float)> simulated;   // inside the simulated window
     std::vector<Obb> containers;                   // supply containers (landed or on their way down)
+    float streetY = 0.f;                           // street level of the window (walls stand on the street, not on roofs)
 };
 
 struct WallPlanPiece {

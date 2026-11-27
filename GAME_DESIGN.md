@@ -55,6 +55,22 @@ Phase 7 runs in two stages. **Stage A** (military assets and animations) must be
   - Territory is recalculated on build, destroy and breach.
   - Controlled territory raises passive income.
 - **OPEN:** how income is temporarily lost and recovered after a breach. This must be proposed to the owner.
+- **PROPOSED (B2, awaiting owner approval) — breach and income rule:**
+  - A wall breach that opens the perimeter removes the territory at once (no income) until the gap is closed again
+    and the area is cleared.
+  - Zombies inside a controlled territory (perimeter still closed: climbed over, or a squad let them in) pause its
+    income immediately ("threatened"). If they are still inside after 20 s (`fort.lossTime`), control is lost; it
+    returns once the area has been free of zombies for 3 s (`fort.clearDelay`). Clearing them before then resumes the
+    income without loss.
+  - Income is proportional to the controlled area (`fort.incomePerHectarePerMin`, UNAPPROVED value 1,000 per hectare
+    per minute). Values are provisional.
+- **PROPOSED (B2, awaiting owner approval) — gates:** a gate is a 4 m wall piece (1.6 m or 2.4 m) that soldiers walk
+  through and zombies cannot pass. It counts as closed for territory. Its leaves open while a soldier is near, purely
+  visually. It costs 3x a wall piece (UNAPPROVED). Zombies attack gates like any wall piece. Gates have no lock and no
+  "open for a sortie" control yet.
+- **PROPOSED (B2) — containers and territory:** an ammo container can be placed anywhere valid, not only inside
+  controlled territory, because owner decision 14c makes containers usable to close gaps in a perimeter. Section 4's
+  "inside controlled territory" rule becomes a switch (`fort.containerNeedsTerritory`, default off).
 
 ## 6. Buildings (APPROVED)
 - Existing city buildings can be captured and given a role.
@@ -181,6 +197,16 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 - Ammo containers never disappear and can be used to wall things off: they are physical obstacles. They rotate during placement and arrive by parachute.
 
 ## 15. Progress and known limitations
+- 2026-11-27: Milestone B2 (walls and territory) implemented. Free-form gabion walls (1.6 m and 2.4 m) with click
+  and drag placement, snapping, automatic joints, previews with cost and refusal reasons, health, zombie pressure
+  damage, breaches and rubble. Walls are physical obstacles for zombies, and soldier navigation updates locally.
+  Containers arrive by parachute, never disappear and close perimeter gaps. Territory regions are irregular, multiple
+  and event-driven, with zombie counts on the GPU, states, income and a subtle perimeter overlay. Gates and the
+  breach and income rule are PROPOSED. Known limits:
+  - Soldiers cannot shoot over walls taller than the muzzle: hit rays stop at static heights. Firing positions are B3.
+  - Explosions do not damage walls.
+  - A wall cannot be split mid-piece: T junctions attach to existing joints, which are every 4 m or less.
+  - Territory needs the GPU counts; without them, regions stay "uncleared".
 - 2026-11-27: Milestone B1 playable (combat loop). Owner feedback: weapon tracers and brighter muzzle flashes; trees and props must not vanish when zoomed out; LOD near the focus area is too aggressive; sniper roof drops fail and a sniper landed inside a building; zombies should roam realistically instead of standing in tight clumps.
 - 2026-11-27: Stage A approved by the owner. Stage B started on branch phase7b-gameplay.
 - 2026-11-26: Stage A started. Building the Military Asset Lab and the model set. No gameplay implemented.

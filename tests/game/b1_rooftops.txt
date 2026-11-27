@@ -28,7 +28,7 @@ at 30   expect squad 4 y >= 35.4
 at 30   expect squad 5 y >= 47.7
 at 30   expect squad 6 y >= 137
 at 30   expect squad 1 parachuted + squad 2 parachuted + squad 3 parachuted + squad 4 parachuted + squad 5 parachuted + squad 6 parachuted == 6
-at 30   camera -45 112 0.6 0.95 45
+at 30   camera -48 116 0.6 1.2 140
 at 30   shot rooftops_landed.png
 at 30.1 camera -14 120 0.6 0.9 250
 at 75   log

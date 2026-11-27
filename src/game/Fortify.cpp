@@ -39,6 +39,7 @@ WallEnv makeWallEnv(const AppState& app, const GameContext& ctx) {
     e.ground = [v](float x, float z) { return v->groundAt(x, z); };
     e.solid = [v](float x, float z) { return v->solidAt(x, z); };
     e.simulated = [h](float x, float z) { return !h || h->simulated(x, z); };
+    e.streetY = windowStreetLevel(app);
     if (ctx.logistics)
         for (const SupplyPoint& sp : ctx.logistics->points())
             if (sp.alive && sp.kind == SupplyKind::Container) e.containers.push_back(containerBox(sp));
@@ -59,15 +60,21 @@ bool Fortifications::init(AppState& app, const BalanceConfig& cfg) {
 
 void Fortifications::shutdown() { if (gpuOk_) gpu_.shutdown(); gpuOk_ = false; }
 
-void Fortifications::computeStreetLevel(const AppState& app) {
+float windowStreetLevel(const AppState& app) {
+    static float cachedOx = 1e30f, cachedOz = 1e30f, cached = 0.f;   // per window position
     const Sandbox& sb = app.sandbox;
+    if (sb.originX == cachedOx && sb.originZ == cachedOz) return cached;
     std::vector<float> h;
     for (int j = 0; j < 48; ++j)
         for (int i = 0; i < 48; ++i)
             h.push_back(app.vehicles.groundAt(sb.originX + (i + 0.5f) * sb.gridW * sb.cellSize / 48.f, sb.originZ + (j + 0.5f) * sb.gridH * sb.cellSize / 48.f));
     std::nth_element(h.begin(), h.begin() + h.size() / 5, h.end());
-    streetY_ = h[h.size() / 5];   // 20th percentile of the window's ground: the street level
+    cachedOx = sb.originX; cachedOz = sb.originZ;
+    cached = h[h.size() / 5];   // 20th percentile of the window's ground: the street level
+    return cached;
 }
+
+void Fortifications::computeStreetLevel(const AppState& app) { streetY_ = windowStreetLevel(app); }
 
 bool Fortifications::containerAllowed(const GameContext& ctx, V3 pos, const char** why) const {
     if (!cfg_ || !cfg_->fort.containerNeedsTerritory) return true;

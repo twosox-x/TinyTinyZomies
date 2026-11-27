@@ -18,7 +18,7 @@
 // expect <sum> <op> <sum>, sum = metric-or-number [(+|-) metric-or-number ...], op in == != >= <= > <. Metrics:
 //   kills kills_soldier kills_explosion kills_other dupes funding spent passive_total reward_total reward_expected
 //   ledger_sum shots soldiers soldiers_alive squads dropped landed refused zombies_live time selected tool
-//   squad N size | alive | ammo | ammo_start | mag | reserve | health | parachuted | deploying | dist X Z | maxdist X Z
+//   squad N size | alive | ammo (incl. a runner's load) | ammo_start | mag | reserve | health | parachuted | deploying | dist X Z | maxdist X Z
 //     | y (sum of feet heights) | inside (bodies inside geometry) | rooftop (members on a roof) | stamina | running
 //     | wounded | speed (sums over alive members) | engaging | carry | total (mag + reserve + carry) | resupplying
 //     | has_runner        handed_over collected (rounds: runner -> mates, supply -> soldiers)

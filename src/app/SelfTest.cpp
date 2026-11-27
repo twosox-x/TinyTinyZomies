@@ -589,6 +589,8 @@ void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
     const SimParams saved = sp;
     amb.apply(sp);
     w.p = sp;
+    const Sandbox keep = w.sb;
+    w.sb.build(params.cellSize, params.gridW, params.gridH, MapKind::City);   // the synthetic street map, whatever ran before
     w.sim.reset(w.sb);
     w.sim.setGoals({});
     const std::vector<float> heights = w.sb.rasterize();
@@ -743,6 +745,7 @@ void testRoaming(World& w, GpuContext& gpu, const SimParams& params) {
     w.sim.setGameInputs(0, 0.f);
     sp = saved;
     w.p = params;
+    w.sb = keep;
     w.sim.reset(w.sb);
     w.sim.setGoals({});
 }
@@ -764,8 +767,8 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
         w.sim.shutdown();
         return g_fail ? 1 : 0;
     }
-    if (!std::getenv("TTZ_SELFTEST_NO_ROAM")) testRoaming(w, gpu, params);
     if (std::getenv("TTZ_SELFTEST_ROAM")) {   // only the roaming test
+        testRoaming(w, gpu, params);
         w.sim.shutdown();
         return g_fail ? 1 : 0;
     }
@@ -1192,6 +1195,8 @@ int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {
 
     testMovingWindow(w, gpu, params);
     testVehicles(w, gpu, params);
+    // last: the earlier sections keep their spawn seeds (CrowdSim's spawn seed counter is not reset by reset())
+    if (!std::getenv("TTZ_SELFTEST_NO_ROAM")) testRoaming(w, gpu, params);
 
     w.sim.shutdown();
     double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();

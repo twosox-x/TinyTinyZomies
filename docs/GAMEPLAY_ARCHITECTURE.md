@@ -274,8 +274,8 @@ Status: implemented, values **UNAPPROVED** (`config/balance.json` `"ambient"`, m
   (or any finite distance when no gate is set, i.e. scenario goals) — the same test `nav_dir` uses to zero the flow,
   so awareness and flow agree. Aware → alert = 15 and the unchanged pursuit path (flow field, crowd density speed:
   pressure, accumulation, climbing untouched). Not aware → alert decays stochastically to 0 over `alertMemory` s;
-  the desired velocity blends from the last pursuit heading to the wander velocity at a rate that grows as alert
-  falls (keeps streaming to the last known source for a few seconds, then drifts back to wandering — no snapping).
+  the desired velocity holds the last pursuit heading (steered around walls) while the memory is fresh (~9 s at 25 s
+  memory: they keep streaming to where the noise was), then eases into the wander velocity — no snapping.
   `predict` binds `navDist` (read-only, binding 3; `corpseH` moved to 4 so used bindings stay contiguous).
 - **Wandering**: own heading from smooth per-agent value noise + a slowly drifting divergence-free field (curl of
   plane waves, ~70 m: neighbours drift together loosely, and having no sinks it never gathers people into clumps);
@@ -409,7 +409,7 @@ territory, and its passage cells (gate footprint minus wall / post cells) are lo
 copy of the heights (`Fortifications::navHeights`), so soldiers path through it. The leaves open (visual) while a
 soldier is within 5 m.
 
-**Territory.** Rebuilt on events only (build, destroy, container landed): structures (pieces + 0.2 m, posts,
+**Territory.** Rebuilt on events only (build, destroy, container landed): structures (pieces, posts,
 landed containers) and environment-blocked cells (base height > street level + 0.9 m: buildings, water; cached per
 world cell while the window covers them, so regions persist when it moves away) are rasterised into a world 1 m grid
 over the structures' bounding box + 4 m; 4-connected flood from the border = outside; each remaining component that
@@ -426,7 +426,7 @@ Income: controlled m2 x `incomePerHectarePerMin` / 10,000, ledgered once a secon
 placement check covers the body (6.1 x 2.5 m), so a container can sit flush against a wall line and plug a gap. Q / E /
 mouse wheel rotate by 15 deg while placing, T by 90 deg.
 
-**Tests.** Self-test *walls / territory* (22 checks, CPU). Scripts: `tests/game/b2_territory.txt`,
+**Tests.** Self-test *walls / territory* (23 checks, CPU). Scripts: `tests/game/b2_territory.txt`,
 `tests/game/b2_gate.txt` (see their headers).
 
 ## 7. B1 owner feedback fixes (2026-11-27, PROPOSED; values UNAPPROVED in `config/balance.json`)

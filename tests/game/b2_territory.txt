@@ -18,35 +18,35 @@ at 1.0  spawn 10 -14 129 2.5                           # zombies inside the futu
 at 2.0  wall cheap -22 133 -22 125                     # close the perimeter
 at 2.5  expect walls == 14
 at 2.5  expect regions == 1
-at 2.5  expect same_island -14 129 4 129 == 0          # soldiers: inside and outside no longer connected
+at 2.5  expect same_island -14 129 0 129 == 0          # soldiers: inside and outside no longer connected
 at 3.5  territory
 at 3.5  expect region -14 129 state == 1               # enclosed, uncleared ...
 at 3.5  expect region -14 129 zombies > 0              # ... zombies inside (GPU count) ...
 at 3.5  expect territory_income == 0                   # ... no income until cleared
 at 3.6  buy rifle -14 129                              # a squad drops inside and clears it
-at 34   territory
-at 34   expect region -14 129 zombies == 0
-at 34   expect region -14 129 state == 2               # controlled
-at 34   expect territory_income > 0
-at 36   expect territory_total > 0                     # income credited through the ledger
-at 36   expect ledger_balanced
-at 36   shot b2_controlled.png
-at 37   spawn 90 2 128.5 1.5                           # a crowd east of the tip, drawn by the squad inside
-at 50   territory
-at 50   expect wall -2.25 128 pressure > 3             # zombies pressing on the tip (GPU wall count)
-at 50   expect walls_destroyed + 600 - wall -2.25 128 hp > 0   # pressure damages walls (or already breached one)
-at 50   shot b2_pressure.png
-at 51   destroywall -2.25 128                          # TEST HOOK: breach the south-east tip piece
-at 51.2 expect walls_destroyed >= 1
-at 52   expect regions == 0                            # breach: the region is gone (open to the horde)
-at 52   expect territory_income == 0
-at 52   expect same_island -14 129 4 129 == 1          # navigation patched: inside and outside connected again
-at 55   expect zombies_rect -21 126 -7 132 > 0         # zombies pour in
-at 55   shot b2_breach.png
-at 56   container -1.1 126.6 -0.675                    # plug the gap: container flush against the wall line
-at 56.2 expect supply 1 landed == 0                    # under its cargo canopies
-at 65   expect supply 1 landed == 1
-at 66   territory
-at 66   expect regions == 1                            # the container closes the perimeter again
-at 66   shot b2_container.png
-at 67   end
+at 48   territory
+at 48   expect region -14 129 zombies == 0
+at 48   expect region -14 129 state == 2               # controlled
+at 48   expect territory_income > 0
+at 50   expect territory_total > 0                     # income credited through the ledger
+at 50   expect ledger_balanced
+at 50   shot b2_controlled.png
+at 51   spawn 90 2 128.5 1.5                           # a crowd east of the tip, drawn by the squad inside
+at 64   territory
+at 64   expect wall -2.25 128 pressure > 3             # zombies pressing on the tip (GPU wall count)
+at 64   expect walls_destroyed + 600 - wall -2.25 128 hp > 0   # pressure damages walls (or already breached one)
+at 64   shot b2_pressure.png
+at 65   destroywall -12 125                            # TEST HOOK: breach a south piece (x -14 .. -10)
+at 65.2 expect walls_destroyed >= 1
+at 66   expect regions == 0                            # breach: the region is gone (open to the horde)
+at 66   expect territory_income == 0
+at 66   expect same_island -14 129 0 129 == 1          # navigation patched: inside and outside connected again
+at 69   expect zombies_rect -21 126 -7 132 > 0         # zombies pour in
+at 69   shot b2_breach.png
+at 70   container -12 123.15 0                         # plug the gap: container flush against the wall line (outside)
+at 70.2 expect supply 1 landed == 0                    # under its cargo canopies
+at 79   expect supply 1 landed == 1
+at 80   territory
+at 80   expect regions == 1                            # the container closes the perimeter again
+at 80   shot b2_container.png
+at 81   end

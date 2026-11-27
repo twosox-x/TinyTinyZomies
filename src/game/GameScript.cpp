@@ -133,7 +133,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
             const uint32_t i = m2.index;
             const bool al = P.alive(i);
             if (fld == "alive") out += al ? 1 : 0;
-            else if (fld == "ammo") out += al ? P.mag[i] + P.reserve[i] : 0;
+            else if (fld == "ammo") out += al ? P.mag[i] + P.reserve[i] + P.carry[i] : 0;   // incl. an ammo runner's load
             else if (fld == "mag") out += al ? P.mag[i] : 0;
             else if (fld == "reserve") out += al ? P.reserve[i] : 0;
             else if (fld == "health") out += al ? P.health[i] : 0;

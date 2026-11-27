@@ -4,7 +4,7 @@
 at 0.1  buy rifle -11 117
 at 0.1  buy mg -5 102
 at 0.2  expect spent == 2400
-at 0.5  buy rifle -40 100                  # inside a 48 m tower's footprint edge: refused
+at 0.5  buy rifle -24 117                  # on a parked vehicle: refused (a roof-edge click now snaps onto the roof)
 at 0.5  container -40 100 0                 # tower roof edge: refused
 at 0.7  expect spent == 2400
 at 0.7  expect refused == 2

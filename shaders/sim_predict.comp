@@ -294,8 +294,11 @@ void main() {
     } else {       // idle: wander; after losing the attractor keep the last heading, then drift back to wandering
         vec2 wv = roamVelocity(p, vary, a.info.y, agentRoamKind(a.info.y));
         vec2 prevD = (st0 == ST_WALK || st0 == ST_CLIMB) ? a.dirs.xy : vec2(0.0);
+        float pl = length(prevD);
+        if (pl > 0.05) prevD = steerFree(p.xz, p.y, prevD / pl, vary < 0.5 ? 1.0 : -1.0) * pl;   // keep going, around walls
         float m = float(alert) / 15.0;
-        desired = alert == 0u ? wv : mix(prevD, wv, min(1.0, dt * (0.12 + 1.6 * (1.0 - m) * (1.0 - m))));
+        // investigate: hold the last pursuit heading while the memory is fresh, then ease into wandering
+        desired = alert == 0u ? wv : mix(prevD, wv, min(1.0, dt * (0.04 + 1.5 * smoothstep(0.65, 0.1, m))));
     }
 
     if (st == ST_WALK || st == ST_CLIMB) {

@@ -196,7 +196,8 @@ WallPlan Walls::plan(const std::vector<V3>& pts, WallType type, bool gate, const
         if (outside) { fail("outside the simulated area"); continue; }
         // a building / water / step blocks; a thin pole, bollard or tree in the line does not (the wall swallows it)
         int high = 0;
-        for (float g : gs) high += g - gmin > 0.6f ? 1 : 0;
+        const float ref = std::min(gmin, env.streetY + 0.3f);
+        for (float g : gs) high += g - ref > 0.6f ? 1 : 0;
         if (high > 0 && (float)high > 0.2f * (float)gs.size()) { fail("blocked by a building, water or a steep step"); continue; }
         if (vehicle) { fail("a vehicle is in the way"); continue; }
         if (container) { fail("overlaps a supply container"); continue; }

@@ -40,6 +40,7 @@ class Economy;
 Obb containerBox(const SupplyPoint& sp);
 // Placement environment from the live window (CityVehicles heights, horde window, supply containers).
 WallEnv makeWallEnv(const AppState& app, const GameContext& ctx);
+float windowStreetLevel(const AppState& app);   // 20th percentile of the window's ground
 
 class Fortifications {
 public:

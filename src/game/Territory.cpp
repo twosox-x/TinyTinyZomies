@@ -104,7 +104,7 @@ void Territory::rebuild(const TerritoryInput& in) {
         std::vector<int32_t> owner(N, -1);   // structure cells: wall piece index (containers / posts: -2)
         for (size_t b = 0; b < boxes.size(); ++b) {
             Obb o = boxes[b];
-            o.hx += 0.2f * cell_; o.hz += 0.2f * cell_;   // a hair wider: diagonal walls stay 4-connected in the raster
+            (void)o;   // touched cells (sampled every half cell) keep diagonal walls 4-connected; no inflation: breaches open
             const int pieceIdx = boxPiece[b];
             forEachObbCell(o, ox_, oz_, cell_, w_, h_, [&](int cx, int cz) {
                 const size_t c = (size_t)cz * w_ + cx;

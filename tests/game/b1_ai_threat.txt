@@ -17,5 +17,7 @@ at 75   expect kills >= 10
 at 75   expect squad 1 dist 40 117 <= 8 # fought its way and arrived
 at 75   expect hit_pct >= 30            # rounds that hit a zombie (GPU-resolved) per round fired
 at 75   expect damage <= 200            # contact damage taken by the whole squad
+at 75   expect hits_static >= 0             # (diagnostic: rounds stopped by buildings / vehicles)
+at 75   expect shots >= 0
 at 75   expect funding_reward_matches_kills
 at 76   end
