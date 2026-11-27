@@ -177,6 +177,7 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 - Dead soldiers rise again as tougher zombies (harder to kill). This is not instant: they lie dead first, then get up.
 - Empty supply crates disappear.
 - Soldiers move faster and have stamina. They prefer running in high-stakes situations, and walk only when exhausted or wounded (for example while heading to medical care).
+- Ammo runner: in multi-soldier squads, one soldier fetches ammo from a container or crate and hands it out to squadmates, while the rest hold position and keep fighting. The others only go themselves as a fallback. The sniper resupplies himself.
 - Ammo containers never disappear and can be used to wall things off: they are physical obstacles. They rotate during placement and arrive by parachute.
 
 ## 15. Progress and known limitations
