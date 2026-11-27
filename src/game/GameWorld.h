@@ -95,6 +95,7 @@ public:
     uint64_t purchasesRefused() const { return refused_; }
     double tickCpuMs() const { return tickMs_; }
     std::string takeScriptShot() { return script_.takeShot(); }
+    bool shotPending() const { return script_.shotPending(); }
     const GameScript& script() const { return script_; }
 
 private:

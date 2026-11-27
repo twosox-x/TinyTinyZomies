@@ -145,7 +145,7 @@ void MilitaryRenderer::buildMarkers() {
     for (int c = 0; c < MK_COUNT; ++c) {
         CityMaterial m;
         m.r = srgbToLinear(kCol[c][0]); m.g = srgbToLinear(kCol[c][1]); m.b = srgbToLinear(kCol[c][2]);
-        m.flags = MAT_EMISSIVE; m.emissiveMode = EM_STEADY; m.emissiveNight = 0.9f; m.emissiveDay = 0.5f; m.roughness = 0.9f;
+        m.flags = MAT_EMISSIVE; m.emissiveMode = EM_STEADY; m.emissiveNight = 0.6f; m.emissiveDay = 0.3f; m.roughness = 0.9f;
         m.name = "rts_marker";
         lib_.palette.push_back(m);
     }
@@ -176,13 +176,13 @@ void MilitaryRenderer::buildMarkers() {
         // class icons (XY plane, +Z faces the camera), 9 x 9 voxels of 0.12 m: rifle one chevron, MG two chevrons,
         // sniper a crosshair (shape tells the class at distance, colour helps)
         auto chevron = [](int x, int y, int y0) { int dx = std::abs(x - 4); return y == y0 + (4 - dx) || y == y0 + (4 - dx) - 1; };
-        markerMesh_[(int)MilMarker::IconRifle][c] = model("rts_icon_rifle", 9, 9, 1, 0.12f, 4.5f, 0, 0.5f, [&](int x, int y, int) {
+        markerMesh_[(int)MilMarker::IconRifle][c] = model("rts_icon_rifle", 9, 9, 1, 0.1f, 4.5f, 0, 0.5f, [&](int x, int y, int) {
             return chevron(x, y, 2) && y >= 1;
         }, c);
-        markerMesh_[(int)MilMarker::IconMG][c] = model("rts_icon_mg", 9, 9, 1, 0.12f, 4.5f, 0, 0.5f, [&](int x, int y, int) {
+        markerMesh_[(int)MilMarker::IconMG][c] = model("rts_icon_mg", 9, 9, 1, 0.1f, 4.5f, 0, 0.5f, [&](int x, int y, int) {
             return (chevron(x, y, 0) && y >= 0) || (chevron(x, y, 4) && y >= 4);
         }, c);
-        markerMesh_[(int)MilMarker::IconSniper][c] = model("rts_icon_sniper", 9, 9, 1, 0.12f, 4.5f, 0, 0.5f, [](int x, int y, int) {
+        markerMesh_[(int)MilMarker::IconSniper][c] = model("rts_icon_sniper", 9, 9, 1, 0.1f, 4.5f, 0, 0.5f, [](int x, int y, int) {
             float dx = x - 4.f, dy = y - 4.f, d = std::sqrt(dx * dx + dy * dy);
             return (d >= 3.f && d < 4.2f) || (x == 4 && (y <= 1 || y >= 7)) || (y == 4 && (x <= 1 || x >= 7)) || (x == 4 && y == 4);
         }, c);

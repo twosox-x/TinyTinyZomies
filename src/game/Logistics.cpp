@@ -91,7 +91,11 @@ bool Logistics::canAirdrop(const GameContext& ctx, V3 pos, const char** why) con
     auto no = [&](const char* r) { if (why) *why = r; return false; };
     if (!ctx.nav || !ctx.nav->ready()) return no("no navigation grid");
     if (!simulatedAt(ctx, pos.x, pos.z)) return no("outside the simulated area");
-    if (!flatFootprint(ctx, pos, 1.2f, 1.2f, 0.f, 0.3f)) return no("blocked: inside geometry, a vehicle or an edge");
+    float y = 0;
+    if (!flatFootprint(ctx, pos, 1.2f, 1.2f, 0.f, 0.3f, &y)) return no("blocked: inside geometry, a vehicle or an edge");
+    float ground = y;
+    for (int k = 0; k < 8; ++k) ground = std::min(ground, ctx.nav->surface(pos.x + 8.f * std::cos(k * kPi / 4), pos.z + 8.f * std::sin(k * kPi / 4)));
+    if (y - ground > 0.5f && y - ground <= 2.5f) return no("blocked: on a vehicle, wall or obstacle");
     if (why) *why = "";
     return true;
 }

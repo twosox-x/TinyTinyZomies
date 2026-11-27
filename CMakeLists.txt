@@ -85,6 +85,8 @@ set(TTZ_GAME_CORE
   src/game/Combat.cpp
   src/game/FakeHorde.cpp
   src/game/SoldierSelfTest.cpp
+  src/game/SoldierAnimSelfTest.cpp
+  src/game/SupplySelfTest.cpp
   src/game/Logistics.cpp
   src/game/Deploy.cpp
   src/lab/MilitaryAssets.cpp)

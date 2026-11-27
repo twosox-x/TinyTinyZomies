@@ -87,7 +87,10 @@ DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
         const float a = k * kPi / 8.f;
         for (float r : {6.f, 10.f, 15.f}) ground = std::min(ground, nav.surface(dest.x + std::cos(a) * r, dest.z + std::sin(a) * r));
     }
-    p.rooftop = ys - ground > 2.5f;
+    const float rise = ys - ground;
+    if (rise > 0.5f && rise <= 2.5f) { p.reason = "blocked: on a vehicle, wall or obstacle"; return p; }   // also water (1 m wall)
+    p.rooftop = rise > 2.5f;
+    if (p.rooftop && !flatFootprint(ctx, dest, 1.8f, 1.8f, 0.f, 0.3f)) { p.reason = "roof too small or not flat here"; return p; }
     const uint32_t isl = nav.island(dest.x, dest.z);
     dest.y = ys;
     const int n = std::max(1, def.size);
@@ -151,11 +154,8 @@ SquadId Deploy::execute(GameContext& ctx, SquadType type, const DropPlan& plan) 
         d.soldier = ctx.soldiers->spawn(cls, inf, sq, k, p0, yaw, seed);
         const uint32_t i = d.soldier.index;
         SoldierPool& P = *ctx.soldiers;
-        P.health[i] = ctx.cfg->soldier[c].health;
-        P.mag[i] = ctx.cfg->weapon[c].magazine;
-        P.reserve[i] = ctx.cfg->weapon[c].reserve;
-        P.state[i] = SoldierState::Descending;
-        P.stateTime[i] = 0;
+        P.equip(i, *ctx.cfg);   // health / magazine / reserve from the balance config
+        P.setState(i, SoldierState::Descending);
         if (ctx.animator) ctx.animator->reset(P.anim[i], inf, AnimAction::ParaDescent);
         squad->members.push_back(d.soldier);
         drops_.push_back(d);
@@ -176,8 +176,7 @@ void Deploy::finishRecovery(GameContext& ctx, DropTrack& d) {
     if (!P.valid(d.soldier)) return;
     const uint32_t i = d.soldier.index;
     if (P.state[i] == SoldierState::Recovering || P.state[i] == SoldierState::Landing) {
-        P.state[i] = SoldierState::Forming;   // SoldierAI walks it to its formation slot, then Idle (autonomous)
-        P.stateTime[i] = 0;
+        P.setState(i, SoldierState::Forming);   // SoldierAI walks it to its formation slot, then Idle (autonomous)
         if (ctx.animator) ctx.animator->request(P.anim[i], AnimAction::Idle);
     }
 }
@@ -210,8 +209,7 @@ void Deploy::tick(GameContext& ctx) {
                 d.t = 0;
                 P.pos[i] = d.landing;
                 P.vel[i] = {};
-                P.state[i] = SoldierState::Landing;
-                P.stateTime[i] = 0;
+                P.setState(i, SoldierState::Landing);
                 if (ctx.animator) ctx.animator->request(P.anim[i], AnimAction::ParaLand);
                 ++landed_;
                 if (d.startAlt >= 20.f) touchedDown_.push_back(d.soldier);
@@ -228,8 +226,7 @@ void Deploy::tick(GameContext& ctx) {
             if (d.t >= timing.landDuration[c]) {
                 d.phase = DropPhase::Recover;
                 d.t = 0;
-                P.state[i] = SoldierState::Recovering;
-                P.stateTime[i] = 0;
+                P.setState(i, SoldierState::Recovering);
                 if (ctx.animator) ctx.animator->request(P.anim[i], AnimAction::ParaRecover);
             }
             break;

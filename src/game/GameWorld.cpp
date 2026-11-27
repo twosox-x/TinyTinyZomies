@@ -44,6 +44,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     if (!horde_.init(app.gpu, app.sim)) return false;
     horde_.setAwarenessRadius(cfg_.threat.awarenessRadius);
     horde_.setAttackReach(cfg_.threat.attackReach);
+    horde_.setSync(opt.syncReadback);
     rebuildNav(app);
     economy_.reset(cfg_);
     ctx_.cfg = &cfg_;

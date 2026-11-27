@@ -27,6 +27,8 @@
 
 namespace ttz::game {
 int runSoldierSelfTest(const BalanceConfig& cfg);
+int runSupplySelfTest(const BalanceConfig& cfg);   // WS-D (src/game/SupplySelfTest.cpp)
+int runSoldierAnimSelfTest(const std::string& assetDir);   // WS-B (src/game/SoldierAnimSelfTest.cpp)
 }
 
 namespace ttz {
@@ -559,6 +561,8 @@ void testGameCore() {
     V3 d1 = Combat::spreadDir({0, 0, 1}, 2.f, r1), d2 = Combat::spreadDir({0, 0, 1}, 2.f, r2);
     check(d1.x == d2.x && d1.y == d2.y && d1.z == d2.z && d1.z > std::cos(2.01f * 3.14159265f / 180.f), "shot spread is deterministic and inside the cone", "");
     g_fail += runSoldierSelfTest(cfg);   // WS-C section "ai / nav" (src/game/SoldierSelfTest.cpp)
+    g_fail += runSupplySelfTest(cfg);    // WS-D section "economy / logistics / deploy" (src/game/SupplySelfTest.cpp)
+    g_fail += runSoldierAnimSelfTest(std::string(TTZ_SOURCE_DIR) + "/assets/military");   // WS-B section "anim"
 }
 
 int runSelfTest(GpuContext& gpu, const SimParams& params, const char* dumpDir) {

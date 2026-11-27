@@ -35,6 +35,7 @@ public:
     uint64_t kills() const { return kills_; }
     uint64_t killsByCause(KillCause c) const { return killsByCause_[(size_t)c]; }
     uint64_t duplicatesDropped() const { return dupes_; }
+    double pendingPassive() const { return passiveAcc_; }   // passive income of the current second (not yet a ledger entry)
     const std::vector<LedgerEntry>& ledger() const { return ledger_; }
 private:
     void add(double time, LedgerKind kind, double amount, const char* what);

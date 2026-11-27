@@ -218,7 +218,7 @@ void SoldierAnimator::tick(uint32_t soldier, int infantry, AnimPlayback& a, floa
         else if (a.locked && done) free = true;
         if (free) {
             AnimAction next = want;
-            if (oneShot(want) && !a.pending) next = a.action == want ? fallbackOf(want) : want;   // stale request: its clip already played
+            if (oneShot(want) && !a.pending) next = a.action == want && !done ? want : fallbackOf(want);   // stale request: its clip already played
             if (next == AnimAction::Walk && a.requestedSpeed > ic.walkSpeed * 1.6f) next = AnimAction::Run;   // speed matching
             else if (next == AnimAction::Run && a.requestedSpeed > 0.f && a.requestedSpeed < ic.runSpeed * 0.5f) next = AnimAction::Walk;
             if (next != a.action || (oneShot(next) && a.pending)) {

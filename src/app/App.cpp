@@ -513,7 +513,12 @@ void App::frame(double dt) {
         w = std::max(1u, (uint32_t)((float)w * s.renderSettings.renderScale));
         h = std::max(1u, (uint32_t)((float)h * s.renderSettings.renderScale));
     }
-    if (s.cityMode) {   // streaming, LOD, uploads (copy passes before the scene pass), street-lamp lights
+    // headless --game-script: only frames that take a screenshot are rendered (the scripts test gameplay; rendering a
+    // lavapipe frame costs ~100x a game tick)
+    const bool skipRender = !s.window && s.game && !s.opt.gameScript.empty() && !s.game->shotPending();
+    if (s.cityMode && !skipRender) {   // streaming, LOD, uploads (copy passes before the scene pass), street-lamp lights
+        if (!s.window && s.game && !s.opt.gameScript.empty())   // script screenshot after skipped frames: stream the view in
+            s.cityRenderer.flush(s.camera, (float)w / (float)std::max(1u, h));
         {   // key-light shadow casters: the city culls its tiles against the same light box the renderer draws
             M4 lightVP;
             const bool sm = s.renderer.shadowView(s.camera, (float)w / (float)std::max(1u, h), s.renderSettings, lightVP);
@@ -531,7 +536,7 @@ void App::frame(double dt) {
         s.vehicles.fireVolumes(p.x, p.z, 10, fireVols);
         s.renderer.setFireVolumes(fireVols);
     }
-    if (!s.window || swap) {
+    if ((!s.window || swap) && !skipRender) {
         s.renderTime += dt;
         s.renderer.render(cmd, swap, w, h, s.camera, s.sim, s.renderTime, s.renderSettings, &s.chars, outW, outH);
     }
@@ -567,9 +572,12 @@ void App::frame(double dt) {
         io.DisplaySize = ImVec2((float)outW, (float)outH);
         io.DeltaTime = (float)std::max(1e-3, dt);
         io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX);
-        ImGui_ImplSDLGPU3_NewFrame();
-        ImGui::NewFrame();
-        s.game->drawUI(s);
+        for (int pass = 0; pass < 3; ++pass) {   // auto-sized windows need a frame or two to measure themselves
+            ImGui_ImplSDLGPU3_NewFrame();
+            ImGui::NewFrame();
+            s.game->drawUI(s);
+            if (pass < 2) ImGui::EndFrame();
+        }
         ImGui::Render();
         ImDrawData* dd = ImGui::GetDrawData();
         if (dd->DisplaySize.x > 0) {

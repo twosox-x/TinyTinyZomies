@@ -121,6 +121,7 @@ bool GameUI::pickGround(const AppState& app, const GameContext& ctx, float sx, f
 }
 
 void GameUI::notify(const std::string& text, bool bad, double time) {
+    if (bad) SDL_Log("game: %s", text.c_str());
     notices_.push_back({text, time, bad});
     if (notices_.size() > 4) notices_.erase(notices_.begin());
 }
@@ -445,7 +446,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
     const BalanceConfig& cfg = *ctx.cfg;
     const ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(10.f, io.DisplaySize.y - 8.f), ImGuiCond_Always, ImVec2(0.f, 1.f));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(290, 0), ImVec2(330, io.DisplaySize.y * 0.6f));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(380, 0), ImVec2(420, io.DisplaySize.y * 0.6f));
     ImGui::Begin("##selection", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
                                            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
     ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -478,7 +479,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             const float am = std::clamp((float)(P.mag[i] + P.reserve[i]) / (float)std::max(1, full), 0.f, 1.f);
             ImVec2 q = ImGui::GetCursorScreenPos();
             const float bw = 70.f, bh = 5.f, y = q.y + 5.f;
-            ImGui::Dummy(ImVec2(280, 14));
+            ImGui::Dummy(ImVec2(360, 14));
             ImGui::SameLine(0, 0);
             dl->AddText(ImVec2(q.x + 2, q.y), dead ? kBad : kDim, className(P.cls[i]));
             const float x0 = q.x + 64.f;

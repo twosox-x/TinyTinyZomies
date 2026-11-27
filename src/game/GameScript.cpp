@@ -167,7 +167,7 @@ void GameScript::expect(GameWorld& w, const ScriptLine& L) {
         return;
     }
     if (!L.args.empty() && L.args[0] == "ledger_balanced") {
-        double sum = 0;
+        double sum = eco.pendingPassive();
         for (const LedgerEntry& e : eco.ledger()) sum += e.amount;
         char b[160];
         std::snprintf(b, sizeof(b), "%s(funding %.3f == ledger %.3f)", text.c_str(), eco.funding(), sum);
@@ -188,10 +188,20 @@ void GameScript::expect(GameWorld& w, const ScriptLine& L) {
     size_t k = 0;
     double lhs = 0, rhs = 0;
     std::string err;
-    if (!metric(w, L.args, k, lhs, err)) { report(false, text + "(" + err + ")"); return; }
+    auto sum = [&](double& out) {   // metric (+|- metric)*
+        if (!metric(w, L.args, k, out, err)) return false;
+        while (k < L.args.size() && (L.args[k] == "+" || L.args[k] == "-")) {
+            const bool plus = L.args[k++] == "+";
+            double v = 0;
+            if (!metric(w, L.args, k, v, err)) return false;
+            out += plus ? v : -v;
+        }
+        return true;
+    };
+    if (!sum(lhs)) { report(false, text + "(" + err + ")"); return; }
     if (k >= L.args.size()) { report(false, text + "(missing operator)"); return; }
     const std::string op = L.args[k++];
-    if (!metric(w, L.args, k, rhs, err)) { report(false, text + "(" + err + ")"); return; }
+    if (!sum(rhs)) { report(false, text + "(" + err + ")"); return; }
     bool ok;
     if (op == "==") ok = std::fabs(lhs - rhs) < 1e-6;
     else if (op == "!=") ok = std::fabs(lhs - rhs) >= 1e-6;
@@ -287,19 +297,31 @@ bool GameScript::tick(GameWorld& world, double time) {
                 if (p.alive) std::printf("    supply %s at (%.1f %.1f %.1f) %s stock %d/%d/%d\n", p.kind == SupplyKind::Container ? "container" : "crate", p.pos.x, p.pos.y, p.pos.z,
                                          p.landed ? "landed" : "descending", p.stock[0], p.stock[1], p.stock[2]);
             std::fflush(stdout);
+        } else if (L.verb == "setammo") {   // TEST HOOK (scripts only): put a squad's soldiers at MAG | RESERVE rounds
+            const Squad* s = a.size() < 3 ? nullptr : squadN(world, std::atoi(a[0].c_str()));
+            if (!s) { bad("setammo N MAG RESERVE"); continue; }
+            SoldierPool& P = *world.context().soldiers;
+            for (const SoldierId& m : s->members)
+                if (P.valid(m) && P.alive(m.index)) { P.mag[m.index] = std::atoi(a[1].c_str()); P.reserve[m.index] = std::atoi(a[2].c_str()); }
         } else if (L.verb == "where") {   // camera pivot, simulated window, a few valid drop points near the pivot
             const GameContext& ctx = world.context();
             if (!app || !ctx.nav || !ctx.nav->ready()) { bad("where: no app / navigation"); continue; }
             const V3 c = app->camera.target();
             std::printf("  where: pivot (%.1f %.1f) window (%.1f %.1f) .. (%.1f %.1f)\n", c.x, c.z, ctx.nav->originX(), ctx.nav->originZ(),
                         ctx.nav->originX() + ctx.nav->width() * ctx.nav->cell(), ctx.nav->originZ() + ctx.nav->height() * ctx.nav->cell());
+            const bool roof = !a.empty() && a[0] == "roof";
             int shown = 0;
-            for (int r = 0; r <= 60 && shown < 12; r += 6)
+            for (int r = 0; r <= 90 && shown < 12; r += 6)
                 for (int k = 0; k < 8 && shown < 12; ++k) {
                     const float ang = k * 0.785398f;
                     V3 p{c.x + std::cos(ang) * r, 0, c.z + std::sin(ang) * r};
-                    DropPlan pl = world.deploy().plan(ctx, SquadType::Rifle, p);
-                    if (pl.valid) { std::printf("    drop ok at %.1f %.1f (surface %.2f%s)\n", p.x, p.z, pl.landing[0].y, pl.rooftop ? ", rooftop" : ""); ++shown; }
+                    if (!a.empty() && a[0] == "container") {
+                        for (float yaw : {0.f, 1.5708f})
+                            if (world.logistics().canPlaceContainer(ctx, p, yaw)) { std::printf("    container ok at %.1f %.1f yaw %.2f\n", p.x, p.z, yaw); ++shown; break; }
+                        continue;
+                    }
+                    DropPlan pl = world.deploy().plan(ctx, roof ? SquadType::Sniper : SquadType::Rifle, p);
+                    if (pl.valid && pl.rooftop == roof) { std::printf("    drop ok at %.1f %.1f (surface %.2f%s)\n", p.x, p.z, pl.landing[0].y, pl.rooftop ? ", rooftop" : ""); ++shown; }
                 }
         } else if (L.verb == "probe") {
             const GameContext& ctx = world.context();
@@ -313,6 +335,8 @@ bool GameScript::tick(GameWorld& world, double time) {
             const char* why = "";
             const bool cOk = world.logistics().canPlaceContainer(ctx, p, f(a, 2), &why);
             std::printf("  probe container: %s %s\n", cOk ? "valid" : "refused", why);
+            const bool aOk = world.logistics().canAirdrop(ctx, p, &why);
+            std::printf("  probe airdrop: %s %s\n", aOk ? "valid" : "refused", why);
         } else if (L.verb == "expect") {
             expect(world, L);
         } else bad(("unknown verb " + L.verb).c_str());

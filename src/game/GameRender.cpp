@@ -277,7 +277,10 @@ void GameRender::initDemo(AppState& app) {
         crate.cargo = true; crate.xz = world(-9.5f, -4.f); crate.yaw = demoYaw_ + 0.2f; crate.startH = 25.f;
         demoDrops_.push_back(crate);
     }
-    if (!app.opt.camSet) app.camera.setImmediate(world(0.f, -3.f) + V3{0, 0.8f, 0}, demoYaw_ + 0.35f, 26.f * kPi / 180.f, 21.f);
+    app.camera.settings.minDistance = 3.f;   // screenshots: close-ups allowed (demo only)
+    app.camera.settings.minPitch = 0.1f;
+    if (app.opt.camSet) app.camera.setImmediate({app.opt.camX, app.opt.camY, app.opt.camZ}, app.opt.camYaw, app.opt.camPitch, app.opt.camDist);
+    else app.camera.setImmediate(world(0.f, -3.f) + V3{0, 0.8f, 0}, demoYaw_ + 0.35f, 26.f * kPi / 180.f, 21.f);
     SDL_Log("game: demo render: %zu soldiers at (%.1f, %.1f) heading %.0f deg", demo_s_.size(), demoOrigin_.x, demoOrigin_.z, demoYaw_ * 180.f / kPi);
 }
 

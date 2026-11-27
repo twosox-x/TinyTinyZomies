@@ -15,7 +15,7 @@
 //   at 90   expect funding_reward_matches_kills
 //   at 120  end
 //
-// expect <metric> <op> <metric | number>, op in == != >= <= > <. Metrics:
+// expect <sum> <op> <sum>, sum = metric-or-number [(+|-) metric-or-number ...], op in == != >= <= > <. Metrics:
 //   kills kills_soldier kills_explosion kills_other dupes funding spent passive_total reward_total reward_expected
 //   ledger_sum shots soldiers soldiers_alive squads dropped landed refused zombies_live time
 //   squad N size | alive | ammo | ammo_start | mag | reserve | health | parachuted | deploying | dist X Z | maxdist X Z
@@ -23,7 +23,8 @@
 //   delivered (all rounds handed out by supply points)
 // Special checks: expect funding_reward_matches_kills | expect ledger_balanced | expect no_duplicate_rewards
 // Other verbs: log (prints a status line), camera X Z YAW PITCH DIST, select N.., preview TOOL X Z, preview off,
-// shot FILE.png (screenshot incl. HUD), squadinfo N (prints every member).
+// shot FILE.png (screenshot incl. HUD), squadinfo N (prints every member), where [roof|container] (valid spots near the
+// camera pivot), probe X Z [YAW], setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply).
 //
 // The runner pushes Commands at their tick (deterministic with --game-sync, which waits for each readback in
 // headless runs so GPU latency cannot change outcomes), evaluates expectations, prints a summary and sets the
@@ -54,6 +55,7 @@ public:
     bool loaded() const { return !lines_.empty(); }
     // A screenshot requested by `shot` (App takes it after the frame's UI is drawn), consumed by the App.
     std::string takeShot() { std::string s; s.swap(shot_); return s; }
+    bool shotPending() const { return !shot_.empty(); }
 private:
     bool metric(GameWorld& w, const std::vector<std::string>& a, size_t& k, double& out, std::string& err) const;
     void expect(GameWorld& w, const ScriptLine& L);
