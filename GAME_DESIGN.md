@@ -196,7 +196,24 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 - Ammo runner: in multi-soldier squads, one soldier fetches ammo from a container or crate and hands it out to squadmates, while the rest hold position and keep fighting. The others only go themselves as a fallback. The sniper resupplies himself.
 - Ammo containers never disappear and can be used to wall things off: they are physical obstacles. They rotate during placement and arrive by parachute.
 
+## 14d. Owner decisions 2026-11-27 evening (APPROVED)
+- Day/night: 30 minutes of day, then 15 minutes of night.
+- New squad, **Engineers (3)**:
+  - They build walls, gates and fortifications. The player can no longer build instantly or anywhere: construction is limited to an area around the engineer squads.
+  - Engineers can remove (clear) cars.
+- Gates can be placed on their own and connect to walls.
+- New mechanic, **corpse rot**: corpses start rotting and give off poisonous gas that slowly damages nearby troops. The gas spreads further the longer corpses stay.
+- New squad, **Flamethrower**: burns corpses. Burnt corpses are gone and stop the gas. Squad size is PROPOSED at 2.
+- Engineer and flamethrower models and animations go through the same visual approval as the other squads.
+
 ## 15. Progress and known limitations
+- 2026-11-27: Milestone B3a (buildings) implemented: buildings baked as records (BLDG), building selection, capture
+  (PROPOSED: a squad at the entrance with no zombie inside or at the door), roles Garrison (olive chevron flag) and
+  Hospital (green cross on white) with UNAPPROVED prices, garrison soldiers entering by the door and firing from windows
+  and roof edges, hospital treatment (beds / heal rate PROPOSED), barricades on doors / windows and window nests /
+  roof rings (approved props). Tested on a downtown mid-rise and a suburban house, then enabled for every supported
+  building. Unsupported: towers (> 12 floors), mid-rises over 12 floors, buildings whose entrance opens onto no street,
+  footprints under 4 m, buildings without an open facade (docs/GAMEPLAY_ARCHITECTURE.md 8).
 - 2026-11-27: Milestone B2 (walls and territory) implemented. Free-form gabion walls (1.6 m and 2.4 m) with click
   and drag placement, snapping, automatic joints, previews with cost and refusal reasons, health, zombie pressure
   damage, breaches and rubble. Walls are physical obstacles for zombies, and soldier navigation updates locally.
