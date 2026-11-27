@@ -594,7 +594,7 @@ void App::frame(double dt) {
         s.vehicles.fireVolumes(p.x, p.z, 10, fireVols);
         s.renderer.setFireVolumes(fireVols);
         std::vector<FlameVolume> flameVols;   // GAME_DESIGN 14d: flamethrower streams + ground fire (voxel volumes)
-        if (s.game) s.game->flameVolumes(p.x, p.z, s.renderTime, flameVols);
+        if (s.game) s.game->flameVolumes(p.x, p.z, s.sim.simTime(), flameVols);   // sim time: fades follow the game, not frame pacing
         s.renderer.setFlameVolumes(flameVols);
     }
     if ((!s.window || swap) && !skipRender) {

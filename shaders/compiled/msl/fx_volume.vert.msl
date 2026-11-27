@@ -114,8 +114,8 @@ struct Frame
     float4 shadowP2;
 };
 
-constant spvUnsafeArray<int3, 24> _1024 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
-constant spvUnsafeArray<int, 6> _1031 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
+constant spvUnsafeArray<int3, 24> _1013 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _1020 = spvUnsafeArray<int, 6>({ 0, 2, 1, 0, 3, 2 });
 
 struct main0_out
 {
@@ -298,7 +298,7 @@ static inline __attribute__((always_inline))
 float flameRadius(thread const float& s, thread const float& L)
 {
     float u = s / fast::max(L, 0.5);
-    return (0.0350000001490116119384765625 + (0.0500000007450580596923828125 * s)) + ((0.550000011920928955078125 * smoothstep(0.62000000476837158203125, 1.0, u)) * fast::min(L / 9.0, 1.0));
+    return (0.0500000007450580596923828125 + (0.0599999986588954925537109375 * s)) + ((0.550000011920928955078125 * smoothstep(0.62000000476837158203125, 1.0, u)) * fast::min(L / 9.0, 1.0));
 }
 
 static inline __attribute__((always_inline))
@@ -327,13 +327,9 @@ void streamBox(thread const float3& o, thread const float3& d, thread const floa
 static inline __attribute__((always_inline))
 void poolBox(thread const float3& c, thread const float& R, thread float3& lo, thread float3& hi)
 {
-    float rf = (R * 1.5) + 0.5;
-    lo = c - float3(rf, 0.60000002384185791015625, rf);
-    hi = (c + float3(rf, 4.19999980926513671875, rf)) + float3(1.64999997615814208984375, 0.0, 0.75);
-    float3 _840 = lo;
-    float2 _842 = _840.xz + float2(0.0);
-    lo.x = _842.x;
-    lo.z = _842.y;
+    float rf = (R * 1.2999999523162841796875) + 0.300000011920928955078125;
+    lo = c - float3(rf, 0.20000000298023223876953125, rf);
+    hi = c + float3(rf, 2.400000095367431640625, rf);
 }
 
 static inline __attribute__((always_inline))
@@ -390,7 +386,7 @@ void fxBox(thread const int& i, thread float3& lo, thread float3& hi, constant F
     }
 }
 
-vertex main0_out main0(constant Frame& _959 [[buffer(0)]], constant FxVolumes& _697 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _948 [[buffer(0)]], constant FxVolumes& _697 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
     int i = int(gl_InstanceIndex);
@@ -401,38 +397,38 @@ vertex main0_out main0(constant Frame& _959 [[buffer(0)]], constant FxVolumes& _
     float3 lo = param_1;
     float3 hi = param_2;
     float3 m = float3(2.0);
-    bool _968 = all(_959.camPos.xyz > (lo - m));
-    bool _979;
-    if (_968)
+    bool _957 = all(_948.camPos.xyz > (lo - m));
+    bool _968;
+    if (_957)
     {
-        _979 = all(_959.camPos.xyz < (hi + m));
+        _968 = all(_948.camPos.xyz < (hi + m));
     }
     else
     {
-        _979 = _968;
+        _968 = _957;
     }
-    bool inside = _979;
-    bool _985 = inside != (_697.fxCount.y == 0u);
-    bool _996;
-    if (!_985)
+    bool inside = _968;
+    bool _974 = inside != (_697.fxCount.y == 0u);
+    bool _985;
+    if (!_974)
     {
-        _996 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
+        _985 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
     }
     else
     {
-        _996 = _985;
+        _985 = _974;
     }
-    if (_996)
+    if (_985)
     {
         out.gl_Position = float4(0.0, 0.0, 2.0, 1.0);
         out.vWorld = float3(0.0);
         out.vIdx = i;
         return out;
     }
-    float3 c = float3(_1024[((int(gl_VertexIndex) / 6) * 4) + _1031[spvSMod(int(gl_VertexIndex), 6)]]);
+    float3 c = float3(_1013[((int(gl_VertexIndex) / 6) * 4) + _1020[spvSMod(int(gl_VertexIndex), 6)]]);
     out.vWorld = mix(lo, hi, c);
     out.vIdx = i;
-    out.gl_Position = _959.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _948.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

@@ -118,7 +118,7 @@ void wreckBox(vec3 c, float len, out vec3 lo, out vec3 hi) {
 const float FLAME_DROOP = 0.55;       // m of droop at the end of a 9 m stream (scales with reach^2)
 vec3 flameDir(int i) { float y = fxC[i].z, p = fxC[i].w; return vec3(sin(y) * cos(p), sin(p), cos(y) * cos(p)); }
 // jet radius along the path: a thin rope near the nozzle, widening, then rolling open at the tip (u = s / reach)
-float flameRadius(float s, float L) { float u = s / max(L, 0.5); return 0.035 + 0.05 * s + 0.55 * smoothstep(0.62, 1.0, u) * min(L / 9.0, 1.0); }
+float flameRadius(float s, float L) { float u = s / max(L, 0.5); return 0.05 + 0.06 * s + 0.55 * smoothstep(0.62, 1.0, u) * min(L / 9.0, 1.0); }
 float flameRadiusMax(float L) { return flameRadius(L, L) + 0.25; }
 vec3 flameCentre(vec3 o, vec3 d, float L, float s) {
     vec3 c = o + d * s;
@@ -134,10 +134,9 @@ void streamBox(vec3 o, vec3 d, float L, out vec3 lo, out vec3 hi) {
     lo.y = max(lo.y, o.y - 1.45);
 }
 void poolBox(vec3 c, float R, out vec3 lo, out vec3 hi) {
-    float rf = R * 1.5 + 0.5;
-    lo = c - vec3(rf, 0.6, rf);
-    hi = c + vec3(rf, 4.2, rf) + vec3(max(FX_WIND.x, 0.0), 0.0, max(FX_WIND.z, 0.0)) * 3.0;
-    lo.xz += min(FX_WIND.xz, vec2(0.0)) * 3.0;
+    float rf = R * 1.3 + 0.3;
+    lo = c - vec3(rf, 0.2, rf);
+    hi = c + vec3(rf, 2.4, rf);
 }
 void fxBox(int i, out vec3 lo, out vec3 hi) {
     if (fxB[i].y < 0.5) blastBox(fxA[i].xyz, fxB[i].x, fxA[i].w, lo, hi);

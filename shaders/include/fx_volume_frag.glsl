@@ -155,26 +155,26 @@ bool streamRayInterval(vec3 o, vec3 d, float L, vec3 ro, vec3 rd, out float ta, 
     ta = x; tb = y;
     return y > x;
 }
-// Ground-fire pool (kind 3): low flame tongues over burning fuel / bodies, thin dark smoke wisps eroding by ~4 m.
+// Ground-fire pool (kind 3): a continuous carpet of low licking flames over the burning fuel / bodies at the jet's fine
+// voxel scale: the bed near the ground is always filled, noise only shapes the tongues rising out of it; the tongue
+// tips cool to red and a little soot (no smoke columns).
 float poolDensity(vec3 q, vec3 c, float R, float t, float k, float seed, out vec3 mat) {
     mat = vec3(0.0);
-    float y = q.y - (c.y - 0.3);
+    float y = q.y - (c.y - 0.05);
     if (y < 0.0) return -1.0;
-    float ff = 1.0 - length(q.xz - c.xz) / R - y / (0.45 + 0.9 * k);
-    if (ff > -0.6) {
-        float n = fbm(q * 1.5 + vec3(seed, seed - t * 4.5, seed * 0.5));
-        float df = ff + 0.6 * n - 0.12 - 0.5 * (1.0 - k);
-        if (df > 0.0) { mat = vec3(clamp(0.3 + 0.8 * ff + 0.3 * n, 0.0, 1.0), 0.0, 1.0); return df; }
-    }
-    if (y < 0.8) return -1.0;
-    vec3 axis = c + FX_WIND * (y - 0.8) * 0.6;
-    float rc = (0.35 + 0.1 * y) * (0.5 + 0.5 * k);
-    float fsm = 1.0 - length(q.xz - axis.xz) / rc;
-    float thr = 0.25 + 1.4 * (y / 4.0) + 0.6 * (1.0 - k);
-    if (fsm + 0.7 < thr) return -1.0;
-    float n2 = fbm(q * 0.8 + vec3(seed * 3.0, seed - t * 2.2, seed * 2.0));
-    mat = vec3(0.0, 0.0, 0.7);
-    return fsm + 0.7 * n2 - thr;
+    float rr = length(q.xz - c.xz) / R;
+    float hMax = (0.35 + 0.75 * k) * (1.0 - 0.55 * rr * rr);
+    float ff = 1.0 - max(rr, 0.0) - 0.0;
+    if (ff < -0.25 || y > hMax * 1.9 + 0.2) return -1.0;
+    float n = fbm(vec3(q.x * 3.2, q.y * 1.6 - t * 3.8, q.z * 3.2) + vec3(seed, 0.0, seed * 0.5));
+    float bed = 1.0 - smoothstep(0.0, 0.12, y);                // the burning bed itself: solid
+    float tongue = (hMax * (0.75 + 0.9 * n) - y) / max(hMax, 0.1);   // tongues licking up, shaped by the noise
+    float dens = max(bed * (ff + 0.15 * n), tongue) * step(-0.05, ff + 0.25 * n);
+    if (dens <= 0.0) return dens;
+    float h = clamp(y / max(hMax * 1.6, 0.1), 0.0, 1.0);
+    float T = clamp(0.95 - 0.95 * h + 0.25 * n - 0.25 * rr, 0.0, 1.0);
+    mat = vec3(T < 0.08 ? 0.0 : T, 0.0, 0.8);
+    return dens;
 }
 
 // Ray interval [ta, tb] (hull) where a blast's parts, inflated by m (boxes: their own >= 0.5 m margins), can be: the ellipsoid of the ball, the stem's
@@ -244,6 +244,7 @@ void main() {
         float want = dist * mpp * fxC[i].x;
         v = want <= 0.25 ? 0.25 : (want <= 0.5 ? 0.5 : 1.0);
         if (kind == 2) v = want <= 0.05 ? 0.05 : (want <= 0.1 ? 0.1 : (want <= 0.25 ? 0.25 : 0.5));   // jet: gear-scale voxels
+        if (kind == 3) v = want <= 0.1 ? 0.1 : (want <= 0.25 ? 0.25 : 0.5);                          // fire carpet: fine too
     }
     else v = dist > 110.0 ? 0.5 : 0.25;
     int maxSteps = int(fxC[i].y);

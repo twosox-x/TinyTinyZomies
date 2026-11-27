@@ -804,7 +804,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
                 y1 = A.y + hc + r * 1.6f + 1.f;
             } else if (B.y < 1.5f) { rx = 0.6f * B.x + 4.5f; y1 = A.y + 14.f; }
             else if (B.y < 2.5f) { rx = B.x * 1.1f + 2.5f; y0 = A.y - 2.5f; y1 = A.y + 3.f; }   // stream: around the nozzle
-            else { rx = 1.6f * B.x + 1.f; y1 = A.y + 5.f; }                                     // ground-fire pool
+            else { rx = 1.3f * B.x + 0.5f; y1 = A.y + 2.6f; }                                   // ground-fire carpet
             float vx0 = 1e9f, vy0 = 1e9f, vx1 = -1e9f, vy1 = -1e9f;
             bool behind = false;
             for (int c = 0; c < 8; ++c) {
