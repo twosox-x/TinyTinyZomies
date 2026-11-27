@@ -176,6 +176,7 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 - Explosion kills pay a kill reward. The value is provisional.
 - Dead soldiers rise again as tougher zombies (harder to kill). This is not instant: they lie dead first, then get up.
 - Empty supply crates disappear.
+- Soldiers move faster and have stamina. They prefer running in high-stakes situations, and walk only when exhausted or wounded (for example while heading to medical care).
 - Ammo containers never disappear and can be used to wall things off: they are physical obstacles. They rotate during placement and arrive by parachute.
 
 ## 15. Progress and known limitations
