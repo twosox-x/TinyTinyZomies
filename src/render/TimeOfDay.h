@@ -27,10 +27,11 @@ struct TimeOfDaySettings {
     // real seconds -> clock hours at clock time h: 12 h per dayMinutes by day, per nightMinutes by night; the rate
     // blends over 05:30-06:30 and 17:30-18:30 (no step in the shadow speed at sunrise / sunset)
     float hoursPerSecond(float h) const {
-        const float dayRate = 12.f / (std::max(dayMinutes, 0.05f) * 60.f), nightRate = 12.f / (std::max(nightMinutes, 0.05f) * 60.f);
+        // blended in seconds per clock hour (symmetric ramps: the day / night totals stay exact)
+        const float daySph = std::max(dayMinutes, 0.05f) * 5.f, nightSph = std::max(nightMinutes, 0.05f) * 5.f;   // 60 s / 12 h
         auto sm = [](float a, float b, float x) { float t = std::clamp((x - a) / (b - a), 0.f, 1.f); return t * t * (3.f - 2.f * t); };
         const float day = sm(5.5f, 6.5f, h) * (1.f - sm(17.5f, 18.5f, h));
-        return nightRate + (dayRate - nightRate) * day;
+        return 1.f / (nightSph + (daySph - nightSph) * day);
     }
     // advance by dt real seconds
     void advance(float dt) {

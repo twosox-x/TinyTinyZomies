@@ -522,7 +522,9 @@ float Renderer::measureFocus(const Camera& cam, uint32_t w, uint32_t h) const {
         ds[k] = std::clamp(dist, 2.f, camDist * 3.f + 100.f);
     }
     std::sort(ds, ds + 5);
-    return ds[2];
+    // never focus beyond the pivot: the rig's pivot sits on the ground (so a hit is nearer: a roof, a wall), and a
+    // raised pivot (close-up of a soldier, whom the height grid does not contain) is the subject itself
+    return std::min(ds[2], camDist);
 }
 
 void Renderer::addBlast(float x, float y, float z, float scale) {
