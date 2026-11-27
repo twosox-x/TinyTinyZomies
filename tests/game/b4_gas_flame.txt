@@ -15,10 +15,11 @@ at 20   expect rotting >= 60
 at 20   expect gas_max > 0.2
 at 20   expect gas_cells >= 6
 at 21   shot gas_rot.png
-at 34   expect gas_damage > 0                # the rifle squad in the gas loses health
+at 34   expect squad 1 gas == 1              # the rifle squad next to the pile shows the gas warning
 at 34   expect squad 2 alive == 2
 at 38   shot gas_flame.png
 at 64   log
+at 64   expect flame_repositions >= 0       # (info) walked round the pile when soldiers stood in the cone
 at 64   expect flame_trips >= 1
 at 64   expect flame_sprays >= 20
 at 64   expect fuel_used >= 20

@@ -122,6 +122,8 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "flame_sprays") { out = (double)w.flameAI().sprays(); return true; }
     if (m == "flame_trips") { out = (double)w.flameAI().trips(); return true; }
     if (m == "fuel_used") { out = (double)w.flameAI().fuelUsed(); return true; }
+    if (m == "flame_blocked") { out = (double)w.flameAI().blocked(); return true; }
+    if (m == "flame_repositions") { out = (double)w.flameAI().repositions(); return true; }
     if (m == "zombies_live") { out = w.app() ? (double)w.app()->sim.stats().live : 0.0; return true; }
     if (m == "delivered") { out = 0; for (size_t t = 0; t < kAmmoTypes; ++t) out += (double)w.logistics().roundsDelivered((AmmoType)t); return true; }
     if (m == "squad") {
@@ -134,6 +136,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
         out = 0;
         if (fld == "size") { out = (double)s->members.size(); return true; }
         if (fld == "deploying") { out = s->deploying ? 1 : 0; return true; }
+        if (fld == "gas") { out = (s->flags & SQ_GAS) ? 1 : 0; return true; }   // 14d: a member stands in corpse gas
         if (fld == "has_runner") { out = s->runner.valid() && P.valid(s->runner) && P.alive(s->runner.index) ? 1 : 0; return true; }
         if (fld == "ammo_start") { out = s->id.index < w.squadStarts().size() ? w.squadStarts()[s->id.index].ammo : 0; return true; }
         if (fld == "dist" || fld == "maxdist") {
@@ -366,7 +369,8 @@ bool GameScript::tick(GameWorld& world, double time) {
             for (size_t si = 0; si < ctx.squads->squads.size(); ++si) {
                 const Squad& s = ctx.squads->squads[si];
                 if (L.verb == "squadinfo" && !a.empty() && (int)si + 1 != std::atoi(a[0].c_str())) continue;
-                std::printf("    squad %zu (%s %u) alive %d/%zu flags 0x%02x order %s (%.1f %.1f)\n", si + 1, s.type == SquadType::Rifle ? "rifle" : s.type == SquadType::MachineGun ? "mg" : "sniper",
+                std::printf("    squad %zu (%s %u) alive %d/%zu flags 0x%02x order %s (%.1f %.1f)\n", si + 1, s.type == SquadType::Rifle ? "rifle" : s.type == SquadType::MachineGun ? "mg"
+                            : s.type == SquadType::Flamethrower ? "flamethrower" : s.type == SquadType::Engineer ? "engineer" : "sniper",
                             s.number, ctx.squads->aliveMembers(s, P), s.members.size(), s.flags, s.order.active ? "move" : "hold", s.order.dest.x, s.order.dest.z);
                 for (const SoldierId& m : s.members) {
                     if (!P.valid(m)) continue;
