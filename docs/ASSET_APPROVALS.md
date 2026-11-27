@@ -20,9 +20,11 @@ Only the owner can approve. Status values: **pending review**, **changes request
 | Hospital indicators and props | approved 2026-11-26 | n/a | |
 | Weapon FX (muzzle flash, tracer, suppressed shot) | n/a | approved 2026-11-27 | |
 
-Animation approval 2026-11-27, owner: "All animations are approved." Two corrections were requested: (1) a death animation where the soldier lies on his weapon; (2) parachutes (infantry and crate) must slowly dissolve and disappear after landing. Final sign-off on these is pending.
+Animation approval 2026-11-27, owner: "All animations are approved." Two corrections were requested: (1) a death animation where the soldier lies on his weapon; (2) parachutes (infantry and crate) must slowly dissolve and disappear after landing. Both were fixed and are covered by the Stage A sign-off below.
 
-**Stage B gate: CLOSED.** It opens only after the owner gives explicit final approval of all rows above.
+**Stage A COMPLETE (2026-11-27).** Owner: "I have personally reviewed the military 3D models, visual designs and animations. I approve them. Stage A is officially complete. You are now authorized to begin Stage B." This includes the death weapon-drop and parachute-dissolve corrections. Approved assets must not be redesigned without owner permission.
+
+**Stage B gate: OPEN.**
 
 Model approval 2026-11-26, owner: "Yes, amazing, amazing stuff." (reply to the model review sheets: lineup, class sheets, props, RTS crops). Defaults kept for the open questions: gabion walls at 1.6 / 2.4 m, olive chevron garrison flag, green-cross hospital flag, 10 cm canopy voxels, carry pose as default. Machine-gunner readability at 100–150 m is to be handled by a class or squad marker in the Stage B UI, not by changing the model.
 

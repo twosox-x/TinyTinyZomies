@@ -126,5 +126,51 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 14. Off-screen persistence
 15. Integration, optimisation and polish
 
+## 14b. Phase 7B additions (APPROVED 2026-11-27)
+- Core loop: deploy soldiers → eliminate zombies → secure territory → increase funding → expand the army → secure more territory. Bigger operations make more noise and draw more zombies.
+- Spending: squads, walls, building fortifications, ammo containers, ammo airdrops, replacement forces.
+- Provisional balance values may be used for playtesting, but must be labelled UNAPPROVED. Duplicate kill rewards and obvious exploits must be prevented.
+- Deployment sequence:
+  1. placement preview;
+  2. purchase confirmation and funding deduction;
+  3. parachute descent;
+  4. landing;
+  5. canopy collapse and dissolve;
+  6. recovery;
+  7. squad formation;
+  8. autonomous behaviour.
+  Street and rooftop drops are allowed; invalid spots (inside solid geometry) are refused.
+- Soldiers seek medical treatment when appropriate. AI must avoid endless target switching, getting stuck, oscillation, constantly interrupted animations, leaving positions without reason, and chasing distant zombies.
+- Configurable weapon stats: damage, range, accuracy, fire rate, magazine capacity, reserve ammo, reload duration, noise intensity, target acquisition.
+- Fire and reload events are synced to the approved animations. Hits use the existing zombie damage, blood, dismemberment and death systems.
+- Container and crate inventories are finite. Several soldiers can share one supply point without getting stuck.
+- Walls use the approved 1.6 m and 2.4 m gabion assets. Construction:
+  - click and drag, with placement and cost previews;
+  - segments and corners connect automatically, and placement is validated;
+  - walls have health, collision, destruction and breaches;
+  - navigation updates are local and event-driven.
+  - **OPEN:** gate mechanics must be proposed to the owner before they become final design.
+- Territory feedback states: unsecured / enclosed but uncleared / controlled / breached or threatened. Overlays must be subtle.
+- Garrison flag: olive chevron. Hospital: green cross on white.
+- Vertical play: start with one representative test building, then roll out to compatible buildings. Unsupported buildings must be documented.
+- Noise events have configurable intensity, radius and duration. Spawn rates, noise propagation and territory-pressure curves are configurable.
+- Horde: corpse piles, climbing and crawlers where supported. Walls must not be infinitely effective under mass pressure. Infantry combat integrates with vehicle chain explosions.
+- Off-screen persistence: rendering and simulation are separate. **PROPOSED:** the architecture must be presented to the owner before invasive changes.
+- UI shows:
+  - funding, income rate, territory and kills;
+  - purchase, wall and supply options;
+  - the selected squad's composition, health and ammo;
+  - building roles and warnings;
+  - subtle squad status markers (low or out of ammo, casualties, moving, resupplying, under attack);
+  - squad identification markers so machine-gun squads can be told from rifle squads at distance.
+- No game-over screen: losses never end the game.
+- Stress tests: 10 / 50 / 100 / 250 / 500 / 1,000 soldiers with growing hordes. These are not gameplay limits.
+- Milestones:
+  - **B1:** combat loop (squads, deploy, selection, orders, combat, health, ammo, resupply, funding, kills, essential UI).
+  - **B2:** walls and territory.
+  - **B3:** buildings and vertical play.
+  - **B4:** noise, pressure, persistence, full UI, stress tests and polish.
+
 ## 15. Progress and known limitations
+- 2026-11-27: Stage A approved by the owner. Stage B started on branch phase7b-gameplay.
 - 2026-11-26: Stage A started. Building the Military Asset Lab and the model set. No gameplay implemented.
