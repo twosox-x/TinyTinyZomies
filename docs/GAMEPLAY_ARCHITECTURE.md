@@ -761,15 +761,22 @@ Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h
 - **Placeholder** until the approved flamethrower model / clips (tools/military_lab): rifleman variants and clips
   (`FlameAI::usePlaceholderAssets`, one call in GameWorld); nozzle glow + light at the rifle muzzle
   (`MilitaryRenderer::fxFlame`, plus a rare ember).
-- **Flame look (owner feedback: "like the explosions, voxel-based, not particles").** The flame stream and the ground
-  fire are fx volumes in the explosions' path (`shaders/include/fx_volume*.glsl`, DDA through the world voxel grid,
-  half-res + exact-edge composite, shared 24-volume list and screen budget): kind 2 = stream (nozzle, yaw / pitch in
-  `fxC.zw`, reach; a tapered, drooping tube that pools along the ground, turbulence scrolling along it, white-yellow
-  core cooling to orange / red, eroding at the tip into rising soot; 0.125 m voxels up close), kind 3 = ground-fire
-  pool (low tongues over the burning cells + thin smoke wisps eroding by ~4 m). `Renderer::setFlameVolumes`
-  (`FlameVolume` in `sim/Sandbox.h`), fed per frame by `CorpseGasRender::flameVolumes` (streams from the FxKind::Flame
-  events: fade in 0.12 s / out 0.3 s, reach grows over 0.2 s; pools = burning gas cells clustered within 2.6 m; at most
-  6 + 6, nearest the camera).
+- **Flame look** (owner feedback x3: "like the explosions, voxel-based, not particles", then "one continuous tongue",
+  then the Lab v4 spec, docs/MILITARY_ANIMS.md 7.5 / `fx.flame_tongue`): the jet and the ground fire are fx volumes in
+  the explosions' path (`shaders/include/fx_volume*.glsl`: DDA through the world voxel grid, half-res + exact-edge
+  composite, shared 24-volume list and screen budget). Kind 2 = jet: nozzle, yaw / pitch in `fxC.zw`, visual reach
+  0.85 x weapon range; 5 cm voxels up close (0.1 / 0.25 m with distance), walk limited to a thin cylinder around the
+  path (+ the smoke box above the tip) so the cost stays bounded; v4 rope radius `0.035 + 0.205 k^1.4 + 0.06 tip`
+  (<= 0.3 m), ballistic droop, kept >= 0.6 r above the ground; core (sr <= 0.6) always filled, edge noise only
+  (calm at the nozzle, licking at the tip); v4 colour ramp white -> yellow -> yellow-orange -> orange (HDR gain, face
+  shading top 1 / sides 0.78-0.86 / bottom 0.62), red-orange only on a flickering 30 % of the tip fringe; light grey
+  smoke only 0.3 m above the tip, thin, rising with the wind. Kind 3 = pool: at the jet's impact point (r 0.5 m) and
+  over burning gas cells (clustered within 2.6 m): disc, flame height 0.55 m x (1 - d) x flicker, yellow base ->
+  orange tips (ramp capped 0.78), bed always filled, no smoke column. Warm flickering point lights along each jet and
+  at its impact (`CorpseGasRender::flameLights`, App light list). `Renderer::setFlameVolumes` (`FlameVolume` in
+  `sim/Sandbox.h`), fed per frame from the FxKind::Flame events (sim time: fade in 0.12 s / out 0.3 s, reach grows over
+  0.2 s; at most 6 jets + 6 pools nearest the camera). Not yet: the sweep does not bend the jet (one direction per
+  volume; a direction history would need two more uniforms), corpse char tint / ash decal.
 - **Rendering.** One indirect instanced draw of the listed gas cells, 9 voxel boxes each: translucent low haze slab
   (0.25 m height steps, alpha <= 0.42, destination alpha kept for the DOF), sparse rising puffs, flies over rotting
   bodies, a sparse ember over ground fire (the fire itself: fx volumes above). Corpse colour itself is unchanged (rendering agent: rot level is in info.z).

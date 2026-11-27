@@ -94,6 +94,34 @@ void CorpseGasRender::noteFlames(const std::vector<FxEvent>& fx, double time, fl
     streams_.erase(std::remove_if(streams_.begin(), streams_.end(), [&](const Stream& s) { return time - s.last > 1.0; }), streams_.end());
 }
 
+float CorpseGasRender::visualReach(const Stream& s, double time) { return 0.85f * s.range * (float)std::clamp((time - s.start) / 0.2, 0.25, 1.0); }
+
+// where the jet's centreline (fx_volume.glsl flameCentre: droop 0.0128 s^2) reaches the ground (~1.25 m below the nozzle)
+bool CorpseGasRender::impact(const Stream& s, float reach, V3& out) const {
+    float ground = s.o.y - 1.25f;
+    if (app_) { const float h = app_->cityRenderer.heightAt(s.o.x + s.d.x * reach, s.o.z + s.d.z * reach); if (h > ground - 3.f && h < ground + 1.f) ground = h; }
+    for (float d = 0.5f; d <= reach + 0.01f; d += 0.25f) {
+        const float y = s.o.y + s.d.y * d - 0.0128f * d * d;
+        if (y <= ground + 0.15f || d + 0.25f > reach) {
+            out = {s.o.x + s.d.x * d, ground, s.o.z + s.d.z * d};
+            return y <= ground + 0.6f;   // a jet ending in the air makes no pool
+        }
+    }
+    return false;
+}
+
+void CorpseGasRender::flameLights(double time, std::vector<PointLight>& out) const {
+    for (const Stream& s : streams_) {
+        if (time - s.last > 0.45) continue;
+        const float reach = visualReach(s, time);
+        const float fl = 0.8f + 0.12f * std::sin((float)time * 37.f + (float)(s.id & 63u)) + 0.08f * std::sin((float)time * 23.f);
+        const V3 m = s.o + s.d * (reach * 0.55f);
+        out.push_back({m.x, m.y + 0.2f, m.z, 7.5f, 1.0f, 0.62f, 0.24f, 2.4f * fl});
+        V3 hit;
+        if (impact(s, reach, hit)) out.push_back({hit.x, hit.y + 0.4f, hit.z, 5.f, 1.0f, 0.55f, 0.18f, 1.6f * fl});
+    }
+}
+
 void CorpseGasRender::flameVolumes(float camX, float camZ, double time, std::vector<FlameVolume>& out, int maxStreams, int maxPools) const {
     std::vector<const Stream*> live;
     for (const Stream& s : streams_) if (time - s.last < 0.45) live.push_back(&s);
@@ -104,9 +132,12 @@ void CorpseGasRender::flameVolumes(float camX, float camZ, double time, std::vec
         const Stream& s = *live[k];
         const float in = (float)std::clamp((time - s.start) / 0.12, 0.0, 1.0), outF = (float)std::clamp(1.0 - (time - s.last - 0.15) / 0.3, 0.0, 1.0);
         const float yaw = std::atan2(s.d.x, s.d.z), pitch = std::asin(std::clamp(s.d.y, -1.f, 1.f));
-        // the stream grows to its reach over the first 0.2 s of a burst
-        const float reach = s.range * (float)std::clamp((time - s.start) / 0.2, 0.25, 1.0);
-        out.push_back({s.o.x, s.o.y, s.o.z, reach, yaw, pitch, std::min(in, outF), s.id * 2654435761u, 2});
+        // the jet grows to its reach over the first 0.2 s of a burst (visual reach ~0.85 x the weapon range: v4 ~7.5 m)
+        const float reach = visualReach(s, time);
+        const float str = std::min(in, outF);
+        out.push_back({s.o.x, s.o.y, s.o.z, reach, yaw, pitch, str, s.id * 2654435761u, 2});
+        V3 hit;
+        if (impact(s, reach, hit)) out.push_back({hit.x, hit.y, hit.z, 0.5f, 0.f, 0.f, str, s.id * 747796405u, 3});   // pool where it lands
     }
     if (!gas_) return;
     std::vector<std::array<float, 4>> spots;

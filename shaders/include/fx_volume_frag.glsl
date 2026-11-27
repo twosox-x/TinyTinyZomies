@@ -103,39 +103,65 @@ float wreckDensity(vec3 q, vec3 c, float len, float t, float k, float seed, out 
     return ds;
 }
 
-// Flame jet (kind 2), owner feedback round 2: ONE continuous tongue of fire from the nozzle at character voxel scale
-// (5 cm up close). The density is a solid tapered tube along the drooping jet path whose core is always filled (no
-// threshold holes inside); turbulence only shapes the outer edge, and at the widening tip, where the rope rolls open,
-// curls and breaks into licking flames and then soot. White-yellow core -> orange -> red edge. Strength k (fade in /
-// out) shrinks the tube instead of eroding holes into it.
-float streamDensity(vec3 q, vec3 o, vec3 d, float L, float t, float k, float seed, out vec3 mat) {
+// Flame jet (kind 2), v4 (docs/MILITARY_ANIMS.md 7.5): one continuous rope of fire at character voxel scale (5 cm up
+// close). With sr = distance to the centreline / r: the core sr <= 0.6 is always filled (it shrinks only in the last
+// 25 % of the tip); outside it a voxel is filled when 1 - sr + a(k) n > 0, the noise scrolling up (9 / 16 m/s): calm at
+// the nozzle, the rolling tip breaks into licking tongues. Smoke only above the tip (0.3 m up, rising, thin, lit).
+// mat: x = kk on the v4 colour ramp (0 white .. 0.8 orange, 0.95 red-orange fringe), y = 2 (flame ramp) / 0 (smoke).
+float vn01(vec3 p) { return vnoise(p); }
+float streamDensity(vec3 q, vec3 o, vec3 d, float L, float t, float kStr, float seed, out vec3 mat) {
     mat = vec3(0.0);
     float s = dot(q - o, d);
-    if (s < -0.05 || s > L + 0.9) return -1.0;
-    float u = s / max(L, 0.5);
+    if (s < -0.05) return -1.0;
+    vec3 e = flameCentre(o, d, L, L);
+    // smoke: starts 0.3 m above the tip, rises 1.8 m/s with the wind (never inside the flame), thin and broken
+    vec3 sm = q - (e + vec3(0.0, 0.3, 0.0));
+    if (sm.y > -0.05 && sm.y < 1.8) {
+        vec3 ax = FX_WIND * sm.y * 0.5;
+        float rs = (0.14 + 0.08 * sm.y) * kStr;
+        float fs = 1.0 - length(sm.xz - ax.xz) / max(rs, 0.02);
+        if (fs > -1.0) {
+            float n = vn01(q * 6.0 + vec3(seed, -t * 1.8 * 6.0, seed * 0.7)) * 2.0 - 1.0;
+            float ds = 0.15 + fs + 0.9 * n - 0.45 - 0.35 * sm.y;
+            if (ds > 0.0 && s > L - 0.6) { mat = vec3(0.0, 0.0, 0.25 + 0.2 * smoothstep(0.0, 0.3, sm.y)); return ds; }
+        }
+    }
+    if (s > L + 0.35) return -1.0;
+    float k = clamp(s / max(L, 0.5), 0.0, 1.0);
     vec3 c = flameCentre(o, d, L, min(s, L));
-    float tip = smoothstep(0.62, 1.0, u);
-    c.y += 0.35 * tip * tip + 0.5 * max(u - 1.0, 0.0);        // the rolling tip lifts (buoyancy)
-    float r = flameRadius(min(s, L), L) * mix(0.35, 1.0, k);
-    vec3 dq = q - c;
-    float f = 1.0 - length(dq) / r;                            // 1 at the axis, 0 at the nominal edge
-    float amp = 0.28 + 0.55 * tip;                             // edge turbulence; much stronger where the tip breaks up
-    if (f + amp < 0.0) return -1.0;
-    // noise scrolls down the jet (fast) and swirls; only the outer part of the tube feels it
-    float n = fbm(q * (2.6 - 1.2 * tip) + vec3(seed, seed * 0.37, seed * 1.3) - d * t * 11.0 - vec3(0.0, t * 1.8, 0.0));
-    float edge = 1.0 - smoothstep(0.25, 0.65, f);              // 0 in the core: always solid
-    float dens = f + amp * n * edge + 0.02 - 0.55 * smoothstep(1.0, 1.25, u) * (0.5 + 0.5 * n);
-    if (u > 1.0) dens -= 0.4 * (u - 1.0) / 0.12;              // beyond the reach: licking flames fade out
+    float r = flameRadius(min(s, L), L) * mix(0.35, 1.0, kStr);
+    float sr = length(q - c) / r;
+    if (sr > 2.6) return -1.0;
+    float n = 0.65 * vn01(9.0 * q + vec3(seed, -9.0 * 9.0 * t * 0.111, seed)) + 0.35 * vn01(20.0 * q + vec3(seed * 1.7, -16.0 * 20.0 * t * 0.05, 0.0));
+    n = n * 2.0 - 1.0;
+    float a = 0.75 * (0.35 + 0.65 * smoothstep(0.35, 1.0, k)) + 0.6 * smoothstep(0.75, 1.0, k);
+    float core = 0.6 * (1.0 - smoothstep(0.75, 1.0, k) * 0.8);
+    float dens = sr <= core ? 1.0 - sr + 0.5 : 1.0 - sr + a * n;
+    if (s > L) dens -= (s - L) / 0.25;                         // past the reach: the licks die out
     if (dens <= 0.0) return dens;
-    float T = clamp(0.32 + 0.8 * f - 0.4 * u + 0.18 * n - 0.35 * tip * (1.0 - f), 0.0, 1.0);
-    if (tip > 0.5 && dq.y > 0.45 * r && f < 0.35) T = min(T, 0.05 * n + 0.03);   // rolling top of the tip: soot
-    mat = vec3(T, 0.0, 0.85);
+    float jitv = fract(sin(dot(floor(q * 20.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float kk = min(0.8, 0.12 * k + 0.55 * sr + 0.18 * k * k + 0.08 * (jitv - 0.5));
+    // red-orange only on a flickering 30 % of the outer fringe in the last 22 % of the tip (re-rolled 12x / s)
+    float roll = fract(sin(dot(floor(q * 20.0), vec3(7.1, 3.3, 5.9)) + floor(t * 12.0) * 1.37) * 43758.5453);
+    if (sr > 0.9 && k > 0.78 && roll < 0.3) kk = 0.95;
+    mat = vec3(kk, 2.0, 0.0);
     return dens;
+}
+vec3 srgbHex(float r, float g, float b) { return pow(vec3(r, g, b) / 255.0, vec3(2.2)); }
+// v4 ramp: white #fffbe6 -> pale yellow #fff09a -> yellow #ffd24a -> yellow-orange #ffa82a -> orange #ff8418 -> red-orange #f0561a
+vec3 flameRamp(float kk) {
+    vec3 c0 = srgbHex(255.0, 251.0, 230.0), c1 = srgbHex(255.0, 240.0, 154.0), c2 = srgbHex(255.0, 210.0, 74.0);
+    vec3 c3 = srgbHex(255.0, 168.0, 42.0), c4 = srgbHex(255.0, 132.0, 24.0), c5 = srgbHex(240.0, 86.0, 26.0);
+    if (kk < 0.18) return mix(c0, c1, kk / 0.18);
+    if (kk < 0.36) return mix(c1, c2, (kk - 0.18) / 0.18);
+    if (kk < 0.55) return mix(c2, c3, (kk - 0.36) / 0.19);
+    if (kk < 0.72) return mix(c3, c4, (kk - 0.55) / 0.17);
+    return mix(c4, c5, clamp((kk - 0.72) / 0.18, 0.0, 1.0));
 }
 // Ray interval through the jet's bent tube (cylinder around nozzle -> end, inflated for droop / tip lift / edge noise).
 bool streamRayInterval(vec3 o, vec3 d, float L, vec3 ro, vec3 rd, out float ta, out float tb) {
     ta = 0.0; tb = 0.0;
-    float R = flameRadiusMax(L) * 1.3 + FLAME_DROOP * (L * L) / 81.0 + 0.45;
+    float R = flameRadiusMax(L) * 1.3 + FLAME_DROOP * L * L + 0.35;
     vec3 oc = ro - o;
     vec3 rp = rd - d * dot(rd, d), op = oc - d * dot(oc, d);
     float A2 = dot(rp, rp), B2 = dot(op, rp), C2 = dot(op, op) - R * R;
@@ -152,31 +178,39 @@ bool streamRayInterval(vec3 o, vec3 d, float L, vec3 ro, vec3 rd, out float ta, 
         float a = (-0.3 - s0) / dd, b = (L + 1.2 - s0) / dd;
         x = max(x, min(a, b)); y = min(y, max(a, b));
     } else if (s0 < -0.3 || s0 > L + 1.2) return false;
-    ta = x; tb = y;
-    return y > x;
+    // union with the smoke box above the tip (hull of both intervals)
+    vec3 e = flameCentre(o, d, L, L);
+    vec3 slo = e + vec3(-0.6, 0.2, -0.6) + min(FX_WIND, vec3(0.0)) * 0.9, shi = e + vec3(0.6, 2.1, 0.6) + max(FX_WIND, vec3(0.0)) * 0.9;
+    vec3 inv = 1.0 / (abs(rd) + 1e-6) * sign(rd + 1e-9);
+    vec3 t1 = (slo - ro) * inv, t2 = (shi - ro) * inv;
+    vec3 mn = min(t1, t2), mx = max(t1, t2);
+    float sx = max(max(mn.x, mn.y), mn.z), sy = min(min(mx.x, mx.y), mx.z);
+    bool tube = y > x, smoke = sy > sx;
+    if (!tube && !smoke) return false;
+    ta = tube ? (smoke ? min(x, sx) : x) : sx;
+    tb = tube ? (smoke ? max(y, sy) : y) : sy;
+    return true;
 }
-// Ground-fire pool (kind 3): a continuous carpet of low licking flames over the burning fuel / bodies at the jet's fine
-// voxel scale: the bed near the ground is always filled, noise only shapes the tongues rising out of it; the tongue
-// tips cool to red and a little soot (no smoke columns).
+// Ground-fire pool (kind 3), v4: flames on the 5 cm grid where the jet reaches the ground / bodies burn: disc of radius
+// R, flame height 0.55 m x (1 - d) x flicker noise (re-rolled by the scrolling noise), yellow base -> orange tips
+// (v4 ramp capped at 0.78, no red), the burning bed always filled; no smoke column.
 float poolDensity(vec3 q, vec3 c, float R, float t, float k, float seed, out vec3 mat) {
     mat = vec3(0.0);
-    float y = q.y - (c.y - 0.05);
+    float y = q.y - (c.y - 0.03);
     if (y < 0.0) return -1.0;
-    float rr = length(q.xz - c.xz) / R;
-    float hMax = (0.35 + 0.75 * k) * (1.0 - 0.55 * rr * rr);
-    float ff = 1.0 - max(rr, 0.0) - 0.0;
-    if (ff < -0.25 || y > hMax * 1.9 + 0.2) return -1.0;
-    float n = fbm(vec3(q.x * 3.2, q.y * 1.6 - t * 3.8, q.z * 3.2) + vec3(seed, 0.0, seed * 0.5));
-    float bed = 1.0 - smoothstep(0.0, 0.12, y);                // the burning bed itself: solid
-    float tongue = (hMax * (0.75 + 0.9 * n) - y) / max(hMax, 0.1);   // tongues licking up, shaped by the noise
-    float dens = max(bed * (ff + 0.15 * n), tongue) * step(-0.05, ff + 0.25 * n);
+    float dd = length(q.xz - c.xz) / R;
+    if (dd > 1.15 || y > 0.9 * max(R, 0.5) + 0.3) return -1.0;
+    float n = vnoise(vec3(q.x * 7.0, q.y * 3.0 - t * 6.0, q.z * 7.0) + vec3(seed, 0.0, seed * 0.5));
+    float n2 = vnoise(vec3(q.x * 2.5 + seed, t * 2.0, q.z * 2.5));
+    float hMax = 0.55 * clamp(R / 0.45, 1.0, 1.6) * 0.75 * (1.0 - dd) * (0.55 + 0.9 * n2) * (0.5 + 0.5 * k);
+    float bed = (1.0 - dd) > 0.0 && y < 0.06 ? 1.0 : 0.0;
+    float dens = max(bed, (hMax * (0.6 + 0.8 * n) - y) / max(hMax, 0.05));
+    if (dd > 1.0) dens = -1.0;
     if (dens <= 0.0) return dens;
-    float h = clamp(y / max(hMax * 1.6, 0.1), 0.0, 1.0);
-    float T = clamp(0.95 - 0.95 * h + 0.25 * n - 0.25 * rr, 0.0, 1.0);
-    mat = vec3(T < 0.08 ? 0.0 : T, 0.0, 0.8);
+    float h = clamp(y / max(hMax * 1.3, 0.05), 0.0, 1.0);
+    mat = vec3(min(0.78, 0.25 + 0.55 * h + 0.15 * dd), 2.0, 0.0);
     return dens;
 }
-
 // Ray interval [ta, tb] (hull) where a blast's parts, inflated by m (boxes: their own >= 0.5 m margins), can be: the ellipsoid of the ball, the stem's
 // box, the ring's cylinder slab. Voxels whose centre has density > 0 lie wholly inside the parts inflated by the
 // voxel's half diagonal, so the walk can skip what is before ta and stop after tb.
@@ -306,10 +340,13 @@ void main() {
     float jit = fxH01(cell * 7 + ivec3(int(B.z) * 131));      // per-voxel colour variation (MagicaVoxel look; per volume seed: stable when the draw order changes)
     vec3 col;
     float T = mat.x;
-    if (T > 0.06) {
+    if (mat.y > 1.5) {   // flamethrower v4 ramp: emissive, face shaded (top 1.0, sides 0.78-0.86, bottom 0.62), HDR gain
+        float face = ax == 1 ? (stp[1] < 0 ? 1.0 : 0.62) : (ax == 0 ? 0.86 : 0.78);
+        col = flameRamp(T) * (1.0 + 0.35 * (1.0 - T)) * face * 2.6 * (0.94 + 0.12 * jit);
+    } else if (T > 0.06) {
         col = firePalette(clamp(1.0 - T + 0.15 * (jit - 0.5), 0.0, 1.0)) * (0.85 + 0.3 * jit);
     } else {
-        vec3 alb = mat.y > 0.5 ? vec3(0.12, 0.115, 0.105) : mix(vec3(0.1, 0.098, 0.097), vec3(0.022, 0.02, 0.019), mat.z);
+        vec3 alb = kind >= 2 ? mix(vec3(0.24, 0.22, 0.20), vec3(0.16, 0.146, 0.135), mat.z) : mat.y > 0.5 ? vec3(0.12, 0.115, 0.105) : mix(vec3(0.1, 0.098, 0.097), vec3(0.022, 0.02, 0.019), mat.z);
         alb *= 0.82 + 0.36 * jit;
         col = shade(alb * 2.0, N, P, 1.0);
         // soot still glowing from the fire inside / under it

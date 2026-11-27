@@ -588,6 +588,7 @@ void App::frame(double dt) {
         std::vector<PointLight> lamps;
         V3 p = s.camera.target();
         s.vehicles.fireLights(p.x, p.z, s.renderTime, 16, lamps);
+        if (s.game) s.game->flameLights(s.sim.simTime(), lamps);   // GAME_DESIGN 14d: flamethrower jets light the street
         if (s.lab) s.lab->injectLights(lamps);
         s.renderer.setLights(lamps);
         std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns

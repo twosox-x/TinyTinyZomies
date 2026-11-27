@@ -120,6 +120,7 @@ public:
     CorpseGas& gas() { return gas_; }
     const FlameAI& flameAI() const { return flame_; }
     void flameVolumes(float camX, float camZ, double time, std::vector<FlameVolume>& out) const { gasRender_.flameVolumes(camX, camZ, time, out); }
+    void flameLights(double time, std::vector<PointLight>& out) const { gasRender_.flameLights(time, out); }
 
 private:
     void tick(AppState& app);

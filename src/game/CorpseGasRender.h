@@ -14,6 +14,7 @@ namespace ttz {
 struct AppState;
 struct FireVolume;
 struct FlameVolume;
+struct PointLight;
 }
 
 namespace ttz::game {
@@ -29,6 +30,7 @@ public:
     // (clustered burning gas cells). Bounded: maxStreams + maxPools, nearest to the camera.
     void noteFlames(const std::vector<FxEvent>& fx, double time, float range);
     void flameVolumes(float camX, float camZ, double time, std::vector<FlameVolume>& out, int maxStreams = 6, int maxPools = 6) const;
+    void flameLights(double time, std::vector<PointLight>& out) const;   // warm flickering light along each jet + its impact
     float hazeAlpha = 1.f;     // x the shader's base opacity (UI / screenshots)
 private:
     AppState* app_ = nullptr;
@@ -37,6 +39,8 @@ private:
     int ext_ = 0;
     struct Stream { uint32_t id = 0; V3 o, d; double start = 0, last = -1e9; float range = 9.f; };
     std::vector<Stream> streams_;
+    static float visualReach(const Stream& s, double time);
+    bool impact(const Stream& s, float reach, V3& out) const;
 };
 
 } // namespace ttz::game

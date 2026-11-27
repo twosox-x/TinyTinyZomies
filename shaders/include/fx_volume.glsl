@@ -115,22 +115,28 @@ void wreckBox(vec3 c, float len, out vec3 lo, out vec3 hi) {
 }
 // ---- flamethrower (GAME_DESIGN 14d): kind 2 = flame stream from the nozzle (fxA.xyz) along yaw / pitch (fxC.zw), reach
 // fxB.x m, drooping and widening, pooling on the ground (~1.25 m below the nozzle); kind 3 = ground-fire pool (radius fxB.x)
-const float FLAME_DROOP = 0.55;       // m of droop at the end of a 9 m stream (scales with reach^2)
+// v4 (docs/MILITARY_ANIMS.md 7.5, assets/military/specialist_anims.json fx.flame_tongue): rope radius by k = s / reach
+// r = 0.035 + 0.205 k^1.4 + 0.06 smooth((k - 0.7) / 0.3) (max ~0.30 m); ballistic droop (14 m/s, 5 m/s^2: ~0.63 m at 7 m);
+// the rope is kept >= 0.6 r above the ground (it splashes and runs along it). The ground is ~1.25 m below the nozzle.
 vec3 flameDir(int i) { float y = fxC[i].z, p = fxC[i].w; return vec3(sin(y) * cos(p), sin(p), cos(y) * cos(p)); }
-// jet radius along the path: a thin rope near the nozzle, widening, then rolling open at the tip (u = s / reach)
-float flameRadius(float s, float L) { float u = s / max(L, 0.5); return 0.05 + 0.06 * s + 0.55 * smoothstep(0.62, 1.0, u) * min(L / 9.0, 1.0); }
-float flameRadiusMax(float L) { return flameRadius(L, L) + 0.25; }
+const float FLAME_DROOP = 0.0128;     // m of droop per m^2 of distance
+float flameRadius(float s, float L) {
+    float k = clamp(s / max(L, 0.5), 0.0, 1.0);
+    return 0.035 + 0.205 * pow(k, 1.4) + 0.06 * smoothstep(0.7, 1.0, k);
+}
+float flameRadiusMax(float L) { return 0.31; }
 vec3 flameCentre(vec3 o, vec3 d, float L, float s) {
     vec3 c = o + d * s;
-    c.y -= FLAME_DROOP * (s * s) / 81.0;
-    c.y = max(c.y, o.y - 1.25 + 0.12);  // the burning fuel runs along the ground
+    c.y -= FLAME_DROOP * s * s;
+    c.y = max(c.y, o.y - 1.25 + 0.6 * flameRadius(s, L));
     return c;
 }
 void streamBox(vec3 o, vec3 d, float L, out vec3 lo, out vec3 hi) {
     vec3 e = flameCentre(o, d, L, L);
-    float r = flameRadiusMax(L) * 1.35 + 0.15;
+    float r = 0.75;   // rope + edge noise + licking tip
     lo = min(o, e) - vec3(r, r, r);
-    hi = max(o, e) + vec3(r, r + 0.9, r);   // + the tip rolling up into smoke
+    hi = max(o, e) + vec3(r, r + 1.9, r) + vec3(max(FX_WIND.x, 0.0), 0.0, max(FX_WIND.z, 0.0)) * 0.9;   // + smoke above the tip
+    lo.xz += min(FX_WIND.xz, vec2(0.0)) * 0.9;
     lo.y = max(lo.y, o.y - 1.45);
 }
 void poolBox(vec3 c, float R, out vec3 lo, out vec3 hi) {
