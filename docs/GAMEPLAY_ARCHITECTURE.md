@@ -479,5 +479,18 @@ grab event = transfer). Others hold; a member goes himself only when completely 
 runner is replaced. Rounds are conserved (supply decrease = soldiers' increase incl. the runner's load). Test
 `tests/game/b1_runner.txt`.
 
+**Misses explained and fixed.** In `b1_ai_threat` 50 of 76 rounds hit static geometry (parked cars between the
+muzzle at 1.4 m and the target): soldiers now fire only along a clear firing line (they keep aiming otherwise), which
+brought static hits to 8 of 38. Legless crawlers (prone) were shot at chest height and never hit (the zombie left in
+the `b2_territory` compound): the nearest list carries the prone factor and the aim drops to 0.25 m. Spread: rifle
+0.8 deg, MG 1.8 deg (was 1.5 / 3.0).
+
+**Walls (B2).** A wall / container / low obstacle (<= 2.8 m) within 1.5 m in front of the shooter is fired over: the
+round starts just past it, 0.3 m above its top (Combat::fire; the AI's firing-line check uses the same rule).
+Squads inside an enclosed, uncleared region with nothing in sight walk toward the nearest zombie the field knows in
+that region (bounded to it), then the leash returns them. Not done: choosing defensive positions behind walls.
+
 **Ranges.** MG 55 m (dense close-mid), rifle 60 m (mid), sniper 220 m (accuracy 0.99, spread 0.12 deg, headshot 0.7,
-noise radius 12 m). Test `tests/game/b1_sniper.txt`.
+noise radius 12 m). A rooftop sniper with nothing in sight moves (every 8 s) to the nearest spot of his roof that sees
+one of the nearest field zombies over the roof edge (from the middle of a roof the roof itself hides the street).
+Test `tests/game/b1_sniper.txt`.

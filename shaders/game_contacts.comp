@@ -7,7 +7,7 @@
 // out[4 * s]: attackers, nearby, float bits of nearestDist, packed id.  extraP is reused: x reach, y nearby radius,
 // z threat radius of the exact nearest list.
 // near[32 * s ...]: the 4 nearest live walkers / climbers within extraP.z (any height: rooftop soldiers see the street),
-// exact positions of this step: 4 x (pos.xyz, dist) then 4 x (vel.xz, 0, 0); dist 1e9 = empty. Searched tile ring by
+// exact positions of this step: 4 x (pos.xyz, dist) then 4 x (vel.xz, prone, 0); dist 1e9 = empty. Searched tile ring by
 // tile ring (6 m tiles from game_field, empty tiles skipped), stopping once the 4th is closer than the next ring.
 #include "common.glsl"
 layout(local_size_x = 64) in;
@@ -71,7 +71,7 @@ void main() {
     }
     // ---- exact nearest walkers for targeting (SoldierAI): rings of 6 m tiles, cells of non-empty tiles only
     vec4 bp[4] = vec4[4](vec4(0.0, 0.0, 0.0, 1e9), vec4(0.0, 0.0, 0.0, 1e9), vec4(0.0, 0.0, 0.0, 1e9), vec4(0.0, 0.0, 0.0, 1e9));
-    vec2 bv[4] = vec2[4](vec2(0.0), vec2(0.0), vec2(0.0), vec2(0.0));
+    vec3 bv[4] = vec3[4](vec3(0.0), vec3(0.0), vec3(0.0), vec3(0.0));   // vel.xz, prone factor (crawlers: aim low)
     const float threatR = extraP.z;
     if (inside && threatR > 0.0) {
         uint T = counts.z, tx = counts.x, tz = (T + tx - 1u) / max(tx, 1u);
@@ -102,14 +102,14 @@ void main() {
                         int j = 3;
                         while (j > 0 && bp[j - 1].w > dist) { bp[j] = bp[j - 1]; bv[j] = bv[j - 1]; --j; }
                         bp[j] = vec4(a.pos.xyz, dist);
-                        bv[j] = a.vel.xz;
+                        bv[j] = vec3(a.vel.xz, a.pos.w);
                     }
                 }
             }
             if (scanned > 6000u) break;   // bounded per soldier (dense crowds: the nearest rings are already full)
         }
     }
-    for (uint q = 0u; q < 4u; ++q) { nearOut[8u * s + q] = bp[q]; nearOut[8u * s + 4u + q] = vec4(bv[q], 0.0, 0.0); }
+    for (uint q = 0u; q < 4u; ++q) { nearOut[8u * s + q] = bp[q]; nearOut[8u * s + 4u + q] = vec4(bv[q], 0.0); }
     contacts[4u * s] = attackers;
     contacts[4u * s + 1u] = nearby;
     contacts[4u * s + 2u] = floatBitsToUint(nearest);

@@ -53,7 +53,8 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
         }
     }
     // exact locks: lead the zombie along its velocity (readback latency + flight time); field locks: the sample point
-    const V3 aim = P.target[i].pos + P.target[i].vel * aimLead + V3{0, aimHeight, 0};
+    const float aimH = aimHeight + (0.25f - aimHeight) * std::clamp(P.target[i].prone, 0.f, 1.f);   // crawlers: aim low
+    const V3 aim = P.target[i].pos + P.target[i].vel * aimLead + V3{0, aimH, 0};
     // Accuracy: cone = spreadDeg / accuracy (accuracy 1 -> spreadDeg), wider while wounded.
     const float cone = w.spreadDeg / std::max(0.1f, w.accuracy) * (P.wounded[i] ? 1.5f : 1.f);
     const V3 dir = spreadDir(aim - origin, cone, P.rng[i]);

@@ -489,7 +489,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             float bd = tuning.lockMatch;
             int bk = -1;
             for (uint32_t k = 0; k < C->nNear; ++k) { const float d = dist2D(pred, C->nearPos[k]); if (d < bd) { bd = d; bk = (int)k; } }
-            if (bk >= 0) { L.pos = C->nearPos[bk]; L.vel = C->nearVel[bk]; L.age = 0.f; }
+            if (bk >= 0) { L.pos = C->nearPos[bk]; L.vel = C->nearVel[bk]; L.prone = C->nearProne[bk]; L.age = 0.f; }
             else L.age += dt * (tuning.targetLostTime / tuning.lockLostExact);   // dead or gone: dropped within ~0.2 s
         } else {
             V3 s;
@@ -574,7 +574,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             bool clear = true;
             if (ctx.nav && ctx.nav->ready()) {
                 V3 from = P.pos[i] + V3{0, 1.4f, 0};
-                const V3 to = L.pos + V3{0, 1.1f, 0};
+                const V3 to = L.pos + V3{0, 1.1f - 0.75f * std::clamp(L.prone, 0.f, 1.f), 0};
                 const V3 dir = normalize(V3{to.x - from.x, 0, to.z - from.z});
                 float top = -1e9f, end = 0.f;
                 for (float s = 0.25f; s <= 1.5f; s += 0.25f) {
@@ -703,18 +703,24 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
                 V3 edge = last - dir * 0.6f;
                 if (dist2D(edge, p) < 0.6f) edge = p;
                 edge.y = nav.surface(edge.x, edge.z);
-                // better: the nearest spot of this roof (within 25 m) that actually sees the target over the roof edge
-                const V3 aimAt = t + V3{0, 1.2f, 0};
-                if (!nav.lineOfSight(p + V3{0, tuning.eyeHeight, 0}, aimAt)) {
+                // better: the nearest spot of this roof (within 40 m) that actually sees one of the nearest zombies over the
+                // roof edge / parapets (LOS from the 2 m eye; 2 m candidate grid, sniper only, every 8 s)
+                V3 tgts[8];
+                int nt = 0;
+                if (const ZombieField* fz = ctx.horde ? &ctx.horde->field() : nullptr)
+                    for (const ZombieFieldTile& tile : fz->tiles)
+                        for (uint32_t k = 0; k < tile.samples && nt < 8; ++k)
+                            if (dist2D(tile.pos[k], p) <= w.range) tgts[nt++] = tile.pos[k] + V3{0, 1.2f, 0};
+                auto sees = [&](V3 e) { for (int k = 0; k < nt; ++k) if (nav.lineOfSight(e, tgts[k])) return true; return false; };
+                if (nt && !sees(p + V3{0, tuning.eyeHeight, 0})) {
                     float best = 1e9f;
-                    for (float dz = -25.f; dz <= 25.f; dz += 1.5f)
-                        for (float dx = -25.f; dx <= 25.f; dx += 1.5f) {
+                    for (float dz = -40.f; dz <= 40.f; dz += 2.f)
+                        for (float dx = -40.f; dx <= 40.f; dx += 2.f) {
                             const float d = std::sqrt(dx * dx + dz * dz);
-                            if (d > 25.f || d >= best) continue;
+                            if (d > 40.f || d >= best) continue;
                             const V3 q{p.x + dx, 0, p.z + dz};
-                            if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || std::fabs(nav.surface(q.x, q.z) - p.y) > 0.6f) continue;
-                            const V3 qe{q.x, nav.surface(q.x, q.z) + tuning.eyeHeight, q.z};
-                            if (!nav.lineOfSight(qe, aimAt)) continue;
+                            if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl || std::fabs(nav.surface(q.x, q.z) - p.y) > 1.0f) continue;
+                            if (!sees(V3{q.x, nav.surface(q.x, q.z) + tuning.eyeHeight, q.z})) continue;
                             best = d; edge = V3{q.x, nav.surface(q.x, q.z), q.z};
                         }
                 }

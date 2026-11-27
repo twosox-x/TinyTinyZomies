@@ -24,6 +24,7 @@ struct TargetLock {                  // a point the soldier aims at (the GPU dec
     float acquire = 0.f;             // s spent acquiring (WeaponStats.acquireTime before the first shot)
     bool exact = false;              // pos / vel follow one real zombie (GPU nearest list), not a coarse field sample
     V3 vel;                          // its velocity (aim lead)
+    float prone = 0.f;               // its prone factor (legless crawlers: aim at the ground, not at chest height)
 };
 
 struct SoldierPool {

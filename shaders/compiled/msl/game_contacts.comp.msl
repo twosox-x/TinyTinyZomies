@@ -134,7 +134,7 @@ struct Contacts
 constant uint3 gl_WorkGroupSize [[maybe_unused]] = uint3(64u, 1u, 1u);
 
 constant spvUnsafeArray<float4, 4> _585 = spvUnsafeArray<float4, 4>({ float4(0.0, 0.0, 0.0, 1000000000.0), float4(0.0, 0.0, 0.0, 1000000000.0), float4(0.0, 0.0, 0.0, 1000000000.0), float4(0.0, 0.0, 0.0, 1000000000.0) });
-constant spvUnsafeArray<float2, 4> _589 = spvUnsafeArray<float2, 4>({ float2(0.0), float2(0.0), float2(0.0), float2(0.0) });
+constant spvUnsafeArray<float3, 4> _590 = spvUnsafeArray<float3, 4>({ float3(0.0), float3(0.0), float3(0.0), float3(0.0) });
 
 static inline __attribute__((always_inline))
 uint cellIndex(thread const int2& c, constant SimUniforms& _49)
@@ -154,7 +154,7 @@ float bodyHeight(thread const float& prone, constant SimUniforms& _49)
     return mix(_49.agentP.y, _49.agentP.z, fast::clamp(prone, 0.0, 1.0));
 }
 
-kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96 [[buffer(1)]], device Agents& _312 [[buffer(2)]], device CellStart& _273 [[buffer(3)]], device CellCount& _282 [[buffer(4)]], device Counters& _157 [[buffer(5)]], device Field& _519 [[buffer(6)]], device Contacts& _968 [[buffer(7)]], device Near& _942 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96 [[buffer(1)]], device Agents& _312 [[buffer(2)]], device CellStart& _273 [[buffer(3)]], device CellCount& _282 [[buffer(4)]], device Counters& _157 [[buffer(5)]], device Field& _519 [[buffer(6)]], device Contacts& _975 [[buffer(7)]], device Near& _948 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint s = gl_GlobalInvocationID.x;
     if (s >= _49.misc.z)
@@ -363,7 +363,7 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
         }
     }
     spvUnsafeArray<float4, 4> bp = spvUnsafeArray<float4, 4>({ float4(0.0, 0.0, 0.0, 1000000000.0), float4(0.0, 0.0, 0.0, 1000000000.0), float4(0.0, 0.0, 0.0, 1000000000.0), float4(0.0, 0.0, 0.0, 1000000000.0) });
-    spvUnsafeArray<float2, 4> bv = spvUnsafeArray<float2, 4>({ float2(0.0), float2(0.0), float2(0.0), float2(0.0) });
+    spvUnsafeArray<float3, 4> bv = spvUnsafeArray<float3, 4>({ float3(0.0), float3(0.0), float3(0.0), float3(0.0) });
     float threatR = _49.extraP.z;
     if (inside && (threatR > 0.0))
     {
@@ -377,60 +377,60 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
         Agent a_1;
         for (int r = 0; r <= rr_1; r++)
         {
-            bool _646 = r >= 2;
-            bool _657;
-            if (_646)
+            bool _647 = r >= 2;
+            bool _658;
+            if (_647)
             {
-                _657 = bp[3].w < (float(r - 1) * tileM_1);
+                _658 = bp[3].w < (float(r - 1) * tileM_1);
             }
             else
             {
-                _657 = _646;
+                _658 = _647;
             }
-            if (_657)
+            if (_658)
             {
                 break;
             }
-            int _663 = -r;
-            for (int dy_2 = _663; dy_2 <= r; dy_2++)
+            int _664 = -r;
+            for (int dy_2 = _664; dy_2 <= r; dy_2++)
             {
-                int _674 = -r;
-                for (int dx_2 = _674; dx_2 <= r; dx_2++)
+                int _675 = -r;
+                for (int dx_2 = _675; dx_2 <= r; dx_2++)
                 {
                     if (max(abs(dx_2), abs(dy_2)) != r)
                     {
                         continue;
                     }
                     int2 t_1 = tc_1 + int2(dx_2, dy_2);
-                    bool _701 = t_1.x < 0;
-                    bool _708;
-                    if (!_701)
+                    bool _702 = t_1.x < 0;
+                    bool _709;
+                    if (!_702)
                     {
-                        _708 = t_1.y < 0;
+                        _709 = t_1.y < 0;
                     }
                     else
                     {
-                        _708 = _701;
+                        _709 = _702;
                     }
-                    bool _717;
-                    if (!_708)
+                    bool _718;
+                    if (!_709)
                     {
-                        _717 = t_1.x >= int(tx_1);
+                        _718 = t_1.x >= int(tx_1);
                     }
                     else
                     {
-                        _717 = _708;
+                        _718 = _709;
                     }
-                    bool _726;
-                    if (!_717)
+                    bool _727;
+                    if (!_718)
                     {
-                        _726 = t_1.y >= int(tz_1);
+                        _727 = t_1.y >= int(tz_1);
                     }
                     else
                     {
-                        _726 = _717;
+                        _727 = _718;
                     }
-                    if (_726)
+                    if (_727)
                     {
                         continue;
                     }
@@ -443,17 +443,17 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
                         for (int cx = 0; cx < 8; cx++)
                         {
                             int2 cc_1 = (t_1 * int2(8)) + int2(cx, cy);
-                            bool _775 = cc_1.x >= int(_49.grid.x);
-                            bool _785;
-                            if (!_775)
+                            bool _776 = cc_1.x >= int(_49.grid.x);
+                            bool _786;
+                            if (!_776)
                             {
-                                _785 = cc_1.y >= int(_49.grid.y);
+                                _786 = cc_1.y >= int(_49.grid.y);
                             }
                             else
                             {
-                                _785 = _775;
+                                _786 = _776;
                             }
-                            if (_785)
+                            if (_786)
                             {
                                 continue;
                             }
@@ -464,17 +464,17 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
                             uint k_1 = b_2;
                             for (;;)
                             {
-                                bool _814 = k_1 < e_1;
-                                bool _822;
-                                if (_814)
+                                bool _815 = k_1 < e_1;
+                                bool _823;
+                                if (_815)
                                 {
-                                    _822 = k_1 < (b_2 + 32u);
+                                    _823 = k_1 < (b_2 + 32u);
                                 }
                                 else
                                 {
-                                    _822 = _814;
+                                    _823 = _815;
                                 }
-                                if (_822)
+                                if (_823)
                                 {
                                     a_1.pos = _312.agents[k_1].pos;
                                     a_1.vel = _312.agents[k_1].vel;
@@ -484,42 +484,42 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
                                     Agent param_4 = a_1;
                                     if (agentState(param_4) >= 3u)
                                     {
-                                        uint _913 = k_1;
-                                        k_1 = _913 + uint(1);
+                                        uint _919 = k_1;
+                                        k_1 = _919 + uint(1);
                                         continue;
                                     }
                                     scanned++;
                                     float dist_1 = distance(a_1.pos.xz, sp.xz);
-                                    bool _855 = dist_1 > threatR;
-                                    bool _863;
-                                    if (!_855)
+                                    bool _856 = dist_1 > threatR;
+                                    bool _864;
+                                    if (!_856)
                                     {
-                                        _863 = dist_1 >= bp[3].w;
+                                        _864 = dist_1 >= bp[3].w;
                                     }
                                     else
                                     {
-                                        _863 = _855;
+                                        _864 = _856;
                                     }
-                                    if (_863)
+                                    if (_864)
                                     {
-                                        uint _913 = k_1;
-                                        k_1 = _913 + uint(1);
+                                        uint _919 = k_1;
+                                        k_1 = _919 + uint(1);
                                         continue;
                                     }
                                     int j = 3;
                                     for (;;)
                                     {
-                                        bool _874 = j > 0;
-                                        bool _883;
-                                        if (_874)
+                                        bool _875 = j > 0;
+                                        bool _884;
+                                        if (_875)
                                         {
-                                            _883 = bp[j - 1].w > dist_1;
+                                            _884 = bp[j - 1].w > dist_1;
                                         }
                                         else
                                         {
-                                            _883 = _874;
+                                            _884 = _875;
                                         }
-                                        if (_883)
+                                        if (_884)
                                         {
                                             bp[j] = bp[j - 1];
                                             bv[j] = bv[j - 1];
@@ -532,9 +532,9 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
                                         }
                                     }
                                     bp[j] = float4(a_1.pos.xyz, dist_1);
-                                    bv[j] = a_1.vel.xz;
-                                    uint _913 = k_1;
-                                    k_1 = _913 + uint(1);
+                                    bv[j] = float3(a_1.vel.xz, a_1.pos.w);
+                                    uint _919 = k_1;
+                                    k_1 = _919 + uint(1);
                                     continue;
                                 }
                                 else
@@ -554,12 +554,12 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
     }
     for (uint q_1 = 0u; q_1 < 4u; q_1++)
     {
-        _942.nearOut[(8u * s) + q_1] = bp[q_1];
-        _942.nearOut[((8u * s) + 4u) + q_1] = float4(bv[q_1], 0.0, 0.0);
+        _948.nearOut[(8u * s) + q_1] = bp[q_1];
+        _948.nearOut[((8u * s) + 4u) + q_1] = float4(bv[q_1], 0.0);
     }
-    _968.contacts[4u * s] = attackers;
-    _968.contacts[(4u * s) + 1u] = nearby;
-    _968.contacts[(4u * s) + 2u] = as_type<uint>(nearest);
-    _968.contacts[(4u * s) + 3u] = as_type<uint>(soI.z);
+    _975.contacts[4u * s] = attackers;
+    _975.contacts[(4u * s) + 1u] = nearby;
+    _975.contacts[(4u * s) + 2u] = as_type<uint>(nearest);
+    _975.contacts[(4u * s) + 3u] = as_type<uint>(soI.z);
 }
 

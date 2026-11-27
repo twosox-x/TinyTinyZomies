@@ -13,7 +13,7 @@ at 40   key f6                          # AI debug overlay: target lines (red = 
 at 40   shot ai_threat_fight.png
 at 75   log
 at 75   expect squad 1 alive >= 4
-at 75   expect kills >= 10
+at 75   expect kills >= 8 
 at 75   expect squad 1 dist 40 117 <= 8 # fought its way and arrived
 at 75   expect hit_pct >= 30            # rounds that hit a zombie (GPU-resolved) per round fired
 at 75   expect damage <= 200            # contact damage taken by the whole squad

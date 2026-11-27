@@ -74,6 +74,7 @@ struct SoldierContact {
     uint8_t nNear = 0;
     V3 nearPos[kNear];
     V3 nearVel[kNear];
+    float nearProne[kNear] = {0, 0, 0, 0};   // 0 upright .. 1 crawling / flat (aim low)
 };
 
 // Horde attractor (zombies' flow field source): soldiers, noise. Bounded list (kMaxAttractors; HordeBridge keeps the

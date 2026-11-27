@@ -354,6 +354,7 @@ void HordeBridge::parseSlot(int si) {
                 if (!(nb[q * 4 + 3] < 1e8f)) break;
                 c.nearPos[c.nNear] = {nb[q * 4], nb[q * 4 + 1], nb[q * 4 + 2]};
                 c.nearVel[c.nNear] = {nb[16 + q * 4], 0.f, nb[16 + q * 4 + 1]};
+                c.nearProne[c.nNear] = nb[16 + q * 4 + 2];
                 ++c.nNear;
             }
         }
