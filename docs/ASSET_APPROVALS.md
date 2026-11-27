@@ -6,11 +6,11 @@ Only the owner can approve. Status values: **pending review**, **changes request
 
 | Asset | Models | Animations | Notes |
 |---|---|---|---|
-| Rifleman (5 variants) | approved 2026-11-26 | pending review | |
-| Machine gunner | approved 2026-11-26 | pending review | |
-| Suppressed sniper | approved 2026-11-26 | pending review | |
-| Infantry parachute | approved 2026-11-26 | pending review | |
-| Supply-crate parachute | approved 2026-11-26 | pending review | |
+| Rifleman (5 variants) | approved 2026-11-26 | approved 2026-11-27 | |
+| Machine gunner | approved 2026-11-26 | approved 2026-11-27 | |
+| Suppressed sniper | approved 2026-11-26 | approved 2026-11-27 | |
+| Infantry parachute | approved 2026-11-26 | approved 2026-11-27 | |
+| Supply-crate parachute | approved 2026-11-26 | approved 2026-11-27 | |
 | Small ammo crate | approved 2026-11-26 | n/a | |
 | Central ammo supply container | approved 2026-11-26 | n/a | |
 | Wall segment / corner / T / end / gate | approved 2026-11-26 | n/a | |
@@ -18,7 +18,9 @@ Only the owner can approve. Status values: **pending review**, **changes request
 | Window and entrance barricades | approved 2026-11-26 | n/a | |
 | Garrison indicators and props | approved 2026-11-26 | n/a | |
 | Hospital indicators and props | approved 2026-11-26 | n/a | |
-| Weapon FX (muzzle flash, tracer, suppressed shot) | n/a | pending review | |
+| Weapon FX (muzzle flash, tracer, suppressed shot) | n/a | approved 2026-11-27 | |
+
+Animation approval 2026-11-27, owner: "All animations are approved." Two corrections were requested: (1) a death animation where the soldier lies on his weapon; (2) parachutes (infantry and crate) must slowly dissolve and disappear after landing. Final sign-off on these is pending.
 
 **Stage B gate: CLOSED.** It opens only after the owner gives explicit final approval of all rows above.
 
