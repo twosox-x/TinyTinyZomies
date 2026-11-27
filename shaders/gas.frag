@@ -11,6 +11,7 @@ layout(location = 2) flat in vec4 vColor;
 layout(location = 3) flat in float vEmissive;
 layout(location = 0) out vec4 outColor;
 void main() {
-    vec3 col = vEmissive > 0.5 ? vColor.rgb : shade(vColor.rgb * 1.6, normalize(vNormal), vWorld, 1.0);
+    // haze: lit, plus a faint sickly glow so it still reads at dusk / night
+    vec3 col = vEmissive > 0.5 ? vColor.rgb : shade(vColor.rgb * 1.6, normalize(vNormal), vWorld, 1.0) + vColor.rgb * 0.12 * step(vColor.a, 0.99);
     outColor = vec4(finish(col, vWorld), vColor.a);
 }

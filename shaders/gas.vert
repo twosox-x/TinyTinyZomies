@@ -58,19 +58,19 @@ void main() {
         float hgt = 0.25 * clamp(1.0 + floor(gas * 2.0), 1.0, gStyle.w / 0.25);
         lo = vec3(c0.x, ground - 0.05, c0.y);
         size = vec3(gOrigin.z, hgt + 0.05, gOrigin.z);
-        col = vec4(0.30, 0.40, 0.08, clamp((0.05 + 0.16 * gas) * gStyle.x, 0.0, 0.42));
+        col = vec4(0.40, 0.52, 0.10, clamp((0.12 + 0.20 * gas) * gStyle.x, 0.0, 0.45));
         on = true;
     } else if ((box == 1 || box == 2) && gas > gStyle.z) {   // rising puffs
         float ph = fract(t * (0.10 + 0.05 * h3) + h1);
         float s = 0.5;
         lo = vec3(c0.x + h1 * (gOrigin.z - s), ground + 0.25 + ph * (0.8 + 0.5 * min(gas, 2.0)), c0.y + h2 * (gOrigin.z - s));
         size = vec3(s);
-        col = vec4(0.36, 0.46, 0.12, clamp(0.22 * gStyle.x * min(gas, 1.5) * sin(ph * 3.14159), 0.0, 0.35));
+        col = vec4(0.46, 0.58, 0.14, clamp((0.10 + 0.22 * min(gas, 1.5)) * gStyle.x * sin(ph * 3.14159), 0.0, 0.38));
         on = col.a > 0.01;
     } else if (box >= 3 && box <= 5 && rotting > 0u) {   // flies over rotting bodies
         float a = t * (2.2 + 1.3 * h1) * (h2 > 0.5 ? 1.0 : -1.0) + h3 * 6.2831;
         float r = 0.3 + 0.45 * h2;
-        float s = 0.07;
+        float s = 0.09;
         lo = vec3(cc.x + cos(a) * r, ground + 0.45 + 0.4 * h1 + 0.12 * sin(t * 7.0 + h3 * 10.0), cc.y + sin(a * 1.3) * r) - vec3(0.5 * s);
         size = vec3(s);
         col = vec4(0.015, 0.015, 0.012, 1.0);

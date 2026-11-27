@@ -61,7 +61,7 @@ bool CorpseGasRender::init(AppState& app, CorpseGas& gas) {
         GasDraw u{};
         u.origin[0] = su.world.x; u.origin[1] = su.world.y; u.origin[2] = gas_->cellSize(); u.origin[3] = su.world.z;
         u.dim[0] = (uint32_t)gas_->width(); u.dim[1] = (uint32_t)gas_->height(); u.dim[2] = su.grid.x; u.dim[3] = su.grid.y;
-        u.style[0] = hazeAlpha; u.style[1] = (float)app_->renderTime; u.style[2] = 0.35f; u.style[3] = 1.0f;
+        u.style[0] = hazeAlpha; u.style[1] = (float)app_->renderTime; u.style[2] = 0.25f; u.style[3] = 1.0f;
         SDL_BindGPUGraphicsPipeline(pass, pipe_);
         SDL_GPUBuffer* vb[4] = {gas_->listBuffer(), gas_->fieldBuffer(), sim.staticHeight(), corpseH ? corpseH : sim.corpseHeight()};
         SDL_BindGPUVertexStorageBuffers(pass, 0, vb, 4);
