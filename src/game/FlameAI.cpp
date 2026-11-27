@@ -159,7 +159,7 @@ void FlameAI::tick(GameContext& ctx) {
         if (m.phase == 0) continue;
         // approach / spray: members standing (not fighting) within range spray the pile, sweeping across it
         const float reach = w.range * 0.92f;
-        bool anySpray = false, arrived = true;
+        bool anySpray = false, arrived = true, anyBlocked = false;
         for (const SoldierId& id : s.members) {
             if (!P.valid(id) || !P.alive(id.index)) continue;
             const uint32_t i = id.index;
@@ -179,8 +179,21 @@ void FlameAI::tick(GameContext& ctx) {
             P.vel[i] = {};
             if (ctx.animator) ctx.animator->request(P.anim[i], AnimAction::Fire);
             float err = std::remainder(want - P.yaw[i], 6.2831853f);
-            if (std::fabs(err) < 0.35f && (last_[i] < 0.0 || ctx.time - last_[i] >= w.fireInterval - 1e-4)) anySpray |= spray(ctx, i, aim);
-            else anySpray = true;
+            if (std::fabs(err) < 0.35f && (last_[i] < 0.0 || ctx.time - last_[i] >= w.fireInterval - 1e-4)) {
+                const uint64_t b0 = blocked_;
+                anySpray |= spray(ctx, i, aim);
+                anyBlocked |= blocked_ != b0;
+            } else anySpray = true;
+        }
+        // friendly soldiers in the way for a while: walk round the pile to another side (100 deg further)
+        m.blockedT = anyBlocked && !anySpray ? m.blockedT + ctx.dt : 0.f;
+        if (m.blockedT > 2.5f) {
+            m.blockedT = 0.f;
+            const float a0 = std::atan2(c.x - m.target.x, c.z - m.target.z) + 1.75f;
+            V3 stand = m.target + V3{std::sin(a0), 0, std::cos(a0)} * F.standoff, sw;
+            if (ctx.nav && ctx.nav->ready() && ctx.nav->nearestWalkable(stand, 3.f, sw)) stand = sw;
+            order(ctx, s, m, stand, a0 + 3.14159265f);
+            ++repositions_;
         }
         // done: no corpse left at the pile (readback), or timeouts; back to the post when it went on a trip
         const int left = ctx.gas->corpsesNear(m.target, 2.3f);

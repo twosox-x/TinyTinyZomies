@@ -12,13 +12,13 @@ at 30.2 airdrop -3 82
 at 30.3 airdrop 8 86
 at 30.5 expect refused == 0
 at 30.5 log
-at 75   log
-at 75   expect supply 1 landed + supply 2 landed == 2
-at 75   expect supply 1 delivered > 0
-at 75   expect supply 2 delivered > 0
-at 75   expect squad 1 ammo > 0
-at 75   expect squad 2 ammo > 0
-at 75   expect squad 1 rooftop + squad 2 rooftop == 2
-at 75   expect squad 1 y >= 16.2
-at 75   expect squad 2 y >= 147
-at 76   end
+at 55   log
+at 55   expect supply 1 landed + supply 2 landed == 2
+at 55   expect supply 1 delivered > 0
+at 55   expect supply 2 delivered > 0
+at 55   expect squad 1 ammo > 0
+at 55   expect squad 2 ammo > 0
+at 55   expect squad 1 rooftop + squad 2 rooftop == 2
+at 55   expect squad 1 y >= 16.2
+at 55   expect squad 2 y >= 147
+at 56   end

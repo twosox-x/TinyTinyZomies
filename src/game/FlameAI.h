@@ -40,6 +40,7 @@ public:
     uint64_t blocked() const { return blocked_; }
     uint64_t trips() const { return trips_; }
     uint64_t fuelUsed() const { return fuelUsed_; }
+    uint64_t repositions() const { return repositions_; }   // walked round a pile because soldiers stood in the cone
     bool burning(SquadId s) const;                        // the squad is on a burn trip / spraying a pile
 private:
     struct Mem {
@@ -49,7 +50,7 @@ private:
         uint32_t ownSerial = 0, seenSerial = 0;
         int phase = 0;                // 0 idle, 1 approaching a pile, 2 spraying
         V3 target;
-        float seekT = 0.f, phaseT = 0.f;
+        float seekT = 0.f, phaseT = 0.f, blockedT = 0.f;
     };
     std::vector<Mem> mem_;
     std::vector<double> last_;        // per soldier slot: game time of the last spray (-1 none)
@@ -57,7 +58,7 @@ private:
     std::vector<uint32_t> lastGen_;
     std::vector<NoiseEvent> noise_;
     std::vector<double> noiseAt_;
-    uint64_t sprays_ = 0, blocked_ = 0, trips_ = 0, fuelUsed_ = 0;
+    uint64_t sprays_ = 0, blocked_ = 0, trips_ = 0, fuelUsed_ = 0, repositions_ = 0;
     void ensure(const GameContext& ctx);
     void order(GameContext& ctx, Squad& s, Mem& m, V3 dest, float facing);
 };
