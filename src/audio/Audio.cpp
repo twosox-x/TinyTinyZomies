@@ -94,6 +94,10 @@ const Map kMap[(size_t)Ev::Count] = {
     {"alert_ammo", Bus::Ui, Cls::Ui, 0, 3.f, 1, 5},
     {"alert_casualty", Bus::Ui, Cls::Ui, 0, 2.f, 1, 5},
     {"sting_daynight", Bus::Ui, Cls::Ui, 0, 5.f, 1, 5},
+    {"zattack_wood", Bus::Sfx, Cls::Individual, -3, 0.35f, 3, 1},
+    {"zattack_metal", Bus::Sfx, Cls::Individual, -3, 0.35f, 3, 1},
+    {"zattack_sandbag", Bus::Sfx, Cls::Individual, -3, 0.35f, 3, 1},
+    {"tower_climb", Bus::Sfx, Cls::Individual, -2, 1.0f, 2, 1},
 };
 
 const char* kEvNames[(size_t)Ev::Count] = {
@@ -103,7 +107,8 @@ const char* kEvNames[(size_t)Ev::Count] = {
     "Footstep", "BodyFall", "Landing", "CrateLand", "ContainerLand", "PlaneFlyover", "ChuteDeploy", "Flame", "FlameStop",
     "CalloutContact", "CalloutAmmo", "CalloutKill", "CalloutPanic", "CalloutOrder", "SoldierHurt", "SoldierDeath", "Radio",
     "GenStart", "GenStop", "GenOutOfFuel", "StructureCollapse", "TowerCreak",
-    "AlertAttack", "AlertBreach", "AlertAmmo", "AlertCasualty", "DayNight"};
+    "AlertAttack", "AlertBreach", "AlertAmmo", "AlertCasualty", "DayNight",
+    "ZombieAttackWood", "ZombieAttackMetal", "ZombieAttackSandbag", "TowerClimb"};
 
 // managed loops (aggregation + ambience)
 enum LoopId { L_HordeS, L_HordeM, L_HordeL, L_March, L_Day, L_Night, L_Flame, L_Count };
@@ -388,6 +393,7 @@ void emit(Ev e, V3 pos, float intensity) {
         case Ev::Explosion: S->music.note(MusicIn::Explosion, intensity); break;
         case Ev::SoldierDeath: case Ev::AlertCasualty: S->music.note(MusicIn::Casualty); break;
         case Ev::AlertBreach: S->music.note(MusicIn::Breach); break;
+        case Ev::CalloutAmmo: playMapped(Ev::Radio, pos, 0.8f); break;   // "Ammo!" = radio squelch + the callout
         default: break;
     }
     if (e == Ev::Footstep) { ++S->stepsThisFrame; return; }

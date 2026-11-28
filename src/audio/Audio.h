@@ -31,6 +31,7 @@ enum class Ev : uint16_t {
     CalloutContact, CalloutAmmo, CalloutKill, CalloutPanic, CalloutOrder, SoldierHurt, SoldierDeath, Radio,
     GenStart, GenStop, GenOutOfFuel, StructureCollapse, TowerCreak,
     AlertAttack, AlertBreach, AlertAmmo, AlertCasualty, DayNight,
+    ZombieAttackWood, ZombieAttackMetal, ZombieAttackSandbag, TowerClimb,
     Count
 };
 const char* evName(Ev e);

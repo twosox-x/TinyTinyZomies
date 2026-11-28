@@ -59,6 +59,7 @@ bool Logistics::canPlaceContainer(const GameContext& ctx, V3 pos, float yaw, con
 }
 
 SupplyId Logistics::placeContainer(GameContext& ctx, V3 pos, float yaw) {
+    if (ctx.events) { ctx.events->cues.push_back({AudioCueKind::PlaneFlyover, pos, 1.f}); ctx.events->cues.push_back({AudioCueKind::ChuteDeploy, pos, 1.f}); }   // [SOUND HOOK]
     SupplyPoint sp;
     sp.kind = SupplyKind::Container;
     sp.yaw = yaw;
@@ -174,6 +175,7 @@ bool Logistics::airdropSpot(const GameContext& ctx, V3 pos, V3& spot, const char
 }
 
 SupplyId Logistics::airdrop(GameContext& ctx, V3 pos) {
+    if (ctx.events) { ctx.events->cues.push_back({AudioCueKind::PlaneFlyover, pos, 1.f}); ctx.events->cues.push_back({AudioCueKind::ChuteDeploy, pos, 1.f}); }   // [SOUND HOOK]
     SupplyPoint sp;
     sp.kind = SupplyKind::Crate;
     const LogisticsConfig& L = ctx.cfg->logistics;
@@ -317,6 +319,7 @@ void Logistics::tick(GameContext& ctx) {
                 if (p.altitude <= 0.f) {
                     p.phase = 1; p.phaseT = 0;
                     if (ctx.events) { ctx.events->fx.push_back({FxKind::CrateTouch, SoldierId{}, p.pos, {0, 1, 0}}); ctx.events->noise.push_back({p.pos, 0.6f, 30.f, 2.f}); }
+                    if (ctx.events) ctx.events->cues.push_back({AudioCueKind::ContainerLand, p.pos, 1.f});   // [SOUND HOOK]
                 }
             } else if (p.phaseT >= F.containerLandDuration) {
                 p.phase = 2; p.phaseT = 0;

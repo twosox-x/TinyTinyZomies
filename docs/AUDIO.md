@@ -55,3 +55,19 @@ mode below is kept in the code ("mode": "adaptive") for later, not used.
 ## Horde mix (owner feedback 2026-11-28)
 Zoomed out, the horde now gets quieter and muffled (swarm layer max 0.5 x a height falloff, lowpass down to ~1 kHz at the
 top camera height) instead of louder.
+
+## AudioCue producers (sessionD/sound2, owner order "no silent sounds")
+All marked `// [SOUND HOOK]`, one line each:
+- Zombie aggro / attacks on soldiers: GameAudioBridge reads the horde's soldier contacts (8 m ring newly occupied -> aggro;
+  attackers in reach -> attack, throttled). Walls: Fortify.cpp pressure loop -> ZombieAttackWood (cheap), Sandbag
+  (reinforced), Metal (gate).
+- Reanimation.cpp: dead soldier starts to rise -> ZombieReanimate. Zombie corpses rising and roof-edge falls come from the
+  sim counters (reactivated, fallSplats) in the bridge.
+- Structures.cpp: generator start / stop transitions, out of fuel, tower collapse, tower climb start, tower creak under
+  pressure (audio rate-limits).
+- Deploy.cpp: squad drop -> PlaneFlyover + ChuteDeploy; roof jump -> ChuteDeploy. Logistics.cpp: airdrop crate and
+  container -> PlaneFlyover + ChuteDeploy; container touchdown -> ContainerLand.
+- Day / night sting: the bridge detects 18:00 / 06:00 crossings of the time of day.
+- "Ammo!": no CC0 recording exists (OpenGameArt searched again 2026-11-28). CalloutAmmo plays a short radio squelch with
+  the miniaturised "Reloading!" / "Call for backup!" lines. Reload, EmptyClick, SoldierHurt and callouts are produced by
+  session C in its own files.

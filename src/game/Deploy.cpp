@@ -308,6 +308,7 @@ SquadId Deploy::execute(GameContext& ctx, SquadType type, const DropPlan& plan) 
     if (!plan.valid || plan.landing.empty() || !ctx.squads || !ctx.soldiers) return {};
     const SquadDef& def = ctx.cfg->squad[(size_t)type];
     const SoldierClass cls = def.cls;
+    if (ctx.events) { ctx.events->cues.push_back({AudioCueKind::PlaneFlyover, plan.landing[0], 1.f}); ctx.events->cues.push_back({AudioCueKind::ChuteDeploy, plan.landing[0], 1.f}); }   // [SOUND HOOK]
     const size_t c = (size_t)cls;
     SquadId sq = ctx.squads->create(type);
     Squad* squad = ctx.squads->get(sq);
@@ -455,6 +456,7 @@ void Deploy::jumpFromRoof(GameContext& ctx, SoldierId s, V3 edge, V3 landing) {
     if (ctx.animator) ctx.animator->reset(P.anim[i], P.infantry[i], AnimAction::ParaDescent);
     drops_.push_back(d);
     ++jumps_;
+    if (ctx.events) ctx.events->cues.push_back({AudioCueKind::ChuteDeploy, edge, 1.f});   // [SOUND HOOK]
 }
 
 bool Deploy::parachuted(SoldierId s) const {
