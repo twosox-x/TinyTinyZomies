@@ -739,7 +739,7 @@ support rules above.
 - *Test:* `tests/game/b6_garrison_all.txt` (mid-rise, 39-floor tower, 34-floor tower, house: support, posts on several
   facades, art doors, covers never on firing windows / above floor 1, a squad garrisons the 39-floor tower, L0-L3 on the
   mid-rise, the tower and the house with screenshots in `docs/review/ws-c/`).
-- *Limits:* zombies still do not enter buildings over 22 floors (B3b `HordeVertical::unsupportedWhy`, WS-B); doors
+- *Limits:* (the old 22-floor zombie-entry limit is lifted: 64-node slots, see section 9 / `b6_tall_vertical`); doors
   without an art leaf (most lobbies / towers: their doors are BRONZE / STEEL frames or glass) keep the bake position on
   the footprint edge; scaled props stretch the voxel grid a little (scale 0.5-1.5); the entrance sandbags / perimeter
   are not collision for soldiers or zombies and can overlap street furniture.
@@ -756,8 +756,9 @@ Building data comes from B3a's `BuildingRegistry` (`Buildings.h`: doors, roof ha
 
 **Model.** Zombies stay 2D agents on the street grid. A building is *active* while uploaded soldiers stand inside its
 footprint or on its roof (B3a garrison posts included; hospital patients are not uploaded). Up to 32 active buildings
-own a slot of 32 nodes in a GPU node table: doors 0-7, one node per floor 8-29 (stair core; node f = crossing to the
-stairs on the ground floor, one flight above), roof hatch 30. Per node: traverse time (door 1 s, ground floor =
+own a slot of 64 nodes in a GPU node table: doors 0-7, one node per floor 8-61 (stair core; node f = crossing to the
+stairs on the ground floor, one flight above; buildings over 54 floors: one node per ceil(floors / 54) floors), roof
+hatch 62 (was 32 nodes / 22 floors until the tall-tower fix). Per node: traverse time (door 1 s, ground floor =
 door-to-stair distance / 1.1 m/s, 4.5 s per flight, hatch 1.5 s), capacity (door 3, flight 6, the soldiers' floor 60,
 hatch 2), next node, barricade flag, defender damage, credited shooter. The target level is the lowest level holding
 soldiers (floors before the roof); a slot is rebuilt (CPU, one 1.5 KB record) only when that building's soldier levels
@@ -800,8 +801,11 @@ constant work inside the existing relaxation). Memory: nodes 48 KB, entrances 8 
 **Unsupported / limitations (documented, GAME_DESIGN 14b).**
 - Buildings without a door in the registry (no BLDG record, entrance blocked): zombies cannot enter; low roofs
   (<= 4.5 m) are still reached by corpse piles, taller ones are safe from the horde: listed by `blist`
-  (`HordeVertical::unsupportedWhy`). Buildings with more than 22 floors (interior graph limit) are not entered;
-  B3a already refuses garrisons above 12 floors.
+  (`HordeVertical::unsupportedWhy`). Tall buildings ARE entered (the old 22-floor graph limit is gone): a slot has
+  64 nodes (doors 0-7, graph levels 8-61, hatch 62, 63 = rebuild signature), one level per floor up to 54 floors
+  (every downtown tower, <= 39 floors); above that one level stands for ceil(floors / 54) floors of the stairwell
+  (flight time scaled, counts reported on the level's lowest floor). Cost: 32 slots x 64 x (48 B node + 16 B state),
+  128 KB on the GPU, 32 KB state readback per frame; no extra storage buffers (`tests/game/b6_tall_vertical.txt`).
 - Flat roofs without a roof hatch: occupants stop on the top floor (they never reach the roof).
 - Interiors are not drawn: occupants are invisible while inside (counts in the building panel / `vinfo`); window
   soldiers fighting occupants show only the damage. Zombies do not climb in through windows.

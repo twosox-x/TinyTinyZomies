@@ -46,8 +46,13 @@ class HordeBridge;
 // Tuning: VerticalConfig (Config.h, config/balance.json "vertical", UNAPPROVED).
 
 constexpr uint32_t kVMaxActive = 32;        // active buildings (slots)
-constexpr uint32_t kVNodesPerSlot = 32;     // 0..7 doors, 8..29 floors 0..21, 30 hatch
-constexpr uint32_t kVMaxDoors = 8, kVFloorBase = 8, kVMaxFloors = 22, kVHatch = 30;
+// 0..7 doors, 8..61 graph levels 0..53, 62 hatch, 63 unused (its breach word holds the slot's rebuild signature).
+// Buildings with more than kVMaxFloors floors are still entered: graph level g then stands for the real floors
+// [g * step, (g + 1) * step) of one stairwell (step = ceil(floors / kVMaxFloors), the flight time scales with it).
+// Every downtown tower (<= 39 floors) gets one node per floor. GPU cost: 64 x 48 B nodes + 64 x 16 B state per slot.
+constexpr uint32_t kVNodesPerSlot = 64;
+constexpr uint32_t kVMaxDoors = 8, kVFloorBase = 8, kVMaxFloors = 54, kVHatch = 62;
+static_assert(kVFloorBase + kVMaxFloors == kVHatch && kVHatch + 2 == kVNodesPerSlot, "slot node layout");
 constexpr uint32_t kVMaxNodes = kVMaxActive * kVNodesPerSlot;
 constexpr uint32_t kVMaxEntrances = kVMaxActive * kVMaxDoors;
 constexpr uint32_t kVMaxOccupants = 4096;
@@ -101,7 +106,8 @@ private:
         bool used = false, draining = false;
         double lastActive = 0, drainSince = 0;
         uint8_t target = 0;
-        int nDoors = 0, nFloors = 0;
+        int nDoors = 0, nFloors = 0;  // nFloors: graph levels (<= kVMaxFloors)
+        int step = 1, realFloors = 0; // real floors per graph level, the building's floors
         bool hasHatch = false;
         uint16_t doorOpening[kVMaxDoors] = {};
         uint16_t hatchOpening = 0xFFFF;

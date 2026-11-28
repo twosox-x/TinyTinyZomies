@@ -33,7 +33,7 @@ struct VEntr {
 #define VF_BARRICADED 1u
 #define VOCC_WORDS 8u
 #define VOCC_HEADER 4u
-#define VSTATE_TOTALS 4096u   // word offset of the totals (1024 nodes x 4 uints before)
+#define VSTATE_TOTALS 8192u   // word offset of the totals (2048 nodes = 32 slots x 64, x 4 uints before; kVMaxNodes * 4)
 // totals: [0] captured, [1] emitted on the roof / a floor exit, [2] killed inside, [3] dropped (list full),
 //         [4] left through a door (building inactive), [5] arrivals at the top (stay)
 

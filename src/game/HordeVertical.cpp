@@ -18,11 +18,16 @@ constexpr uint32_t kNodeBytes = 48, kEntrBytes = 32;
 constexpr uint32_t kOccWords = 8, kOccHeader = 4;
 constexpr uint32_t kTotals = kVMaxNodes * 4;               // VSTATE_TOTALS (game_vertical.comp)
 constexpr uint32_t kStateWords = kTotals + 16;
+static_assert(kTotals == 8192, "VSTATE_TOTALS in game_vertical.comp");
+static_assert(kVMaxOccupants >= kVMaxNodes, "the advance pass (one thread per occupant) clears the per-node batterer counts");
 constexpr uint32_t kOccBytes = (kOccHeader + kVMaxOccupants * kOccWords) * 4;
 constexpr uint32_t VN_STAY = 0xFFFFFFFFu, VN_EMIT = 0xFFFFFFFEu;
 constexpr uint32_t VF_BARRICADED = 1u, VF_STREET = 2u;
 uint32_t groups(uint32_t n, uint32_t g) { return (n + g - 1) / g; }
 uint32_t fbits(float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; }
+// Stairwell abstraction for very tall buildings: real floors per graph level, and the graph level count.
+int floorStep(const Building& b) { return std::max(1, ((int)b.floors + (int)kVMaxFloors - 1) / (int)kVMaxFloors); }
+int graphLevels(const Building& b) { const int st = floorStep(b); return std::max(1, ((int)b.floors + st - 1) / st); }
 double msSince(uint64_t t0) { return (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency(); }
 
 struct NodeRec { float p[4]; uint32_t q[4]; uint32_t r[4]; };
@@ -34,7 +39,6 @@ const char* HordeVertical::unsupportedWhy(const Building& b) {
     bool door = false;
     for (const Opening& o : b.openings) door |= o.type == OpeningType::Door;
     if (!door) return "no door (zombies cannot enter; low roofs only by corpse piles)";
-    if (b.floors > kVMaxFloors) return "more than 22 floors (interior graph limit)";
     return "";
 }
 
@@ -134,8 +138,10 @@ void HordeVertical::buildSlot(uint32_t s, const Building& b, const std::vector<i
     const uint32_t base = s * kVNodesPerSlot;
     auto node = [&](uint32_t local) -> NodeRec& { return *(NodeRec*)(nodeData_.data() + (base + local) * kNodeBytes); };
     for (uint32_t l = 0; l < kVNodesPerSlot; ++l) { node(l) = NodeRec{}; node(l).q[0] = VN_STAY; }
-    const int F = std::min<int>(b.floors, (int)kVMaxFloors);
+    const int F = graphLevels(b), step = floorStep(b);
     sl.nFloors = F;
+    sl.step = step;
+    sl.realFloors = b.floors;
     sl.nDoors = 0;
     sl.hasHatch = false;
     sl.hatchOpening = 0xFFFF;
@@ -167,8 +173,8 @@ void HordeVertical::buildSlot(uint32_t s, const Building& b, const std::vector<i
     // floors (node f: crossing to the stairs on the ground floor, one flight above)
     for (int f = 0; f < F; ++f) {
         NodeRec& n = node(kVFloorBase + (uint32_t)f);
-        V3 p = b.toWorld(b.stairU, b.stairV, b.floorY(f));
-        float t = cfg.climbTimePerFloor;
+        V3 p = b.toWorld(b.stairU, b.stairV, b.floorY(std::min(f * step, (int)b.floors - 1)));
+        float t = cfg.climbTimePerFloor * (float)step;   // one node = `step` flights in very tall buildings
         if (f == 0) {
             float dmax = 0.f;
             for (int k = 0; k < sl.nDoors; ++k) {
@@ -217,16 +223,20 @@ void HordeVertical::tick(const std::vector<HordeSoldier>& soldiers, double time)
         if (!id.valid() || id.v >= buildings->size()) continue;
         const Building& b = (*buildings)[id.v];
         if (*unsupportedWhy(b)) continue;
-        const int F = std::min<int>(b.floors, (int)kVMaxFloors);
-        int level;
-        if (h.pos.y >= b.roofY - 0.8f) level = F;   // roof
-        else level = std::clamp((int)std::floor((h.pos.y - b.y0) / std::max(b.floorHeight, 1.f) + 0.35f), 0, F - 1);
+        const int F = graphLevels(b), step = floorStep(b);
+        int level, realLevel;   // graph level (perLevel index) / real floor of that level's lowest floor (placed_)
+        if (h.pos.y >= b.roofY - 0.8f) level = realLevel = F;   // roof
+        else {
+            realLevel = std::clamp((int)std::floor((h.pos.y - b.y0) / std::max(b.floorHeight, 1.f) + 0.35f), 0, (int)b.floors - 1);
+            level = std::min(realLevel / step, F - 1);
+            realLevel = level * step;
+        }
         Act* a = nullptr;
         for (Act& x : acts) if (x.id == id) { a = &x; break; }
         if (!a) { acts.push_back({id, std::vector<int>((size_t)F + 1, 0), std::vector<uint32_t>((size_t)F + 1, 0)}); a = &acts.back(); }
         a->perLevel[(size_t)level]++;
         a->shooter[(size_t)level] = h.packedId;
-        placed_.push_back({h.packedId, -1, (uint8_t)(level == F ? kRoofFloor : level)});
+        placed_.push_back({h.packedId, -1, (uint8_t)(level == F ? kRoofFloor : realLevel)});
         placed_.back().slot = -2 - (int)(&*a - &acts[0]);   // resolved to a slot below
     }
     // ---- slots: keep / assign / drain / free --------------------------------------------------------------------
@@ -269,7 +279,7 @@ void HordeVertical::tick(const std::vector<HordeSoldier>& soldiers, double time)
             if (time - sl.lastActive > 2.0) {   // soldiers gone for 2 s: the occupants walk back out
                 sl.draining = true;
                 sl.drainSince = time;
-                std::vector<int> none((size_t)std::min<int>(b.floors, (int)kVMaxFloors) + 1, 0);
+                std::vector<int> none((size_t)graphLevels(b) + 1, 0);
                 std::vector<uint32_t> ns(none.size(), 0);
                 buildSlot(s, b, none, ns);
             }
@@ -294,7 +304,7 @@ void HordeVertical::tick(const std::vector<HordeSoldier>& soldiers, double time)
         ++nActive;
         const Building& b = (*buildings)[sl.id.v];
         const V3 stair0 = b.toWorld(b.stairU, b.stairV, b.y0);
-        const int levels = sl.target == kRoofFloor ? sl.nFloors : sl.target;
+        const int levels = (sl.target == kRoofFloor ? sl.nFloors : sl.target) * sl.step;   // real floors climbed
         for (int k = 0; k < sl.nDoors && ne < kVMaxEntrances; ++k) {
             const Opening& o = b.openings[sl.doorOpening[k]];
             EntrRec e{};
@@ -334,7 +344,8 @@ void HordeVertical::tick(const std::vector<HordeSoldier>& soldiers, double time)
             const BuildingState* v = nullptr;
             for (const BuildingState& x : view_) if (x.id == acts[ai].id) { v = &x; break; }
             if (!v || p.level >= v->perFloor.size() || v->perFloor[p.level] <= 0) continue;
-            const int share = std::max(onLevel[ai][p.level], 1);
+            const size_t gl = std::min<size_t>((size_t)(p.level / floorStep((*buildings)[acts[ai].id.v])), onLevel[ai].size() - 1);
+            const int share = std::max(onLevel[ai][gl], 1);
             const int n = std::min(cfg.attackersPerSoldier, (v->perFloor[p.level] + share - 1) / share);
             if (n > 0) interior_.push_back({p.packed, (uint16_t)n});
         }
@@ -456,6 +467,12 @@ void HordeVertical::harvest() {
             }
         }
         if (sl.target != kRoofFloor && sl.target < v.perFloor.size()) v.atTarget = v.perFloor[sl.target];
+        if (sl.step > 1) {   // stairwell abstraction: report per real floor (each level's count on its lowest floor)
+            std::vector<int16_t> real((size_t)std::max(sl.realFloors, 1), 0);
+            for (size_t g = 0; g < v.perFloor.size(); ++g) real[std::min(g * (size_t)sl.step, real.size() - 1)] += v.perFloor[g];
+            v.perFloor.swap(real);
+            if (sl.target != kRoofFloor) v.target = (uint8_t)std::min<int>(sl.target * sl.step, 254);
+        }
         sl.occupants = v.occupants;
         total += v.occupants;
         if (setZombieCounts) setZombieCounts(sl.id, v.occupants, -1, v.perFloor.data(), (int)v.perFloor.size());

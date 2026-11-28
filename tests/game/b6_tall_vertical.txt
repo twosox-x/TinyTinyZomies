@@ -1,0 +1,36 @@
+# Zombies enter and climb tall buildings (HordeVertical: 64-node slots, up to 54 graph levels, stairwell abstraction
+# above that; docs/GAMEPLAY_ARCHITECTURE.md 9). Before this, buildings over 22 floors were never entered.
+# Building: the 39-floor downtown tower (bake 00709006, as in b6_garrison_all), city seed1 (BLDG section).
+# A  a rifle squad garrisons the tower (posts on the lower floors + roof), a horde in the street: zombies go in by the door
+# B  the garrison is released, a second squad holds the roof: the occupants climb all 39 floors (past the old 22-floor
+#    limit) and come out of the roof hatch
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_tall_vertical.txt
+at 0.1  bselect 8.2 95.1
+at 0.1  expect building supported == 1
+at 0.1  expect building floors > 30
+at 0.1  expect building doors >= 1
+at 0.1  binfo
+at 0.2  bcapture
+at 0.3  brole garrison
+at 0.3  buy rifle 4 66
+at 25   expect landed == 5
+at 25   bgarrison 1
+at 60   log
+at 60   expect squad_posted 1 == 5
+at 60   vinfo
+at 60   expect vstat active == 1
+at 61   spawn 200 4 70 8
+at 100  vinfo
+at 100  expect vstat captured > 0
+at 100  expect vbuilding inside > 0
+at 101  buy rifle 8.2 95.1
+at 130  vinfo
+at 130  log
+at 131  brelease
+at 160  vinfo
+at 190  vinfo
+at 220  vinfo
+at 220  expect vbuilding target == 255
+at 220  expect vstat emitted > 0
+at 220  log
+at 221  end
