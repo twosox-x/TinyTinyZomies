@@ -13,6 +13,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 
 namespace ttz::game {
 
@@ -74,17 +76,23 @@ bool stairRoute(const GameContext& ctx, V3 roof, V3& hatchPt, V3& doorPt, int& f
     if (!ctx.registry || !ctx.nav) return false;
     const BuildingRegistry& R = *ctx.registry;
     const Building* b = R.get(R.at(roof.x, roof.z, 0.5f));
-    if (!b || !b->prepared || !b->flatRoof || std::fabs(b->roofY - roof.y) > 1.5f) return false;
+    if (!b || !b->prepared || !b->flatRoof || roof.y < b->roofY - 1.5f || roof.y > std::max(b->roofY, b->topY) + 0.5f) {
+        if (std::getenv("TTZ_DEBUG_LEVELS")) std::printf("  stairRoute (%.1f %.1f %.1f): building %d prepared %d flat %d roofY %.1f\n", roof.x, roof.y, roof.z, b ? 1 : 0, b ? b->prepared : 0, b ? b->flatRoof : 0, b ? b->roofY : 0.f);
+        return false;
+    }
     const Opening* hatch = nullptr;
     const Opening* door = nullptr;
     for (const Opening& o : b->openings) {
         if (o.type == OpeningType::RoofHatch && !hatch) hatch = &o;
         if (o.type == OpeningType::Door && (!door || dist2D(o.pos, roof) < dist2D(door->pos, roof))) door = &o;
     }
-    if (!hatch || !door) return false;
+    if (!hatch || !door) { if (std::getenv("TTZ_DEBUG_LEVELS")) std::printf("  stairRoute: hatch %d door %d\n", hatch ? 1 : 0, door ? 1 : 0); return false; }
     const NavGrid& nav = *ctx.nav;
     if (!nav.nearestWalkableLevel(hatch->pos, 4.f, b->roofY, 1.0f, hatchPt)) return false;
-    if (nav.island(hatchPt.x, hatchPt.z) != nav.island(roof.x, roof.z)) return false;   // the hatch is on another level
+    if (nav.island(hatchPt.x, hatchPt.z) != nav.island(roof.x, roof.z)) {   // the hatch is on another level
+        if (std::getenv("TTZ_DEBUG_LEVELS")) std::printf("  stairRoute: hatch (%.1f %.1f %.1f) on island %u, roof island %u\n", hatchPt.x, hatchPt.y, hatchPt.z, nav.island(hatchPt.x, hatchPt.z), nav.island(roof.x, roof.z));
+        return false;
+    }
     const V3 out{door->pos.x + door->nx * 1.2f, door->pos.y, door->pos.z + door->nz * 1.2f};
     if (!nav.nearestWalkableLevel(out, 3.f, door->pos.y, 1.0f, doorPt)) return false;
     floors = b->floors;
@@ -99,14 +107,21 @@ bool roofJumpSpot(const NavGrid& nav, V3 from, V3 goal, uint32_t goalIsl, V3& ed
         if (nav.edgeClearance(c.x, c.z) > 0.9f) continue;
         for (int k = 0; k < 16; ++k) {
             const float a = (float)k * 0.3926991f, dx = std::cos(a), dz = std::sin(a);
-            for (float d = 1.f; d <= 7.f; d += 0.75f) {
+            for (float d = 1.f; d <= 12.f; d += 0.75f) {
                 const V3 q{c.x + dx * d, 0.f, c.z + dz * d};
                 const float s = nav.surface(q.x, q.z);
                 if (s > c.y + 1.3f) break;                // a wall / roof object in the way (parapets are fine)
                 if (s > c.y - 2.5f) continue;
-                if (!nav.walkable(q.x, q.z) || nav.onRoof(q.x, q.z) || (goalIsl && nav.island(q.x, q.z) != goalIsl)) break;
+                if (nav.onRoof(q.x, q.z)) continue;      // a lower roof level / neighbour below: drift on over it
+                if (!nav.walkable(q.x, q.z) || (goalIsl && nav.island(q.x, q.z) != goalIsl)) break;
                 bool clear = true;                        // room for the canopy collapse: walkable ring of 1.2 m
                 for (int r = 0; r < 4 && clear; ++r) clear = std::fabs(nav.surface(q.x + std::cos(r * 1.5708f) * 1.2f, q.z + std::sin(r * 1.5708f) * 1.2f) - s) < 0.6f;
+                // the canopy clears everything between (Deploy::jumpFromRoof eases the drift as alt^6: out first)
+                for (float e = 0.75f; e < d && clear; e += 0.75f) {
+                    const float h = nav.surface(c.x + dx * e, c.z + dz * e);
+                    const float f = std::pow(std::max(0.f, 1.f - e / d), 1.f / 6.f);
+                    clear = s + f * (c.y - s) > h + 1.2f || e < 2.01f;   // the rim / parapet: stepped over
+                }
                 if (!clear) break;
                 const float score = dist2D(from, c) + dist2D(q, goal);
                 if (score < best) { best = score; edge = c; land = V3{q.x, s, q.z}; }
