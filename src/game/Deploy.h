@@ -51,6 +51,7 @@ struct DropTrack {
     float groundT = -1.f;             // s since the canopy settled (canopy_ground, or touchdown + land duration)
     bool released = false;            // harness_release seen (canopy frozen where it lies)
     bool rooftop = false;
+    bool jump = false;                // owner round 15: a soldier jumping off a roof edge (short low-altitude canopy)
     DropPhase phase = DropPhase::Descent;
     float clamp[8] = {0, 0, 0, 0, 0, 0, 0, 0};   // roof footprint for the canopy collapse (minX minZ maxX maxZ y 0 0 on)
 };
@@ -74,6 +75,10 @@ public:
     DropPlan plan(const GameContext& ctx, SquadType type, V3 dest) const;          // preview + validation (no side effects)
     SquadId execute(GameContext& ctx, SquadType type, const DropPlan& plan);      // after Economy::spend succeeded
     void tick(GameContext& ctx);       // descent / landing / recovery transitions for soldiers in deploy states
+    // Owner round 15 (#4): a soldier on a roof without an access goes down by parachute from the roof edge `edge`
+    // to the street point `landing` (approved para_descent / land / recover clips and canopy; drift outward first).
+    void jumpFromRoof(GameContext& ctx, SoldierId s, V3 edge, V3 landing);
+    uint64_t roofJumps() const { return jumps_; }
     void onAnimEvents(GameContext& ctx);   // after SoldierAnimator::tick: touchdown / canopy_ground / weapon_draw
     const std::vector<DropTrack>& drops() const { return drops_; }
     void reset() { drops_.clear(); }
@@ -83,7 +88,7 @@ public:
 private:
     std::vector<SoldierId> touchedDown_;
     std::vector<DropTrack> drops_;
-    uint64_t dropped_ = 0, landed_ = 0;
+    uint64_t dropped_ = 0, landed_ = 0, jumps_ = 0;
     void finishRecovery(GameContext& ctx, DropTrack& d);
     // Rooftop plan on the roof island of `start` (roofLevels): spots inset from the edge (1.5, else 1.2, else 1.0 m),
     // clear of roof objects, nearest to the click; members on the same island, spaced as far apart as the roof allows.

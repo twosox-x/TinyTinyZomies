@@ -393,7 +393,8 @@ void Deploy::tick(GameContext& ctx) {
         case DropPhase::Descent: {
             d.alt = std::max(0.f, d.alt - timing.descentSpeed[c] * dt);
             const float f = d.startAlt > 0 ? d.alt / d.startAlt : 0.f;
-            const float ease = f * f * (3.f - 2.f * f);   // drift settles before touchdown
+            const float f3 = f * f * f;
+            const float ease = d.jump ? f3 * f3 : f * f * (3.f - 2.f * f);   // drift settles before touchdown (jump: away from the facade first)
             V3 np{d.landing.x + d.drift.x * ease, d.landing.y + d.alt, d.landing.z + d.drift.z * ease};
             P.vel[i] = (np - P.pos[i]) * (1.f / dt);
             P.pos[i] = np;
@@ -434,6 +435,26 @@ void Deploy::tick(GameContext& ctx) {
     drops_.erase(std::remove_if(drops_.begin(), drops_.end(), [](const DropTrack& d) { return d.phase == DropPhase::Done && d.groundT > 7.f; }),
                  drops_.end());
     // Squad::deploying / flags: SoldierAI recomputes them every tick (single owner, from the soldier states)
+}
+
+void Deploy::jumpFromRoof(GameContext& ctx, SoldierId s, V3 edge, V3 landing) {
+    if (!ctx.soldiers || !ctx.soldiers->valid(s)) return;
+    SoldierPool& P = *ctx.soldiers;
+    const uint32_t i = s.index;
+    DropTrack d;
+    d.soldier = s;
+    d.squad = P.squad[i];
+    d.landing = landing;
+    d.jump = true;
+    d.startAlt = d.alt = std::max(0.5f, edge.y - landing.y);
+    d.drift = {edge.x - landing.x, 0.f, edge.z - landing.z};
+    P.pos[i] = edge;
+    P.vel[i] = {};
+    P.path[i] = PathFollow{};
+    P.setState(i, SoldierState::Descending);
+    if (ctx.animator) ctx.animator->reset(P.anim[i], P.infantry[i], AnimAction::ParaDescent);
+    drops_.push_back(d);
+    ++jumps_;
 }
 
 bool Deploy::parachuted(SoldierId s) const {
