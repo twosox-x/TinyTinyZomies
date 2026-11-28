@@ -106,6 +106,16 @@ void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
         starts.push_back(q);
     };
     const bool onRoof = nav.walkable(click.x, click.z) && nav.onRoof(click.x, click.z);
+    // a rim-only strip (cornice / setback ledge hugging a taller building's wall: no cell of it is roofEdgeInset from
+    // its edge, nothing can stand or land on it): the click means the roof beside it, also one far above (seen from
+    // the camera the strip is the rim of that roof; the UI ray pick hits the roof itself, a raw X Z lands on the strip)
+    bool ledge = false;
+    if (onRoof) {
+        std::vector<V3> cells;
+        nav.islandCells({click.x, clicked, click.z}, 30.f, 3000, cells);
+        ledge = true;
+        for (const V3& q : cells) if (nav.cellEdge(q.x, q.z) >= nav.roofEdgeInset) { ledge = false; break; }
+    }
     if (onRoof) add({click.x, clicked, click.z});
     if (onRoof || !nav.walkable(click.x, click.z)) {
         // parapet / ledge / roof object / rim (or a thin raised ring the click is on): the nearest roof cell of another
@@ -120,10 +130,15 @@ void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
                 if (own && nav.island(x, z) == own) continue;
                 const float y = nav.surface(x, z);
                 // under a parapet / cornice notch the roof can be a few metres above the clicked cell
-                if (y > clicked + (onRoof ? -0.4f : 4.5f) || y < clicked - 4.f) continue;
+                if (y > clicked + (ledge ? 90.f : onRoof ? -0.4f : 4.5f) || y < clicked - 4.f) continue;
                 best = d2; bq = {x, y, z};
             }
-        if (best < 1e8f) add(bq);
+        if (best < 1e8f) {
+            const size_t n0 = starts.size();
+            add(bq);
+            // the usable roof before the strip
+            if (ledge && starts.size() > n0 && n0 > 0) std::rotate(starts.begin(), starts.end() - 1, starts.end());
+        }
     }
     if (starts.empty()) return;
     // a raised top inside a larger roof (stair housing, tank, lift room) or a small level of a cluttered roof: the
