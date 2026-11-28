@@ -2,7 +2,8 @@
 #extension GL_GOOGLE_include_directive : require
 // Corpse gas haze, flies and ground fire (GAME_DESIGN 14d; src/game/CorpseGas.cpp). One instance per listed gas cell
 // (game_gas_field appends cells with gas, fire or rotting corpses), 9 voxel boxes per instance (vertex pulling):
-//   0..4  drifting gas puffs (owner 2026-11-28 / GAME_DESIGN 14e: "no grid overlay, the gas particles more noticeable"):
+//   0..4  legacy drifting gas puffs, drawn only when the voxel fog volume (gas_volume.*, owner round 15 item 10) is off
+//         (owner 2026-11-28 / GAME_DESIGN 14e: "no grid overlay, the gas particles more noticeable"):
 //         voxel cubes of 0.375-1.25 m (0.125 m steps) swirling slowly round the cell and rising, more and bigger with
 //         the gas level; spread over +-0.9 cell so neighbouring cells overlap (no cell-aligned slab / grid look);
 //         sickly yellow-green with a faint glow (reads at dusk / night), alpha <= 0.24 each (units stay readable)
@@ -19,7 +20,7 @@ layout(std430, set = 0, binding = 3) readonly buffer CorpseH { int corpseH[]; };
 layout(std140, set = 1, binding = 1) uniform GasDraw {
     vec4 gOrigin;   // x originX, y originZ, z gas cell (m), w sim cell (m)
     uvec4 gDim;     // x gasW, y gasH, z simW, w simH
-    vec4 gStyle;    // x puff alpha scale, y time (s), z, w unused
+    vec4 gStyle;    // x puff alpha scale, y time (s), z 1 = legacy puffs (CorpseGasRender::voxelFog off), w unused
 };
 layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vNormal;
@@ -56,7 +57,7 @@ void main() {
     float em = 0.0;
     bool on = false;
     float ground = simTop(cc);
-    if (box <= 4) {   // drifting puffs: puff k appears above its own gas threshold
+    if (box <= 4 && gStyle.z > 0.5) {   // legacy drifting puffs (only with the voxel fog off): puff k appears above its own gas threshold
         const float TH[5] = float[5](0.03, 0.10, 0.22, 0.40, 0.65);
         float th = TH[box];
         if (gas > th) {

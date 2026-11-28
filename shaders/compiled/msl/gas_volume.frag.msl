@@ -1,0 +1,503 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+    float4 blastsP[8];
+    float4 todP;
+    float4x4 shadowVP;
+    float4 shadowP;
+    float4 dofP;
+    float4x4 shadowVP2;
+    float4 shadowP2;
+    float4 mapP;
+    float4 cloudP;
+    float4 cloudW;
+};
+
+struct GasVolumes
+{
+    float4 gLo[32];
+    float4 gHi[32];
+    float4 gOrigin;
+    uint4 gDim;
+    float4 gStyle;
+};
+
+struct StaticH
+{
+    float staticH[1];
+};
+
+struct CorpseH
+{
+    int corpseH[1];
+};
+
+struct Field
+{
+    uint4 field[1];
+};
+
+struct main0_out
+{
+    float4 outColor [[color(0)]];
+};
+
+struct main0_in
+{
+    float3 vWorld [[user(locn0)]];
+    int vIdx [[user(locn1)]];
+};
+
+static inline __attribute__((always_inline))
+float simTop(thread const float2& xz, constant GasVolumes& _938, const device StaticH& _973, const device CorpseH& _981)
+{
+    int2 c = clamp(int2(floor((xz - _938.gOrigin.xy) / float2(_938.gOrigin.w))), int2(0), int2(_938.gDim.zw) - int2(1));
+    uint id = (uint(c.y) * _938.gDim.z) + uint(c.x);
+    return fast::max(_973.staticH[id], 0.0) + (float(_981.corpseH[id]) * 0.001000000047497451305389404296875);
+}
+
+static inline __attribute__((always_inline))
+uint gHash(thread const uint3& p)
+{
+    uint h = ((p.x * 73856093u) ^ (p.y * 19349663u)) ^ (p.z * 83492791u);
+    h ^= (h >> uint(16));
+    h *= 2146121005u;
+    h ^= (h >> uint(15));
+    h *= 2221713035u;
+    h ^= (h >> uint(16));
+    return h;
+}
+
+static inline __attribute__((always_inline))
+float gH01(thread const int3& p)
+{
+    uint3 param = uint3(p);
+    return float(gHash(param) & 16777215u) / 16777216.0;
+}
+
+static inline __attribute__((always_inline))
+float gNoise(thread const float3& p)
+{
+    int3 i = int3(floor(p));
+    float3 f = fract(p);
+    f = (f * f) * (float3(3.0) - (f * 2.0));
+    int3 param = i;
+    int3 param_1 = i + int3(1, 0, 0);
+    float a = mix(gH01(param), gH01(param_1), f.x);
+    int3 param_2 = i + int3(0, 1, 0);
+    int3 param_3 = i + int3(1, 1, 0);
+    float b = mix(gH01(param_2), gH01(param_3), f.x);
+    int3 param_4 = i + int3(0, 0, 1);
+    int3 param_5 = i + int3(1, 0, 1);
+    float c = mix(gH01(param_4), gH01(param_5), f.x);
+    int3 param_6 = i + int3(0, 1, 1);
+    int3 param_7 = i + int3(1);
+    float d = mix(gH01(param_6), gH01(param_7), f.x);
+    return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
+}
+
+static inline __attribute__((always_inline))
+float gasCell(thread const int2& c, constant GasVolumes& _938, const device Field& _1012)
+{
+    bool _994 = any(c < int2(0));
+    bool _1005;
+    if (!_994)
+    {
+        _1005 = any(c >= int2(_938.gDim.xy));
+    }
+    else
+    {
+        _1005 = _994;
+    }
+    if (_1005)
+    {
+        return 0.0;
+    }
+    return fast::max(as_type<float>(((device uint*)&_1012.field[(uint(c.y) * _938.gDim.x) + uint(c.x)])[0u]), 0.0);
+}
+
+static inline __attribute__((always_inline))
+float gasAt(thread const float2& xz, constant GasVolumes& _938, const device Field& _1012)
+{
+    float2 g = ((xz - _938.gOrigin.xy) / float2(_938.gOrigin.z)) - float2(0.5);
+    int2 i = int2(floor(g));
+    float2 f = g - float2(i);
+    f = (f * f) * (float2(3.0) - (f * 2.0));
+    int2 param = i;
+    int2 param_1 = i + int2(1, 0);
+    int2 param_2 = i + int2(0, 1);
+    int2 param_3 = i + int2(1);
+    return mix(mix(gasCell(param, _938, _1012), gasCell(param_1, _938, _1012), f.x), mix(gasCell(param_2, _938, _1012), gasCell(param_3, _938, _1012), f.x), f.y);
+}
+
+static inline __attribute__((always_inline))
+float gasDensity(thread const float3& q, thread const float& ground, thread const float& t, thread float& hf, constant GasVolumes& _938, const device Field& _1012)
+{
+    hf = 0.0;
+    float2 drift = float2(0.2199999988079071044921875, 0.100000001490116119384765625) * t;
+    float3 param = float3((q.xz - drift) * 0.20999999344348907470703125, t * 0.0500000007450580596923828125);
+    float3 param_1 = float3(((q.xz - drift) * 0.20999999344348907470703125) + float2(19.700000762939453125), (t * 0.0500000007450580596923828125) + 3.099999904632568359375);
+    float2 w = float2(gNoise(param), gNoise(param_1)) - float2(0.5);
+    float2 param_2 = q.xz + (w * 2.599999904632568359375);
+    float g = gasAt(param_2, _938, _1012);
+    if (g < 0.00999999977648258209228515625)
+    {
+        return 0.0;
+    }
+    float lvl = fast::min(g * 4.0, 3.0);
+    float3 param_3 = float3((q.xz - (drift * 1.60000002384185791015625)) * 0.3300000131130218505859375, (t * 0.07999999821186065673828125) + 7.0);
+    float roll = gNoise(param_3);
+    float top = (0.5 + (0.85000002384185791015625 * sqrt(lvl))) * (0.699999988079071044921875 + (0.60000002384185791015625 * roll));
+    float h = q.y - ground;
+    hf = fast::clamp(h / fast::max(top, 0.100000001490116119384765625), 0.0, 1.0);
+    if (h > top)
+    {
+        return 0.0;
+    }
+    float edge = smoothstep(0.00999999977648258209228515625, 0.100000001490116119384765625, g);
+    float3 param_4 = float3(q.x - (drift.x * 2.0), (q.y * 1.39999997615814208984375) - (t * 0.119999997317790985107421875), q.z - (drift.y * 2.0)) * 0.89999997615814208984375;
+    float churn = gNoise(param_4);
+    float d = ((edge * (0.449999988079071044921875 + (0.550000011920928955078125 * fast::min(lvl, 1.0)))) * (1.0 - smoothstep(0.449999988079071044921875, 1.0, hf))) * (0.449999988079071044921875 + (1.10000002384185791015625 * churn));
+    float _1237;
+    if (d > 0.119999997317790985107421875)
+    {
+        _1237 = d * (1.2000000476837158203125 + (0.4000000059604644775390625 * fast::min(lvl, 3.0)));
+    }
+    else
+    {
+        _1237 = 0.0;
+    }
+    return _1237;
+}
+
+static inline __attribute__((always_inline))
+float cloudHash(thread const float2& p)
+{
+    float3 p3 = fract(p.xyx * 0.103100001811981201171875);
+    p3 += float3(dot(p3, p3.yzx + float3(33.3300018310546875)));
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+static inline __attribute__((always_inline))
+float cloudNoise(thread const float2& p)
+{
+    float2 i = floor(p);
+    float2 f = p - i;
+    f = (f * f) * (float2(3.0) - (f * 2.0));
+    float2 param = i;
+    float a = cloudHash(param);
+    float2 param_1 = i + float2(1.0, 0.0);
+    float b = cloudHash(param_1);
+    float2 param_2 = i + float2(0.0, 1.0);
+    float c = cloudHash(param_2);
+    float2 param_3 = i + float2(1.0);
+    float d = cloudHash(param_3);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+static inline __attribute__((always_inline))
+float cloudShadow(thread const float3& P, constant Frame& _115)
+{
+    float g = (_115.cloudP.x * (1.0 - _115.todP.z)) * smoothstep(0.02999999932944774627685546875, 0.25, _115.sunDir.y);
+    if (g <= 0.0)
+    {
+        return 1.0;
+    }
+    float sy = fast::max(_115.sunDir.y, 0.02999999932944774627685546875);
+    float2 g0 = P.xz - (_115.sunDir.xz * (P.y / sy));
+    g0 = (floor(g0 / float2(_115.cloudP.y)) + float2(0.5)) * _115.cloudP.y;
+    float2 q = (g0 + (_115.sunDir.xz * (_115.cloudP.w / sy))) - _115.cloudW.xy;
+    float2 param = (q * 0.0434782616794109344482421875) + float2(3.099999904632568359375, 7.69999980926513671875);
+    float2 param_1 = (q * 0.0434782616794109344482421875) + float2(11.3999996185302734375, 1.89999997615814208984375);
+    float2 w = float2(cloudNoise(param), cloudNoise(param_1)) - float2(0.5);
+    q += (w * 14.0);
+    float2 param_2 = q * 0.02222222276031970977783203125;
+    float2 param_3 = (q * 0.066666670143604278564453125) + float2(17.299999237060546875, 5.099999904632568359375);
+    float2 param_4 = (q * 0.181818187236785888671875) + float2(9.19999980926513671875, 2.599999904632568359375);
+    float n = ((0.60000002384185791015625 * cloudNoise(param_2)) + (0.2800000011920928955078125 * cloudNoise(param_3))) + (0.119999997317790985107421875 * cloudNoise(param_4));
+    float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _115.cloudP.z);
+    float _610;
+    if (n > (thr + 0.02999999932944774627685546875))
+    {
+        _610 = 1.0;
+    }
+    else
+    {
+        _610 = (n > thr) ? 0.75 : 0.0;
+    }
+    float k = _610;
+    return 1.0 - (g * k);
+}
+
+static inline __attribute__((always_inline))
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _115)
+{
+    float3 c = float3(0.0);
+    for (uint i = 0u; i < _115.gridDim.z; i++)
+    {
+        float3 L = _115.lightPos[i].xyz - P;
+        float d = length(L);
+        float R = _115.lightPos[i].w;
+        if (R < 0.0)
+        {
+            float x = d / (-R);
+            if (x >= 1.0)
+            {
+                continue;
+            }
+            float win = 1.0 - (x * x);
+            float att = (win * win) / (1.0 + ((d * d) * 8.0));
+            c += (((_115.lightCol[i].xyz * _115.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
+            continue;
+        }
+        float att_1 = fast::clamp(1.0 - (d / R), 0.0, 1.0);
+        att_1 *= att_1;
+        c += (((_115.lightCol[i].xyz * _115.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+    }
+    float _293;
+    for (int i_1 = 0; i_1 < 8; i_1++)
+    {
+        float age = _115.blasts[i_1].w;
+        float s = fast::max(_115.blastsP[i_1].x, 0.100000001490116119384765625);
+        float ss = sqrt(s);
+        float fireDur = 1.60000002384185791015625 * ss;
+        if ((age < 0.0) || (age > fireDur))
+        {
+            continue;
+        }
+        float3 L_1 = (_115.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float d_1 = length(L_1);
+        if (age < 0.100000001490116119384765625)
+        {
+            _293 = 1.0 - (age / 0.100000001490116119384765625);
+        }
+        else
+        {
+            _293 = 0.0;
+        }
+        float flash = _293;
+        float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
+        fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
+        float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
+        float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
+        float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
+        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _115.todP.y);
+    }
+    return c;
+}
+
+static inline __attribute__((always_inline))
+float3 lampLights(thread const float3& P, thread const float3& N)
+{
+    return float3(0.0);
+}
+
+static inline __attribute__((always_inline))
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _115)
+{
+    float3 hemi = mix(_115.groundColor.xyz, _115.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 param = P;
+    float3 key = ((_115.sunColor.xyz * fast::max(dot(N, _115.sunDir.xyz), 0.0)) * vis) * cloudShadow(param, _115);
+    float3 param_1 = P;
+    float3 param_2 = N;
+    float3 param_3 = P;
+    float3 param_4 = N;
+    return albedo * (((hemi + key) + pointLights(param_1, param_2, _115)) + lampLights(param_3, param_4));
+}
+
+static inline __attribute__((always_inline))
+float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _115)
+{
+    float3 param = albedo;
+    float3 param_1 = N;
+    float3 param_2 = P;
+    float param_3 = ao;
+    float param_4 = 1.0;
+    return shadeV(param, param_1, param_2, param_3, param_4, _115);
+}
+
+static inline __attribute__((always_inline))
+float mapEdgeFade(thread const float3& P, constant Frame& _115)
+{
+    if (_115.mapP.z <= _115.mapP.x)
+    {
+        return 0.0;
+    }
+    float2 o = fast::max(_115.mapP.xy - P.xz, P.xz - _115.mapP.zw);
+    float d = length(fast::max(o, float2(0.0))) + fast::min(fast::max(o.x, o.y), 0.0);
+    return smoothstep(-120.0, 0.0, d);
+}
+
+static inline __attribute__((always_inline))
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _115)
+{
+    float d = length(P - _115.camPos.xyz);
+    float f = (1.0 - exp((-_115.fogColor.w) * fast::max(d - _115.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    float3 param = P;
+    col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _115)));
+    col = mix(col, _115.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _774;
+    if (_115.sunColor.w > 0.0)
+    {
+        _774 = _115.sunColor.w;
+    }
+    else
+    {
+        _774 = 1.0;
+    }
+    col *= _774;
+    col /= (float3(1.0) + (col * 0.300000011920928955078125));
+    return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
+}
+
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _115 [[buffer(0)]], constant GasVolumes& _938 [[buffer(1)]], const device Field& _1012 [[buffer(2)]], const device StaticH& _973 [[buffer(3)]], const device CorpseH& _981 [[buffer(4)]])
+{
+    main0_out out = {};
+    int i = in.vIdx;
+    float3 lo = _938.gLo[i].xyz;
+    float3 hi = _938.gHi[i].xyz;
+    float3 ro = _115.camPos.xyz;
+    float3 rd = fast::normalize(in.vWorld - ro);
+    float3 inv = (float3(1.0) / (abs(rd) + float3(9.9999999747524270787835121154785e-07))) * sign(rd + float3(9.999999717180685365747194737196e-10));
+    float3 ta = (lo - ro) * inv;
+    float3 tb = (hi - ro) * inv;
+    float3 tmin = fast::min(ta, tb);
+    float3 tmax = fast::max(ta, tb);
+    float t0 = fast::max(fast::max(fast::max(tmin.x, tmin.y), tmin.z), 0.0);
+    float t1 = fast::min(fast::min(tmax.x, tmax.y), tmax.z);
+    if (t1 <= t0)
+    {
+        discard_fragment();
+    }
+    float dist = length(((lo + hi) * 0.5) - ro);
+    float want = dist * _938.gStyle.z;
+    float _1352;
+    if (_938.gStyle.z <= 0.0)
+    {
+        _1352 = 0.25;
+    }
+    else
+    {
+        float _1358;
+        if (want <= 0.25)
+        {
+            _1358 = 0.25;
+        }
+        else
+        {
+            _1358 = (want <= 0.5) ? 0.5 : 1.0;
+        }
+        _1352 = _1358;
+    }
+    float v = _1352;
+    if ((((t1 - t0) / v) > 120.31999969482421875) && (v < 1.0))
+    {
+        v *= 2.0;
+    }
+    float3 p = ro + (rd * (t0 + 9.9999997473787516355514526367188e-05));
+    int3 cell = int3(floor(p / float3(v)));
+    int3 stp = int3(sign(rd));
+    float3 tMax = (((float3(cell) + step(float3(0.0), rd)) * v) - ro) * inv;
+    float3 tDel = abs(inv * v);
+    float tEnter = t0;
+    float time = _938.gStyle.y;
+    float T = 1.0;
+    float3 acc = float3(0.0);
+    float3 Pfirst = float3(0.0);
+    bool any_ = false;
+    float night = _115.todP.x;
+    int _1446;
+    float param_4;
+    for (int k = 0; k < 128; k++)
+    {
+        if (tMax.x < tMax.y)
+        {
+            _1446 = (tMax.x < tMax.z) ? 0 : 2;
+        }
+        else
+        {
+            _1446 = (tMax.y < tMax.z) ? 1 : 2;
+        }
+        int ax = _1446;
+        float tExit = fast::min(tMax[ax], t1);
+        float3 q = (float3(cell) + float3(0.5)) * v;
+        float2 param = q.xz;
+        float ground = simTop(param, _938, _973, _981);
+        if (q.y < ground)
+        {
+            break;
+        }
+        float3 param_1 = q;
+        float param_2 = fast::min(ground, _938.gLo[i].w + 0.699999988079071044921875);
+        float param_3 = time;
+        float _1502 = gasDensity(param_1, param_2, param_3, param_4, _938, _1012);
+        float hf = param_4;
+        float d = _1502;
+        if (d > 0.0)
+        {
+            float seg = fast::max(tExit - tEnter, 0.0);
+            float a = 1.0 - exp((((-d) * seg) * 2.400000095367431640625) * _938.gStyle.x);
+            int3 param_5 = (cell * int3(7)) + int3(3, 11, 5);
+            float jit = gH01(param_5);
+            int3 param_6 = (cell * int3(3)) + int3(17, 5, 29);
+            d *= (0.60000002384185791015625 + (0.800000011920928955078125 * gH01(param_6)));
+            float3 alb = mix(float3(0.2599999904632568359375, 0.37999999523162841796875, 0.0500000007450580596923828125), float3(0.60000002384185791015625, 0.680000007152557373046875, 0.1599999964237213134765625), float3(fast::clamp((0.25 + (0.60000002384185791015625 * hf)) + (0.300000011920928955078125 * (jit - 0.5)), 0.0, 1.0)));
+            float3 param_7 = alb * 1.5;
+            float3 param_8 = float3(0.0, 1.0, 0.0);
+            float3 param_9 = q;
+            float param_10 = 1.0;
+            float3 lit = shade(param_7, param_8, param_9, param_10, _115) * (0.5 + (0.5 * hf));
+            lit += (alb * (0.0500000007450580596923828125 + (0.2199999988079071044921875 * night)));
+            if (!any_)
+            {
+                Pfirst = q;
+                any_ = true;
+            }
+            acc += (lit * (T * a));
+            T *= (1.0 - a);
+            if (T < 0.02999999932944774627685546875)
+            {
+                break;
+            }
+        }
+        if (tMax[ax] > t1)
+        {
+            break;
+        }
+        tEnter = tMax[ax];
+        cell[ax] += stp[ax];
+        tMax[ax] += tDel[ax];
+    }
+    float alpha = 1.0 - T;
+    if (alpha < 0.0040000001899898052215576171875)
+    {
+        discard_fragment();
+    }
+    float3 col = acc / float3(alpha);
+    float3 param_11 = col;
+    float3 param_12 = Pfirst;
+    float3 _1655 = finish(param_11, param_12, _115);
+    out.outColor = float4(_1655, fast::min(alpha, _938.gStyle.w));
+    return out;
+}
+

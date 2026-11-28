@@ -18,6 +18,13 @@ struct GasDraw {   // std140, == GasDraw in shaders/gas.vert
     uint32_t dim[4];
     float style[4];
 };
+struct GasVolumeUniforms {   // std140, == GasVolumes in shaders/include/gas_volume.glsl
+    float lo[CorpseGasRender::kMaxGasBoxes][4];
+    float hi[CorpseGasRender::kMaxGasBoxes][4];
+    float origin[4];
+    uint32_t dim[4];
+    float style[4];
+};
 } // namespace
 
 bool CorpseGasRender::init(AppState& app, CorpseGas& gas) {
@@ -55,15 +62,28 @@ bool CorpseGasRender::init(AppState& app, CorpseGas& gas) {
     SDL_ReleaseGPUShader(gpu.device(), v);
     SDL_ReleaseGPUShader(gpu.device(), f);
     if (!pipe_) { SDL_Log("corpse gas: pipeline: %s", SDL_GetError()); return false; }
+    {   // gas voxel fog: the boxes' near faces (back-face culling), depth tested, no depth write, blended like the haze
+        SDL_GPUShader* gv = gpu.loadShader("gas_volume.vert", SDL_GPU_SHADERSTAGE_VERTEX);
+        SDL_GPUShader* gf = gpu.loadShader("gas_volume.frag", SDL_GPU_SHADERSTAGE_FRAGMENT);
+        if (gv && gf) {
+            ci.vertex_shader = gv;
+            ci.fragment_shader = gf;
+            pipeVol_ = SDL_CreateGPUGraphicsPipeline(gpu.device(), &ci);
+        }
+        if (gv) SDL_ReleaseGPUShader(gpu.device(), gv);
+        if (gf) SDL_ReleaseGPUShader(gpu.device(), gf);
+        if (!pipeVol_) SDL_Log("corpse gas: volume pipeline: %s (legacy puffs)", SDL_GetError());   // not fatal
+    }
     Renderer::Extension e;
     e.draw = [this](SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer*, SDL_GPUBuffer*, SDL_GPUBuffer* corpseH) {
         if (!gas_ || !gas_->listBuffer() || !app_) return;
+        drawGasVolume(pass, cmd, corpseH);
         const CrowdSim& sim = app_->sim;
         const SimUniforms su = sim.uniforms();
         GasDraw u{};
         u.origin[0] = su.world.x; u.origin[1] = su.world.y; u.origin[2] = gas_->cellSize(); u.origin[3] = su.world.z;
         u.dim[0] = (uint32_t)gas_->width(); u.dim[1] = (uint32_t)gas_->height(); u.dim[2] = su.grid.x; u.dim[3] = su.grid.y;
-        u.style[0] = hazeAlpha; u.style[1] = (float)app_->renderTime; u.style[2] = 0.25f; u.style[3] = 1.0f;
+        u.style[0] = hazeAlpha; u.style[1] = (float)app_->renderTime; u.style[2] = voxelFog && pipeVol_ ? 0.f : 1.f; u.style[3] = 1.0f;
         SDL_BindGPUGraphicsPipeline(pass, pipe_);
         SDL_GPUBuffer* vb[4] = {gas_->listBuffer(), gas_->fieldBuffer(), sim.staticHeight(), corpseH ? corpseH : sim.corpseHeight()};
         SDL_BindGPUVertexStorageBuffers(pass, 0, vb, 4);
@@ -78,8 +98,72 @@ void CorpseGasRender::shutdown(AppState& app) {
     if (ext_) app.renderer.removeExtension(ext_);
     ext_ = 0;
     if (pipe_) SDL_ReleaseGPUGraphicsPipeline(app.gpu.device(), pipe_);
-    pipe_ = nullptr;
+    if (pipeVol_) SDL_ReleaseGPUGraphicsPipeline(app.gpu.device(), pipeVol_);
+    pipe_ = pipeVol_ = nullptr;
     gas_ = nullptr;
+}
+
+// Gas voxel fog boxes (shaders/gas_volume.*): every gas cell of the latest readback above a trace marks its square,
+// inflated by 3 m (bilinear spread + the shader's domain warp), in each fixed 16 m world tile it overlaps; one box per
+// tile, clamped to the tile and snapped to the 1 m world grid (adjacent boxes share faces, never overlap, and their
+// voxel grids line up: no seams), from the lowest ground under the gas to the highest + the tallest fog top. The
+// nearest kMaxGasBoxes to the camera are drawn, far to near (translucent "over" compositing).
+void CorpseGasRender::drawGasVolume(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* corpseH) {
+    gasBoxes_ = 0;
+    if (!voxelFog || !pipeVol_ || !gas_->ready() || gas_->stats().maxGas < 0.01f) return;
+    constexpr float kTile = 16.f, kPad = 3.f, kMin = 0.01f;
+    struct Box { int tx, tz; float x0, z0, x1, z1, y0, y1, g, d; };   // g: lowest ground under the gas
+    std::vector<Box> boxes;
+    const float cs = gas_->cellSize(), ox = gas_->originX(), oz = gas_->originZ();
+    for (int j = 0; j < gas_->height(); ++j)
+        for (int i = 0; i < gas_->width(); ++i) {
+            const float cx = ox + ((float)i + 0.5f) * cs, cz = oz + ((float)j + 0.5f) * cs;
+            const GasCell c = gas_->at(cx, cz);
+            if (c.gas < kMin) continue;
+            const float gy = groundY(cx, cz);
+            const float top = gy + (0.5f + 0.85f * std::sqrt(std::min(c.gas * 4.f, 3.f))) * 1.3f + 1.2f;   // == gas_volume.frag + corpse pile
+            const float ax0 = cx - 0.5f * cs - kPad, ax1 = cx + 0.5f * cs + kPad, az0 = cz - 0.5f * cs - kPad, az1 = cz + 0.5f * cs + kPad;
+            for (int tz = (int)std::floor(az0 / kTile); tz <= (int)std::floor(az1 / kTile); ++tz)
+                for (int tx = (int)std::floor(ax0 / kTile); tx <= (int)std::floor(ax1 / kTile); ++tx) {
+                    auto it = std::find_if(boxes.begin(), boxes.end(), [&](const Box& b) { return b.tx == tx && b.tz == tz; });
+                    if (it == boxes.end()) { boxes.push_back({tx, tz, 1e9f, 1e9f, -1e9f, -1e9f, 1e9f, -1e9f, 1e9f, 0.f}); it = boxes.end() - 1; }
+                    it->x0 = std::min(it->x0, std::max(ax0, tx * kTile)); it->x1 = std::max(it->x1, std::min(ax1, (tx + 1) * kTile));
+                    it->z0 = std::min(it->z0, std::max(az0, tz * kTile)); it->z1 = std::max(it->z1, std::min(az1, (tz + 1) * kTile));
+                    it->y0 = std::min(it->y0, gy - 0.5f); it->y1 = std::max(it->y1, top);
+                    it->g = std::min(it->g, gy);
+                }
+        }
+    if (boxes.empty()) return;
+    const V3 eye = app_->camera.eye();
+    for (Box& b : boxes) {
+        b.x0 = std::floor(b.x0); b.z0 = std::floor(b.z0); b.x1 = std::ceil(b.x1); b.z1 = std::ceil(b.z1);
+        b.y0 = std::floor(b.y0); b.y1 = std::ceil(b.y1);
+        const float dx = 0.5f * (b.x0 + b.x1) - eye.x, dz = 0.5f * (b.z0 + b.z1) - eye.z;
+        b.d = dx * dx + dz * dz;
+    }
+    std::sort(boxes.begin(), boxes.end(), [](const Box& a, const Box& b) { return a.d < b.d; });
+    if ((int)boxes.size() > kMaxGasBoxes) boxes.resize(kMaxGasBoxes);
+    std::reverse(boxes.begin(), boxes.end());   // far to near
+    GasVolumeUniforms u{};
+    for (size_t k = 0; k < boxes.size(); ++k) {
+        const Box& b = boxes[k];
+        u.lo[k][0] = b.x0; u.lo[k][1] = b.y0; u.lo[k][2] = b.z0; u.lo[k][3] = b.g;
+        u.hi[k][0] = b.x1; u.hi[k][1] = b.y1; u.hi[k][2] = b.z1;
+    }
+    const CrowdSim& sim = app_->sim;
+    const SimUniforms su = sim.uniforms();
+    u.origin[0] = su.world.x; u.origin[1] = su.world.y; u.origin[2] = gas_->cellSize(); u.origin[3] = su.world.z;
+    u.dim[0] = (uint32_t)gas_->width(); u.dim[1] = (uint32_t)gas_->height(); u.dim[2] = su.grid.x; u.dim[3] = su.grid.y;
+    // voxel LOD: ~4 px per voxel at a 720-line reference (0.25 m to ~57 m, 0.5 m to ~115 m, 1 m beyond)
+    const float voxPerM = 2.f * std::tan(app_->camera.settings.fovY * 0.5f) / 720.f * 4.f;
+    u.style[0] = hazeAlpha; u.style[1] = (float)app_->renderTime; u.style[2] = voxPerM; u.style[3] = gasMaxAlpha;
+    SDL_BindGPUGraphicsPipeline(pass, pipeVol_);
+    SDL_GPUBuffer* fb[3] = {gas_->fieldBuffer(), sim.staticHeight(), corpseH ? corpseH : sim.corpseHeight()};
+    SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 3);
+    SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
+    SDL_PushGPUFragmentUniformData(cmd, 1, &u, sizeof(u));
+    SDL_DrawGPUPrimitives(pass, 36, (uint32_t)boxes.size(), 0, 0);
+    gasBoxes_ = (int)boxes.size();
 }
 
 void CorpseGasRender::noteFlames(const std::vector<FxEvent>& fx, double time, float range) {

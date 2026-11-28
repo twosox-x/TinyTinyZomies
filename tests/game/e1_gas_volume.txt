@@ -1,0 +1,19 @@
+# WS-E item 1 (owner round 15 #10): corpse gas as a translucent voxel fog volume (shaders/gas_volume.*).
+# Two corpse piles rot (TEST HOOK: rot delay 4 s, full emission after 15 s more), a rifle squad stands in the gas
+# (units must stay readable through it). Shots at the RTS distances 45 m and 110 m; run once with --time 13 and once
+# with --time 23 (night) --tod-paused.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/e1_gas_volume.txt --time 13 --tod-paused
+at 0.0  camera -8 114 0.7 0.95 45
+at 0.0  rot 4 15
+at 0.1  corpses 45 -5 118 1.6
+at 0.3  corpses 30 -15 122 1.3
+at 0.5  buy rifle -7 115
+at 3    expect gas_max == 0
+at 24   expect gas_max > 0.2
+at 24   expect gas_cells >= 6
+at 25   shot gas_45m.png
+at 25.5 camera -8 114 0.7 0.95 110
+at 27   shot gas_110m.png
+at 27.5 camera -8 114 0.7 0.95 45
+at 31   shot gas_45m_b.png
+at 32   end

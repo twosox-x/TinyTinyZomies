@@ -145,8 +145,8 @@ struct SimUniforms
 
 constant spvUnsafeArray<int3, 24> _223 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
 constant spvUnsafeArray<int, 6> _231 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
-constant spvUnsafeArray<float, 5> _301 = spvUnsafeArray<float, 5>({ 0.02999999932944774627685546875, 0.100000001490116119384765625, 0.2199999988079071044921875, 0.4000000059604644775390625, 0.64999997615814208984375 });
-constant spvUnsafeArray<float3, 6> _689 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+constant spvUnsafeArray<float, 5> _307 = spvUnsafeArray<float, 5>({ 0.02999999932944774627685546875, 0.100000001490116119384765625, 0.2199999988079071044921875, 0.4000000059604644775390625, 0.64999997615814208984375 });
+constant spvUnsafeArray<float3, 6> _695 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
 
 struct main0_out
 {
@@ -180,7 +180,7 @@ float simTop(thread const float2& xz, constant GasDraw& _67, const device Static
     return fast::max(_112.staticH[id], 0.0) + (float(_121.corpseH[id]) * 0.001000000047497451305389404296875);
 }
 
-vertex main0_out main0(constant Frame& _706 [[buffer(0)]], constant GasDraw& _67 [[buffer(1)]], const device List& _136 [[buffer(2)]], const device Field& _149 [[buffer(3)]], const device StaticH& _112 [[buffer(4)]], const device CorpseH& _121 [[buffer(5)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _712 [[buffer(0)]], constant GasDraw& _67 [[buffer(1)]], const device List& _136 [[buffer(2)]], const device Field& _149 [[buffer(3)]], const device StaticH& _112 [[buffer(4)]], const device CorpseH& _121 [[buffer(5)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
     uint cell = _136.list[4u + uint(int(gl_InstanceIndex))];
@@ -210,9 +210,19 @@ vertex main0_out main0(constant Frame& _706 [[buffer(0)]], constant GasDraw& _67
     bool on = false;
     float2 param_3 = cc;
     float ground = simTop(param_3, _67, _112, _121);
-    if (box <= 4)
+    bool _290 = box <= 4;
+    bool _296;
+    if (_290)
     {
-        float th = _301[box];
+        _296 = _67.gStyle.z > 0.5;
+    }
+    else
+    {
+        _296 = _290;
+    }
+    if (_296)
+    {
+        float th = _307[box];
         if (gas > th)
         {
             float lvl = fast::clamp((gas - th) / 0.60000002384185791015625, 0.0, 1.0);
@@ -271,10 +281,10 @@ vertex main0_out main0(constant Frame& _706 [[buffer(0)]], constant GasDraw& _67
         return out;
     }
     out.vWorld = lo + (corner * size);
-    out.vNormal = _689[face];
+    out.vNormal = _695[face];
     out.vColor = col;
     out.vEmissive = em;
-    out.gl_Position = _706.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _712.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 
