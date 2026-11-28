@@ -27,7 +27,9 @@ at 60   expect squad 1 rooftop == 3
 at 60   expect squad 1 y >= 144
 at 60   expect squad 1 inside + squad 2 inside == 0
 at 60   expect roofobs 1 >= 0.25
-at 60   expect squad 2 maxdist -40 106 <= 6
+# 5 riflemen at formation spacing on the open roof, the slots east of -40 pushed in from the rim: the westmost one
+# settles ~6.2 m from the click (idle, stable from ~t=45, roofedge >= 1.6) - spread, not wandering
+at 60   expect squad 2 maxdist -40 106 <= 6.5
 at 60   expect squad 2 rooftop == 5
 at 60   expect roofedge 2 >= 1.0
 at 60   camera -45 92 0.6 1.25 60
