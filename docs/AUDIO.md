@@ -27,7 +27,13 @@ Approved sound set: docs/SOUND_APPROVALS.md. Sources: docs/SOUND_SOURCES.md. Pip
 Headless (dummy driver): `./build/ttz --city <synthetic city> --game --headless --count 1 --game-sync --game-script tests/game/b1_combat_loop.txt`
 prints `audio: driver dummy, device open, ...` at start and `audio: stats ...` / `audio: events ...` counters at exit.
 
-## Adaptive music (owner request 2026-11-28)
+## Music now (owner 2026-11-28, later the same day): playlist mode
+The adaptive switching did not work for the owner. `music.json` "mode": "playlist": The Infection plays in full from
+the start, fades out over its last 8 s, then 15 minutes (gapSeconds 900) without music, then plays again. First song 5 s
+after start. Battle intensity no longer changes the music. More songs: add their ids to playlist.order. The adaptive
+mode below is kept in the code ("mode": "adaptive") for later, not used.
+
+## Adaptive music (first version, now disabled)
 - Tracks: the owner's "The Infection" (default, tier 0) and "The Last Stand" (high intensity, tier 1), used as supplied
   (transcoded Opus -> Ogg Vorbis only; no pitch / speed / level edits). `assets/audio/music/music.json` holds every value:
   tracks, tiers, bar grid, entry / loop points, intensity weights, thresholds, holds, cooldown, crossfade bars, ducking.
@@ -43,8 +49,8 @@ prints `audio: driver dummy, device open, ...` at start and `audio: stats ...` /
   by chroma / MFCC analysis), 1-bar crossfade at the seam. The track endings are not heard in endless play.
 - Mix: music volume -9 dB by default, `audio::setMusicVolume()`, ducked up to -5 dB under loud sfx / voices.
   Manual intensity for testing: `audio::setMusicIntensity(v)` (v < 0 = automatic).
-- Test: `tests/audio/music_director_test.cpp` (build line in the file): escalation after a sustained fight, no switching
-  while intensity fluctuates 0.5 / 0.2, gradual de-escalation, a 10 s spike ignored.
+- Test: `tests/audio/music_director_test.cpp` (build line in the file) now checks playlist mode: start delay, full song,
+  900 s break, song again, no adaptive switching. (The adaptive-mode test passed before it was disabled.)
 
 ## Horde mix (owner feedback 2026-11-28)
 Zoomed out, the horde now gets quieter and muffled (swarm layer max 0.5 x a height falloff, lowpass down to ~1 kHz at the

@@ -42,6 +42,11 @@ bool MusicDirector::load(const std::string& dir, int rate) {
     c.deescBelow = (float)r["deescalateBelow"].n(c.deescBelow); c.deescHold = (float)r["deescalateHold"].n(c.deescHold);
     c.minOnTrack = (float)r["minTimeOnTrack"].n(c.minOnTrack);
     c.escBars = (float)r["escalateBars"].n(c.escBars); c.deescBars = (float)r["deescalateBars"].n(c.deescBars);
+    const json::Value& pl = root["playlist"];
+    c.playlist = root["mode"].str != "adaptive";
+    for (size_t i = 0; i < pl["order"].size(); ++i) c.order.push_back(pl["order"][i].str);
+    c.gap = (float)pl["gapSeconds"].n(c.gap); c.fadeOut = (float)pl["fadeOutSeconds"].n(c.fadeOut);
+    c.startDelay = (float)pl["startDelaySeconds"].n(c.startDelay);
     const json::Value& tr = root["tracks"];
     for (size_t i = 0; i < tr.size(); ++i) {
         const json::Value& t = tr[i];
@@ -52,12 +57,22 @@ bool MusicDirector::load(const std::string& dir, int rate) {
         m.bar = 60.0 / bpm * bpb * rate; m.origin = t["gridOrigin"].n(0) * rate;
         m.entry = t["entryPoint"].n(0) * rate; m.loopStart = t["loopStart"].n(0) * rate; m.loopEnd = t["loopEnd"].n(0) * rate;
         m.loopXfBars = t["loopCrossfadeBars"].n(1);
+        if (c.playlist && std::find(c.order.begin(), c.order.end(), m.id) == c.order.end()) continue;   // not in the playlist: not loaded
         if (!decodeOggStereo48k(dir + "/" + m.file, m.pcm, m.frames)) { SDL_Log("music: cannot decode %s", m.file.c_str()); continue; }
         if (m.loopEnd <= m.loopStart || m.loopEnd > (double)m.frames) { m.loopStart = 0; m.loopEnd = (double)m.frames; }
         m.pos = m.entry;
         tracks_.push_back(std::move(m));
     }
     if (tracks_.empty()) return false;
+    if (c.playlist) {
+        std::sort(tracks_.begin(), tracks_.end(), [&](const MusicTrack& a, const MusicTrack& b) {
+            return std::find(c.order.begin(), c.order.end(), a.id) < std::find(c.order.begin(), c.order.end(), b.id); });
+        active_ = 0; tracks_[0].pos = 0; tracks_[0].g = 0.f;
+        gapLeft_ = (int64_t)(c.startDelay * rate);   // a short silence, then the first song
+        SDL_Log("music: playlist of %zu (%s first), full song + %.0f s fade-out, then %.0f s break", tracks_.size(),
+                tracks_[0].title.c_str(), c.fadeOut, c.gap);
+        return true;
+    }
     std::sort(tracks_.begin(), tracks_.end(), [](const MusicTrack& a, const MusicTrack& b) { return a.tier < b.tier; });
     active_ = 0; tracks_[0].g = 1.f; tracks_[0].started = true;
     SDL_Log("music: %zu tracks (%s .. %s), escalate > %.2f for %.0f s, de-escalate < %.2f for %.0f s, min %.0f s per track",
@@ -82,7 +97,7 @@ void MusicDirector::update(float dt) {
     onTrack_ += dt;
     above_ = (I_ > c.escAbove && raw_ > c.escAbove) ? above_ + dt : 0.f;   // sustained: the live signal must stay high too
     below_ = I_ < c.deescBelow ? below_ + dt : 0.f;
-    if (pendingTo_ >= 0 || fading_ || onTrack_ < c.minOnTrack) return;
+    if (c.playlist || pendingTo_ >= 0 || fading_ || onTrack_ < c.minOnTrack) return;   // playlist: intensity is informational only
     const int tier = tracks_[(size_t)active_].tier;
     if (above_ >= c.escHold && active_ + 1 < (int)tracks_.size()) schedule(active_ + 1, c.escBars);
     else if (below_ >= c.deescHold && tier > 0) schedule(active_ - 1, c.deescBars);
@@ -116,6 +131,26 @@ float MusicDirector::sample(const MusicTrack& t, uint64_t f, int c) const {
 }
 
 void MusicDirector::step(int frames, float* out, float gain) {
+    if (cfg_.playlist) {   // full song, fade-out at its end, silence, next song (no loop points)
+        for (int i = 0; i < frames; ++i) {
+            if (gapLeft_ > 0) {
+                if (--gapLeft_ == 0) { active_ = (active_ + 1) % (int)tracks_.size(); tracks_[(size_t)active_].pos = 0; }
+                continue;
+            }
+            MusicTrack& t = tracks_[(size_t)active_];
+            const uint64_t f = (uint64_t)t.pos;
+            if (f >= t.frames) { t.g = 0.f; gapLeft_ = std::max<int64_t>(1, (int64_t)(cfg_.gap * rate_)); continue; }
+            const double fadeF = cfg_.fadeOut * rate_, left = (double)(t.frames - f);
+            t.g = left < fadeF ? std::cos((float)(1.0 - left / fadeF) * kHalfPi) : 1.f;
+            if (out) {
+                const float g = t.g * t.gain * gain;
+                out[i * 2] += t.pcm[f * 2] * (1.f / 32768.f) * g;
+                out[i * 2 + 1] += t.pcm[f * 2 + 1] * (1.f / 32768.f) * g;
+            }
+            t.pos += 1; t.secondsPlayed += 1.0 / rate_;
+        }
+        return;
+    }
     for (int i = 0; i < frames; ++i) {
         if (startIn_ == 0 && pendingTo_ >= 0) {   // bar line reached: start the crossfade
             MusicTrack& in = tracks_[(size_t)pendingTo_];

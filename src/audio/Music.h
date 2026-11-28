@@ -38,6 +38,11 @@ struct MusicConfig {
     float rateWindow = 6.f, rise = 3.f, fall = 12.f;
     float escAbove = 0.55f, escHold = 8.f, deescBelow = 0.28f, deescHold = 25.f, minOnTrack = 30.f;
     float escBars = 4.f, deescBars = 8.f;
+    // "playlist" (owner 2026-11-28): play each song in full, fade out, then silence for gapSeconds; no adaptive switching.
+    // "adaptive": the intensity-driven tiers above.
+    bool playlist = true;
+    std::vector<std::string> order;   // track ids in playlist order
+    float gap = 900.f, fadeOut = 8.f, startDelay = 5.f;
 };
 
 class MusicDirector {
@@ -58,6 +63,8 @@ public:
     int transitions() const { return transitions_; }
     float maxIntensity() const { return maxI_; }
     bool loaded() const { return !tracks_.empty(); }
+    bool inBreak() const { return gapLeft_ > 0; }
+    double breakLeft() const { return gapLeft_ / (double)rate_; }
 
 private:
     void schedule(int to, float bars);
@@ -80,6 +87,7 @@ private:
     int pendingTo_ = -1;
     double xfLen_ = 1, xfPos_ = 0;    // crossfade length / progress in frames
     bool fading_ = false;
+    int64_t gapLeft_ = 0;             // playlist: frames of silence before the next song
     int transitions_ = 0;
 };
 

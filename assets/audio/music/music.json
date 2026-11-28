@@ -1,5 +1,8 @@
 {
   "_note": "Adaptive music config (sessionD/sound). All values are for playtesting. Tracks are the owner's compositions, unmodified (transcoded only). Add a composition by adding a track with a higher 'tier'. Times in seconds.",
+  "mode": "playlist",
+  "_mode": "playlist (owner 2026-11-28): each song plays in full, fades out, then a break of gapSeconds before the next one. 'adaptive' re-enables the Infection / Last Stand intensity switching below (kept for later).",
+  "playlist": { "order": ["infection"], "gapSeconds": 900, "fadeOutSeconds": 8, "startDelaySeconds": 5 },
   "musicVolumeDb": -9.0,
   "duck": { "depthDb": -5.0, "attack": 0.06, "release": 0.6, "threshold": 0.08 },
   "tracks": [
