@@ -15,7 +15,7 @@ at 24   expect landed == 5
 at 24   bdoor 1                            # the squad walks to the entrance
 at 40   log
 at 40   expect building capture == 2       # captured (squad at the door, no zombie inside / at the door)
-at 40   expect bstat captured == 1
+at 40   expect bstat captured >= 1   # WS-C: every building is supported now, the squad at the door also captures the neighbour it stands next to
 at 41   brole garrison
 at 42   expect building role == 1
 at 42   expect spent == 1150               # garrison price (UNAPPROVED)
