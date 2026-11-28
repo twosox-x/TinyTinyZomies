@@ -181,10 +181,18 @@ vec3 glassDay(vec3 base, vec3 N, vec3 V, vec3 P, vec2 room, float rh, float roug
     float ph = fract(h2 * 7.0 + dot(V, T) * 2.2 + V.y * 1.7);
     float spark = 1.0 - smoothstep(0.0, 0.075, abs(ph - 0.5));
     spark *= 0.6 + 0.4 * fine;
-    float glint = core * 6.0 * mix(0.5, 1.0, fine) * refl + sheen * 0.6 * Fk + 1.25 * Fk + spark * 7.0 * Fk;
+    float veh = step(0.4, rough);                                                  // vehicle glass: small panes, extra sparkle
+    float glint = core * 5.0 * mix(0.5, 1.0, fine) * refl + sheen * 0.5 * Fk + 1.0 * Fk + spark * 6.0 * Fk
+                + veh * (1.6 + core * 6.0) * Fk;
     vec3 sunTint = sunColor.rgb / max(max(sunColor.r, max(sunColor.g, sunColor.b)), 1e-3);   // hue of the sun
     float sunI = max(sunColor.r, max(sunColor.g, sunColor.b));
     col += sunTint * min(glint * sunI, 6.0) * sunFace;
+    // low sun (golden hour): glass in its own shade still reflects the glowing sunset sky (orange-pink, brighter
+    // towards the horizon) and a few panes flash, so reflections read at any camera yaw; subtler than the sunlit glint
+    float lowSun = (1.0 - smoothstep(0.15, 0.45, L.y)) * smoothstep(-0.02, 0.06, L.y) * (1.0 - todP.z);
+    float shade = 1.0 - smoothstep(0.0, 0.35, dot(N, L)) * vis;
+    vec3 sunset = mix(vec3(1.0, 0.42, 0.22), vec3(0.95, 0.55, 0.6), smoothstep(0.1, 0.8, Rs.y));
+    col += sunset * (sunI * lowSun * shade * Fk) * (0.45 + 2.4 * spark);
     return col;
 }
 
