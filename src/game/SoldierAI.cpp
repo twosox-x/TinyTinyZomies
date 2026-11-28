@@ -218,11 +218,15 @@ V3 SoldierAI::roofInset(const GameContext& ctx, V3 p, uint32_t isl, float maxR) 
     // nearest radius first, the inset tiers within it: a squad ordered onto a narrow strip of a cluttered roof holds a
     // spot 1.0 / 0.75 m in from the rim right there instead of walking back 5-10 m to a fully inset spot elsewhere on
     // the roof (b5_roof_paths: the west strip beside the stair housing); the bare-rim tier only as the last resort
-    for (float r : {maxR * 0.5f, maxR, maxR * 2.f})
-        for (int t = 0; t < 3; ++t)
-            if (nav.insetSpot(p, r, t == 0 ? nav.roofEdgeInset : tiers[t][0], tuning.roofObstacleMargin * tiers[t][1], isl, o)) return o;
-    for (float r : {maxR * 0.5f, maxR, maxR * 2.f})
-        if (nav.insetSpot(p, r, tiers[3][0], tuning.roofObstacleMargin * tiers[3][1], isl, o)) return o;
+    // within maxR first (all tiers, the bare rim last), only then up to 2 maxR: a spot beside the strip never loses to a
+    // fully inset one across a roof object (b5_roof_paths MG #2 re-homed 4.4 m east, round the stair housing)
+    for (const float rmax : {maxR, maxR * 2.f}) {
+        for (float r : {rmax * 0.5f, rmax})
+            for (int t = 0; t < 3; ++t)
+                if (nav.insetSpot(p, r, t == 0 ? nav.roofEdgeInset : tiers[t][0], tuning.roofObstacleMargin * tiers[t][1], isl, o)) return o;
+        for (float r : {rmax * 0.5f, rmax})
+            if (nav.insetSpot(p, r, tiers[3][0], tuning.roofObstacleMargin * tiers[3][1], isl, o)) return o;
+    }
     return p;   // a roof without any inset cell (a narrow ledge): stay where planned
 }
 
@@ -1340,9 +1344,17 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         // rooftops (14e): the home of a roof soldier is an inset spot (>= roofEdgeInset from the edge, clear of roof
         // objects); he steps up to the edge only to fire over it (roofEdgeStep) and back here once nothing is shootable
         const uint32_t roofIsl = P.post[i] == POST_NONE ? roofOf(ctx, P.pos[i]) : 0u;
-        if (roofIsl && (ctx.nav->island(P.home[i].x, P.home[i].z) != roofIsl || ctx.nav->cellEdge(P.home[i].x, P.home[i].z) < ctx.nav->roofEdgeInset ||
-                        ctx.nav->cellObstacle(P.home[i].x, P.home[i].z) < tuning.roofObstacleMargin) && dist2D(P.home[i], P.pos[i]) < 12.f)
-            P.home[i] = roofInset(ctx, ctx.nav->island(P.home[i].x, P.home[i].z) == roofIsl ? P.home[i] : P.pos[i], roofIsl, 3.f);
+        // re-home only below roofInset's narrow-strip tier (0.75 m from the rim, 0.7 x the object margin): a home roofInset
+        // itself returned is kept (no step-by-step drift along a strip, b5_roof_paths MG)
+        if (roofIsl && (ctx.nav->island(P.home[i].x, P.home[i].z) != roofIsl || ctx.nav->cellEdge(P.home[i].x, P.home[i].z) < 0.75f ||
+                        ctx.nav->cellObstacle(P.home[i].x, P.home[i].z) < tuning.roofObstacleMargin * 0.7f) && dist2D(P.home[i], P.pos[i]) < 12.f)
+        {   // never away from the squad's post (a member stuck short of a narrow-strip slot re-homed step by step round a
+            // roof object, b5_roof_paths MG #2 8.3 m from the click): at most 0.5 m further from the anchor than now
+            const V3 h = roofInset(ctx, ctx.nav->island(P.home[i].x, P.home[i].z) == roofIsl ? P.home[i] : P.pos[i], roofIsl, 3.f);
+            const Squad* sa = ctx.squads ? ctx.squads->get(P.squad[i]) : nullptr;
+            if (!sa || !sa->hasAnchor || dist2D(h, sa->anchor) <= dist2D(P.home[i], sa->anchor) + 0.5f || ctx.nav->island(P.home[i].x, P.home[i].z) != roofIsl)
+                P.home[i] = h;
+        }
         // a marksman settles exactly on his vantage spot
         const float dh = dist2D(P.pos[i], P.home[i]);
         if (P.cls[i] == SoldierClass::Sniper && dh > 0.05f && dh < (roofIsl ? 0.7f : tuning.leash)) {
