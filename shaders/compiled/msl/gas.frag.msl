@@ -79,22 +79,29 @@ float cloudShadow(thread const float3& P, constant Frame& _80)
     {
         return 1.0;
     }
-    float2 q = (P.xz + (_80.sunDir.xz * ((_80.cloudP.w - P.y) / fast::max(_80.sunDir.y, 0.02999999932944774627685546875)))) - _80.cloudW.xy;
-    float2 c = (floor(q / float2(_80.cloudP.y)) + float2(0.5)) * _80.cloudP.y;
-    float2 param = c * 0.0199999995529651641845703125;
-    float2 param_1 = (c * 0.052631579339504241943359375) + float2(17.299999237060546875, 5.099999904632568359375);
-    float n = (0.64999997615814208984375 * cloudNoise(param)) + (0.3499999940395355224609375 * cloudNoise(param_1));
+    float sy = fast::max(_80.sunDir.y, 0.02999999932944774627685546875);
+    float2 g0 = P.xz - (_80.sunDir.xz * (P.y / sy));
+    g0 = (floor(g0 / float2(_80.cloudP.y)) + float2(0.5)) * _80.cloudP.y;
+    float2 q = (g0 + (_80.sunDir.xz * (_80.cloudP.w / sy))) - _80.cloudW.xy;
+    float2 param = (q * 0.0434782616794109344482421875) + float2(3.099999904632568359375, 7.69999980926513671875);
+    float2 param_1 = (q * 0.0434782616794109344482421875) + float2(11.3999996185302734375, 1.89999997615814208984375);
+    float2 w = float2(cloudNoise(param), cloudNoise(param_1)) - float2(0.5);
+    q += (w * 14.0);
+    float2 param_2 = q * 0.02222222276031970977783203125;
+    float2 param_3 = (q * 0.066666670143604278564453125) + float2(17.299999237060546875, 5.099999904632568359375);
+    float2 param_4 = (q * 0.181818187236785888671875) + float2(9.19999980926513671875, 2.599999904632568359375);
+    float n = ((0.60000002384185791015625 * cloudNoise(param_2)) + (0.2800000011920928955078125 * cloudNoise(param_3))) + (0.119999997317790985107421875 * cloudNoise(param_4));
     float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _80.cloudP.z);
-    float _531;
-    if (n > (thr + 0.04500000178813934326171875))
+    float _576;
+    if (n > (thr + 0.02999999932944774627685546875))
     {
-        _531 = 1.0;
+        _576 = 1.0;
     }
     else
     {
-        _531 = (n > thr) ? 0.75 : 0.0;
+        _576 = (n > thr) ? 0.75 : 0.0;
     }
-    float k = _531;
+    float k = _576;
     return 1.0 - (g * k);
 }
 
@@ -205,16 +212,16 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _80)
     float3 param = P;
     col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _80)));
     col = mix(col, _80.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _695;
+    float _740;
     if (_80.sunColor.w > 0.0)
     {
-        _695 = _80.sunColor.w;
+        _740 = _80.sunColor.w;
     }
     else
     {
-        _695 = 1.0;
+        _740 = 1.0;
     }
-    col *= _695;
+    col *= _740;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
@@ -222,20 +229,20 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _80)
 fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _80 [[buffer(0)]])
 {
     main0_out out = {};
-    float _727;
+    float _772;
     if (in.vNormal.y > 0.5)
     {
-        _727 = 1.0;
+        _772 = 1.0;
     }
     else
     {
-        _727 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
+        _772 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
     }
-    float face = _727;
-    float3 _742;
+    float face = _772;
+    float3 _787;
     if (in.vEmissive > 0.5)
     {
-        _742 = in.vColor.xyz;
+        _787 = in.vColor.xyz;
     }
     else
     {
@@ -243,13 +250,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _80 [[buffer(
         float3 param_1 = fast::normalize(in.vNormal);
         float3 param_2 = in.vWorld;
         float param_3 = 1.0;
-        _742 = shade(param, param_1, param_2, param_3, _80) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
+        _787 = shade(param, param_1, param_2, param_3, _80) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
     }
-    float3 col = _742;
+    float3 col = _787;
     float3 param_4 = col;
     float3 param_5 = in.vWorld;
-    float3 _782 = finish(param_4, param_5, _80);
-    out.outColor = float4(_782, in.vColor.w);
+    float3 _827 = finish(param_4, param_5, _80);
+    out.outColor = float4(_827, in.vColor.w);
     return out;
 }
 

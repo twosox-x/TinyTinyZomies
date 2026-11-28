@@ -664,7 +664,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         cloudOff_[0] = std::fmod(cloudOff_[0] + std::cos(a) * rs.cloudSpeed * (float)dtc, 40000.f);
         cloudOff_[1] = std::fmod(cloudOff_[1] + std::sin(a) * rs.cloudSpeed * (float)dtc, 40000.f);
         const bool on = rs.clouds && !rs.studioLighting && rs.cloudStrength > 0.f;
-        fu.cloudP = {on ? std::min(rs.cloudStrength, 1.f) : 0.f, std::max(0.5f, rs.cloudCell), std::clamp(rs.cloudCoverage, 0.f, 1.f),
+        fu.cloudP = {on ? std::min(rs.cloudStrength, 1.f) : 0.f, std::max(0.02f, rs.cloudCell), std::clamp(rs.cloudCoverage, 0.f, 1.f),
                      rs.cloudHeight};
         fu.cloudW = {cloudOff_[0], cloudOff_[1], 0.f, 0.f};
     }

@@ -74,11 +74,13 @@ vec3 lampLights(vec3 P, vec3 N) {
 #else
 vec3 lampLights(vec3 P, vec3 N) { return vec3(0.0); }
 #endif
-// Voxel cloud shadows: sparse clouds drifting with the wind, as blocks of a coarse grid (cloudP.y m) so their shadows
-// read like the voxel city: low-frequency value noise sampled once per block centre, thresholded for the coverage
-// (cloudP.z), with a stepped fringe (outer blocks ~75 % as dark as the core) and no smooth edges. The point is
-// projected along the sun onto the cloud deck (cloudP.w m up), so walls and roofs agree with the ground below them.
-// Returns the factor for the sun term only; 1 by night (moon key light) and fading out as the sun gets low. ALU only.
+// Voxel cloud shadows: sparse puffy clouds drifting with the wind, their shadows stepped on the world voxel grid
+// (cloudP.y = 0.1 m, the city bake voxel) like everything else in the miniature. Shape: domain-warped 3-octave value
+// noise (lobed, irregular outlines, clouds ~20-80 m across), thresholded for the coverage (cloudP.z) with a thin
+// stepped fringe (~75 % as dark as the core). The point is traced along the sun to the ground plane and snapped to the
+// voxel grid there (so walls / roofs agree with the ground they shade), then offset to the cloud deck (cloudP.w m up)
+// and into the drifting frame. Returns the factor for the sun term only; 1 by night (moon key light), fading out as the
+// sun gets low. ALU only.
 float cloudHash(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 0.1031);
     p3 += dot(p3, p3.yzx + 33.33);
@@ -93,11 +95,16 @@ float cloudNoise(vec2 p) {
 float cloudShadow(vec3 P) {
     float g = cloudP.x * (1.0 - todP.z) * smoothstep(0.03, 0.25, sunDir.y);
     if (g <= 0.0) return 1.0;
-    vec2 q = P.xz + sunDir.xz * ((cloudP.w - P.y) / max(sunDir.y, 0.03)) - cloudW.xy;   // on the deck, in the drifting frame
-    vec2 c = (floor(q / cloudP.y) + 0.5) * cloudP.y;                                     // block centre (m)
-    float n = 0.65 * cloudNoise(c * (1.0 / 50.0)) + 0.35 * cloudNoise(c * (1.0 / 19.0) + vec2(17.3, 5.1));
-    float thr = 0.766 - 0.59 * cloudP.z;            // n above thr on ~cloudP.z of the map (calibrated for this noise)
-    float k = n > thr + 0.045 ? 1.0 : n > thr ? 0.75 : 0.0;
+    float sy = max(sunDir.y, 0.03);
+    vec2 g0 = P.xz - sunDir.xz * (P.y / sy);                                   // sun ray hits the ground (y = 0)
+    g0 = (floor(g0 / cloudP.y) + 0.5) * cloudP.y;                               // world voxel grid
+    vec2 q = g0 + sunDir.xz * (cloudP.w / sy) - cloudW.xy;                      // cloud deck, drifting frame
+    vec2 w = vec2(cloudNoise(q * (1.0 / 23.0) + vec2(3.1, 7.7)), cloudNoise(q * (1.0 / 23.0) + vec2(11.4, 1.9))) - 0.5;
+    q += w * 14.0;                                                              // domain warp: puffy lobes
+    float n = 0.6 * cloudNoise(q * (1.0 / 45.0)) + 0.28 * cloudNoise(q * (1.0 / 15.0) + vec2(17.3, 5.1))
+            + 0.12 * cloudNoise(q * (1.0 / 5.5) + vec2(9.2, 2.6));
+    float thr = 0.766 - 0.59 * cloudP.z;            // n above thr on ~cloudP.z of the map
+    float k = n > thr + 0.03 ? 1.0 : n > thr ? 0.75 : 0.0;
     return 1.0 - g * k;
 }
 // vis: key-light visibility (1 lit, 0 in shadow), see shadow.glsl

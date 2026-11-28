@@ -162,7 +162,7 @@ void drawDebugUI(AppState& s) {
         if (rs.clouds) {
             ImGui::SliderFloat("cloud strength (sun dimmed)", &rs.cloudStrength, 0.f, 1.f);
             ImGui::SliderFloat("cloud coverage", &rs.cloudCoverage, 0.f, 0.6f);
-            ImGui::SliderFloat("cloud block (m)", &rs.cloudCell, 1.f, 8.f, "%.1f");
+            ImGui::SliderFloat("cloud voxel (m)", &rs.cloudCell, 0.05f, 2.f, "%.2f", ImGuiSliderFlags_Logarithmic);
             ImGui::SliderFloat("cloud wind (m/s)", &rs.cloudSpeed, 0.f, 20.f, "%.1f");
             ImGui::SliderFloat("cloud wind heading", &rs.cloudWindDeg, -180.f, 180.f, "%.0f deg");
             ImGui::SliderFloat("cloud deck height (m)", &rs.cloudHeight, 50.f, 600.f, "%.0f");

@@ -79,22 +79,29 @@ float cloudShadow(thread const float3& P, constant Frame& _85)
     {
         return 1.0;
     }
-    float2 q = (P.xz + (_85.sunDir.xz * ((_85.cloudP.w - P.y) / fast::max(_85.sunDir.y, 0.02999999932944774627685546875)))) - _85.cloudW.xy;
-    float2 c = (floor(q / float2(_85.cloudP.y)) + float2(0.5)) * _85.cloudP.y;
-    float2 param = c * 0.0199999995529651641845703125;
-    float2 param_1 = (c * 0.052631579339504241943359375) + float2(17.299999237060546875, 5.099999904632568359375);
-    float n = (0.64999997615814208984375 * cloudNoise(param)) + (0.3499999940395355224609375 * cloudNoise(param_1));
+    float sy = fast::max(_85.sunDir.y, 0.02999999932944774627685546875);
+    float2 g0 = P.xz - (_85.sunDir.xz * (P.y / sy));
+    g0 = (floor(g0 / float2(_85.cloudP.y)) + float2(0.5)) * _85.cloudP.y;
+    float2 q = (g0 + (_85.sunDir.xz * (_85.cloudP.w / sy))) - _85.cloudW.xy;
+    float2 param = (q * 0.0434782616794109344482421875) + float2(3.099999904632568359375, 7.69999980926513671875);
+    float2 param_1 = (q * 0.0434782616794109344482421875) + float2(11.3999996185302734375, 1.89999997615814208984375);
+    float2 w = float2(cloudNoise(param), cloudNoise(param_1)) - float2(0.5);
+    q += (w * 14.0);
+    float2 param_2 = q * 0.02222222276031970977783203125;
+    float2 param_3 = (q * 0.066666670143604278564453125) + float2(17.299999237060546875, 5.099999904632568359375);
+    float2 param_4 = (q * 0.181818187236785888671875) + float2(9.19999980926513671875, 2.599999904632568359375);
+    float n = ((0.60000002384185791015625 * cloudNoise(param_2)) + (0.2800000011920928955078125 * cloudNoise(param_3))) + (0.119999997317790985107421875 * cloudNoise(param_4));
     float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _85.cloudP.z);
-    float _536;
-    if (n > (thr + 0.04500000178813934326171875))
+    float _581;
+    if (n > (thr + 0.02999999932944774627685546875))
     {
-        _536 = 1.0;
+        _581 = 1.0;
     }
     else
     {
-        _536 = (n > thr) ? 0.75 : 0.0;
+        _581 = (n > thr) ? 0.75 : 0.0;
     }
-    float k = _536;
+    float k = _581;
     return 1.0 - (g * k);
 }
 
@@ -205,16 +212,16 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _85)
     float3 param = P;
     col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _85)));
     col = mix(col, _85.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _700;
+    float _745;
     if (_85.sunColor.w > 0.0)
     {
-        _700 = _85.sunColor.w;
+        _745 = _85.sunColor.w;
     }
     else
     {
-        _700 = 1.0;
+        _745 = 1.0;
     }
-    col *= _700;
+    col *= _745;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
@@ -226,17 +233,17 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     float r = (d - _85.sunDir.w) / d;
     float rb = sign(r) * fast::max(abs(r) - _85.dofP.x, 0.0);
     float coc = _85.skyColor.w * rb;
-    bool _758 = _85.dofP.y > 0.0;
-    bool _764;
-    if (_758)
+    bool _803 = _85.dofP.y > 0.0;
+    bool _809;
+    if (_803)
     {
-        _764 = _85.skyColor.w > 0.0;
+        _809 = _85.skyColor.w > 0.0;
     }
     else
     {
-        _764 = _758;
+        _809 = _803;
     }
-    if (_764)
+    if (_809)
     {
         float4 cp = _85.viewProj * float4(P, 1.0);
         float ny = abs(cp.y / fast::max(abs(cp.w), 9.9999997473787516355514526367188e-05));
@@ -246,8 +253,8 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     coc = fast::clamp(coc, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _811 = finish(param, param_1, _85);
-    return float4(_811, 0.5 + (0.5 * coc));
+    float3 _856 = finish(param, param_1, _85);
+    return float4(_856, 0.5 + (0.5 * coc));
 }
 
 fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _85 [[buffer(0)]], texture2d<float> palette [[texture(0)]], sampler paletteSmplr [[sampler(0)]])
