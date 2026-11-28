@@ -1,0 +1,140 @@
+#pragma clang diagnostic ignored "-Wmissing-prototypes"
+#pragma clang diagnostic ignored "-Wmissing-braces"
+
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+template<typename T, size_t Num>
+struct spvUnsafeArray
+{
+    T elements[Num ? Num : 1];
+    
+    thread T& operator [] (size_t pos) thread
+    {
+        return elements[pos];
+    }
+    constexpr const thread T& operator [] (size_t pos) const thread
+    {
+        return elements[pos];
+    }
+    
+    device T& operator [] (size_t pos) device
+    {
+        return elements[pos];
+    }
+    constexpr const device T& operator [] (size_t pos) const device
+    {
+        return elements[pos];
+    }
+    
+    constexpr const constant T& operator [] (size_t pos) const constant
+    {
+        return elements[pos];
+    }
+    
+    threadgroup T& operator [] (size_t pos) threadgroup
+    {
+        return elements[pos];
+    }
+    constexpr const threadgroup T& operator [] (size_t pos) const threadgroup
+    {
+        return elements[pos];
+    }
+};
+
+// Implementation of signed integer mod accurate to SPIR-V specification
+template<typename Tx, typename Ty>
+inline Tx spvSMod(Tx x, Ty y)
+{
+    Tx remainder = x - y * (x / y);
+    return select(Tx(remainder + y), remainder, remainder == 0 || (x >= 0) == (y >= 0));
+}
+
+struct GasVolumes
+{
+    float4 gLo[32];
+    float4 gHi[32];
+    float4 gOrigin;
+    uint4 gDim;
+    float4 gStyle;
+};
+
+struct Frame
+{
+    float4x4 viewProj;
+    float4 camPos;
+    float4 sunDir;
+    float4 sunColor;
+    float4 skyColor;
+    float4 groundColor;
+    float4 fogColor;
+    float4 gridP;
+    uint4 gridDim;
+    float4 modelP;
+    float4 goalsF[4];
+    float4 blasts[8];
+    float4 lightPos[24];
+    float4 lightCol[24];
+    float4 blastsP[8];
+    float4 todP;
+    float4x4 shadowVP;
+    float4 shadowP;
+    float4 dofP;
+    float4x4 shadowVP2;
+    float4 shadowP2;
+    float4 mapP;
+    float4 cloudP;
+    float4 cloudW;
+};
+
+constant spvUnsafeArray<int3, 24> _116 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
+constant spvUnsafeArray<int, 6> _127 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
+
+struct main0_out
+{
+    float3 vWorld [[user(locn0)]];
+    int vIdx [[user(locn1)]];
+    float4 gl_Position [[position]];
+};
+
+vertex main0_out main0(constant Frame& _54 [[buffer(0)]], constant GasVolumes& _24 [[buffer(1)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+{
+    main0_out out = {};
+    int i = int(gl_InstanceIndex);
+    float3 lo = _24.gLo[i].xyz;
+    float3 hi = _24.gHi[i].xyz;
+    out.vIdx = i;
+    bool _64 = all(_54.camPos.xyz > (lo - float3(0.300000011920928955078125)));
+    bool _75;
+    if (_64)
+    {
+        _75 = all(_54.camPos.xyz < (hi + float3(0.300000011920928955078125)));
+    }
+    else
+    {
+        _75 = _64;
+    }
+    bool inside = _75;
+    bool _87;
+    if (!inside)
+    {
+        _87 = any((hi - lo) <= float3(0.001000000047497451305389404296875));
+    }
+    else
+    {
+        _87 = inside;
+    }
+    if (_87)
+    {
+        out.gl_Position = float4(0.0, 0.0, 2.0, 1.0);
+        out.vWorld = float3(0.0);
+        return out;
+    }
+    float3 c = float3(_116[((int(gl_VertexIndex) / 6) * 4) + _127[spvSMod(int(gl_VertexIndex), 6)]]);
+    out.vWorld = mix(lo, hi, c);
+    out.gl_Position = _54.viewProj * float4(out.vWorld, 1.0);
+    return out;
+}
+
