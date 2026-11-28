@@ -14,7 +14,7 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 | 7 | Sniper killed by a zombie on a roof did not reanimate (soldiers must turn on roofs too) | B | open |
 | 8 | Engineers and flamethrowers need autonomy: fix / clear what the situation needs, near their position, no wandering without orders | D (session C, branch sessionC/ws-d) | open |
 | 9 | Tower / generator / floodlight / fuel models in game are not the reviewed ones | orch | reviewed models switched on (timber tower; owner to pick timber / steel) |
-| 10 | Toxic gas = ugly particle blocks; must be voxel-volume gas clouds in the same style as the explosion / flame volumes | E (session B, branch sessionB/ws-e) | open |
+| 10 | Toxic gas = ugly particle blocks; must be voxel-volume gas clouds in the same style as the explosion / flame volumes | E (session B, branch sessionB/ws-e) | built + tested (tests/game/e1_gas_volume.txt 3/3, day and night): translucent DDA voxel fog (shaders/gas_volume.*), legacy puffs behind CorpseGasRender::voxelFog; shots docs/review/ws-e/gas_*; owner to review |
 | 11 | Keys 1 2 3 4 5 6 7 for units (not Z X C V B) – intuitive layout | A | done (A): 1-7 = cards of the active tab (number on each card), Tab/Shift+Tab tabs, Ctrl+1-9 squads, . next squad, Esc tool > selection > pause menu (never quits), Q/E rotate only while placing; tests + docs updated |
 | 12 | Engineers (3): at least one keeps working the job, the others cover him when threatened | D (session C, branch sessionC/ws-d) | open |
 | 13 | Select squad → tower → "Occupy tower" → nothing happens | A | done (A): LMB/RMB on the tower = occupy, hover entry / panel button work, refused clicks now say why; tests/game/ui_tower.txt (11/11) |
