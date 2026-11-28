@@ -670,6 +670,7 @@ bool Walls::destroy(uint32_t i) {
     p.toGate = false;
     const float y = 0.5f * (nodes_[p.a].y + nodes_[p.b].y);
     if (wasSolid) rubble_.push_back({box, p.type, p.gate, y, 0.f});
+    if (wasSolid) breaches_.push_back({nodes_[p.a].x, nodes_[p.a].z, nodes_[p.a].y, nodes_[p.b].x, nodes_[p.b].z, nodes_[p.b].y, p.type, p.gate, 0.f});
     if (rubble_.size() > 512) rubble_.erase(rubble_.begin());
     detach(p.a, wasSolid);
     detach(p.b, wasSolid);
@@ -678,7 +679,41 @@ bool Walls::destroy(uint32_t i) {
     return true;
 }
 
+int Walls::reseal(size_t k) {
+    if (k >= breaches_.size()) return -1;
+    const Breach br = breaches_[k];
+    breaches_.erase(breaches_.begin() + (std::ptrdiff_t)k);
+    auto nodeFor = [&](float x, float z, float y) -> uint32_t {
+        const int nn = nearestNode(x, z, 0.3f);
+        return nn >= 0 ? (uint32_t)nn : addNode(x, z, y);
+    };
+    const uint32_t a = nodeFor(br.ax, br.az, br.ay), b = nodeFor(br.bx, br.bz, br.by);
+    if (a == b) return -1;
+    WallPiece p;
+    p.a = a; p.b = b;
+    p.type = br.type; p.gate = br.gate;
+    p.alive = true;
+    p.hp = p.maxHp = health_[(size_t)br.type];
+    p.build = 0.f;
+    p.batch = 0;   // never undone with the player's last placement
+    uint32_t idx = (uint32_t)pieces_.size();
+    for (uint32_t i = 0; i < pieces_.size(); ++i)
+        if (!pieces_[i].alive && pieces_[i].obstacle == ~0u) { idx = i; break; }
+    if (idx == pieces_.size()) pieces_.push_back(p);
+    else { p.gen = pieces_[idx].gen + 1; pieces_[idx] = p; }
+    ++nodes_[a].degree; ++nodes_[b].degree;
+    const Obb box = pieceBox(idx);
+    rubble_.erase(std::remove_if(rubble_.begin(), rubble_.end(), [&](const WallRubble& r) { return box.contains(r.box.cx, r.box.cz, -0.5f); }), rubble_.end());
+    changed_ = true;
+    return (int)idx;
+}
+
 void Walls::tick(float dt, const std::function<bool(float, float, float)>& soldierNear) {
+    // breaches: forgotten after breachMemory s, or once a piece stands in the gap again (the player rebuilt it)
+    for (Breach& b : breaches_) b.t += dt;
+    breaches_.erase(std::remove_if(breaches_.begin(), breaches_.end(), [&](const Breach& b) {
+                        return b.t > breachMemory || pieceAt(0.5f * (b.ax + b.bx), 0.5f * (b.az + b.bz), 0.4f) >= 0;
+                    }), breaches_.end());
     for (size_t i = 0; i < pieces_.size(); ++i) {
         WallPiece& p = pieces_[i];
         if (!p.solid()) continue;

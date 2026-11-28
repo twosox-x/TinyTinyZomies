@@ -411,7 +411,8 @@ void HordeBridge::parseSlot(int si) {
 bool HordeBridge::spawnZombie(V3 pos, float yaw, float health, uint32_t lookX, uint32_t lookY) {
     (void)yaw;   // the spawn pass picks a random facing (agents carry no facing input)
     if (!sim_ || !simulated(pos.x, pos.z)) return false;
-    sim_->requestSpawnZombie(pos.x, pos.z, 1.2f, lookX, lookY, health);
+    // elevated bodies (roofs) rise on their own level: the spawn never drops them onto the street below
+    sim_->requestSpawnZombie(pos.x, pos.z, 1.2f, lookX, lookY, health, pos.y > 0.6f ? pos.y : -1.f);
     return true;
 }
 

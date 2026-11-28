@@ -98,6 +98,7 @@ public:
     // EngineerAI external jobs (owner 1): every blueprint
     void jobs(const GameContext& ctx, std::vector<EngineerAI::ExternalJob>& out) const;
     float work(GameContext& ctx, const EngineerAI::ExternalJob& j, float add);
+    static float maxHealth(const GameContext& ctx, StructureKind k);   // hp of a new structure
 
     // fuel stock (all fuel stores)
     float fuelStock() const;

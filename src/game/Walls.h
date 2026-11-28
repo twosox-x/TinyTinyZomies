@@ -149,7 +149,7 @@ struct WallPlan {
 class Walls {
 public:
     void configure(const FortConfig& cfg);
-    void reset() { nodes_.clear(); pieces_.clear(); rubble_.clear(); destroyed_.clear(); changed_ = false; }
+    void reset() { nodes_.clear(); pieces_.clear(); rubble_.clear(); destroyed_.clear(); breaches_.clear(); changed_ = false; }
 
     // Geometry per type
     static float width(WallType t) { return t == WallType::Reinforced ? 1.3f : 1.0f; }
@@ -187,6 +187,13 @@ public:
     struct Destroyed { uint32_t piece; float x, y, z; Obb box; };
     void takeDestroyed(std::vector<Destroyed>& out) { out.insert(out.end(), destroyed_.begin(), destroyed_.end()); destroyed_.clear(); }
     bool takeChanged() { bool c = changed_; changed_ = false; return c; }   // network changed (build / destroy)
+    // Breaches (owner round 15, WS D: engineers re-seal them on their own): every solid piece destroyed is remembered
+    // (end points, type, gate) until it is re-sealed, built over, or `breachMemory` s passed. reseal(k): a blueprint
+    // (build 0, batch 0, price 0: the caller charged it) on the same end points; joints reused / re-created.
+    struct Breach { float ax, az, ay, bx, bz, by; WallType type; bool gate; float t = 0.f; };
+    const std::vector<Breach>& breaches() const { return breaches_; }
+    int reseal(size_t k);                                            // new piece index, -1 none
+    static constexpr float breachMemory = 600.f;
 
     // Queries
     const std::vector<WallNode>& nodes() const { return nodes_; }
@@ -221,6 +228,7 @@ private:
     std::vector<WallPiece> pieces_;
     std::vector<WallRubble> rubble_;
     std::vector<Destroyed> destroyed_;
+    std::vector<Breach> breaches_;
     bool changed_ = false;
     float height_[2] = {1.6f, 2.4f}, health_[2] = {600.f, 1800.f};
     int price_[2] = {40, 110};

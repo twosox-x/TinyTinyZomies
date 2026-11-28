@@ -24,11 +24,23 @@
 //   Visual placeholder  : engineer squads drop as the "Engineer (placeholder)" rifleman variant (MilitaryLibrary adds
 //                         it: hi-vis vest, orange helmet cover); approved engineer assets (class "engineer") replace it
 //                         through DeployTiming::engineerVariants without code changes here.
+//   Autonomy (owner round 15, WS D: "fix and clear things based on what's going on, never run off without orders"):
+//                         with no player job in range, an idle squad takes autonomous jobs within autoLeash m of its
+//                         post only: re-seal a breach (a solid piece the horde destroyed: rebuilt as a blueprint, the
+//                         piece price charged; skipped when unaffordable), repair a damaged wall / gate piece (hp <
+//                         repairBelow of max; zombies pressing / hp lost first), repair a damaged structure (Structures
+//                         external repair jobs). Any player order drops them (the squad serial), as for player jobs.
+//   Cover (owner #12)   : zombies (horde field) within coverRadius of the job: one engineer keeps working (the one
+//                         already on it / nearest; SoldierAI::workFirst: he only fights a zombie within workerFight m),
+//                         the others take cover spots between the threat and him (same side of the wall, walkable) and
+//                         fight. A single engineer left works unless a zombie is within workerFight m.
+//   Status              : status(squad) -> "auto: repairing wall", "building", "auto: covering worker", ... (UI).
 //   Debug cheat         : instantBuild (script: `cheat build 1`) builds at once and anywhere (old B2 tests, debugging).
 #include "game/GameContext.h"
 #include "game/Walls.h"
 
 #include <functional>
+#include <string>
 #include <vector>
 
 namespace ttz::game {
@@ -56,12 +68,13 @@ public:
     bool work(GameContext& ctx, uint32_t i);       // SoldierAI::workHook
     void postAi(GameContext& ctx);                 // after SoldierAI: work clip for the engineers that worked
 
-    enum class JobKind : uint8_t { Piece = 0, GateConvert = 1, Car = 2, External = 3 };
+    enum class JobKind : uint8_t { Piece = 0, GateConvert = 1, Car = 2, External = 3, Repair = 4 /* wall piece hp */ };
     // GAME_DESIGN 14e: jobs owned by other modules (Structures: tower / generator / floodlight / fuel store blueprints;
     // FuelLogistics: siphoning cars). `externalJobs` appends them each tick (after the wall jobs); an engineer at work
     // calls `externalWork(job, engineer-seconds share)` which advances it and returns the new progress (0..1). `busy`:
     // soldier slots another module drives right now (fuel carriers), skipped by the assignment.
-    struct ExternalJob { uint32_t owner = 0, id = 0; Obb box; float progress = 0.f, time = 1.f; uint8_t anim = 1; /* 1 build loops, 3 hammer, 4 car */ };
+    struct ExternalJob { uint32_t owner = 0, id = 0; Obb box; float progress = 0.f, time = 1.f; uint8_t anim = 1; /* 1 build loops, 3 hammer, 4 car */
+                         bool repair = false; float urgency = 0.f; /* autonomous repair (leash, after player jobs) */ };
     std::function<void(const GameContext&, std::vector<ExternalJob>&)> externalJobs;
     std::function<float(GameContext&, const ExternalJob&, float add, uint32_t engineer)> externalWork;
     std::function<bool(uint32_t)> busy;
@@ -75,6 +88,8 @@ public:
         bool inRange = false, blocked = false;     // some engineer squad can reach it / waits for a car
         int squad = -1;                            // engineer squad slot that took it (-1 none)
         bool trap = false;                         // finishing it now would wall someone in: held at 98 %
+        bool autonomous = false;                   // not a player job (repair): autoLeash, after the player jobs
+        float urgency = 0.f;                       // autonomous jobs: higher first
     };
     const std::vector<Job>& jobs() const { return jobs_; }
     struct CarOrder { uint32_t vehicle = 0; Obb box; float progress = 0.f; bool done = false; };
@@ -84,9 +99,26 @@ public:
     uint64_t gatesConverted() const { return gatesConverted_; }
     int workingNow() const { return workingNow_; }
     bool working(uint32_t i) const { return i < worked_.size() && worked_[i]; }
+    bool workFirst(uint32_t i) const { return i < role_.size() && role_[i] == 1; }   // SoldierAI: keeps working under threat
+    bool covering(uint32_t i) const { return i < role_.size() && role_[i] == 2; }
+    const char* status(SquadId s) const;          // short squad status for the UI ("" none)
+    uint64_t repairs() const { return repairs_; }        // wall pieces / structures repaired to full
+    uint64_t reseals() const { return reseals_; }        // breaches re-sealed (blueprint placed on its own)
+    uint64_t coverTicks() const { return coverTicks_; }  // engineer-ticks spent covering a worker
+    float repairedHp() const { return repairedHp_; }
+    static constexpr float autoLeash = 20.f;      // m from the squad's post: autonomous jobs only within this
+    static constexpr float coverRadius = 25.f;    // m: zombies this close to the job -> 1 works, the others cover
+    static constexpr float repairBelow = 0.9f;    // wall piece / structure hp fraction that makes a repair job
 
 private:
     struct Assign { int job = -1; V3 spot; bool active = false; };
+    std::vector<uint8_t> role_;                   // per soldier slot: 0 normal, 1 worker under threat, 2 cover
+    std::vector<std::string> status_;             // per squad slot
+    std::vector<int> worker_;                     // per squad slot: soldier slot of the worker (-1)
+    std::vector<float> resealT_;                  // per squad slot: s until the next autonomous re-seal
+    std::vector<uint32_t> repairing_;             // wall pieces repaired last tick (kept as jobs until full)
+    uint64_t repairs_ = 0, reseals_ = 0, coverTicks_ = 0;
+    float repairedHp_ = 0.f;
     std::vector<Job> jobs_;
     std::vector<ExternalJob> ext_;               // 14e: this tick's external jobs (JobKind::External index)
     std::vector<CarOrder> cars_;

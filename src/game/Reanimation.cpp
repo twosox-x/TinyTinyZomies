@@ -59,7 +59,11 @@ void Reanimation::tick(GameContext& ctx, SoldierAnimator* animator) {
             // can the horde place a walker here? (open ground in the simulated window; roofs: B3)
             const V3 p = P.pos[i];
             bool ok = ctx.horde && ctx.horde->simulated(p.x, p.z);
-            if (ok && ctx.nav && ctx.nav->ready()) {
+            if (ok && ctx.nav && ctx.nav->ready() && p.y > 0.6f && std::fabs(ctx.nav->surface(p.x, p.z) - p.y) < 1.0f &&
+                (ctx.nav->walkable(p.x, p.z) || ctx.nav->onRoof(p.x, p.z))) {
+                // on a roof / elevated level (owner round 15: a sniper killed on a roof must turn too): the body lies on
+                // a walkable surface; the zombie spawns on that level (HordeBridge::spawnZombie) and fights there
+            } else if (ok && ctx.nav && ctx.nav->ready()) {
                 float g = p.y;
                 for (int k = 0; k < 8; ++k) g = std::min(g, ctx.nav->surface(p.x + 6.f * std::cos(k * 0.785398f), p.z + 6.f * std::sin(k * 0.785398f)));
                 ok = p.y - g < 1.0f;

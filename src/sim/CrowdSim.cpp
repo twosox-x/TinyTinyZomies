@@ -523,6 +523,7 @@ void CrowdSim::recordStatsReadback(SDL_GPUCommandBuffer* cmd) {
                 stats_.gibsSpawned = g[G_GIB_HEAD];
                 stats_.limbsSevered = g[G_SEVERED];
                 stats_.tornApart = g[G_GIBBED];
+                stats_.fallSplats = g[6];
                 stats_.parked = std::min(pk[parkIn_], parkCapacity_);   // list index may lag one relocation: display only
                 stats_.parkDropped = pk[2];
                 stats_.frameOfData = r.frame;

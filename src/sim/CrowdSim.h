@@ -19,6 +19,7 @@ struct SimStats {
     uint32_t live = 0, corpses = 0, deaths = 0, climbing = 0, airborne = 0, elevated = 0, reactivated = 0;
     uint32_t corpseOverflow = 0;
     uint32_t particlesAlive = 0, gibsSpawned = 0, limbsSevered = 0, tornApart = 0;
+    uint32_t fallSplats = 0;   // zombies killed by a roof-edge fall (gore counter 6, sim_predict)
     uint32_t parked = 0, parkDropped = 0;   // moving window: agents waiting outside it / despawned (parked list full)
     float maxStackHeight = 0.f;
     uint64_t frameOfData = 0;
@@ -169,7 +170,7 @@ private:
     struct SpawnRequest { Rect rect; uint32_t count; uint32_t lookX = 0, lookY = 0; bool forced = false, corpse = false;
                           bool points = false; uint32_t ptOffset = 0;
                           float health = 0.f;      // > 0: start health of a single forced-look walker (keeps its facing)
-                          float levelY = -1.f; };  // >= 0: spawn only on cells of this surface height (roofs)   // > 0: start health of a single forced-look walker (keeps its facing)
+                          float levelY = -1.f; };  // >= 0: spawn only on cells of this surface height (roofs)
     SDL_GPUBuffer* spawnPts_ = nullptr;
     uint32_t spawnPtsHead_ = 0;
     std::vector<SpawnRequest> pendingSpawns_;   // one request is consumed per step

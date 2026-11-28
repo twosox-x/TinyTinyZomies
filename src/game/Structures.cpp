@@ -110,7 +110,7 @@ bool Structures::canPlace(const GameContext& ctx, StructureKind k, V3 pos, float
 int Structures::place(GameContext& ctx, StructureKind k, V3 pos, float yaw) {
     Structure s;
     s.kind = k; s.pos = pos; s.yaw = yaw;
-    s.health = ctx.cfg ? (k == StructureKind::Tower ? ctx.cfg->structures.towerHealth : 400.f) : 1.f;
+    s.health = maxHealth(ctx, k);
     list_.push_back(s);
     const int idx = (int)list_.size() - 1;
     ++stats_.placed[(size_t)k];
@@ -148,12 +148,36 @@ void Structures::jobs(const GameContext& ctx, std::vector<EngineerAI::ExternalJo
         j.anim = s.kind == StructureKind::Tower ? 3 : 1;   // tower: sledgehammer; others: the build loops
         out.push_back(j);
     }
+    // owner round 15 (WS D): damaged solid structures are autonomous repair jobs (engineers near them, idle); towers
+    // under attack first. Repair time = the build time for the whole health bar.
+    for (uint32_t i = 0; i < list_.size(); ++i) {
+        const Structure& s = list_[i];
+        const float mx = maxHealth(ctx, s.kind);
+        if (!s.solid() || s.health >= mx * 0.9f) continue;
+        EngineerAI::ExternalJob j;
+        j.owner = 1; j.id = i; j.repair = true;
+        j.box = footprint(s.kind, s.pos, s.yaw, S);
+        j.progress = std::clamp(s.health / mx, 0.f, 0.999f);
+        j.time = s.kind == StructureKind::Tower ? S.towerTime : s.kind == StructureKind::Generator ? S.generatorTime : s.kind == StructureKind::Light ? S.lightTime : S.fuelStoreTime;
+        j.anim = 3;
+        j.urgency = (1.f - j.progress) + (s.attackers > 0 ? 1.5f : 0.f);
+        out.push_back(j);
+    }
+}
+
+float Structures::maxHealth(const GameContext& ctx, StructureKind k) {
+    return ctx.cfg ? (k == StructureKind::Tower ? ctx.cfg->structures.towerHealth : 400.f) : 1.f;
 }
 
 float Structures::work(GameContext& ctx, const EngineerAI::ExternalJob& j, float add) {
     if (j.id >= list_.size()) return 1.f;
     Structure& s = list_[j.id];
     if (!s.alive) return 1.f;
+    if (j.repair) {
+        const float mx = maxHealth(ctx, s.kind);
+        s.health = std::min(mx, s.health + add * mx);
+        return s.health >= mx ? 1.f : s.health / mx;
+    }
     if (s.build >= 1.f) return 1.f;
     s.build = std::min(1.f, s.build + add);
     if (s.build >= 1.f) finish(ctx, (int)j.id);
