@@ -686,6 +686,44 @@ hospital patients are invisible and untouchable; one stair core per building; to
   cut uses the glass rect, so frames in front of the glass stay; LOD2 tiles (> 420 m) show the room behind a blocky
   facade; at most 64 opened windows are cut per frame.
 
+**Owner round 15 (WS-C, 2026-11-28): every building, door leaves, window covers, defence levels.** Supersedes the
+support rules above.
+- *Support:* no refusal path is left (towers, > `maxFloors`, no / blocked door, small footprints, no open facade):
+  `prepare` sets `supported` for every prepared building (`maxFloors` is no longer read). Tall buildings get window
+  posts on floors 1..`windowFloors` plus roof posts (flat roofs). Downtown window (camera (24, 93), R 120): 40 of 40
+  supported; suburbs near (-245, 452): 42 of 42.
+- *Doors:* `readGlass` also collects door leaves of the facade art (`setDoorMaterials`: palette names DOOR_*, WOOD,
+  SHUTTER_*, BRONZE, not BENCH_*; vertical rects 1.6-3.8 m tall, 0.6-4 m wide, from the ground / stoop) into
+  `Building::doorArt`. Each bake door is snapped onto the nearest leaf of its facade (plane, centre, width, height;
+  `Opening::art`); doors with no walkable street 1.5 / 3 m past the footprint edge are dropped; with none left an
+  entrance is added (`doorAdded`): an art door with a street in front, else the first facade point (front, right, back,
+  left) with open street, else the front middle.
+- *Posts on every facade:* window posts are ordered round-robin over the facades (prio = rank on the facade x 8 + floor
+  x 2 + side) so the `maxPositions` cap keeps posts on every facade with usable glass. A window is skipped when the view
+  out is blocked: the old 2.3 m height test plus a ray 1-4 m out that hits another building's footprint higher than the
+  sill. With no post from the art, derived windows are used (fallback: front facade regardless).
+- *Window covers:* `Building::covers` = the glass rects of the ground and first floor split into <= 1.8 m panels, minus
+  every panel overlapping a firing window of the same floor / facade and every door leaf. "Window planks / plates" and
+  the defence levels set `coverType`; the renderer scales the approved `barricade_window_*` (L3 ground floor:
+  `fort_steel_plate`) to the panel, back face 1 cm in front of the glass. Covers are visual + cost only (zombies never use
+  windows); firing windows are never covered.
+- *Door barricades:* the approved `barricade_door_*` prop is scaled to the door leaf (width + 4 cm, height + 3 cm) and
+  placed 1 cm in front of it (the old prop stood at the bake position on the footprint edge, often under a canopy out on
+  the pavement: the "black blob").
+- *Defence levels (`BuildingPlay::fortify`, `bfortify`, panel button; prices UNAPPROVED = sum of the existing
+  barricade / nest prices):* L1 planks on doors + covers; L2 plates on doors + covers, two `garrison_roof_position`
+  sandbag walls beside each entrance (doorway clear), sandbag positions at every roof post; L3 sandbags in the doors
+  (health plate + sandbags), heavy steel plate on the ground-floor covers, a perimeter of two angled `fort_slit_wall`
+  pieces 3.4 m in front of each door (2 m gap on the door axis), roof nests (`fort_roof_ring` where it fits, else the U
+  position) at the roof posts.
+- *Test:* `tests/game/b6_garrison_all.txt` (mid-rise, 39-floor tower, 34-floor tower, house: support, posts on several
+  facades, art doors, covers never on firing windows / above floor 1, a squad garrisons the 39-floor tower, L0-L3 on the
+  mid-rise, the tower and the house with screenshots in `docs/review/ws-c/`).
+- *Limits:* zombies still do not enter buildings over 22 floors (B3b `HordeVertical::unsupportedWhy`, WS-B); doors
+  without an art leaf (most lobbies / towers: their doors are BRONZE / STEEL frames or glass) keep the bake position on
+  the footprint edge; scaled props stretch the voxel grid a little (scale 0.5-1.5); the entrance sandbags / perimeter
+  are not collision for soldiers or zombies and can overlap street furniture.
+
 ## 9. Milestone B3b: zombies in buildings (vertical warfare, GAME_DESIGN 7; PROPOSED, values UNAPPROVED)
 
 Goal: no invulnerable position. Zombies enter accessible buildings, breach barricades, climb between floors through the

@@ -35,7 +35,7 @@ public:
     // Defence level +1 (owner round 15, item 16; prices UNAPPROVED): L1 planks on the doors and the closed lower windows;
     // L2 plates there, sandbag walls beside the entrances, sandbag positions at the roof posts; L3 heavy plating on the
     // ground floor, sandbags in the doors with a sandbag perimeter in front, roof nests (rings) at the roof posts.
-    bool fortify(GameContext& ctx, BuildingId b, std::string& msg);
+    bool fortify(GameContext& ctx, BuildingId b, std::string& msg, bool free = false);   // free: TEST HOOK (screenshots)
     static int fortifyPrice(const BuildingConfig& bc, const Building& B);   // price of the next level (0: at L3)
     bool nest(GameContext& ctx, BuildingId b, int firing, std::string& msg);                          // -1: every position
     void release(GameContext& ctx, uint32_t soldier);       // step out of the building (door), slot freed

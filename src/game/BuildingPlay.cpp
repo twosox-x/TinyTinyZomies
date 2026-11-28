@@ -210,14 +210,14 @@ int BuildingPlay::fortifyPrice(const BuildingConfig& bc, const Building& B) {
     return p;
 }
 
-bool BuildingPlay::fortify(GameContext& ctx, BuildingId id, std::string& msg) {
+bool BuildingPlay::fortify(GameContext& ctx, BuildingId id, std::string& msg, bool free) {
     Building* B = reg_.get(id);
     if (!B) { msg = "no building"; return false; }
     if (B->capture != CaptureState::Captured) { msg = "capture it first"; return false; }
     if (B->defence >= 3) { msg = "defence already at level 3"; return false; }
     const BuildingConfig& bc = ctx.cfg->buildings;
     const int price = fortifyPrice(bc, *B);
-    if (!ctx.economy || !ctx.economy->spend(price, "fortification", ctx.time)) { msg = "Not enough funding"; return false; }
+    if (!free && (!ctx.economy || !ctx.economy->spend(price, "fortification", ctx.time))) { msg = "Not enough funding"; return false; }
     const int L = ++B->defence;
     const BarricadeType dt = levelDoor(L);
     int n = 0;
@@ -349,7 +349,7 @@ void BuildingPlay::applyPending(GameContext& ctx) {
         case Act::BarricadeDoors: ok = barricade(ctx, a.b, -1, (BarricadeType)a.arg, msg); break;
         case Act::BarricadeWindows: ok = barricadeWindows(ctx, a.b, (BarricadeType)a.arg, msg); break;
         case Act::Nest: ok = nest(ctx, a.b, -1, msg); break;
-        case Act::Fortify: ok = fortify(ctx, a.b, msg); break;
+        case Act::Fortify: ok = fortify(ctx, a.b, msg, a.arg == 1); break;
         case Act::Release: {
             SoldierPool& P = *ctx.soldiers;
             int n = 0;

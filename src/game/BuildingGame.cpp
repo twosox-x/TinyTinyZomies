@@ -613,14 +613,16 @@ bool buildingVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
         return true;
     }
     if (v == "bnest") { bp.request({BuildingPlay::Act::Nest, bp.selected, {}, 0}); return true; }
-    if (v == "bfortify") { bp.request({BuildingPlay::Act::Fortify, bp.selected, {}, 0}); return true; }
+    if (v == "bfortify") { bp.request({BuildingPlay::Act::Fortify, bp.selected, {}, !a.empty() && a[0] == "free" ? 1 : 0}); return true; }   // free: TEST HOOK
     if (v == "bcamera") {   // camera on the selected building's front: bcamera DIST [PITCH] [YAWOFF]
         const Building* B = reg.get(bp.selected);
         AppState* app = w.app();
         if (!B || !app) { err = "bcamera DIST (select a building first)"; return true; }
         const V3 c = B->toWorld(B->w * 0.5f, B->d * 0.5f, B->y0);
         const float yaw = std::atan2(-B->e2x, -B->e2z) + fa(a, 2, 0.5f);
-        app->camera.setImmediate({c.x, B->y0 + std::min(12.f, 0.3f * (B->roofY - B->y0)), c.z}, yaw, fa(a, 1, 0.75f), fa(a, 0, 50.f));
+        const V3 f = B->toWorld(B->w * 0.5f, 0.f, B->y0);   // the front facade's foot (doors, lower windows)
+        app->camera.setImmediate({f.x, B->y0 + fa(a, 3, 2.f), f.z}, yaw, fa(a, 1, 0.75f), fa(a, 0, 50.f));
+        (void)c;
         return true;
     }
     if (v == "bdamage") {   // TEST HOOK

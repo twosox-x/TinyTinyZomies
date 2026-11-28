@@ -45,7 +45,7 @@ at 60   expect posted_min_y > 2
 # ---- defence levels on the mid-rise (screenshots before / after per level)
 at 61   bselect 24 93.2
 at 61   bcapture
-at 61   bcamera 55 0.55 0.5
+at 61   camera 28 109 0.7 0.5 45                 # RTS camera on the mid-rise's street door
 at 63   shot docs/review/ws-c/midrise_L0.png
 at 64   bfortify
 at 65   expect building defence == 1
@@ -61,18 +61,18 @@ at 69   expect building nests >= 1
 at 69   shot docs/review/ws-c/midrise_L3.png
 at 70   bfortify                                    # refused: already L3
 at 71   expect building defence == 3
-at 71   bcamera 18 0.35 0.5
+at 71   camera 28 109 0.25 0.35 45
 at 73   shot docs/review/ws-c/midrise_L3_door.png
 # ---- tower levels
 at 74   bselect 8.2 95.1
-at 74   bcamera 70 0.55 0.6
+at 74   camera 3.4 73.4 -2.6 0.5 60               # the tower's door side
 at 76   shot docs/review/ws-c/tower_L0.png
-at 77   bfortify
+at 77   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 78   expect building defence == 1
 at 78   shot docs/review/ws-c/tower_L1.png
-at 79   bfortify
+at 79   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 80   shot docs/review/ws-c/tower_L2.png
-at 81   bfortify
+at 81   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 82   expect building defence == 3
 at 82   shot docs/review/ws-c/tower_L3.png
 # ---- house (suburbs: the window follows the camera)
@@ -83,14 +83,14 @@ at 87   expect building doorart >= 1
 at 87   expect building covers >= 4
 at 87   expect building cover_on_firing == 0
 at 87   bcapture
-at 87   bcamera 30 0.55 0.5
+at 87   camera -250.3 452.3 1.4 0.55 45           # the house's front door
 at 89   shot docs/review/ws-c/house_L0.png
-at 90   bfortify
+at 90   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 91   expect building covered == building covers
 at 91   shot docs/review/ws-c/house_L1.png
-at 92   bfortify
+at 92   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 93   shot docs/review/ws-c/house_L2.png
-at 94   bfortify
+at 94   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 95   expect building defence == 3
 at 95   shot docs/review/ws-c/house_L3.png
 at 96   expect ledger_balanced
