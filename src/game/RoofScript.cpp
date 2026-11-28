@@ -11,9 +11,13 @@
 //          roofwatch ticks|violations|minedge (idle = Idle state at the home spot, or Idle for > edgeLinger + 1 s)
 //          supplyedge N | supplyy N (supply point N: edge clearance / height)
 //          roofsteps roofreturns (AI edge steps / returns to the inset spot)
+//   roofzombies N X Z R                           spawn N walkers on the roof level at X Z (cells of that height within R)
+// metrics: fall_splats (zombies killed by a roof-edge fall)   zombies_above X Z R Y (horde field samples within R, y >= Y)
+#include "app/App.h"
 #include "game/Deploy.h"
 #include "game/GameScript.h"
 #include "game/GameWorld.h"
+#include "game/HordeInterface.h"
 #include "game/NavGrid.h"
 #include "game/Soldiers.h"
 
@@ -59,6 +63,13 @@ void roofWatchTick(GameWorld& w) {
 bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
     const std::vector<std::string>& a = L.args;
     const GameContext& ctx = w.context();
+    if (L.verb == "roofzombies") {
+        if (a.size() < 4 || !w.app() || !ctx.nav || !ctx.nav->ready()) { err = "roofzombies N X Z R (needs the horde and nav)"; return true; }
+        const float x = fa(a, 1), z = fa(a, 2), r = fa(a, 3), y = ctx.nav->surface(x, z);
+        w.app()->sim.requestSpawnLevel({x - r, z - r, x + r, z + r}, (uint32_t)std::atoi(a[0].c_str()), y);
+        std::printf("  roofzombies: %s on the level %.2f m at (%.1f %.1f) r %.1f\n", a[0].c_str(), y, x, z, r);
+        return true;
+    }
     if (L.verb != "roofinfo" && L.verb != "roofclicks" && L.verb != "roofpath" && L.verb != "roofwatch" && L.verb != "roofmap") return false;
     if (!ctx.nav || !ctx.nav->ready()) { err = L.verb + ": no navigation grid"; return true; }
     NavGrid& nav = *ctx.nav;
@@ -193,6 +204,18 @@ bool roofMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
         for (const SupplyPoint& p : w.logistics().points())
             if (++c == n) { out = m == "supplyy" ? p.pos.y : (w.context().nav ? w.context().nav->edgeClearance(p.pos.x, p.pos.z) : 0.0); return true; }
         err = "no supply point " + std::to_string(n);
+        return true;
+    }
+    if (m == "fall_splats") { out = w.app() ? (double)w.app()->sim.stats().fallSplats : 0.0; return true; }
+    if (m == "zombies_above") {
+        if (k + 4 > a.size() || !w.context().horde) { err = "zombies_above X Z R Y"; return true; }
+        const float x = (float)std::atof(a[k].c_str()), z = (float)std::atof(a[k + 1].c_str()), r = (float)std::atof(a[k + 2].c_str()), y = (float)std::atof(a[k + 3].c_str());
+        k += 4;
+        const ZombieField& F = w.context().horde->field();
+        out = 0;
+        for (const ZombieFieldTile& t : F.tiles)
+            for (uint32_t s = 0; s < t.samples; ++s)
+                if (t.pos[s].y >= y && std::hypot(t.pos[s].x - x, t.pos[s].z - z) <= r) out += 1;
         return true;
     }
     if (m == "roofsteps") { out = (double)w.ai().edgeSteps(); return true; }
