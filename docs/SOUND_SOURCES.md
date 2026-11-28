@@ -13,15 +13,15 @@ Raw downloads are not committed (about 400 MB). Processing for every sound is in
 
 | Pack | Author | Licence | Used for |
 |---|---|---|---|
-| [100 CC0 metal and wood SFX](https://opengameart.org/content/100-cc0-metal-and-wood-sfx) | rubberduck | CC0 | chain_explosion, container_land, crate_thud, debris_rain, gabion_done, gear_rattle, sledgehammer, tower_climb, tower_collapse, tower_creak, zombie_reanimate |
+| [100 CC0 metal and wood SFX](https://opengameart.org/content/100-cc0-metal-and-wood-sfx) | rubberduck | CC0 | chain_explosion, container_land, crate_thud, debris_rain, gabion_done, gear_rattle, sledgehammer, tower_climb, tower_collapse, tower_creak, ui_place_confirm, ui_squad_engineer, ui_squad_flame, zombie_reanimate |
 | [15 vocal male strain/hurt/pain/jump sounds](https://opengameart.org/content/15-vocal-male-strainhurtpainjump-sounds) | qubodup | CC0 | vo_hurt |
-| [202 More Sound Effects](https://opengameart.org/content/202-more-sound-effects) | owlishmedia | CC0 | chute_flutter |
+| [202 More Sound Effects](https://opengameart.org/content/202-more-sound-effects) | owlishmedia | CC0 | alert_attack, chute_flutter, ui_order_attack, ui_order_garrison, ui_purchase, ui_select, ui_squad_mg, ui_upgrade_done |
 | [33 metal clang sounds from cast iron pans](https://opengameart.org/content/33-metal-clang-sounds-cast-iron-pans) | bart | CC0 | chain_explosion, container_land, debris_rain, impact_metal, zattack_metal |
 | [35 wooden cracks/hits/destructions](https://opengameart.org/content/35-wooden-crackshitsdestructions) | qubodup | CC0 | chain_explosion, container_land, debris_rain, impact_wood, roof_fall, tower_collapse, zattack_wood |
 | [40 CC0 water / splash / slime SFX](https://opengameart.org/content/40-cc0-water-splash-slime-sfx) | rubberduck | CC0 | burning_puddle, fuel_siphon, gas_bubble, zombie_reanimate |
-| [50 RPG sound effects](https://opengameart.org/content/50-rpg-sound-effects) | kenney | CC0 | gear_rattle, sandbag_place, zattack_sandbag |
-| [51 UI sound effects (buttons, switches and clicks)](https://opengameart.org/content/51-ui-sound-effects-buttons-switches-and-clicks) | kenney | CC0 | ui_hover |
-| [68 Workshop Sounds](https://opengameart.org/content/68-workshop-sounds) | bart | CC0 | car_dismantle, gabion_done, gabion_place, pry_bar, sledgehammer |
+| [50 RPG sound effects](https://opengameart.org/content/50-rpg-sound-effects) | kenney | CC0 | gear_rattle, sandbag_place, ui_purchase, ui_squad_rifle, zattack_sandbag |
+| [51 UI sound effects (buttons, switches and clicks)](https://opengameart.org/content/51-ui-sound-effects-buttons-switches-and-clicks) | kenney | CC0 | ui_order_move, ui_pause_close, ui_pause_open, ui_squad_sniper, ui_tab |
+| [68 Workshop Sounds](https://opengameart.org/content/68-workshop-sounds) | bart | CC0 | alert_breach, car_dismantle, gabion_done, gabion_place, pry_bar, sledgehammer, ui_order_garrison, ui_place_invalid, ui_place_valid, ui_rotate, ui_upgrade_done |
 | [8 wet squish, slurp impacts](https://opengameart.org/content/8-wet-squish-slurp-impacts) | qubodup | CC0 | gore_splat, impact_flesh, roof_fall, zattack_flesh |
 | [85 Short music jingles](https://opengameart.org/content/85-short-music-jingles) | kenney | CC0 | sting_daynight |
 | [Battle at sea](https://opengameart.org/content/battle-at-sea) | thimras | CC0 | chain_explosion |
@@ -53,7 +53,7 @@ Raw downloads are not committed (about 400 MB). Processing for every sound is in
 | [grunts of male death and pain](https://opengameart.org/content/grunts-male-death-and-pain) | thebardofblasphemy | CC0 | vo_death |
 | [Gun reload sounds](https://opengameart.org/content/gun-reload-sounds) | springyspringo | CC0 | reload |
 | [Impact](https://opengameart.org/content/impact) | qubodup | CC0 | impact_concrete, impact_flesh |
-| [Interface Sounds](https://opengameart.org/content/interface-sounds) | kenney | CC0 | alert_ammo, alert_breach, alert_casualty, ui_purchase, ui_refused, ui_tab |
+| [Interface Sounds](https://opengameart.org/content/interface-sounds) | kenney | CC0 | alert_ammo, alert_breach, alert_casualty, ui_hover, ui_pause_close, ui_pause_open, ui_place_invalid, ui_place_valid, ui_refused, ui_squad_engineer, ui_squad_flame, ui_squad_mg, ui_squad_rifle, ui_squad_sniper, ui_upgrade_done |
 | [Liquid Bottle Drink Set](https://opengameart.org/content/liquid-bottle-drink-set) | qubodup | CC0 | jerrycan_slosh |
 | [Machine shutting down](https://opengameart.org/content/machine-shutting-down) | cough-e | CC0 | gen_out_of_fuel, gen_stop |
 | [Muffled Distant Explosion](https://opengameart.org/content/muffled-distant-explosion) | nenadsimic | CC0 | container_land |
@@ -61,7 +61,7 @@ Raw downloads are not committed (about 400 MB). Processing for every sound is in
 | [Park ambiences](https://opengameart.org/content/park-ambiences) | thimras | CC0 | amb_day |
 | [Please help somebody!](https://opengameart.org/content/please-help-somebody) | nocturnalvanguard | CC0 | vo_panic |
 | [Ripping Into Meat](https://opengameart.org/content/ripping-into-meat) | eldritch-grim | CC0 | gore_splat |
-| [RPG Sound Pack](https://opengameart.org/content/rpg-sound-pack) | artisticdude | CC0 | chute_deploy, gear_rattle, sandbag_place, squad_march, steps_asphalt_run, zattack_flesh |
+| [RPG Sound Pack](https://opengameart.org/content/rpg-sound-pack) | artisticdude | CC0 | chute_deploy, gear_rattle, sandbag_place, squad_march, steps_asphalt_run, ui_purchase, zattack_flesh |
 | [Shovel Sound](https://opengameart.org/content/shovel-sound) | themightyglider | CC0 | shovel |
 | [Silencers - By EmoPreben](https://opengameart.org/content/silencers-by-emopreben) | emopreben | CC0 | sniper_suppressed |
 | [Sirens and Alarm Noise](https://opengameart.org/content/sirens-and-alarm-noise) | aquinn | CC0 | alert_attack, car_alarm |
@@ -69,7 +69,7 @@ Raw downloads are not committed (about 400 MB). Processing for every sound is in
 | [Steam release sounds](https://opengameart.org/content/steam-release-sounds) | bart | CC0 | flame_stop, gas_hiss |
 | [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude | CC0 | chute_deploy, fire_whoosh, roof_fall |
 | [The Free Firearm Sound Library](https://opengameart.org/content/the-free-firearm-sound-library) | bart | CC0 | carbine_shot, mg_sustained, rifle_burst, rifle_shot |
-| [Thwack Sounds](https://opengameart.org/content/thwack-sounds) | antumdeluge | CC0 | crate_thud, roof_fall |
+| [Thwack Sounds](https://opengameart.org/content/thwack-sounds) | antumdeluge | CC0 | alert_ammo, alert_attack, alert_breach, alert_casualty, crate_thud, roof_fall, sting_daynight, ui_order_attack, ui_order_garrison, ui_order_move, ui_pause_close, ui_pause_open, ui_place_confirm, ui_place_invalid, ui_purchase, ui_refused, ui_select, ui_squad_engineer, ui_squad_flame, ui_squad_mg, ui_squad_rifle, ui_squad_sniper, ui_tab, ui_upgrade_done |
 | [tree chop fall thud](https://opengameart.org/content/tree-chop-fall-thud) | kheetor | CC0 | crate_thud |
 | [Tree Creaking](https://opengameart.org/content/tree-creaking) | antumdeluge | CC0 | tower_creak |
 | [Undead Moans](https://opengameart.org/content/undead-moans) | antumdeluge | CC0 | zombie_idle |
@@ -163,12 +163,28 @@ Raw downloads are not committed (about 400 MB). Processing for every sound is in
 | `distant_scream` | Environment | 3 | Screams pitched x1.42, lowpassed, roomy - far off in the city. |
 | `gas_hiss` | Environment | 1 | Steam hiss x1.3, filtered. |
 | `gas_bubble` | Environment | 1 | Gastric bubbling + bubble loop x1.3 - rot gas from corpses. |
-| `ui_tab` | UI | 3 | Kenney interface click (UI is not miniaturised). |
-| `ui_hover` | UI | 3 | Soft rollover tick. |
-| `ui_purchase` | UI | 2 | Confirmation chime. |
-| `ui_refused` | UI | 2 | Error buzz. |
-| `alert_attack` | UI | 1 | Short alarm blip. |
-| `alert_breach` | UI | 1 | Glitchy double warning. |
-| `alert_ammo` | UI | 1 | Question blip + empty click. |
-| `alert_casualty` | UI | 1 | Low bong. |
-| `sting_daynight` | UI | 2 | Short percussive jingle (Kenney jingles). |
+| `ui_tab` | UI | 3 | Model-kit toggle switch x1.3 + small body. |
+| `ui_hover` | UI | 3 | Tiny dry tick x1.4. |
+| `ui_select` | UI | 3 | Small metal latch x1.4 + body. |
+| `ui_purchase` | UI | 3 | Crisp latch ka-chunk with body, then a small cash tick (coin). |
+| `ui_refused` | UI | 2 | Short muted double buzz (error buzz lowpassed) + dull thunk. |
+| `ui_place_valid` | UI | 2 | Light toggle snick + tiny clink. |
+| `ui_place_invalid` | UI | 2 | Dull low buzz + muffled clunk. |
+| `ui_place_confirm` | UI | 3 | Wooden thud with real low body + latch tick. |
+| `ui_rotate` | UI | 3 | Ratchet tooth x1.4. |
+| `ui_squad_rifle` | UI | 2 | Per-class chirp: its own latch/click + a tiny pitched blip. |
+| `ui_squad_mg` | UI | 2 | Per-class chirp: its own latch/click + a tiny pitched blip. |
+| `ui_squad_sniper` | UI | 2 | Per-class chirp: its own latch/click + a tiny pitched blip. |
+| `ui_squad_engineer` | UI | 2 | Per-class chirp: its own latch/click + a tiny pitched blip. |
+| `ui_squad_flame` | UI | 2 | Per-class chirp: its own latch/click + a tiny pitched blip. |
+| `ui_order_move` | UI | 2 | Quick switch double-tick. |
+| `ui_order_attack` | UI | 2 | Sharp metal latch snap + body. |
+| `ui_order_garrison` | UI | 2 | Little door latch closing + clink. |
+| `ui_pause_open` | UI | 1 | Panel switch up + body. |
+| `ui_pause_close` | UI | 1 | Panel switch down + body. |
+| `alert_attack` | UI | 1 | Tiny alarm blip (siren x1.4) over a latch snap. |
+| `alert_breach` | UI | 1 | Glitchy double warning + metal clunk. |
+| `alert_ammo` | UI | 1 | Question blip + tiny dry-fire click. |
+| `alert_casualty` | UI | 1 | Low bong with weight. |
+| `ui_upgrade_done` | UI | 2 | Ratchet zip + latch + coin ping. |
+| `sting_daynight` | UI | 2 | Short percussive jingle (Kenney jingles), dry, with body. |

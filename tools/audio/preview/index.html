@@ -95,7 +95,7 @@ footer { padding-block: 30px 50px; color: var(--muted); font-size: 13px; }
   <div id="cats"></div>
   <section class="sec">
     <div class="sechead"><h2>Notes for review</h2></div>
-    <div class="note">Not yet found as CC0: a recorded <b>"Ammo!"</b> callout (stand-ins: "Reloading!", "Call for backup!"). UI sounds are intentionally <b>not</b> miniaturised (they are not in the world), so Mini and Original sound alike there. Loudness: each sound is levelled to a per-category target (gunfire −13, explosions −11, chain −9, voices −15, zombies −19, footsteps −24, ambience loops −26 LUFS-ish); the page has a master limiter.</div>
+    <div class="note">Not yet found as CC0: a recorded <b>"Ammo!"</b> callout (stand-ins: "Reloading!", "Call for backup!"). The UI set was expanded after review: 25 tactile switch / latch sounds, including a chirp per squad class. Loudness: each sound is levelled to a per-category target (gunfire −13, explosions −11, chain −9, voices −15, zombies −19, footsteps −24, ambience loops −26 LUFS-ish); the page has a master limiter.</div>
   </section>
 </main>
 <footer class="wrap">All source recordings: CC0 1.0 from OpenGameArt.org; full per-file list in <code>assets/audio/sources.json</code> and <code>docs/SOUND_SOURCES.md</code> on branch <code>sessionD/sound</code>. Processing: <code>tools/audio/recipes.py</code>.</footer>
@@ -112,7 +112,7 @@ const BLURB = {
   Engineering: "Workshop and tool recordings sped up ×1.4–1.5.",
   Structures: "Timber creaks, a small buzzy generator, floodlight hum.",
   Environment: "Gentler treatment; far elements lowpassed and roomy.",
-  UI: "Not miniaturised: UI is not part of the diorama."
+  UI: "Tactile miniature controls: model-kit toggle switches, little metal latches and ratchets (x1.2–1.5), each with a small low thump underneath so they never sound thin. Dry and hard-cut at 50–150 ms; alerts and stings run longer."
 };
 let SOUNDS = {}, ctx, master, limiter, analyser, nearBus, farBus, ambBus, nearLP, farLP;
 const buffers = {};

@@ -732,44 +732,140 @@ def _(v):
     return D.loopify(D.mix([(a, 0, 0), (b, 0, -6)], 5.0), 0.5)
 
 
-# UI (not miniaturised) -----------------------------------------------------------------------
-def ui(x): return D.autotrim(x, -50)
+# UI (tactile miniature: model-kit switches, little latches) -----------------------------------
+# Click transient tape x1.2-1.5 + a little low body (thwack lowpassed 150 Hz) so they never sound thin; dry, hard-cut.
+KL = "202-more"   # owlishmedia "Key_Lock_Door_*" latch recordings
 
 
-@recipe("ui_tab", "UI", "Tab click", "Kenney interface click (UI is not miniaturised).", 3, -20)
-def _(v): return ui(L("interface-sounds", f"click_00{v + 1}"))
+def body(g=-10, n=1, dur=0.1):
+    x = D.autotrim(L("thwack", f"thwack-0{n}"))
+    return D.fadeout(LOW(x, 150, g)[:int(dur * SR)].copy(), dur * 0.6)
 
 
-@recipe("ui_hover", "UI", "Hover", "Soft rollover tick.", 3, -28)
-def _(v): return ui(L("51-ui", f"rollover{v + 2}"))
+def tk(x, k=1.3, cut=0.1, h=150):
+    x = D.autotrim(x, -40, 0.001, 0.01)
+    return CUT(HP(T(x, k), h), cut, 0.015)
 
 
-@recipe("ui_purchase", "UI", "Purchase", "Confirmation chime.", 2, -18)
-def _(v): return ui(L("interface-sounds", f"confirmation_00{v + 1}"))
+def ui_mix(parts, cut=0.15):
+    y = D.mix(parts)
+    return D.cut(y, cut, 0.02) if MINI else y
 
 
-@recipe("ui_refused", "UI", "Refused", "Error buzz.", 2, -18)
-def _(v): return ui(L("interface-sounds", f"error_00{[4, 6][v]}"))
+@recipe("ui_tab", "UI", "Tab switch", "Model-kit toggle switch x1.3 + small body.", 3, -19)
+def _(v): return ui_mix([(tk(L("51-ui", f"switch{[1, 7, 13][v]}.")), 0, 0), (body(-12, v + 1), 0, 0)], 0.09)
 
 
-@recipe("alert_attack", "UI", "Alert: under attack", "Short alarm blip.", 1, -16)
-def _(v): return D.cut(ui(L("sirens-and-alarm", "", 0, 1.2)), 1.0, 0.2)
+@recipe("ui_hover", "UI", "Card hover tick", "Tiny dry tick x1.4.", 3, -28)
+def _(v): return ui_mix([(tk(L("interface-sounds", f"tick_00{[1, 2, 4][v]}"), 1.4, 0.05), 0, 0)], 0.05)
 
 
-@recipe("alert_breach", "UI", "Alert: breach", "Glitchy double warning.", 1, -16)
+@recipe("ui_select", "UI", "Card select", "Small metal latch x1.4 + body.", 3, -19)
+def _(v): return ui_mix([(tk(L(KL, f"Key_Lock_Door_{[3, 10, 17][v]:02d}"), 1.4, 0.12), 0, 0), (body(-10, v + 2), 0, 0)], 0.12)
+
+
+@recipe("ui_purchase", "UI", "Purchase confirm", "Crisp latch ka-chunk with body, then a small cash tick (coin).", 3, -17)
 def _(v):
-    x = ui(L("interface-sounds", "glitch_003"))
-    return D.mix([(x, 0, 0), (x, 0.22, 0)])
+    a = tk(L(KL, f"Key_Lock_Door_{[5, 21, 33][v]:02d}"), 1.3, 0.12)
+    b = tk(L("50-rpg", "metalLatch"), 1.4, 0.08)
+    c = tk(L("rpg-sound-pack", ["coin.", "coin2", "coin3"][v]), 1.5, 0.12, 400)
+    return ui_mix([(a, 0, 0), (b, 0.035, -4), (body(-6, 3, 0.12), 0, 0), (c, 0.085, -5)], 0.24)
 
 
-@recipe("alert_ammo", "UI", "Alert: out of ammo", "Question blip + empty click.", 1, -18)
+@recipe("ui_refused", "UI", "Refused / not enough money", "Short muted double buzz (error buzz lowpassed) + dull thunk.", 2, -19)
 def _(v):
-    return D.mix([(ui(L("interface-sounds", "question_002")), 0, 0), (ui(L("war-on-water", "gunempty")), 0.25, -4)])
+    e = tk(L("interface-sounds", f"error_00{[4, 6][v]}"), 1.1, 0.06)
+    e = LPm(e, 1800)
+    return ui_mix([(e, 0, 0), (e, 0.085, -2), (body(-8, 4, 0.08), 0, 0)], 0.17)
 
 
-@recipe("alert_casualty", "UI", "Alert: casualty", "Low bong.", 1, -18)
-def _(v): return ui(L("interface-sounds", "bong_001"))
+@recipe("ui_place_valid", "UI", "Placement valid", "Light toggle snick + tiny clink.", 2, -21)
+def _(v): return ui_mix([(tk(L("interface-sounds", f"toggle_00{v + 1}"), 1.2, 0.08), 0, 0), (tk(L("68-workshop", "workshop - clink1"), 1.5, 0.06, 400), 0.01, -10)], 0.09)
 
 
-@recipe("sting_daynight", "UI", "Day / night sting", "Short percussive jingle (Kenney jingles).", 2, -16)
-def _(v): return ui(L("85-short-music", ["jingles_HIT00", "jingles_HIT05"][v]))
+@recipe("ui_place_invalid", "UI", "Placement invalid", "Dull low buzz + muffled clunk.", 2, -21)
+def _(v):
+    return ui_mix([(LPm(tk(L("interface-sounds", f"error_00{[1, 3][v]}"), 1.0, 0.1), 1500), 0, 0),
+                   (tk(L("68-workshop", "workshop - clink thud"), 1.3, 0.1), 0, -4), (body(-8, 5), 0, 0)], 0.12)
+
+
+@recipe("ui_place_confirm", "UI", "Place confirm", "Wooden thud with real low body + latch tick.", 3, -16)
+def _(v):
+    return ui_mix([(tk(L("thwack", f"thwack-0{v + 6}"), 1.3, 0.14), 0, 0), (body(-4, v + 6, 0.14), 0, 0),
+                   (tk(L("100-cc0-metal", "metal_close_01"), 1.5, 0.08, 300), 0.005, -8)], 0.15)
+
+
+@recipe("ui_rotate", "UI", "Rotate tick", "Ratchet tooth x1.4.", 3, -22)
+def _(v): return ui_mix([(tk(ev("68-workshop", "workshop - ratchet1", v), 1.4, 0.06), 0, 0)], 0.07)
+
+
+SQUAD = dict(rifle=("50-rpg", "metalClick", "select_001", 1.3), mg=(KL, "Key_Lock_Door_20", "select_002", 1.0),
+             sniper=("51-ui", "switch27", "glass_001", 1.5), engineer=("100-cc0-metal", "keys_03", "pluck_001", 1.2),
+             flame=("100-cc0-metal", "lock_open_01", "pluck_002", 1.0))
+
+
+def squad_chirp(cls, v):
+    pk, latch, blip, k = SQUAD[cls]
+    a = tk(L(pk, latch), 1.4 + 0.1 * v, 0.1)
+    b = tk(L("interface-sounds", blip), k * (1 + 0.06 * v), 0.1, 300)
+    return ui_mix([(a, 0, 0), (b, 0.03, -5), (body(-10, 2), 0, 0)], 0.14)
+
+
+for _cls, _name in [("rifle", "Rifle squad"), ("mg", "MG squad"), ("sniper", "Sniper"), ("engineer", "Engineers"), ("flame", "Flamethrowers")]:
+    recipe(f"ui_squad_{_cls}", "UI", f"Squad select: {_name}", "Per-class chirp: its own latch/click + a tiny pitched blip.", 2, -19)(
+        (lambda c: lambda v: squad_chirp(c, v))(_cls))
+
+
+@recipe("ui_order_move", "UI", "Order: move", "Quick switch double-tick.", 2, -19)
+def _(v):
+    a = tk(L("51-ui", f"switch{[3, 9][v]}."), 1.3, 0.05)
+    return ui_mix([(a, 0, 0), (a, 0.055, -3), (body(-12, 1), 0, 0)], 0.12)
+
+
+@recipe("ui_order_attack", "UI", "Order: attack", "Sharp metal latch snap + body.", 2, -18)
+def _(v): return ui_mix([(tk(L(KL, f"Key_Lock_Door_{[27, 39][v]:02d}"), 1.45, 0.12), 0, 0), (body(-7, 3), 0, 0)], 0.13)
+
+
+@recipe("ui_order_garrison", "UI", "Order: garrison", "Little door latch closing + clink.", 2, -19)
+def _(v):
+    return ui_mix([(tk(L(KL, f"Key_Lock_Door_{[12, 44][v]:02d}"), 1.3, 0.12), 0, 0), (tk(L("68-workshop", "workshop - clink2"), 1.5, 0.06, 400), 0.06, -8),
+                   (body(-8, 4), 0, 0)], 0.14)
+
+
+@recipe("ui_pause_open", "UI", "Pause open", "Panel switch up + body.", 1, -19)
+def _(v): return ui_mix([(tk(L("interface-sounds", "maximize_001"), 1.2, 0.14), 0, 0), (tk(L("51-ui", "switch19."), 1.3, 0.05), 0, -4), (body(-8, 2, 0.12), 0, 0)], 0.15)
+
+
+@recipe("ui_pause_close", "UI", "Pause close", "Panel switch down + body.", 1, -19)
+def _(v): return ui_mix([(tk(L("interface-sounds", "minimize_001"), 1.2, 0.14), 0, 0), (tk(L("51-ui", "switch22."), 1.2, 0.05), 0, -4), (body(-8, 5, 0.12), 0, 0)], 0.15)
+
+
+@recipe("alert_attack", "UI", "Alert: under attack", "Tiny alarm blip (siren x1.4) over a latch snap.", 1, -16)
+def _(v):
+    a = D.cut(tk(L("sirens-and-alarm", "", 0, 1.2), 1.4, 0.6), 0.55, 0.15) if MINI else D.autotrim(L("sirens-and-alarm", "", 0, 1.2))
+    return ui_mix([(a, 0, 0), (tk(L(KL, "Key_Lock_Door_27"), 1.4, 0.1), 0, -4), (body(-6, 3), 0, 0)], 0.6)
+
+
+@recipe("alert_breach", "UI", "Alert: breach", "Glitchy double warning + metal clunk.", 1, -16)
+def _(v):
+    x = tk(L("interface-sounds", "glitch_003"), 1.1, 0.2)
+    return ui_mix([(x, 0, 0), (x, 0.2, 0), (tk(L("68-workshop", "workshop - clink thud"), 1.3, 0.12), 0, -4), (body(-6, 4), 0.2, 0)], 0.45)
+
+
+@recipe("alert_ammo", "UI", "Alert: out of ammo", "Question blip + tiny dry-fire click.", 1, -18)
+def _(v): return ui_mix([(tk(L("interface-sounds", "question_002"), 1.1, 0.25), 0, 0), (tk(L("war-on-water", "gunempty"), 1.5, 0.08), 0.22, -2), (body(-10, 1), 0.22, 0)], 0.4)
+
+
+@recipe("alert_casualty", "UI", "Alert: casualty", "Low bong with weight.", 1, -18)
+def _(v): return ui_mix([(D.autotrim(L("interface-sounds", "bong_001")), 0, 0), (body(-6, 7, 0.2), 0, 0)], 0.6)
+
+
+@recipe("ui_upgrade_done", "UI", "Upgrade complete", "Ratchet zip + latch + coin ping.", 2, -17)
+def _(v):
+    r = tk(L("68-workshop", f"workshop - ratchet{v + 1}"), 1.6, 0.18)
+    return ui_mix([(r, 0, -3), (tk(L(KL, "Key_Lock_Door_05"), 1.4, 0.1), 0.17, 0), (body(-6, 3), 0.17, 0),
+                   (tk(L("interface-sounds", f"confirmation_00{v + 3}"), 1.2, 0.3), 0.24, -4)], 0.6)
+
+
+@recipe("sting_daynight", "UI", "Day / night sting", "Short percussive jingle (Kenney jingles), dry, with body.", 2, -16)
+def _(v): return ui_mix([(D.autotrim(L("85-short-music", ["jingles_HIT00", "jingles_HIT05"][v])), 0, 0), (body(-8, 7, 0.15), 0, 0)], 0.8)

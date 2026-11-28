@@ -816,9 +816,9 @@
    ]
   },
   "ui_tab": {
-   "title": "Tab click",
+   "title": "Tab switch",
    "category": "UI",
-   "processing": "Kenney interface click (UI is not miniaturised).",
+   "processing": "Model-kit toggle switch x1.3 + small body.",
    "variations": 3,
    "files": [
     "assets/audio/sfx/ui/ui_tab_0.ogg",
@@ -827,9 +827,9 @@
    ]
   },
   "ui_hover": {
-   "title": "Hover",
+   "title": "Card hover tick",
    "category": "UI",
-   "processing": "Soft rollover tick.",
+   "processing": "Tiny dry tick x1.4.",
    "variations": 3,
    "files": [
     "assets/audio/sfx/ui/ui_hover_0.ogg",
@@ -837,30 +837,182 @@
     "assets/audio/sfx/ui/ui_hover_2.ogg"
    ]
   },
-  "ui_purchase": {
-   "title": "Purchase",
+  "ui_select": {
+   "title": "Card select",
    "category": "UI",
-   "processing": "Confirmation chime.",
-   "variations": 2,
+   "processing": "Small metal latch x1.4 + body.",
+   "variations": 3,
+   "files": [
+    "assets/audio/sfx/ui/ui_select_0.ogg",
+    "assets/audio/sfx/ui/ui_select_1.ogg",
+    "assets/audio/sfx/ui/ui_select_2.ogg"
+   ]
+  },
+  "ui_purchase": {
+   "title": "Purchase confirm",
+   "category": "UI",
+   "processing": "Crisp latch ka-chunk with body, then a small cash tick (coin).",
+   "variations": 3,
    "files": [
     "assets/audio/sfx/ui/ui_purchase_0.ogg",
-    "assets/audio/sfx/ui/ui_purchase_1.ogg"
+    "assets/audio/sfx/ui/ui_purchase_1.ogg",
+    "assets/audio/sfx/ui/ui_purchase_2.ogg"
    ]
   },
   "ui_refused": {
-   "title": "Refused",
+   "title": "Refused / not enough money",
    "category": "UI",
-   "processing": "Error buzz.",
+   "processing": "Short muted double buzz (error buzz lowpassed) + dull thunk.",
    "variations": 2,
    "files": [
     "assets/audio/sfx/ui/ui_refused_0.ogg",
     "assets/audio/sfx/ui/ui_refused_1.ogg"
    ]
   },
+  "ui_place_valid": {
+   "title": "Placement valid",
+   "category": "UI",
+   "processing": "Light toggle snick + tiny clink.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_place_valid_0.ogg",
+    "assets/audio/sfx/ui/ui_place_valid_1.ogg"
+   ]
+  },
+  "ui_place_invalid": {
+   "title": "Placement invalid",
+   "category": "UI",
+   "processing": "Dull low buzz + muffled clunk.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_place_invalid_0.ogg",
+    "assets/audio/sfx/ui/ui_place_invalid_1.ogg"
+   ]
+  },
+  "ui_place_confirm": {
+   "title": "Place confirm",
+   "category": "UI",
+   "processing": "Wooden thud with real low body + latch tick.",
+   "variations": 3,
+   "files": [
+    "assets/audio/sfx/ui/ui_place_confirm_0.ogg",
+    "assets/audio/sfx/ui/ui_place_confirm_1.ogg",
+    "assets/audio/sfx/ui/ui_place_confirm_2.ogg"
+   ]
+  },
+  "ui_rotate": {
+   "title": "Rotate tick",
+   "category": "UI",
+   "processing": "Ratchet tooth x1.4.",
+   "variations": 3,
+   "files": [
+    "assets/audio/sfx/ui/ui_rotate_0.ogg",
+    "assets/audio/sfx/ui/ui_rotate_1.ogg",
+    "assets/audio/sfx/ui/ui_rotate_2.ogg"
+   ]
+  },
+  "ui_squad_rifle": {
+   "title": "Squad select: Rifle squad",
+   "category": "UI",
+   "processing": "Per-class chirp: its own latch/click + a tiny pitched blip.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_squad_rifle_0.ogg",
+    "assets/audio/sfx/ui/ui_squad_rifle_1.ogg"
+   ]
+  },
+  "ui_squad_mg": {
+   "title": "Squad select: MG squad",
+   "category": "UI",
+   "processing": "Per-class chirp: its own latch/click + a tiny pitched blip.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_squad_mg_0.ogg",
+    "assets/audio/sfx/ui/ui_squad_mg_1.ogg"
+   ]
+  },
+  "ui_squad_sniper": {
+   "title": "Squad select: Sniper",
+   "category": "UI",
+   "processing": "Per-class chirp: its own latch/click + a tiny pitched blip.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_squad_sniper_0.ogg",
+    "assets/audio/sfx/ui/ui_squad_sniper_1.ogg"
+   ]
+  },
+  "ui_squad_engineer": {
+   "title": "Squad select: Engineers",
+   "category": "UI",
+   "processing": "Per-class chirp: its own latch/click + a tiny pitched blip.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_squad_engineer_0.ogg",
+    "assets/audio/sfx/ui/ui_squad_engineer_1.ogg"
+   ]
+  },
+  "ui_squad_flame": {
+   "title": "Squad select: Flamethrowers",
+   "category": "UI",
+   "processing": "Per-class chirp: its own latch/click + a tiny pitched blip.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_squad_flame_0.ogg",
+    "assets/audio/sfx/ui/ui_squad_flame_1.ogg"
+   ]
+  },
+  "ui_order_move": {
+   "title": "Order: move",
+   "category": "UI",
+   "processing": "Quick switch double-tick.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_order_move_0.ogg",
+    "assets/audio/sfx/ui/ui_order_move_1.ogg"
+   ]
+  },
+  "ui_order_attack": {
+   "title": "Order: attack",
+   "category": "UI",
+   "processing": "Sharp metal latch snap + body.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_order_attack_0.ogg",
+    "assets/audio/sfx/ui/ui_order_attack_1.ogg"
+   ]
+  },
+  "ui_order_garrison": {
+   "title": "Order: garrison",
+   "category": "UI",
+   "processing": "Little door latch closing + clink.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_order_garrison_0.ogg",
+    "assets/audio/sfx/ui/ui_order_garrison_1.ogg"
+   ]
+  },
+  "ui_pause_open": {
+   "title": "Pause open",
+   "category": "UI",
+   "processing": "Panel switch up + body.",
+   "variations": 1,
+   "files": [
+    "assets/audio/sfx/ui/ui_pause_open_0.ogg"
+   ]
+  },
+  "ui_pause_close": {
+   "title": "Pause close",
+   "category": "UI",
+   "processing": "Panel switch down + body.",
+   "variations": 1,
+   "files": [
+    "assets/audio/sfx/ui/ui_pause_close_0.ogg"
+   ]
+  },
   "alert_attack": {
    "title": "Alert: under attack",
    "category": "UI",
-   "processing": "Short alarm blip.",
+   "processing": "Tiny alarm blip (siren x1.4) over a latch snap.",
    "variations": 1,
    "files": [
     "assets/audio/sfx/ui/alert_attack_0.ogg"
@@ -869,7 +1021,7 @@
   "alert_breach": {
    "title": "Alert: breach",
    "category": "UI",
-   "processing": "Glitchy double warning.",
+   "processing": "Glitchy double warning + metal clunk.",
    "variations": 1,
    "files": [
     "assets/audio/sfx/ui/alert_breach_0.ogg"
@@ -878,7 +1030,7 @@
   "alert_ammo": {
    "title": "Alert: out of ammo",
    "category": "UI",
-   "processing": "Question blip + empty click.",
+   "processing": "Question blip + tiny dry-fire click.",
    "variations": 1,
    "files": [
     "assets/audio/sfx/ui/alert_ammo_0.ogg"
@@ -887,16 +1039,26 @@
   "alert_casualty": {
    "title": "Alert: casualty",
    "category": "UI",
-   "processing": "Low bong.",
+   "processing": "Low bong with weight.",
    "variations": 1,
    "files": [
     "assets/audio/sfx/ui/alert_casualty_0.ogg"
    ]
   },
+  "ui_upgrade_done": {
+   "title": "Upgrade complete",
+   "category": "UI",
+   "processing": "Ratchet zip + latch + coin ping.",
+   "variations": 2,
+   "files": [
+    "assets/audio/sfx/ui/ui_upgrade_done_0.ogg",
+    "assets/audio/sfx/ui/ui_upgrade_done_1.ogg"
+   ]
+  },
   "sting_daynight": {
    "title": "Day / night sting",
    "category": "UI",
-   "processing": "Short percussive jingle (Kenney jingles).",
+   "processing": "Short percussive jingle (Kenney jingles), dry, with body.",
    "variations": 2,
    "files": [
     "assets/audio/sfx/ui/sting_daynight_0.ogg",
@@ -1506,7 +1668,8 @@
      "tower_climb"
     ],
     "x/keys_03.ogg": [
-     "gear_rattle"
+     "gear_rattle",
+     "ui_squad_engineer"
     ],
     "x/wood_slam_02.ogg": [
      "crate_thud"
@@ -1547,6 +1710,12 @@
     ],
     "x/wood_falling_06.ogg": [
      "tower_collapse"
+    ],
+    "x/metal_close_01.ogg": [
+     "ui_place_confirm"
+    ],
+    "x/lock_open_01.ogg": [
+     "ui_squad_flame"
     ]
    }
   },
@@ -1873,6 +2042,15 @@
     "x/RPG Sound Pack/inventory/cloth-heavy.wav": [
      "chute_deploy",
      "sandbag_place"
+    ],
+    "x/RPG Sound Pack/inventory/coin.wav": [
+     "ui_purchase"
+    ],
+    "x/RPG Sound Pack/inventory/coin2.wav": [
+     "ui_purchase"
+    ],
+    "x/RPG Sound Pack/inventory/coin3.wav": [
+     "ui_purchase"
     ]
    }
   },
@@ -1902,6 +2080,12 @@
     ],
     "x/OGG/clothBelt.ogg": [
      "gear_rattle"
+    ],
+    "x/OGG/metalLatch.ogg": [
+     "ui_purchase"
+    ],
+    "x/OGG/metalClick.ogg": [
+     "ui_squad_rifle"
     ]
    }
   },
@@ -2009,14 +2193,52 @@
    ],
    "files": {
     "x/PCM/thwack-01.wav": [
-     "roof_fall"
+     "roof_fall",
+     "ui_tab",
+     "ui_order_move",
+     "alert_ammo"
     ],
     "x/PCM/thwack-02.wav": [
-     "roof_fall"
+     "roof_fall",
+     "ui_tab",
+     "ui_select",
+     "ui_squad_rifle",
+     "ui_squad_mg",
+     "ui_squad_sniper",
+     "ui_squad_engineer",
+     "ui_squad_flame",
+     "ui_pause_open"
     ],
     "x/PCM/thwack-03.wav": [
      "roof_fall",
-     "crate_thud"
+     "crate_thud",
+     "ui_tab",
+     "ui_select",
+     "ui_purchase",
+     "ui_order_attack",
+     "alert_attack",
+     "ui_upgrade_done"
+    ],
+    "x/PCM/thwack-04.wav": [
+     "ui_select",
+     "ui_refused",
+     "ui_order_garrison",
+     "alert_breach"
+    ],
+    "x/PCM/thwack-05.wav": [
+     "ui_place_invalid",
+     "ui_pause_close"
+    ],
+    "x/PCM/thwack-06.wav": [
+     "ui_place_confirm"
+    ],
+    "x/PCM/thwack-07.wav": [
+     "ui_place_confirm",
+     "alert_casualty",
+     "sting_daynight"
+    ],
+    "x/PCM/thwack-08.wav": [
+     "ui_place_confirm"
     ]
    }
   },
@@ -2267,6 +2489,41 @@
     ],
     "x/Cloth/Cloth_07.wav": [
      "chute_flutter"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_03.wav": [
+     "ui_select"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_10.wav": [
+     "ui_select"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_17.wav": [
+     "ui_select"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_05.wav": [
+     "ui_purchase",
+     "ui_upgrade_done"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_21.wav": [
+     "ui_purchase"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_33.wav": [
+     "ui_purchase"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_20.wav": [
+     "ui_squad_mg"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_27.wav": [
+     "ui_order_attack",
+     "alert_attack"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_39.wav": [
+     "ui_order_attack"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_12.wav": [
+     "ui_order_garrison"
+    ],
+    "x/Keys, Locks, Door/Key_Lock_Door_44.wav": [
+     "ui_order_garrison"
     ]
    }
   },
@@ -2354,10 +2611,23 @@
      "car_dismantle"
     ],
     "x/workshop/workshop - ratchet1.wav": [
-     "car_dismantle"
+     "car_dismantle",
+     "ui_rotate",
+     "ui_upgrade_done"
     ],
     "x/workshop/workshop - ratchet2.wav": [
-     "car_dismantle"
+     "car_dismantle",
+     "ui_upgrade_done"
+    ],
+    "x/workshop/workshop - clink1.wav": [
+     "ui_place_valid"
+    ],
+    "x/workshop/workshop - clink thud.wav": [
+     "ui_place_invalid",
+     "alert_breach"
+    ],
+    "x/workshop/workshop - clink2.wav": [
+     "ui_order_garrison"
     ]
    }
   },
@@ -2652,49 +2922,6 @@
     ]
    }
   },
-  "interface-sounds": {
-   "pack": "Interface Sounds",
-   "url": "https://opengameart.org/content/interface-sounds",
-   "author": "kenney",
-   "license": [
-    "CC0"
-   ],
-   "download": [
-    "https://opengameart.org/sites/default/files/kenney_interfaceSounds.zip"
-   ],
-   "files": {
-    "x/Audio/click_001.ogg": [
-     "ui_tab"
-    ],
-    "x/Audio/click_002.ogg": [
-     "ui_tab"
-    ],
-    "x/Audio/click_003.ogg": [
-     "ui_tab"
-    ],
-    "x/Audio/confirmation_001.ogg": [
-     "ui_purchase"
-    ],
-    "x/Audio/confirmation_002.ogg": [
-     "ui_purchase"
-    ],
-    "x/Audio/error_004.ogg": [
-     "ui_refused"
-    ],
-    "x/Audio/error_006.ogg": [
-     "ui_refused"
-    ],
-    "x/Audio/glitch_003.ogg": [
-     "alert_breach"
-    ],
-    "x/Audio/question_002.ogg": [
-     "alert_ammo"
-    ],
-    "x/Audio/bong_001.ogg": [
-     "alert_casualty"
-    ]
-   }
-  },
   "51-ui-sound-effects-buttons-switches-and-clicks": {
    "pack": "51 UI sound effects (buttons, switches and clicks)",
    "url": "https://opengameart.org/content/51-ui-sound-effects-buttons-switches-and-clicks",
@@ -2706,14 +2933,105 @@
     "https://opengameart.org/sites/default/files/UI_SFX_Set.zip"
    ],
    "files": {
-    "x/rollover2.wav": [
+    "x/switch1.wav": [
+     "ui_tab"
+    ],
+    "x/switch13.wav": [
+     "ui_tab"
+    ],
+    "x/switch7.wav": [
+     "ui_tab"
+    ],
+    "x/switch27.wav": [
+     "ui_squad_sniper"
+    ],
+    "x/switch3.wav": [
+     "ui_order_move"
+    ],
+    "x/switch9.wav": [
+     "ui_order_move"
+    ],
+    "x/switch19.wav": [
+     "ui_pause_open"
+    ],
+    "x/switch22.wav": [
+     "ui_pause_close"
+    ]
+   }
+  },
+  "interface-sounds": {
+   "pack": "Interface Sounds",
+   "url": "https://opengameart.org/content/interface-sounds",
+   "author": "kenney",
+   "license": [
+    "CC0"
+   ],
+   "download": [
+    "https://opengameart.org/sites/default/files/kenney_interfaceSounds.zip"
+   ],
+   "files": {
+    "x/Audio/tick_001.ogg": [
      "ui_hover"
     ],
-    "x/rollover3.wav": [
+    "x/Audio/tick_002.ogg": [
      "ui_hover"
     ],
-    "x/rollover4.wav": [
+    "x/Audio/tick_004.ogg": [
      "ui_hover"
+    ],
+    "x/Audio/error_004.ogg": [
+     "ui_refused"
+    ],
+    "x/Audio/error_006.ogg": [
+     "ui_refused"
+    ],
+    "x/Audio/toggle_001.ogg": [
+     "ui_place_valid"
+    ],
+    "x/Audio/toggle_002.ogg": [
+     "ui_place_valid"
+    ],
+    "x/Audio/error_001.ogg": [
+     "ui_place_invalid"
+    ],
+    "x/Audio/error_003.ogg": [
+     "ui_place_invalid"
+    ],
+    "x/Audio/select_001.ogg": [
+     "ui_squad_rifle"
+    ],
+    "x/Audio/select_002.ogg": [
+     "ui_squad_mg"
+    ],
+    "x/Audio/glass_001.ogg": [
+     "ui_squad_sniper"
+    ],
+    "x/Audio/pluck_001.ogg": [
+     "ui_squad_engineer"
+    ],
+    "x/Audio/pluck_002.ogg": [
+     "ui_squad_flame"
+    ],
+    "x/Audio/maximize_001.ogg": [
+     "ui_pause_open"
+    ],
+    "x/Audio/minimize_001.ogg": [
+     "ui_pause_close"
+    ],
+    "x/Audio/glitch_003.ogg": [
+     "alert_breach"
+    ],
+    "x/Audio/question_002.ogg": [
+     "alert_ammo"
+    ],
+    "x/Audio/bong_001.ogg": [
+     "alert_casualty"
+    ],
+    "x/Audio/confirmation_003.ogg": [
+     "ui_upgrade_done"
+    ],
+    "x/Audio/confirmation_004.ogg": [
+     "ui_upgrade_done"
     ]
    }
   },
