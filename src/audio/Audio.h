@@ -36,6 +36,13 @@ enum class Ev : uint16_t {
 };
 const char* evName(Ev e);
 
+enum class Bus : uint8_t { Sfx, Voice, Amb, Ui, Music, Count };
+// Settings menu: linear volume 0..2 per bus (1 = mixed level; Music 1 = music.json musicVolumeDb), and master.
+void setBusVolume(Bus b, float linear);
+float getBusVolume(Bus b);
+void setMasterVolume(float linear);
+float getMasterVolume();
+
 struct Stats {
     uint64_t emitted[(size_t)Ev::Count] = {};
     uint64_t uiPlayed = 0, started = 0, rateLimited = 0, culledFar = 0, stolen = 0, dropped = 0, missing = 0;
