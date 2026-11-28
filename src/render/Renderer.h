@@ -85,9 +85,9 @@ struct RenderSettings {
     float dofFarTilt = 0.8f;         // tilt-shift CoC at the frame's top / bottom edge at dofZoomFar (0 at dofZoomNear)
     float dofTiltSharp = 0.28f;      // tilt-shift: sharp centre band, fraction of the half height (NDC)
     // auto focus: the focus distance follows the scene under the screen centre (median of 5 rays marched through the
-    // city height grid, temporally smoothed over dofFocusTime s), so a rooftop squad at the centre is sharp; off = pivot
+    // rendered frame's centre window read back a few frames late, else the city height grid; log-smoothed over dofFocusTime s), so a rooftop squad at the centre is sharp; off = pivot
     bool dofAutoFocus = true;
-    float dofFocusTime = 0.25f;
+    float dofFocusTime = 0.1f;      // log-distance time constant (s): ~90 % of a refocus in 0.23 s
     struct DofAt { float aperture, maxBlur, band, tilt; };
     DofAt dofAt(float camDist) const {
         if (!dofZoomAdapt || dofZoomFar <= dofZoomNear) return {dofAperture, dofMaxBlur, 0.f, 0.f};
@@ -258,6 +258,24 @@ private:
     double focusTime_ = 0.0;
     V3 focusEye_{};
     float measureFocus(const Camera& cam, uint32_t w, uint32_t h) const;   // scene distance under the screen centre
+    // auto focus from the rendered frame: a small window at the screen centre of the resolved scene (its alpha is the
+    // thin-lens CoC code, which inverts to a view distance given that frame's focus / aperture / band) is downloaded
+    // every frame into a ring of transfer buffers and read kFocusLag frames later (no stall). Sees everything that is
+    // drawn (soldiers, trees, cars, roof props), unlike the coarse 4 m height grid of measureFocus (the fallback).
+    static constexpr int kFocusSlots = 4, kFocusLag = 3;
+    struct FocusSlot {
+        SDL_GPUTransferBuffer* tb = nullptr;
+        uint64_t frame = 0;
+        bool valid = false;
+        uint32_t side = 0;
+        float focus = 0.f, aperture = 0.f, band = 0.f;
+    };
+    FocusSlot focusRb_[kFocusSlots];
+    uint64_t focusFrame_ = 0, focusCutFrame_ = 0;
+    float focusUsed_ = 0.f, focusAperture_ = 0.f, focusBand_ = 0.f;   // this frame's thin-lens parameters (finishA)
+    bool focusRecord_ = false;
+    void recordFocusReadback(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h);
+    bool readFocusWindow(float& out);   // nearest significant surface in the centre window (m), false = no data
     uint32_t fxDrawn_ = 0;            // voxel volumes drawn last frame (blasts + wreck fires)
 public:
     // Optional extensions (Military Asset Lab): compute work recorded before the scene pass, and draws inside the scene

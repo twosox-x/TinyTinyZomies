@@ -187,6 +187,20 @@ vec3 glassDay(vec3 base, vec3 N, vec3 V, vec3 P, vec2 room, float rh, float roug
     vec3 sunTint = sunColor.rgb / max(max(sunColor.r, max(sunColor.g, sunColor.b)), 1e-3);   // hue of the sun
     float sunI = max(sunColor.r, max(sunColor.g, sunColor.b));
     col += sunTint * min(glint * sunI, 6.0) * sunFace;
+    // vehicle glass (windshields: small, slanted, often turned away from the sun, so the facade glint above rarely
+    // reads at the RTS camera): a slightly lighter sky-tinted pane plus a small sun sparkle that only needs the sun up
+    // and roughly on the glass side; ~1 in 3 panes flashes brighter, which ones shift with the view (pan / zoom).
+    // Point-like at 50-110 m (a windshield is 5-10 px there), never at night (todP.z) or under a shadow / cloud (vis).
+    if (veh > 0.5) {
+        col = mix(col, env + skyColor.rgb * 0.5, 0.4);
+        float up = smoothstep(-0.02, 0.12, L.y) * (1.0 - todP.z) * vis;
+        float side = smoothstep(-0.6, 0.2, dot(N, L));
+        float hv = hash12(room * 0.731 + vec2(11.3, 2.9));
+        float pv = fract(hv * 5.0 + dot(V, T) * 1.6 + V.y * 1.3);
+        float vflash = 1.0 - smoothstep(0.0, 0.16, abs(pv - 0.5));
+        float vglint = (1.4 + 3.0 * core + 10.0 * vflash) * mix(0.7, 1.0, F);
+        col += sunTint * min(vglint * sunI, 6.0) * up * side;
+    }
     // low sun (golden hour): glass in its own shade still reflects the glowing sunset sky (orange-pink, brighter
     // towards the horizon) and a few panes flash, so reflections read at any camera yaw; subtler than the sunlit glint
     float lowSun = (1.0 - smoothstep(0.15, 0.45, L.y)) * smoothstep(-0.02, 0.06, L.y) * (1.0 - todP.z);
