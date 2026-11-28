@@ -312,28 +312,7 @@ void buildRoom(RoomBuilder& R, const FiringPosition& f, uint32_t seed) {
         R.quad(P(cs - a, co - b, F), P(cs - a, co + b, F), P(cs - a, co + b, F + h), P(cs - a, co - b, F + h), t * -1.f, 7);
         R.quad(P(cs + a, co - b, F), P(cs + a, co + b, F), P(cs + a, co + b, F + h), P(cs + a, co - b, F + h), t, 7);
     }
-    // sandbag sill: courses of bags on the reveal floor up to a little under the soldier's shoulder (a window nest
-    // replaces it); taller openings (shop / curtain glazing) get a low sandbag wall
-    if (f.nest) return;
-    const float top = std::clamp(F + 1.08f - A, 0.12f, 1.0f);
-    const int courses = std::max(1, (int)std::lround(top / 0.13f));
-    const float ch = top / (float)courses;
-    const float bo0 = -T + 0.03f, bo1 = f.realWindow ? -0.05f : 0.06f;
-    for (int c = 0; c < courses; ++c) {
-        const float yb = A + c * ch, yt = yb + ch;
-        const float off = (c & 1) ? 0.25f : 0.f;
-        for (float s0 = -hw + 0.01f - off; s0 < hw - 0.02f; s0 += 0.5f) {
-            const float sa = std::max(s0, -hw + 0.01f), sb = std::min(s0 + 0.49f, hw - 0.01f);
-            if (sb - sa < 0.08f) continue;
-            const int mat = ((int)std::lround((s0 + 3.f) * 2.f) + c + (int)seed) & 1 ? 6 : 7;
-            const float bulge = 0.015f;   // rounded look: the top inset a little from the faces
-            R.quad(P(sa + bulge, bo1 - bulge, yt), P(sb - bulge, bo1 - bulge, yt), P(sb - bulge, bo0 + bulge, yt), P(sa + bulge, bo0 + bulge, yt), up, mat);
-            R.quad(P(sa, bo1, yb), P(sb, bo1, yb), P(sb - bulge, bo1 - bulge, yt), P(sa + bulge, bo1 - bulge, yt), n, mat);
-            R.quad(P(sa, bo0, yb), P(sb, bo0, yb), P(sb - bulge, bo0 + bulge, yt), P(sa + bulge, bo0 + bulge, yt), n * -1.f, mat);
-            R.quad(P(sa, bo0, yb), P(sa, bo1, yb), P(sa + bulge, bo1 - bulge, yt), P(sa + bulge, bo0 + bulge, yt), t * -1.f, 7);
-            R.quad(P(sb, bo0, yb), P(sb, bo1, yb), P(sb - bulge, bo1 - bulge, yt), P(sb - bulge, bo0 + bulge, yt), t, 7);
-        }
-    }
+    // no sill props: the owner wants the open window clear (soldier + room only)
 }
 
 void updateRooms(AppState& app, const GameContext& ctx, const BuildingPlay& bp, MilitaryRenderer& mil) {
@@ -464,22 +443,7 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
         // flag: on the roof's front corner (flat roofs) or beside the front door (houses)
         if (B.flatRoof) mil.addProp(P.flag[r], B.toWorld(1.0f, 1.0f, B.roofY), yawFront);
         else mil.addProp(P.flag[r], B.toWorld(-0.8f, -1.2f, B.y0), yawFront);
-        // banner on the front facade, hanging from under the roof line (or from the first floor of a house)
-        const float by = B.flatRoof ? std::min(B.roofY - 0.4f, B.y0 + 2.f * B.floorHeight + 2.4f) : B.y0 + B.floorHeight * B.floors - 0.2f;
-        float bs = B.w * 0.5f + (B.w > 8.f ? 2.5f : 0.f), bestGap = -1.f;   // never over a front window post
-        for (float cand = 0.8f; cand <= B.w - 0.8f; cand += 0.25f) {
-            float gap = 1e9f;
-            for (const FiringPosition& f : B.firing) {
-                if (f.kind != FiringKind::Window || f.winHalfW <= 0.f) continue;
-                float u, v;
-                B.toLocal(f.win.x, f.win.z, u, v);
-                if (v > 1.5f) continue;   // front facade only
-                gap = std::min(gap, std::fabs(u - cand) - f.winHalfW);
-            }
-            gap = std::min(gap, 1.2f) - 0.01f * std::fabs(cand - bs);   // prefer the usual spot when it is clear
-            if (gap > bestGap) { bestGap = gap; bs = cand; }
-        }
-        mil.addProp(P.banner[r], B.toWorld(bs, -0.06f, by), yawFront);
+        // no facade banner: it covered windows (owner). The roof / door flag marks the building.
         int door = -1;
         for (size_t k = 0; k < B.openings.size(); ++k) if (B.openings[k].type == OpeningType::Door) { door = (int)k; break; }
         if (r == 0) {

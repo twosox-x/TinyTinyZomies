@@ -725,28 +725,35 @@ float3 glassDay(thread const float3& base, thread const float3& N, thread const 
     float3 col = ((base * (1.0 - refl)) * 0.699999988079071044921875) + (env * refl);
     float a = mix(0.070000000298023223876953125, 0.1599999964237213134765625, fast::clamp(rough, 0.0, 1.0));
     float jit = wall ? 0.10999999940395355224609375 : 0.07999999821186065673828125;
-    float ax = sqrt((a * a) + ((jit * jit) * (1.0 - fine))) * 2.0;
-    float ay = ax * (wall ? 3.2000000476837158203125 : 1.0);
+    float ax = sqrt((a * a) + ((jit * jit) * (1.0 - fine))) * 3.2000000476837158203125;
+    float ay = ax * (wall ? 2.5 : 1.0);
     float3 d = L - Rs;
     float dh = dot(d, T);
-    float _2333;
+    float _2334;
     if (wall)
     {
-        _2333 = d.y;
+        _2334 = d.y;
     }
     else
     {
-        _2333 = dot(d, B);
+        _2334 = dot(d, B);
     }
-    float dv = _2333;
+    float dv = _2334;
     float q = ((dh * dh) / (ax * ax)) + ((dv * dv) / (ay * ay));
     float core = 1.0 / ((1.0 + q) * (1.0 + q));
-    float qb = q * 0.0900000035762786865234375;
+    float qb = q * 0.119999997317790985107421875;
     float sheen = 1.0 / ((1.0 + qb) * (1.0 + qb));
-    float facing = smoothstep(0.0, 0.20000000298023223876953125, dot(N, L)) * step(0.0, dot(Rs, L));
-    float sunUp = smoothstep(-0.0199999995529651641845703125, 0.0500000007450580596923828125, L.y) * (1.0 - _158.todP.z);
-    float glint = (((core * 7.0) * (1.0 - (0.5 * (1.0 - fine)))) + (sheen * 0.550000011920928955078125)) * refl;
-    col += ((((_158.sunColor.xyz * fast::min(glint, 6.0)) * facing) * vis) * sunUp);
+    float sunFace = ((smoothstep(0.0, 0.3499999940395355224609375, dot(N, L)) * vis) * smoothstep(-0.0199999995529651641845703125, 0.0500000007450580596923828125, L.y)) * (1.0 - _158.todP.z);
+    float Fk = mix(0.550000011920928955078125, 1.0, F) * mirror;
+    float2 param_7 = (room * 0.517000019550323486328125) + float2(3.099999904632568359375, 8.69999980926513671875);
+    float h2 = hash12(param_7);
+    float ph = fract(((h2 * 7.0) + (dot(V, T) * 2.2000000476837158203125)) + (V.y * 1.7000000476837158203125));
+    float spark = 1.0 - smoothstep(0.0, 0.07500000298023223876953125, abs(ph - 0.5));
+    spark *= (0.60000002384185791015625 + (0.4000000059604644775390625 * fine));
+    float glint = (((((core * 5.0) * mix(0.5, 1.0, fine)) * refl) + ((sheen * 0.3499999940395355224609375) * Fk)) + (0.550000011920928955078125 * Fk)) + ((spark * 3.2000000476837158203125) * Fk);
+    float3 sunTint = _158.sunColor.xyz / float3(fast::max(fast::max(_158.sunColor.x, fast::max(_158.sunColor.y, _158.sunColor.z)), 0.001000000047497451305389404296875));
+    float sunI = fast::max(_158.sunColor.x, fast::max(_158.sunColor.y, _158.sunColor.z));
+    col += ((sunTint * fast::min(glint * sunI, 5.0)) * sunFace);
     return col;
 }
 
@@ -821,7 +828,7 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     return float4(_916, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer(0)]], constant Cutouts& _1364 [[buffer(1)]], const device Mats& _2459 [[buffer(2)]], const device Decals& _1479 [[buffer(3)]], const device ShadowH& _1016 [[buffer(4)]], const device CorpseH& _2623 [[buffer(5)]], const device LampGrid& _441 [[buffer(6)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer(0)]], constant Cutouts& _1364 [[buffer(1)]], const device Mats& _2524 [[buffer(2)]], const device Decals& _1479 [[buffer(3)]], const device ShadowH& _1016 [[buffer(4)]], const device CorpseH& _2688 [[buffer(5)]], const device LampGrid& _441 [[buffer(6)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
 {
     main0_out out = {};
     float3 param = in.vCell;
@@ -830,25 +837,25 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
     {
         discard_fragment();
     }
-    bool _2441 = _1364.cutCount.x > 0u;
-    bool _2448;
-    if (_2441)
+    bool _2506 = _1364.cutCount.x > 0u;
+    bool _2513;
+    if (_2506)
     {
         float3 param_2 = in.vWorld;
-        _2448 = facadeCut(param_2, _1364);
+        _2513 = facadeCut(param_2, _1364);
     }
     else
     {
-        _2448 = _2441;
+        _2513 = _2506;
     }
-    if (_2448)
+    if (_2513)
     {
         discard_fragment();
     }
     Mat m;
-    m.albedo = _2459.mats[in.vMat].albedo;
-    m.emis = _2459.mats[in.vMat].emis;
-    m.info = _2459.mats[in.vMat].info;
+    m.albedo = _2524.mats[in.vMat].albedo;
+    m.emis = _2524.mats[in.vMat].emis;
+    m.info = _2524.mats[in.vMat].info;
     float3 N = fast::normalize(in.vNormal);
     float3 albedo = m.albedo.xyz;
     if (in.vPaint.w > 0.5)
@@ -856,31 +863,31 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
         albedo = in.vPaint.xyz;
     }
     uint flags = m.info.x;
-    bool _2495 = (flags & 2u) != 0u;
-    bool _2503;
-    if (_2495)
+    bool _2560 = (flags & 2u) != 0u;
+    bool _2568;
+    if (_2560)
     {
-        _2503 = int(m.emis.y + 0.5) == 2;
+        _2568 = int(m.emis.y + 0.5) == 2;
     }
     else
     {
-        _2503 = _2495;
+        _2568 = _2560;
     }
-    bool _2509;
-    if (_2503)
+    bool _2574;
+    if (_2568)
     {
-        _2509 = _158.todP.x < 1.0;
+        _2574 = _158.todP.x < 1.0;
     }
     else
     {
-        _2509 = _2503;
+        _2574 = _2568;
     }
-    if (_2509)
+    if (_2574)
     {
         Mat dm;
-        dm.albedo = _2459.mats[m.info.y].albedo;
-        dm.emis = _2459.mats[m.info.y].emis;
-        dm.info = _2459.mats[m.info.y].info;
+        dm.albedo = _2524.mats[m.info.y].albedo;
+        dm.emis = _2524.mats[m.info.y].emis;
+        dm.info = _2524.mats[m.info.y].info;
         albedo = mix(dm.albedo.xyz, albedo, float3(_158.todP.x));
         if (_158.todP.x < 0.5)
         {
@@ -895,53 +902,53 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
         albedo *= (0.800000011920928955078125 + (0.4000000059604644775390625 * hash12(param_3)));
     }
     float2 g = (in.vWorld.xz - _158.gridP.xy) * _158.gridP.w;
-    bool _2581 = g.x >= 0.0;
-    bool _2587;
-    if (_2581)
+    bool _2646 = g.x >= 0.0;
+    bool _2652;
+    if (_2646)
     {
-        _2587 = g.y >= 0.0;
+        _2652 = g.y >= 0.0;
     }
     else
     {
-        _2587 = _2581;
+        _2652 = _2646;
     }
-    bool _2596;
-    if (_2587)
+    bool _2661;
+    if (_2652)
     {
-        _2596 = g.x < float(_158.gridDim.x);
+        _2661 = g.x < float(_158.gridDim.x);
     }
     else
     {
-        _2596 = _2587;
+        _2661 = _2652;
     }
-    bool _2605;
-    if (_2596)
+    bool _2670;
+    if (_2661)
     {
-        _2605 = g.y < float(_158.gridDim.y);
+        _2670 = g.y < float(_158.gridDim.y);
     }
     else
     {
-        _2605 = _2596;
+        _2670 = _2661;
     }
-    bool inWin = _2605;
+    bool inWin = _2670;
     float wet = 0.0;
     if (inWin)
     {
         if (N.y > 0.699999988079071044921875)
         {
             int2 c = int2(floor(g));
-            float corpse = float(_2623.corpseH[(uint(c.y) * _158.gridDim.x) + uint(c.x)]) * 0.001000000047497451305389404296875;
-            bool _2640 = corpse > 0.0;
-            bool _2646;
-            if (_2640)
+            float corpse = float(_2688.corpseH[(uint(c.y) * _158.gridDim.x) + uint(c.x)]) * 0.001000000047497451305389404296875;
+            bool _2705 = corpse > 0.0;
+            bool _2711;
+            if (_2705)
             {
-                _2646 = in.vWorld.y < 0.60000002384185791015625;
+                _2711 = in.vWorld.y < 0.60000002384185791015625;
             }
             else
             {
-                _2646 = _2640;
+                _2711 = _2705;
             }
-            if (_2646)
+            if (_2711)
             {
                 albedo = mix(albedo, float3(0.02999999932944774627685546875, 0.001000000047497451305389404296875, 0.00200000009499490261077880859375), float3(fast::clamp(corpse * 4.0, 0.0, 0.85000002384185791015625)));
             }
@@ -996,28 +1003,28 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
     float rh = hash12(param_21);
     if (((flags & 5u) != 0u) || (wet > 0.0))
     {
-        bool _2859 = (flags & 1u) != 0u;
-        bool _2865;
-        if (_2859)
+        bool _2924 = (flags & 1u) != 0u;
+        bool _2930;
+        if (_2924)
         {
-            _2865 = (flags & 4u) == 0u;
+            _2930 = (flags & 4u) == 0u;
         }
         else
         {
-            _2865 = _2859;
+            _2930 = _2924;
         }
-        bool glass = _2865;
+        bool glass = _2930;
         float3 Ng = N;
-        bool _2875;
+        bool _2940;
         if (glass)
         {
-            _2875 = abs(N.y) < 0.300000011920928955078125;
+            _2940 = abs(N.y) < 0.300000011920928955078125;
         }
         else
         {
-            _2875 = glass;
+            _2940 = glass;
         }
-        if (_2875)
+        if (_2940)
         {
             float a = (rh - 0.5) * 0.0900000035762786865234375;
             float2 param_22 = (room * 1.37000000476837158203125) + float2(5.099999904632568359375);
@@ -1027,25 +1034,25 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
         float3 R = reflect(-V, Ng);
         float3 sky = mix(_158.fogColor.xyz * 1.2000000476837158203125, _158.skyColor.xyz * 1.60000002384185791015625, float3(fast::clamp(R.y * 1.5, 0.0, 1.0)));
         float f = 0.039999999105930328369140625 + (0.959999978542327880859375 * powr(1.0 - fast::max(dot(Ng, V), 0.0), 5.0));
-        float _2938;
+        float _3003;
         if ((flags & 4u) != 0u)
         {
-            _2938 = 1.0;
+            _3003 = 1.0;
         }
         else
         {
-            float _2943;
+            float _3008;
             if (glass)
             {
-                _2943 = fast::max(gloss, 0.5);
+                _3008 = fast::max(gloss, 0.5);
             }
             else
             {
-                _2943 = wet * 0.60000002384185791015625;
+                _3008 = wet * 0.60000002384185791015625;
             }
-            _2938 = _2943;
+            _3003 = _3008;
         }
-        float k = _2938;
+        float k = _3003;
         float3 base = col;
         col = mix(col, sky, float3(fast::clamp(f * k, 0.0, 1.0))) + (((sky * 0.1500000059604644775390625) * k) * float(glass));
         if (glass)
@@ -1054,16 +1061,16 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
             float glint = (powr(sp, 900.0) * 60.0) + (powr(sp, 60.0) * 0.60000002384185791015625);
             col += ((((_158.sunColor.xyz * glint) * (0.25 + (0.75 * f))) * vis) * k);
         }
-        float _3007;
+        float _3072;
         if (glass)
         {
-            _3007 = fast::clamp(1.0 - (_158.todP.x * 1.25), 0.0, 1.0);
+            _3072 = fast::clamp(1.0 - (_158.todP.x * 1.25), 0.0, 1.0);
         }
         else
         {
-            _3007 = 0.0;
+            _3072 = 0.0;
         }
-        float day = _3007;
+        float day = _3072;
         if (day > 0.0)
         {
             float3 param_23 = base;
@@ -1090,53 +1097,53 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
             float r2 = hash12(param_32);
             float2 param_33 = (room * 1.91299998760223388671875) + float2(3.7000000476837158203125);
             float r3 = hash12(param_33);
-            float _3091;
+            float _3156;
             if (rh < 0.1599999964237213134765625)
             {
-                _3091 = 0.0;
+                _3156 = 0.0;
             }
             else
             {
-                float _3098;
+                float _3163;
                 if (rh < 0.37999999523162841796875)
                 {
-                    _3098 = 0.25 + (0.300000011920928955078125 * r2);
+                    _3163 = 0.25 + (0.300000011920928955078125 * r2);
                 }
                 else
                 {
-                    float _3107;
+                    float _3172;
                     if (rh < 0.85000002384185791015625)
                     {
-                        _3107 = 0.699999988079071044921875 + (0.5 * r2);
+                        _3172 = 0.699999988079071044921875 + (0.5 * r2);
                     }
                     else
                     {
-                        _3107 = 1.2999999523162841796875 + (0.60000002384185791015625 * r2);
+                        _3172 = 1.2999999523162841796875 + (0.60000002384185791015625 * r2);
                     }
-                    _3098 = _3107;
+                    _3163 = _3172;
                 }
-                _3091 = _3098;
+                _3156 = _3163;
             }
-            float lvl = _3091;
-            float3 _3123;
+            float lvl = _3156;
+            float3 _3188;
             if (r3 < 0.550000011920928955078125)
             {
-                _3123 = float3(1.0, 0.7799999713897705078125, 0.5);
+                _3188 = float3(1.0, 0.7799999713897705078125, 0.5);
             }
             else
             {
-                float3 _3130;
+                float3 _3195;
                 if (r3 < 0.800000011920928955078125)
                 {
-                    _3130 = float3(1.0, 0.920000016689300537109375, 0.7799999713897705078125);
+                    _3195 = float3(1.0, 0.920000016689300537109375, 0.7799999713897705078125);
                 }
                 else
                 {
-                    _3130 = select(float3(0.449999988079071044921875, 0.62000000476837158203125, 1.0), float3(0.7799999713897705078125, 0.920000016689300537109375, 1.0), bool3(r3 < 0.9700000286102294921875));
+                    _3195 = select(float3(0.449999988079071044921875, 0.62000000476837158203125, 1.0), float3(0.7799999713897705078125, 0.920000016689300537109375, 1.0), bool3(r3 < 0.9700000286102294921875));
                 }
-                _3123 = _3130;
+                _3188 = _3195;
             }
-            float3 tint = _3123;
+            float3 tint = _3188;
             if (r3 >= 0.9700000286102294921875)
             {
                 lvl = 0.5 * (0.550000011920928955078125 + ((0.449999988079071044921875 * sin((t * 7.30000019073486328125) + (rh * 40.0))) * sin((t * 2.900000095367431640625) + (r2 * 13.0))));
@@ -1168,53 +1175,53 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
                         float c_1 = mod(t + (in.vPhase * 15.0), 30.0);
                         bool green = c_1 < 12.0;
                         bool amber = (c_1 >= 12.0) && (c_1 < 15.0);
-                        bool _3249;
+                        bool _3314;
                         if (in.vMat == 60u)
                         {
-                            _3249 = !(green || amber);
+                            _3314 = !(green || amber);
                         }
                         else
                         {
-                            bool _3260;
+                            bool _3325;
                             if (in.vMat == 61u)
                             {
-                                _3260 = amber;
+                                _3325 = amber;
                             }
                             else
                             {
-                                bool _3268;
+                                bool _3333;
                                 if (in.vMat == 62u)
                                 {
-                                    _3268 = green;
+                                    _3333 = green;
                                 }
                                 else
                                 {
-                                    bool _3276;
+                                    bool _3341;
                                     if (in.vMat == 69u)
                                     {
-                                        _3276 = green;
+                                        _3341 = green;
                                     }
                                     else
                                     {
-                                        _3276 = !green;
+                                        _3341 = !green;
                                     }
-                                    _3268 = _3276;
+                                    _3333 = _3341;
                                 }
-                                _3260 = _3268;
+                                _3325 = _3333;
                             }
-                            _3249 = _3260;
+                            _3314 = _3325;
                         }
-                        bool lit = _3249;
-                        float _3288;
+                        bool lit = _3314;
+                        float _3353;
                         if (lit)
                         {
-                            _3288 = 1.39999997615814208984375 + (1.7999999523162841796875 * night);
+                            _3353 = 1.39999997615814208984375 + (1.7999999523162841796875 * night);
                         }
                         else
                         {
-                            _3288 = 0.300000011920928955078125;
+                            _3353 = 0.300000011920928955078125;
                         }
-                        e = _3288;
+                        e = _3353;
                     }
                 }
             }

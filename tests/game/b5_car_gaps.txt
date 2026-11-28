@@ -4,12 +4,12 @@
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_car_gaps.txt
 at 0.1  camera -19 112 0.9 0.95 40
 at 0.5  buy rifle -27 112
-at 8    move 1 -11 112
-at 8.6  expect path_len 1 < 20.8                          # 16 m straight across: <= 1.3 x
-at 8.6  expect path_len 1 > 0
-at 9.5  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_gaps_moving.png
-at 22   expect squad_near 1 -11 112 4 >= 3
-at 22   expect squad_onobstacle 1 == 0
-at 22   log
-at 22   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_gaps_arrived.png
-at 23   end
+at 14   move 1 -11 112
+at 14.8 expect path_len 1 < 20.8                          # 16 m straight across: <= 1.3 x
+at 14.8 expect path_len 1 > 0
+at 15.5 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_gaps_moving.png
+at 28   expect squad_near 1 -11 112 4 >= 3
+at 28   expect squad_onobstacle 1 == 0
+at 28   log
+at 28   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_gaps_arrived.png
+at 29   end

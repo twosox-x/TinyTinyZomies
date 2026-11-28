@@ -165,18 +165,26 @@ vec3 glassDay(vec3 base, vec3 N, vec3 V, vec3 P, vec2 room, float rh, float roug
     // sun: anisotropic lobe around the mirrored reflection (tight across the facade, loose vertically)
     float a = mix(0.07, 0.16, clamp(rough, 0.0, 1.0));
     float jit = wall ? 0.11 : 0.08;
-    float ax = sqrt(a * a + jit * jit * (1.0 - fine)) * 2.0;                      // reflection angles = 2x normal
-    float ay = ax * (wall ? 3.2 : 1.0);
+    float ax = sqrt(a * a + jit * jit * (1.0 - fine)) * 3.2;                      // reflection angles = 2x normal, widened
+    float ay = ax * (wall ? 2.5 : 1.0);
     vec3 d = L - Rs;
     float dh = dot(d, T), dv = wall ? d.y : dot(d, B);
     float q = dh * dh / (ax * ax) + dv * dv / (ay * ay);
-    float core = 1.0 / ((1.0 + q) * (1.0 + q));
-    float qb = q * 0.09;                                                           // broad sheen: 3.3x wider
-    float sheen = 1.0 / ((1.0 + qb) * (1.0 + qb));
-    float facing = smoothstep(0.0, 0.2, dot(N, L)) * step(0.0, dot(Rs, L));
-    float sunUp = smoothstep(-0.02, 0.05, L.y) * (1.0 - todP.z);                  // sun, not moon
-    float glint = (core * 7.0 * (1.0 - 0.5 * (1.0 - fine)) + sheen * 0.55) * refl;
-    col += sunColor.rgb * min(glint, 6.0) * facing * vis * sunUp;
+    float core = 1.0 / ((1.0 + q) * (1.0 + q));                                    // mirror-aligned glare
+    float qb = q * 0.12;
+    float sheen = 1.0 / ((1.0 + qb) * (1.0 + qb));                                 // broad lobe
+    // sun on the facade (not the exact mirror direction) drives the look: any sunlit pane glows warm
+    float sunFace = smoothstep(0.0, 0.35, dot(N, L)) * vis * smoothstep(-0.02, 0.05, L.y) * (1.0 - todP.z);
+    float Fk = mix(0.55, 1.0, F) * mirror;
+    // per-window sparkle: ~1 in 7 rooms flashes; which ones shifts as the view direction changes (camera pan / zoom)
+    float h2 = hash12(room * 0.517 + vec2(3.1, 8.7));
+    float ph = fract(h2 * 7.0 + dot(V, T) * 2.2 + V.y * 1.7);
+    float spark = 1.0 - smoothstep(0.0, 0.075, abs(ph - 0.5));
+    spark *= 0.6 + 0.4 * fine;
+    float glint = core * 5.0 * mix(0.5, 1.0, fine) * refl + sheen * 0.35 * Fk + 0.55 * Fk + spark * 3.2 * Fk;
+    vec3 sunTint = sunColor.rgb / max(max(sunColor.r, max(sunColor.g, sunColor.b)), 1e-3);   // hue of the sun
+    float sunI = max(sunColor.r, max(sunColor.g, sunColor.b));
+    col += sunTint * min(glint * sunI, 5.0) * sunFace;
     return col;
 }
 
