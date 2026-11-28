@@ -88,7 +88,8 @@ bool stairRoute(const GameContext& ctx, V3 roof, V3& hatchPt, V3& doorPt, int& f
     }
     if (!hatch || !door) { if (std::getenv("TTZ_DEBUG_LEVELS")) std::printf("  stairRoute: hatch %d door %d\n", hatch ? 1 : 0, door ? 1 : 0); return false; }
     const NavGrid& nav = *ctx.nav;
-    if (!nav.nearestWalkableLevel(hatch->pos, 4.f, b->roofY, 1.0f, hatchPt)) return false;
+    // the stair core serves every roof level of the building: the walk point is on the level of `roof`, nearest the hatch
+    if (!nav.nearestWalkableLevel(hatch->pos, 12.f, roof.y, 1.0f, hatchPt)) return false;
     if (nav.island(hatchPt.x, hatchPt.z) != nav.island(roof.x, roof.z)) {   // the hatch is on another level
         if (std::getenv("TTZ_DEBUG_LEVELS")) std::printf("  stairRoute: hatch (%.1f %.1f %.1f) on island %u, roof island %u\n", hatchPt.x, hatchPt.y, hatchPt.z, nav.island(hatchPt.x, hatchPt.z), nav.island(roof.x, roof.z));
         return false;
@@ -120,7 +121,7 @@ bool roofJumpSpot(const NavGrid& nav, V3 from, V3 goal, uint32_t goalIsl, V3& ed
                 for (float e = 0.75f; e < d && clear; e += 0.75f) {
                     const float h = nav.surface(c.x + dx * e, c.z + dz * e);
                     const float f = std::pow(std::max(0.f, 1.f - e / d), 1.f / 6.f);
-                    clear = s + f * (c.y - s) > h + 1.2f || e < 2.01f;   // the rim / parapet: stepped over
+                    clear = s + f * (c.y - s) > h + 1.2f || e < 3.01f;   // the rim / parapet / cornice: stepped over
                 }
                 if (!clear) break;
                 const float score = dist2D(from, c) + dist2D(q, goal);
