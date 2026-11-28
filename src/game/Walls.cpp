@@ -391,7 +391,11 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
         const bool roofRun = gmin < 1e8f && gmin - env.streetY > kBuildingRise && gmax - gmin <= 0.6f;
         const float ref = roofRun ? gmin : std::min(gmin, env.streetY + 0.3f);
         for (float g : gs) { high += g - ref > 0.6f ? 1 : 0; tall += g - ref > kBuildingRise ? 1 : 0; }
-        if (high > 0 && (float)high > 0.2f * (float)gs.size()) { fail(tall * 2 >= high ? "a building or water is in the way" : "kerb or step too high"); continue; }
+        if (high > 0 && (float)high > 0.2f * (float)gs.size()) {
+            const bool overEdge = !roofRun && gmax - env.streetY > kBuildingRise && gmin - env.streetY <= kBuildingRise && env.ground && env.ground(q.ax, q.az) - env.streetY > kBuildingRise;
+            fail(overEdge ? "over the roof edge (does not fit on the roof)" : tall * 2 >= high ? "a building or water is in the way" : "kerb or step too high");
+            continue;
+        }
         if (vehicle) { fail("a vehicle is in the way (engineers can clear it)"); continue; }
         if (container) { fail("a supply container is in the way"); continue; }
         // existing pieces and posts
