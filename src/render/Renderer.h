@@ -117,7 +117,7 @@ struct RenderSettings {
     float cloudStrength = 0.7f;      // sun dimmed by this under a cloud core (the stepped fringe: ~75 % of it)
     float cloudCell = 0.1f;          // m: cloud shadow voxel (the city bake voxel)
     float cloudCoverage = 0.3f;      // fraction of the map in cloud shadow
-    float cloudSpeed = 3.0f;         // wind, m/s (render time: also drifts while the clock is paused)
+    float cloudSpeed = 0.8f;         // wind, m/s (render time: also drifts while the clock is paused)
     float cloudWindDeg = 35.f;       // wind heading (deg from +x towards +z)
     float cloudHeight = 220.f;       // deck height (m): shadows are projected along the sun
     bool drawParticles = true;       // blood, fire, smoke, debris

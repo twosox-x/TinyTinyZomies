@@ -19,7 +19,7 @@ namespace ttz::game {
 // ---- ONE switch for the asset swap: false = placeholder props ("ph_*", MilitaryLibrary::addStructurePlaceholders),
 // true = the authored props of assets/military/structures.* (PENDING REVIEW in docs/ASSET_APPROVALS.md). Flip it when
 // the owner approves; a missing authored prop falls back to its placeholder either way.
-constexpr bool kStructureAssetsApproved = false;
+constexpr bool kStructureAssetsApproved = true;   // owner wants the reviewed models in game (2026-11-28)
 
 namespace {
 float fa(const std::vector<std::string>& a, size_t k, float def = 0.f) { return k < a.size() ? (float)std::atof(a[k].c_str()) : def; }
