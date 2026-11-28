@@ -160,6 +160,10 @@ void GameUI::selectAt(AppState& app, const GameContext& ctx, float x, float y, b
             if (d < best) { best = d; hit = s.id; }
         }
     }
+    if (!hit.valid() && !additive && !sel_.squads.empty()) {   // a click on an object with a default action (a tower: occupy)
+        V3 g;
+        if (pickGround(app, ctx, x, y, g) && hoverPrimary(app, ctx, out, g, x, y)) return;
+    }
     if (!hit.valid() && buildingClick && buildingClick(app, ctx, x, y)) return;   // B3a: building selected, squads kept
     if (hit.valid()) {
         if (additive && sel_.contains(hit)) c.squads.erase(std::remove(c.squads.begin(), c.squads.end(), hit), c.squads.end());
@@ -317,7 +321,9 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
                 if (tool_ != Tool::Select) { tool_ = Tool::Select; forced_ = false; }
                 else if (!sel_.squads.empty()) {
                     V3 p;
-                    if (pickGround(app, ctx, e.button.x, e.button.y, p)) {
+                    if (pickGround(app, ctx, e.button.x, e.button.y, p) && hoverPrimary(app, ctx, out, p, e.button.x, e.button.y)) {
+                        // RMB on an object with a default action (a tower: occupy), not a move order
+                    } else if (pickGround(app, ctx, e.button.x, e.button.y, p)) {
                         // several squads: side by side across the move direction, 9 m apart
                         V3 cen{};
                         int n = 0;

@@ -72,6 +72,9 @@ public:
     // Scripts / tests: click entry `k` of the world hover menu at a world point (the same providers / onClick as the
     // mouse path). Returns the entry label ("" = no menu / no such entry); `why` = the refusal when it is disabled.
     std::string clickHoverEntry(AppState& app, const GameContext& ctx, CommandQueue& out, V3 at, size_t k, std::string* why = nullptr);
+    // The hovered object's primary entry (UiHoverMenu::primary) for a click on the object itself: runs it, or notifies
+    // why it is refused. False when no provider owns an object with a primary entry there.
+    bool hoverPrimary(AppState& app, const GameContext& ctx, CommandQueue& out, V3 ground, float sx, float sy);
     void setCategory(UiCategory c) { tab_ = c; }
     UiCategory category() const { return tab_; }
     // A context action that needs a ground point: the next LMB on the ground calls fn (RMB / Esc cancel).

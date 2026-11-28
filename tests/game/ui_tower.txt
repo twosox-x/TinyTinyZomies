@@ -1,27 +1,32 @@
-# Owner round 15 #13: "select a squad, click the tower, 'Occupy tower', click: nothing happens". The real UI paths:
-# (a) the world hover menu over the tower (ui hoverclick = the entry's onClick), (b) the selection-panel button
-# "Occupy tower" + a click on the tower (targeting). The squads must walk to the ladder, climb and hold the deck posts.
+# Owner round 15 #13: "select a squad, click the tower, 'Occupy tower', click: nothing happens". The real UI paths
+# (never the internal 'occupy' verb): (a) the world hover menu entry over the tower (ui hoverclick = the entry's
+# onClick), (b) a right click on the tower itself (the tower's primary action), (c) the selection-panel button
+# "Occupy tower" + a click on the tower (targeting; a full tower is refused with a notice). A click on a refused entry /
+# button now says why instead of doing nothing. The squads walk to the ladder, climb and hold the deck posts.
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/ui_tower.txt
 at 0.0  cheat build 1                                  # DEBUG: instant construction (the tower itself is b5_tower.txt)
 at 0.1  camera -12 124 0.6 0.9 45
 at 0.2  structure tower -12 124 0
-at 0.3  buy rifle -6 130
 at 0.3  buy sniper -18 130
+at 0.3  buy rifle -6 130
 at 0.5  expect tower -12 124 built == 1
 at 22   expect squad 1 deploying == 0
 at 22   expect squad 2 deploying == 0
 at 22.1 select 1
-at 22.2 ui hoverclick -12 124 0                         # (a) hover menu "Occupy tower"
+at 22.2 ui hoverclick -12 124 0                         # (a) hover menu "Occupy tower" (sniper)
 at 23   expect refused == 0
-at 40   squadinfo 1
-at 40   expect on_tower >= 1
-at 40   expect tower_min_y > 4.8
-at 40.5 select 2
-at 40.6 ui action sel.tower.occupy                     # (b) selection button + click on the tower
-at 40.6 expect tool == 10
-at 40.7 click left -12 124
-at 40.8 expect tool == 0
-at 60   structures
-at 60   expect tower -12 124 occupants == 2
-at 60   shot ui_tower.png
-at 61   end
+at 23.1 select 2
+at 23.2 click right -12 124                            # (b) RMB on the tower: occupy, not a move order
+at 23.4 expect refused == 0
+at 45   structures
+at 45   expect on_tower == 2
+at 45   expect tower_min_y > 4.8
+at 45   expect tower -12 124 occupants == 2
+at 45   shot ui_tower.png
+at 45.5 select 2
+at 45.6 ui action sel.tower.occupy                     # (c) selection button + click on the tower: full -> refused
+at 45.6 expect tool == 10
+at 45.7 click left -12 124
+at 45.8 expect tool == 0
+at 45.9 expect refused == 1
+at 46   end

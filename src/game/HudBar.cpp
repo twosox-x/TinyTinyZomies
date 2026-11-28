@@ -1051,7 +1051,10 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             const ImVec2 ba(x, y), bb(x + w, y + abH);
             char id[64]; std::snprintf(id, sizeof(id), "##sa_%s", A.id.c_str());
             bool hov = false;
-            if (hit(id, ba, bb, &hov) && en && A.onSelect) A.onSelect(u);
+            if (hit(id, ba, bb, &hov)) {
+                if (en && A.onSelect) A.onSelect(u);
+                else if (!en) notify(A.label + ": " + (why.empty() ? std::string("unavailable") : why), true, now_);
+            }
             dl->AddRectFilled(ba, bb, act ? IM_COL32(86, 80, 44, 240) : hov ? IM_COL32(48, 52, 34, 240) : IM_COL32(32, 35, 24, 235), 3 * S);
             dl->AddRect(ba, bb, act ? kKhaki : withA(kEdge, hov ? 1.f : 0.6f), 3 * S, 0, 1.f);
             float tx = x + 7 * S;
@@ -1116,6 +1119,18 @@ void GameUI::drawPlacementBanner(AppState& app, const GameContext& ctx, CommandQ
 }
 
 // ---- world hover menu ---------------------------------------------------------------------------------------------
+bool GameUI::hoverPrimary(AppState& app, const GameContext& ctx, CommandQueue& out, V3 g, float sx, float sy) {
+    const UiCtx u{app, ctx, *this, out};
+    UiHoverMenu m;
+    for (auto& h : hover_) h.second(u, g, sx, sy, m);
+    if (m.primary < 0 || (size_t)m.primary >= m.entries.size()) return false;
+    const UiHoverEntry& e = m.entries[(size_t)m.primary];
+    const bool afford = e.cost < 0 || ctx.economy->canAfford(e.cost);
+    if (!e.enabled || !afford) notify(e.label + ": " + (!e.enabled ? e.why : std::string("not enough funding")), true, now_);
+    else if (e.onClick) e.onClick(u);
+    hoverOpen_ = false;
+    return true;
+}
 std::string GameUI::clickHoverEntry(AppState& app, const GameContext& ctx, CommandQueue& out, V3 at, size_t k, std::string* why) {
     const UiCtx u{app, ctx, *this, out};
     float sx = 0, sy = 0;
@@ -1180,7 +1195,11 @@ void GameUI::drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& 
             const ImVec2 ra(a.x + 3 * S, y), rb(c.x - 3 * S, y + rowH - 2 * S);
             char id[32]; std::snprintf(id, sizeof(id), "##hv%zu", k);
             bool hov = false;
-            if (hit(id, ra, rb, &hov) && en && e.onClick) { e.onClick(u); hoverOpen_ = false; }
+            if (hit(id, ra, rb, &hov)) {   // a refused entry says why (owner round 15 #13: "nothing happens")
+                if (en && e.onClick) e.onClick(u);
+                else if (!en) notify(e.label + ": " + (!e.enabled ? e.why : std::string("not enough funding")), true, now_);
+                hoverOpen_ = false;
+            }
             if (hov) dl->AddRectFilled(ra, rb, en ? IM_COL32(60, 62, 40, 240) : kBgHi, 3 * S);
             drawUiIcon(dl, e.icon, ra.x + 11 * S, y + rowH * 0.45f, 17 * S, en);
             text(dl, ra.x + 24 * S, y + 3 * S, en ? kSand : kFaint, 12.f, e.label.c_str());

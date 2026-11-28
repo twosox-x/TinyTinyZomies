@@ -12,7 +12,7 @@
 //          supplyedge N | supplyy N (supply point N: edge clearance / height)
 //          roofsteps roofreturns (AI edge steps / returns to the inset spot)
 //   roofzombies N X Z R                           spawn N walkers on the roof level at X Z (cells of that height within R)
-// metrics: fall_splats (zombies killed by a roof-edge fall)   zombies_above X Z R Y (horde field samples within R, y >= Y)
+// metrics: roof_jumps / stair_trips (soldier moves roof <-> street), fall_splats (zombies killed by a roof-edge fall)   zombies_above X Z R Y (horde field samples within R, y >= Y)
 #include "app/App.h"
 #include "game/Deploy.h"
 #include "game/GameScript.h"
@@ -206,6 +206,8 @@ bool roofMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
         err = "no supply point " + std::to_string(n);
         return true;
     }
+    if (m == "roof_jumps") { out = (double)w.ai().roofJumps(); return true; }
+    if (m == "stair_trips") { out = (double)w.ai().stairTrips(); return true; }
     if (m == "fall_splats") { out = w.app() ? (double)w.app()->sim.stats().fallSplats : 0.0; return true; }
     if (m == "zombies_above") {
         if (k + 4 > a.size() || !w.context().horde) { err = "zombies_above X Z R Y"; return true; }

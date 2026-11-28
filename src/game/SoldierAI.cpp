@@ -142,7 +142,7 @@ bool SoldierAI::levelMove(GameContext& ctx, uint32_t i, int r) {
     if (m.mode == 1 && r == 1) {    // at the hatch / door: through the building (2.2 s per storey + hatch / door)
         int floors = 1;
         V3 a, b;
-        if (stairRoute(ctx, P.pos[i].y > 2.f ? P.pos[i] : m.next, a, b, floors)) {}
+        (void)stairRoute(ctx, P.pos[i].y > 2.f ? P.pos[i] : m.next, a, b, floors);
         m.mode = 2;
         m.t = 2.5f + 2.2f * (float)floors;
         return true;

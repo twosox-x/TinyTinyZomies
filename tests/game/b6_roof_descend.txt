@@ -1,0 +1,26 @@
+# Owner round 15 (#4): units on roofs can go down: through the roof hatch + stairs if the roof has an access, else they
+# walk to the roof edge and parachute down (approved para_descent / land / recover + canopy, low-altitude pop). And
+# street -> roof through the door + stairs of a building with an access.
+#   A  sniper on the B3a test building (33 m roof, roof hatch, door at 27.8 110.2) ordered to the street: stairs
+#   B  sniper on the podium roof (16.7 m) ordered to the street: edge jump with parachute (or stairs if it has a hatch)
+#   C  rifle squad in the street ordered onto the test building's roof: in at the door, up the stairs, out of the hatch
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_roof_descend.txt
+at 0.0  camera -3 84 0.6 0.9 90
+at 0.1  buy sniper 24 93.2
+at 0.2  buy sniper -3 80
+at 0.3  buy rifle 20 118
+at 30   expect squad 1 rooftop + squad 2 rooftop == 2
+at 30   setammo 1 0 0
+at 30   setammo 2 0 0
+at 30   setammo 3 0 0
+at 30.1 move 1 20 114
+at 30.2 move 2 -8 70
+at 30.3 move 3 24 93.2
+at 36   shot b6_roof_jump.png
+at 90   log
+at 90   expect squad 1 y < 3
+at 90   expect squad 2 y < 3
+at 90   expect squad 3 y >= 30
+at 90   expect roof_jumps + stair_trips >= 3
+at 90   expect roof_jumps >= 1
+at 91   end

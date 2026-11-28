@@ -15,6 +15,7 @@
 #include <cstring>
 
 namespace ttz::game {
+float hudScale();   // HudBar.cpp
 
 // ---- ONE switch for the asset swap: false = placeholder props ("ph_*", MilitaryLibrary::addStructurePlaceholders),
 // true = the authored props of assets/military/structures.* (PENDING REVIEW in docs/ASSET_APPROVALS.md). Flip it when
@@ -184,7 +185,21 @@ void installStructures(GameWorld& w, AppState& app) {
     // hover over a tower with shooters selected: "Occupy"
     ui.registerHoverProvider("struct.tower", [&w](const UiCtx& u, V3 g, float, float, UiHoverMenu& m) {
         if (!hasShooters(u) || !u.ctx.cfg) return false;
-        const int t = w.structures().nearest(StructureKind::Tower, g.x, g.z, u.ctx.cfg->structures.towerHalf + 0.8f);
+        int t = w.structures().nearest(StructureKind::Tower, g.x, g.z, u.ctx.cfg->structures.towerHalf + 0.8f);
+        if (t < 0) {   // the cursor on the tower body / deck: the ground pick lands behind it, so test the screen column too
+            float best = 26.f * hudScale();
+            const auto& all = w.structures().all();
+            for (size_t k = 0; k < all.size(); ++k) {
+                if (all[k].kind != StructureKind::Tower || !all[k].alive) continue;
+                float bx, by, tx, ty;
+                if (!GameUI::worldToScreen(u.app, all[k].pos, bx, by) ||
+                    !GameUI::worldToScreen(u.app, all[k].pos + V3{0, u.ctx.cfg->structures.deckHeight + 1.2f, 0}, tx, ty)) continue;
+                const float dx = tx - bx, dy = ty - by, l2 = std::max(1.f, dx * dx + dy * dy);
+                const float s = std::clamp(((sx - bx) * dx + (sy - by) * dy) / l2, 0.f, 1.f);
+                const float ex = bx + dx * s - sx, ey = by + dy * s - sy, d = std::sqrt(ex * ex + ey * ey);
+                if (d < best) { best = d; t = (int)k; }
+            }
+        }
         if (t < 0) return false;
         const Structure& T = w.structures().all()[(size_t)t];
         if (!m.key) { m.title = "Defense tower"; m.anchor = {T.pos.x, T.pos.y + u.ctx.cfg->structures.deckHeight + 1.5f, T.pos.z}; m.key = 0x200000000ull | (uint64_t)t; }
@@ -194,6 +209,7 @@ void installStructures(GameWorld& w, AppState& app) {
         if (!e.enabled) e.why = T.solid() ? "full" : "not built yet";
         const V3 at = T.pos;
         e.onClick = [at](const UiCtx& v) { Command c; c.type = CommandType::OccupyTower; c.pos = at; c.squads = v.ui.selectionConst().squads; v.out.push(c); };
+        if (m.primary < 0) m.primary = (int)m.entries.size();   // LMB / RMB on the tower itself = occupy
         m.entries.push_back(e);
         return true;
     });

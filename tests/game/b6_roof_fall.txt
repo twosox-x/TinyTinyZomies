@@ -1,0 +1,15 @@
+# Owner round 15 (#5): "zombies should be able to fall off rooftops and smash into gore pudding". A dense crowd is put
+# on the podium roof (16.7 m, TEST HOOK roofzombies: level spawn); the crowd pushes some over the edge. A walker that
+# goes over a drop falls under gravity (ST_FALL, no walk-speed clamp) and dies on impact faster than ~10.5 m/s (a
+# fall of ~5.6 m): limbs off, blood spray + dust, a blood pool, a corpse in the corpse field (kill cause Other).
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_roof_fall.txt
+at 0.0  camera -3 80 0.6 0.9 70
+at 0.5  roofzombies 120 -3 80 4
+at 1.0  roofzombies 120 -3 80 4
+at 1.5  expect zombies_above -3 80 30 15 >= 20  # they stand on the roof level
+at 25   log
+at 25   expect fall_splats >= 1
+at 25   expect kills_other >= 1
+at 25   expect corpses_window >= 1
+at 25.1 shot b6_roof_fall.png
+at 26   end

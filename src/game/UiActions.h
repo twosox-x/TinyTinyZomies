@@ -106,6 +106,8 @@ struct UiHoverMenu {
     V3 anchor;                                    // world point the menu is attached to
     std::vector<UiHoverEntry> entries;
     uint64_t key = 0;                             // identity of the hovered object (keeps the menu stable)
+    int primary = -1;                             // entry run by a left / right click on the object itself (RTS default
+                                                  // action, e.g. "Occupy tower"); -1 = none (plain select / move)
 };
 using UiHoverProvider = std::function<bool(const UiCtx&, V3 ground, float sx, float sy, UiHoverMenu& out)>;
 
