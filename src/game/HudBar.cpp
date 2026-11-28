@@ -1451,10 +1451,10 @@ void GameUI::drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& 
     // title; entries = a row of 32 pt tokens (key badge on the token, gold cost under it); names / reasons in tooltips
     const float pad = 8 * S, titleH = 22 * S, slot = 42 * S, tokPt = 32.f, rowH = 54 * S, ptr = 7 * S;
     const size_t n = hoverMenu_.entries.size();
-    const UiHoverEntry* headE = hoverMenu_.primary >= 0 && (size_t)hoverMenu_.primary < n ? &hoverMenu_.entries[(size_t)hoverMenu_.primary] : &hoverMenu_.entries[0];
-    const float titleW = 18 * S + 6 * S + tsize(12.f, hoverMenu_.title.c_str()).x;
+    const UiHoverEntry* headE = hoverMenu_.primary >= 0 && (size_t)hoverMenu_.primary < n ? &hoverMenu_.entries[(size_t)hoverMenu_.primary] : n ? &hoverMenu_.entries[0] : nullptr;   // info-only cards have no entries
+    const float titleW = 18 * S + 6 * S + tsize(12.f, hoverMenu_.title.c_str()).x * 1.12f + 6 * S;   // bold title is wider than tsize
     const float w = std::min(io.DisplaySize.x - 12 * S, std::max(titleW, slot * (float)n) + 2 * pad);
-    const float h = titleH + rowH + pad * 0.5f;
+    const float h = titleH + (n ? rowH : 2 * S) + pad * 0.5f;   // info-only cards: title row only
     sp = ImVec2(ax - w * 0.5f, ay - ptr - 6 * S - h);
     sp.x = std::clamp(sp.x, 6 * S, std::max(6 * S, io.DisplaySize.x - w - 6 * S));
     sp.y = std::clamp(sp.y, layout_.topBarBottom + 4 * S, std::max(layout_.topBarBottom + 4 * S, layout_.barY0 - h - 6 * S));
@@ -1473,9 +1473,11 @@ void GameUI::drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& 
         bg->AddCircleFilled(ImVec2(ax, ay), 2.5f * S, kSand, 8);
         panel(dl, a, c, 1.f, 6.f);
         // title row
-        const char* hic = hs::iconName(headE->icon);
+        const std::string& ti = hoverMenu_.title;
+        const char* hic = headE ? hs::iconName(headE->icon) : ti.rfind("Defense", 0) == 0 ? "tower" : ti.rfind("Generator", 0) == 0 ? "generator" :
+                          ti.rfind("Floodlight", 0) == 0 ? "light" : ti.rfind("Fuel", 0) == 0 ? "fuel" : "info";
         const ImVec2 ic(a.x + pad + 9 * S, a.y + titleH * 0.5f + 2 * S);
-        if (!hic || !hs::icon(dl, hic, ic, 16 * S, kSand, true)) drawUiIcon(dl, headE->icon, ic.x, ic.y, 16 * S, true);
+        if ((!hic || !hs::icon(dl, hic, ic, 16 * S, kSand, true)) && headE) drawUiIcon(dl, headE->icon, ic.x, ic.y, 16 * S, true);
         const std::string ttl = fit(12.f, hoverMenu_.title, c.x - pad - (ic.x + 15 * S));
         text(dl, ic.x + 15 * S, ic.y - tsize(12.f, ttl.c_str()).y * 0.5f, kSand, 12.f, ttl.c_str());
         // entries
