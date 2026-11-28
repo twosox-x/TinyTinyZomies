@@ -738,7 +738,10 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
                 }
                 px += 14 * S;
             }
-            text(dl, px, a.y + (h - 14 * S) * 0.5f, s.vcol, 14.f, s.value.c_str());
+            {   // v2 juice: the funds value bumps (scale + flash) when it changes
+                const float bump = k == 0 ? flash * flash : 0.f, vpx = 14.f * (1.f + 0.28f * bump);
+                text(dl, px, a.y + (h - vpx * S) * 0.5f, s.vcol, vpx, s.value.c_str());
+            }
             px += tsize(14.f, s.value.c_str()).x;
             if (extras && !s.extra.empty()) {
                 px += 4 * S;
