@@ -140,6 +140,7 @@ add_executable(ttz
   src/game/Fortify.cpp
   src/game/FortUI.cpp
   src/game/HudBar.cpp
+  src/game/HudStyle.cpp
   src/game/StructuresGame.cpp
   src/game/Structures.cpp
   src/game/FuelLogistics.cpp

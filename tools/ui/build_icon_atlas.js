@@ -2,7 +2,7 @@
 // White silhouettes on transparent, CELL px per icon, COLS per row; the HUD tints them at draw time.
 // Usage (needs Node + Playwright with Chromium): node tools/ui/build_icon_atlas.js
 const fs = require('fs'), path = require('path'), { chromium } = require('playwright');
-const CELL = 64, PAD = 2, COLS = 16;
+const CELL = 96, PAD = 3, COLS = 16;
 const root = path.resolve(__dirname, '../..');
 const src = fs.readFileSync(path.join(root, 'docs/ui_preview/icons.js'), 'utf8');
 const GI = JSON.parse(src.slice(src.indexOf('window.GI=') + 10).trim().replace(/;$/, ''));
