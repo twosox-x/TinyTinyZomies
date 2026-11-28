@@ -386,7 +386,10 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
         if (outside) { fail("outside the simulated area"); continue; }
         // a building / water / step blocks; a thin pole, bollard or tree in the line does not (the wall swallows it)
         int high = 0, tall = 0;
-        const float ref = std::min(gmin, env.streetY + 0.3f);
+        // owner round 15 (#6, roofs are ground): a run whose whole footprint stands on one flat roof level is built on
+        // that roof (reference = the roof); one that hangs over the roof edge / spans two levels is refused below
+        const bool roofRun = gmin < 1e8f && gmin - env.streetY > kBuildingRise && gmax - gmin <= 0.6f;
+        const float ref = roofRun ? gmin : std::min(gmin, env.streetY + 0.3f);
         for (float g : gs) { high += g - ref > 0.6f ? 1 : 0; tall += g - ref > kBuildingRise ? 1 : 0; }
         if (high > 0 && (float)high > 0.2f * (float)gs.size()) { fail(tall * 2 >= high ? "a building or water is in the way" : "kerb or step too high"); continue; }
         if (vehicle) { fail("a vehicle is in the way (engineers can clear it)"); continue; }

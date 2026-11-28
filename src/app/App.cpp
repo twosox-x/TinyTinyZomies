@@ -336,7 +336,10 @@ void App::loadShowcase(int which) {
 
 void App::handleEvent(const SDL_Event& e) {
     if (s_.window) ImGui_ImplSDL3_ProcessEvent(&e);
-    bool uiMouse = s_.window && ImGui::GetIO().WantCaptureMouse;
+    // the HUD only swallows mouse events: keys (1-7, Esc, Tab ...) reach the game even with the cursor over a panel
+    const bool mouseEv = e.type == SDL_EVENT_MOUSE_BUTTON_DOWN || e.type == SDL_EVENT_MOUSE_BUTTON_UP || e.type == SDL_EVENT_MOUSE_MOTION ||
+                         e.type == SDL_EVENT_MOUSE_WHEEL;
+    bool uiMouse = s_.window && mouseEv && ImGui::GetIO().WantCaptureMouse;
     bool uiKeys = s_.window && ImGui::GetIO().WantCaptureKeyboard;
     if (s_.game && !uiMouse && s_.game->handleEvent(s_, e)) return;   // gameplay input first (selection, orders, tools)
     switch (e.type) {
@@ -344,7 +347,7 @@ void App::handleEvent(const SDL_Event& e) {
     case SDL_EVENT_KEY_DOWN:
         if (uiKeys) break;
         switch (e.key.key) {
-        case SDLK_ESCAPE: s_.quit = true; break;
+        case SDLK_ESCAPE: if (!s_.game) s_.quit = true; break;   // --game: Esc opens the pause menu (GameUI), never quits
         case SDLK_SPACE: s_.paused = !s_.paused; break;
         case SDLK_R: s_.resetRequested = true; break;
         case SDLK_F1: s_.showUI = !s_.showUI; break;

@@ -237,7 +237,7 @@ void installStructureHover(GameWorld& w) {
         s.onClick = [at](const UiCtx& x) { Command c; c.type = CommandType::SiphonCar; c.pos = at; x.out.push(c); };
         m.entries.push_back(s);
         UiHoverEntry d;
-        d.label = litres > 0.f ? "Disassemble (+ fuel)" : "Disassemble"; d.icon = UiIcon::Disassemble; d.hotkeyLabel = "K"; d.cost = u.ctx.cfg->engineer.carPrice;
+        d.label = litres > 0.f ? "Disassemble (+ fuel)" : "Disassemble"; d.icon = UiIcon::Disassemble; d.cost = u.ctx.cfg->engineer.carPrice;
         d.enabled = !(u.ctx.engineers && u.ctx.engineers->carOrdered(v)) && inRange;
         d.why = !inRange ? "outside engineer range" : "already being cleared";
         d.onClick = [at](const UiCtx& x) { Command c; c.type = CommandType::ClearCar; c.pos = at; x.out.push(c); };

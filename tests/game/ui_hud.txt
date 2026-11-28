@@ -1,21 +1,31 @@
 # HUD 2 (GAME_DESIGN 14e UI, docs/GAMEPLAY_ARCHITECTURE.md 13): command-bar categories and cards through the registration
 # API, hotkeys switching the tab, selection panel (single / multi squad), context actions, placement banner, hover
-# menu, captures. Scripts use verbs, never UI pixel coordinates. Run at several sizes (captures ui2_*.png):
+# menu, captures. Keys (owner round 15 #11): 1-7 = cards of the active tab, Tab / Shift+Tab = tabs. Scripts use verbs, never UI pixel coordinates. Run at several sizes (captures ui2_*.png):
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/ui_hud.txt [--width W --height H --ui-scale F]
 at 0.0  camera -14 120 0.6 0.9 70
 at 0.1  expect ui_actions >= 13                # 5 units, 2 supplies, 3 structures, 2 engineering, 1 vehicles (+ features)
 at 0.1  expect ui_tab == 0
-at 0.2  key n                                  # wall hotkey: tool + the Structures tab
+at 0.15 key 9                                  # empty slot: nothing (never the sandbox tools)
+at 0.15 expect tool == 0
+at 0.2  key tab                                # Tab: next tab (Structures); 1 = its first card (wall)
+at 0.2  expect ui_tab == 1
+at 0.2  key 1
 at 0.2  expect tool == 6
 at 0.2  expect ui_tab == 1
 at 0.3  key esc
-at 0.3  key v                                  # container: Supplies tab
+at 0.3  key tab                                # Supplies: 1 = ammo container
+at 0.3  key 1
 at 0.3  expect ui_tab == 2
 at 0.3  expect tool == 4
 at 0.4  key esc
-at 0.4  key k                                  # clear car: Engineering tab
+at 0.4  key tab                                # Engineering: 1 = clear car
+at 0.4  key 1
 at 0.4  expect ui_tab == 3
+at 0.4  expect tool == 9
 at 0.5  key esc
+at 0.5  key tab
+at 0.5  key tab                                # Vehicles -> wraps to Units
+at 0.5  expect ui_tab == 0
 at 0.5  ui action unit.mg                      # a card click (verb): MG tool, Units tab
 at 0.5  expect tool == 2
 at 0.5  expect ui_tab == 0

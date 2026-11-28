@@ -32,6 +32,17 @@ const ImU32 kBg = IM_COL32(20, 23, 16, 212), kBgHi = IM_COL32(34, 38, 26, 232), 
             kAmber = IM_COL32(232, 178, 64, 255), kBlue = IM_COL32(96, 160, 220, 255), kShadow = IM_COL32(0, 0, 0, 140),
             kInk = IM_COL32(14, 16, 10, 255);
 constexpr float kPi = 3.14159265f;
+// HUD sizes in one place (unscaled px; multiplied by the UI scale S). Panels have FIXED sizes (owner round 15 #2):
+// content scrolls / truncates inside, the panels never grow or shrink with what they show.
+namespace hudsz {
+constexpr float cardW = 84, cardH = 70, cardGap = 5;
+constexpr int barCards = 7;                        // command bar width = 7 card slots (keys 1-7)
+constexpr float selW = 372;                        // selection panel width
+constexpr int selRows = 8;                         // member rows (single squad) in the fixed list area
+constexpr int selSumRows = 6;                      // squad summary rows (multi selection), last one "+ N more"
+constexpr int selActRows = 2;                      // action button rows (compact icon buttons when more are needed)
+constexpr float noticeW = 330;                     // notification rows
+}
 
 float S = 1.f;          // UI scale of this frame
 ImFont* F = nullptr;    // HUD font (vector default when the App added it, else the current font)
@@ -361,21 +372,79 @@ void GameUI::notifyAt(const std::string& text, bool bad, double time, V3 pos) {
     notices_.back().pos = pos;
 }
 
+// Owner round 15 #11 key scheme: 1-7 (up to 9) = the cards of the active tab in order (the number is drawn on each card),
+// Tab / Shift+Tab = next / previous tab. Letter hotkeys of cards are gone (UiAction::hotkey is not bound any more).
+const UiAction* GameUI::cardForDigit(int n) const {
+    int k = 0;
+    for (const UiAction& a : actions_) {
+        if (a.category != tab_ || a.comingLater) continue;
+        if (k++ == n) return &a;
+    }
+    return nullptr;
+}
+int GameUI::digitOf(const UiAction& x) const {
+    int k = 0;
+    for (const UiAction& a : actions_) {
+        if (a.category != tab_ || a.comingLater) continue;
+        if (&a == &x) return k < 9 ? k + 1 : 0;
+        ++k;
+    }
+    return 0;
+}
 bool GameUI::actionHotkey(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out) {
     if (e.type != SDL_EVENT_KEY_DOWN || e.key.repeat) return false;
     if (e.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) return false;
     if (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) return false;
+    const SDL_Keycode key = e.key.key;
+    if (key == SDLK_TAB) {
+        const int nCat = (int)UiCategory::Count;
+        const bool back = ((e.key.mod | SDL_GetModState()) & SDL_KMOD_SHIFT) != 0;
+        tab_ = (UiCategory)(((int)tab_ + (back ? nCat - 1 : 1)) % nCat);
+        tabAnim_ = 0.f; barScroll_ = barScrollGoal_ = 0.f;
+        return true;
+    }
+    if (key < SDLK_1 || key > SDLK_9) return false;
     const UiCtx u{app, ctx, *this, out};
-    for (const UiAction& a : actions_) {
-        if (a.hotkey != (int)e.key.key || a.comingLater || !a.onSelect) continue;
+    if (const UiAction* p = cardForDigit((int)(key - SDLK_1))) {
+        const UiAction& a = *p;
+        if (!a.onSelect) return true;
         std::string why;
         if (a.enabled && !a.enabled(u, &why)) { notify(a.label + ": " + (why.empty() ? std::string("unavailable") : why), true, now_); return true; }
         if (tab_ != a.category) { tab_ = a.category; tabAnim_ = 0.f; barScroll_ = barScrollGoal_ = 0.f; }
         revealId_ = a.id;
         a.onSelect(u);
-        return true;
     }
-    return false;
+    return true;   // an empty slot does nothing (never the sandbox tools)
+}
+
+// ---- pause menu (Esc with nothing to cancel; Esc never quits directly) --------------------------------------------
+void GameUI::drawPauseMenu(AppState& app) {
+    if (!pauseMenu_) return;
+    if (!app.paused) { pauseMenu_ = false; return; }   // unpaused elsewhere (Space)
+    const ImGuiIO& io = ImGui::GetIO();
+    const float w = 220 * S, h = 118 * S;
+    const ImVec2 a((io.DisplaySize.x - w) * 0.5f, (io.DisplaySize.y - h) * 0.5f), c(a.x + w, a.y + h);
+    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 90));
+    if (beginPane("##hud_pause", a, c)) {
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        panel(dl, a, c);
+        const ImVec2 ts = tsize(14.f, "PAUSED");
+        text(dl, a.x + (w - ts.x) * 0.5f, a.y + 10 * S, kSand, 14.f, "PAUSED");
+        const char* labels[2] = {"Resume  (Esc)", "Quit game"};
+        for (int k = 0; k < 2; ++k) {
+            const ImVec2 ba(a.x + 16 * S, a.y + 36 * S + k * 38 * S), bb(c.x - 16 * S, ba.y + 30 * S);
+            bool hov = false;
+            if (hit(k ? "##quit" : "##resume", ba, bb, &hov)) {
+                if (k) app.quit = true;
+                else { pauseMenu_ = false; app.paused = false; }
+            }
+            dl->AddRectFilled(ba, bb, hov ? kBgHi : kBg, 3 * S);
+            dl->AddRect(ba, bb, withA(kEdge, hov ? 1.f : 0.6f), 3 * S);
+            const ImVec2 ls = tsize(12.5f, labels[k]);
+            text(dl, ba.x + (bb.x - ba.x - ls.x) * 0.5f, ba.y + (30 * S - ls.y) * 0.5f, k ? kBad : kSand, 12.5f, labels[k]);
+        }
+    }
+    ImGui::End();
 }
 
 // ---- built-in actions (the B1 purchase cards; FortUI registers walls / gate / engineering) ------------------------
@@ -506,7 +575,7 @@ void GameUI::registerBuiltinActions() {
             m.key = 0x100000000ull | v;
         }
         UiHoverEntry e;
-        e.label = "Clear (tow away)"; e.icon = UiIcon::ClearCar; e.hotkeyLabel = "K"; e.cost = u.ctx.cfg->engineer.carPrice;
+        e.label = "Clear (tow away)"; e.icon = UiIcon::ClearCar; e.cost = u.ctx.cfg->engineer.carPrice;
         e.enabled = !(u.ctx.engineers && u.ctx.engineers->carOrdered(v));
         if (!e.enabled) e.why = "already being cleared";
         else if (u.ctx.engineers && !u.ctx.engineers->inRange(u.ctx, m.anchor.x, m.anchor.z)) { e.enabled = false; e.why = "outside engineer range"; }
@@ -668,7 +737,7 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
 void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
     const ImGuiIO& io = ImGui::GetIO();
     const float W = io.DisplaySize.x;
-    const float life = 7.f, rowH = 20 * S, w = std::min(330 * S, W * 0.42f);
+    const float life = 7.f, rowH = 20 * S, w = std::min(hudsz::noticeW * S, W * 0.42f);
     std::vector<const UiNotice*> live;
     for (auto it = notices_.rbegin(); it != notices_.rend() && live.size() < 6; ++it) {
         const float age = (float)(now_ - it->time);
@@ -687,8 +756,8 @@ void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
                 const float slide = app.window ? std::clamp(1.f - age / 0.25f, 0.f, 1.f) : 0.f;
                 std::string t = n->text;
                 if (n->repeat > 1) t += "  x" + std::to_string(n->repeat);
-                const float tw = std::min(w - 26 * S, tsize(12.5f, t.c_str()).x);
-                const float rx1 = x1 + slide * 40 * S, rx0 = rx1 - tw - 24 * S;
+                const float tw = w - 26 * S;   // fixed row width: long text is cut, short text leaves the row as is
+                const float rx1 = x1 + slide * 40 * S, rx0 = rx1 - w;
                 const ImVec2 ra(rx0, y), rb(rx1, y + rowH);
                 char id[16]; std::snprintf(id, sizeof(id), "##n%d", k);
                 bool hov = false;
@@ -734,7 +803,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
     const float W = io.DisplaySize.x, H = io.DisplaySize.y;
     const UiCtx u{app, ctx, *this, out};
     const int nCat = (int)UiCategory::Count;
-    const float cardW = 84 * S, cardH = 70 * S, gap = 5 * S, pad = 6 * S, tabH = 22 * S, arrowW = 16 * S, margin = 8 * S;
+    const float cardW = hudsz::cardW * S, cardH = hudsz::cardH * S, gap = hudsz::cardGap * S, pad = 6 * S, tabH = 22 * S, arrowW = 16 * S, margin = 8 * S;
     // tabs
     float tabW[8] = {}, tabsW = 0;
     int counts[8] = {};
@@ -745,9 +814,9 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
     const int n = (int)cards.size();
     const float cardsW = n * cardW + std::max(0, n - 1) * gap;
     const float maxW = W - 2 * margin;
-    // width: the tab strip or the cards, whichever is wider, bounded by the window; a floor so tabs never squash
-    const float minW = std::min(maxW, std::max(tabsW + 2 * pad, 5 * cardW + 4 * gap + 2 * pad));
-    float barW = std::clamp(std::max(tabsW + 2 * pad, cardsW + 2 * pad), minW, maxW);
+    // fixed width (owner round 15 #2): room for hudsz::barCards cards whatever the tab holds, bounded by the window;
+    // more cards scroll inside (arrows / wheel), fewer leave the slots empty. Never resizes with the content.
+    const float barW = std::min(maxW, std::max(tabsW + 2 * pad, hudsz::barCards * cardW + (hudsz::barCards - 1) * gap + 2 * pad));
     const bool tabsFit = tabsW + 2 * pad <= barW;
     const float barH = tabH + cardH + 2 * pad;
     const ImVec2 a((W - barW) * 0.5f, H - margin - barH), c(a.x + barW, H - margin);
@@ -818,8 +887,8 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
         }
         dl->PushClipRect(ImVec2(viewX0, cy0 - 3 * S), ImVec2(viewX1, cy0 + cardH + 2 * S), true);
         const float fade = tabAnim_, lift = (1.f - tabAnim_) * 8 * S;
-        // centred when they fit
-        const float startX = scroll ? viewX0 - barScroll_ : viewX0 + std::max(0.f, ((viewX1 - viewX0) - cardsW) * 0.5f);
+        // left-aligned (slot k = number key k+1), scrolled when they do not fit
+        const float startX = viewX0 - (scroll ? barScroll_ : 0.f);
         for (int k = 0; k < n; ++k) {
             const UiAction& A = *cards[(size_t)k];
             const float x = startX + k * (cardW + gap);
@@ -855,18 +924,20 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             const std::string nm = fit(npx, A.label, cardW - 6 * S);
             const ImVec2 ns = tsize(npx, nm.c_str());
             text(dl, x + (cardW - ns.x) * 0.5f, p0.y + 6 * S + iconBox + (11.5f - npx) * S, withA(A.comingLater ? kFaint : en || !afford ? kSand : kDim, fade), npx, nm.c_str());
-            // cost (left) / hotkey badge (right)
+            // cost (left) / number key badge (right)
             const float by = p1.y - 15 * S;
+            const int dg = digitOf(A);
+            const std::string keyLab = dg ? std::to_string(dg) : std::string();
             if (A.comingLater) text(dl, x + 6 * S, by, withA(kFaint, fade), 10.5f, "coming later");
             else if (cost >= 0) {
                 const std::string cs = money(cost) + A.costSuffix;
                 text(dl, x + 6 * S, by, withA(afford ? kKhaki : kBad, fade), 11.f, fit(11.f, cs, cardW - 28 * S).c_str());
             }
-            if (!A.hotkeyLabel.empty() && !A.comingLater) {
-                const ImVec2 hs = tsize(10.5f, A.hotkeyLabel.c_str());
+            if (!keyLab.empty() && !A.comingLater) {
+                const ImVec2 hs = tsize(10.5f, keyLab.c_str());
                 const ImVec2 ha(x + cardW - 6 * S - hs.x - 6 * S, by - S), hb(x + cardW - 5 * S, by + hs.y + S);
                 dl->AddRectFilled(ha, hb, withA(IM_COL32(60, 64, 44, 255), fade), 2 * S);
-                text(dl, ha.x + 3 * S, by, withA(kSand, fade), 10.5f, A.hotkeyLabel.c_str());
+                text(dl, ha.x + 3 * S, by, withA(kSand, fade), 10.5f, keyLab.c_str());
             }
             if (!en && !A.comingLater && afford) dl->AddRectFilled(p0, p1, withA(IM_COL32(10, 10, 8, 90), fade), 4 * S);   // unavailable veil
             if ((hov || tipForced) && (fade > 0.5f)) {
@@ -875,10 +946,13 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
                 ImGui::PushFont(F, 14.f);
                 ImGui::TextColored(v4(kSand), "%s", A.label.c_str());
                 ImGui::PopFont();
-                if (cost >= 0 || !A.hotkeyLabel.empty()) {
+                if (cost >= 0 || !keyLab.empty()) {
+                    // custom combos a feature handles itself ("Ctrl+Z") are listed next to the number key
+                    std::string keys = keyLab;
+                    if (A.hotkeyLabel.find('+') != std::string::npos) keys += (keys.empty() ? "" : " / ") + A.hotkeyLabel;
                     ImGui::SameLine();
-                    ImGui::TextColored(v4(kKhaki), "%s%s%s%s", cost >= 0 ? money(cost).c_str() : "", A.costSuffix.c_str(), A.hotkeyLabel.empty() ? "" : "   [",
-                                       A.hotkeyLabel.empty() ? "" : (A.hotkeyLabel + "]").c_str());
+                    ImGui::TextColored(v4(kKhaki), "%s%s%s%s", cost >= 0 ? money(cost).c_str() : "", A.costSuffix.c_str(), keys.empty() ? "" : "   [",
+                                       keys.empty() ? "" : (keys + "]").c_str());
                 }
                 if (A.tooltip) { const std::string t = A.tooltip(u); ImGui::PushStyleColor(ImGuiCol_Text, v4(kDim)); ImGui::TextUnformatted(t.c_str()); ImGui::PopStyleColor(); }
                 if (!why.empty() && !A.comingLater) ImGui::TextColored(v4(kBad), "%s", why.c_str());
@@ -894,7 +968,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
 void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& out) {
     const ImGuiIO& io = ImGui::GetIO();
     const float W = io.DisplaySize.x, H = io.DisplaySize.y;
-    const float pw = std::min(372 * S, W - 20 * S), px = 10 * S;
+    const float pw = std::min(hudsz::selW * S, W - 20 * S), px = 10 * S;
     // beside the bar when the left column is clear of it, else stacked above it
     const bool beside = px + pw + 8 * S < layout_.barX0;
     const float bottom = beside ? H - 8 * S : layout_.barY0 - 8 * S;
@@ -916,16 +990,25 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
     // action buttons flow into rows
     const float abH = actH, abGap = 4 * S;
     std::vector<float> abW;
-    for (const UiSelectionAction* a : acts) abW.push_back((a->icon != UiIcon::None ? 18 * S : 0) + tsize(11.5f, a->label.c_str()).x + 14 * S +
-                                                             (a->hotkeyLabel.empty() ? 0 : tsize(10.f, a->hotkeyLabel.c_str()).x + 8 * S));
-    int actRows = acts.empty() ? 0 : 1;
-    { float x = 0; for (float w : abW) { if (x > 0 && x + w > pw - 2 * pad) { ++actRows; x = 0; } x += w + abGap; } }
-    const size_t maxSum = 8;
-    const size_t shown = detail ? 1 : std::min(sq.size(), maxSum);
-    float h = pad + headH;
-    if (detail) h += rowH * (float)sq[0]->members.size() + 4 * S;
-    else h += sumH * (float)shown + (sq.size() > shown ? 16 * S : 0);
-    h += actRows * (abH + abGap) + pad;
+    auto layoutRows = [&](bool compact) {
+        abW.clear();
+        for (const UiSelectionAction* a : acts)
+            abW.push_back(compact ? (a->icon != UiIcon::None ? 26 * S : tsize(11.5f, a->label.c_str()).x + 14 * S)
+                                  : (a->icon != UiIcon::None ? 18 * S : 0) + tsize(11.5f, a->label.c_str()).x + 14 * S +
+                                        (a->hotkeyLabel.empty() ? 0 : tsize(10.f, a->hotkeyLabel.c_str()).x + 8 * S));
+        int rows = acts.empty() ? 0 : 1;
+        float x = 0;
+        for (float w : abW) { if (x > 0 && x + w > pw - 2 * pad) { ++rows; x = 0; } x += w + abGap; }
+        return rows;
+    };
+    // fixed size (owner round 15 #2): header + a list area of hudsz::selRows member rows (multi: selSumRows summary rows)
+    // + hudsz::selActRows rows of buttons; more buttons than fit -> compact icon buttons (label in the tooltip)
+    const bool compactActs = layoutRows(false) > hudsz::selActRows;
+    if (compactActs) layoutRows(true);
+    const float listH = std::max(rowH * hudsz::selRows, sumH * hudsz::selSumRows) + 4 * S;
+    const size_t maxSum = (size_t)hudsz::selSumRows;
+    const size_t shown = detail ? 1 : sq.size() > maxSum ? maxSum - 1 : sq.size();
+    const float h = pad + headH + listH + hudsz::selActRows * (abH + abGap) + pad;
     const float slide = (1.f - panelAnim_) * -30 * S;
     const ImVec2 a(px + slide, bottom - h), c(px + pw + slide, bottom);
     layout_.panelBottom = a.y - 6 * S;
@@ -975,6 +1058,13 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             y += headH + 4 * S;
             // column headers are implicit: name | health (stamina under it) | ammo | rounds + state
             const float nameW = 62 * S, bw = std::max(40 * S, (pw - 2 * pad - nameW - 120 * S) * 0.5f);
+            const float listY0 = y, listY1 = y + listH - 4 * S;
+            const float maxScroll = std::max(0.f, rowH * (float)s.members.size() - (listY1 - listY0));
+            if (maxScroll > 0.f && ImGui::IsMouseHoveringRect(ImVec2(a.x, listY0), ImVec2(c.x, listY1)) && io.MouseWheel != 0.f)
+                selScroll_ -= io.MouseWheel * rowH;
+            selScroll_ = std::clamp(selScroll_, 0.f, maxScroll);
+            y -= selScroll_;
+            dl->PushClipRect(ImVec2(a.x, listY0), ImVec2(c.x, listY1), true);
             for (const SoldierId& m : s.members) {
                 if (!P.valid(m)) { y += rowH; continue; }
                 const uint32_t i = m.index;
@@ -984,7 +1074,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
                 const int full = cfg.weapon[k].magazine + cfg.weapon[k].reserve;
                 const float am = std::clamp((float)(P.mag[i] + P.reserve[i]) / (float)std::max(1, full), 0.f, 1.f);
                 const float x0 = a.x + pad;
-                text(dl, x0, y, dead ? kBad : kDim, 11.f, fit(11.f, className(P.cls[i]), nameW - 4 * S).c_str());
+                text(dl, x0, y, dead ? kBad : kDim, 11.f, fit(11.f, s.type == SquadType::Engineer ? "engineer" : className(P.cls[i]), nameW - 4 * S).c_str());
                 const float bx = x0 + nameW, byy = y + 4 * S;
                 bar(dl, bx, byy, bw, 5 * S, hp, hp > 0.5f ? kOk : hp > 0.25f ? kAmber : kBad);
                 if (!dead) {
@@ -1000,7 +1090,13 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
                 text(dl, tx0, y, dead ? kBad : kDim, 10.5f, fit(10.5f, tx, c.x - pad - tx0).c_str());
                 y += rowH;
             }
-            y += 4 * S;
+            dl->PopClipRect();
+            if (maxScroll > 0.f) {   // scroll indicator
+                const float th = (listY1 - listY0) * (listY1 - listY0) / (listY1 - listY0 + maxScroll);
+                const float ty = listY0 + (listY1 - listY0 - th) * (selScroll_ / maxScroll);
+                dl->AddRectFilled(ImVec2(c.x - 4 * S, ty), ImVec2(c.x - 2 * S, ty + th), kFaint, S);
+            }
+            y = listY0 + listH;
         } else {
             char t[64];
             int alive = 0, total = 0;
@@ -1037,7 +1133,8 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
                 pill(dl, rb.x, y + S, st, sc);
                 y += sumH;
             }
-            if (sq.size() > shown) { std::snprintf(t, sizeof(t), "+ %d more", (int)(sq.size() - shown)); text(dl, a.x + pad, y, kFaint, 10.5f, t); y += 16 * S; }
+            if (sq.size() > shown) { std::snprintf(t, sizeof(t), "+ %d more (click a squad to select it alone)", (int)(sq.size() - shown)); text(dl, a.x + pad, y + 3 * S, kFaint, 10.5f, t); }
+            y = a.y + pad + headH + listH;
         }
         // ---- orders / context actions
         float x = a.x + pad;
@@ -1058,12 +1155,16 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             dl->AddRectFilled(ba, bb, act ? IM_COL32(86, 80, 44, 240) : hov ? IM_COL32(48, 52, 34, 240) : IM_COL32(32, 35, 24, 235), 3 * S);
             dl->AddRect(ba, bb, act ? kKhaki : withA(kEdge, hov ? 1.f : 0.6f), 3 * S, 0, 1.f);
             float tx = x + 7 * S;
-            if (A.icon != UiIcon::None) { drawUiIcon(dl, A.icon, tx + 7 * S, y + abH * 0.5f, 15 * S, en); tx += 18 * S; }
-            text(dl, tx, y + (abH - 11.5f * S) * 0.5f, en ? kSand : kFaint, 11.5f, A.label.c_str());
-            tx += tsize(11.5f, A.label.c_str()).x + 5 * S;
-            if (!A.hotkeyLabel.empty()) text(dl, tx, y + (abH - 10 * S) * 0.5f + S, kFaint, 10.f, A.hotkeyLabel.c_str());
-            if (hov && (A.tooltip || !why.empty())) {
+            const bool iconOnly = compactActs && A.icon != UiIcon::None;
+            if (A.icon != UiIcon::None) { drawUiIcon(dl, A.icon, iconOnly ? x + w * 0.5f : tx + 7 * S, y + abH * 0.5f, 15 * S, en); tx += 18 * S; }
+            if (!iconOnly) {
+                text(dl, tx, y + (abH - 11.5f * S) * 0.5f, en ? kSand : kFaint, 11.5f, A.label.c_str());
+                tx += tsize(11.5f, A.label.c_str()).x + 5 * S;
+                if (!compactActs && !A.hotkeyLabel.empty()) text(dl, tx, y + (abH - 10 * S) * 0.5f + S, kFaint, 10.f, A.hotkeyLabel.c_str());
+            }
+            if (hov && (A.tooltip || !why.empty() || iconOnly)) {
                 tipBegin();
+                if (iconOnly) ImGui::TextColored(v4(kSand), "%s%s%s", A.label.c_str(), A.hotkeyLabel.empty() ? "" : "  ", A.hotkeyLabel.c_str());
                 if (A.tooltip) ImGui::TextUnformatted(A.tooltip(u).c_str());
                 if (!why.empty()) ImGui::TextColored(v4(kBad), "%s", why.c_str());
                 tipEnd();

@@ -8,10 +8,10 @@ at 0.1  buy sniper 8 84                 # tower roof (147.5 m)
 at 0.2  buy sniper -48 116              # 76 m roof with parapets
 at 0.3  buy sniper 0 76                 # low building (16.7 m)
 at 0.4  buy sniper 24 92                # 36 m roof
-at 0.5  key c                           # sniper tool, placed with a click on a roof (UI pick)
+at 0.5  key 3                           # sniper tool (Units tab card 3), placed with a click on a roof (UI pick)
 at 0.6  click left -40 92               # 48 m roof
 at 0.7  camera 16 100 0.6 1.1 420      # look at the tower from above (its roof is above the old view)
-at 0.7  key c
+at 0.7  key 3
 at 0.8  click left 16 100               # tower roof (137.5 m)
 at 0.9  camera -14 120 0.6 0.9 250
 at 1.0  expect squads == 6

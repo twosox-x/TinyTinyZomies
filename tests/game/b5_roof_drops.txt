@@ -32,7 +32,7 @@ at 1.0  buy sniper -57.5 114                   # cornice notch under the parapet
 at 1.1  buy rifle -38.5 112                    # rim of the 76 m roof, far side
 at 1.2  buy mg -46 90                          # on the stair housing of the cluttered 48 m roof
 at 1.3  buy sniper 26.8 98.5                   # edge of the stepped roof (lower level)
-at 1.4  key c                                  # sniper through the UI pick, clicked at the roof edge
+at 1.4  key 3                                  # sniper (card 3) through the UI pick, clicked at the roof edge
 at 1.5  click left -56.3 117                  # rim of the 76 m roof
 at 2.0  expect squads == 5
 at 2.0  expect refused == 0

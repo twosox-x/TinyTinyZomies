@@ -80,6 +80,7 @@ V3 squadCentre(const Squad& s, const SoldierPool& P, int* alive = nullptr) {
 }
 
 bool shiftHeld() { return (SDL_GetModState() & SDL_KMOD_SHIFT) != 0; }
+bool ctrlHeld() { return (SDL_GetModState() & SDL_KMOD_CTRL) != 0; }
 } // namespace
 
 bool GameUI::pickGround(const AppState& app, const GameContext& ctx, float sx, float sy, V3& out) {
@@ -259,16 +260,16 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
             Command c; c.type = CommandType::Stop; c.squads = sel_.squads; out.push(c);
             return true;
         }
-        if (k == SDLK_TAB && !ctx.squads->squads.empty()) {
+        if (k == SDLK_PERIOD && !ctx.squads->squads.empty()) {   // next squad
             size_t next = 0;
             if (!sel_.squads.empty()) next = (sel_.squads.back().index + 1) % ctx.squads->squads.size();
             Command c; c.type = CommandType::Select; c.squads = {ctx.squads->squads[next].id}; out.push(c);
             sel_.squads = c.squads;
             return true;
         }
-        if (k >= SDLK_1 && k <= SDLK_9) {
+        if (k >= SDLK_1 && k <= SDLK_9) {   // Ctrl+1-9: squad n (Ctrl+Shift adds); plain 1-9 = cards (actionHotkey)
             const size_t n = (size_t)(k - SDLK_1);
-            if (n < ctx.squads->squads.size()) {
+            if (ctrlHeld() && n < ctx.squads->squads.size()) {
                 Command c; c.type = CommandType::Select; c.additive = shiftHeld();
                 if (c.additive) c.squads = sel_.squads;
                 c.squads.push_back(ctx.squads->squads[n].id);
@@ -280,10 +281,12 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
         if (k == SDLK_ESCAPE) {
             if (tool_ != Tool::Select) { tool_ = Tool::Select; forced_ = false; return true; }
             if (!sel_.squads.empty()) { Command c; c.type = CommandType::Select; out.push(c); sel_.squads.clear(); return true; }
-            return false;
+            pauseMenu_ = !pauseMenu_;   // never quits directly: Resume / Quit menu (game paused while open)
+            app.paused = pauseMenu_;
+            return true;
         }
         if (k == SDLK_F6) { aiDebug = !aiDebug; return true; }   // AI debug overlay
-        if (k == SDLK_R || k == SDLK_G || k == SDLK_F) return true;   // sandbox reset / debug toggles are off in --game
+        if (k == SDLK_R || k == SDLK_G || k == SDLK_F || k == SDLK_V) return true;   // sandbox reset / debug toggles are off in --game
         return false;
     }
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -400,6 +403,7 @@ void GameUI::draw(AppState& app, const GameContext& ctx, CommandQueue& out) {
     if (buildingDraw) buildingDraw(app, ctx);   // B3a: building markers / panel (BuildingGame.cpp)
     flushWorldLabels(app);   // after every world label of the frame (markers, previews, buildings)
     if (aiDebug) drawAiDebug(app, ctx);
+    drawPauseMenu(app);
     if (boxing_) {
         ImDrawList* dl = ImGui::GetForegroundDrawList();
         dl->AddRectFilled(ImVec2(std::min(boxX0_, boxX1_), std::min(boxY0_, boxY1_)), ImVec2(std::max(boxX0_, boxX1_), std::max(boxY0_, boxY1_)),

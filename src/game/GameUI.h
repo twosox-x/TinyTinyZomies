@@ -103,7 +103,9 @@ public:
     // rotate 15 deg, T 90; over a wall it replaces that part, next to a wall end it continues it), Ctrl+Z undoes the
     // newest unfinished placement. Wall tool: Shift snaps the direction to 15 deg steps (and 0 / 45 / 90 deg relative to
     // the previous leg / the wall it starts on snap magnetically within 4 deg); guide lines and a 1 m grid near the cursor.
-    bool rotatesWithQE() const { return tool_ == Tool::PlaceContainer || (tool_ == Tool::BuildWall && wallGate_ && wallPts_.empty()); }
+    // Q / E never turn the camera while a placement / targeting tool is active (they rotate the placement where it has one).
+    bool rotatesWithQE() const { return tool_ != Tool::Select; }
+    bool pauseMenuOpen() const { return pauseMenu_; }
     float gateYaw() const { return gateYaw_; }
     void setWallMode(uint8_t type, bool gate) { tool_ = Tool::BuildWall; wallType_ = type; wallGate_ = gate; wallPts_.clear(); forced_ = false; }
     void forceWallPreview(const std::vector<V3>& pts, uint8_t type, bool gate);   // scripts / captures
@@ -133,6 +135,11 @@ private:
     void registerFortActions();   // FortUI.cpp: walls / gate / engineers / clear car cards
     struct WorldLabel { float x, y; std::string text; uint32_t col; int prio; bool centred, plate; };
     std::vector<WorldLabel> labels_;
+    bool pauseMenu_ = false;        // Esc with nothing to cancel: Resume / Quit (HudBar.cpp drawPauseMenu)
+    float selScroll_ = 0.f;         // selection panel member list scroll (fixed-size panel)
+    void drawPauseMenu(AppState& app);
+    const UiAction* cardForDigit(int n) const;   // n-th (0-based) card of the active tab (number keys)
+    int digitOf(const UiAction& a) const;        // its number key 1-9 (0: none)
     std::vector<float> hudRects_;   // x0 y0 x1 y1 of this frame's HUD panels (labels never cover them)
     void flushWorldLabels(AppState& app);
     std::vector<UiAction> actions_;

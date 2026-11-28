@@ -8,7 +8,7 @@ at 0.2  buy sniper -4 76                       # podium, upper step (17.45 m)
 at 0.3  buy sniper 1 90                        # tower ring (137.45 m)
 at 0.4  buy sniper 8 84                        # tower top (147.45 m)
 at 0.5  camera -3 80 3.74 1.3 200              # the eye south-west of the podium: the tower behind it
-at 0.6  key c
+at 0.6  key 3                                  # sniper card (Units tab, key 3)
 at 0.7  click left -3 79                       # podium through the UI pick
 at 1.0  expect squads == 5
 at 1.0  expect refused == 0

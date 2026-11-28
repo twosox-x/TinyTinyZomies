@@ -3,7 +3,8 @@
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b2_input.txt
 at 0.0  cheat build 1                                 # DEBUG: B2 scenario without engineers (instant construction, GAME_DESIGN 14d)
 at 0.1  camera -9 120 0 1.1 45
-at 0.2  key n                                          # cheap wall tool
+at 0.15 key tab                                        # Structures tab
+at 0.2  key 1                                          # cheap wall tool (card 1)
 at 0.3  expect tool == 6
 at 0.4  drag left -13 120 -5.3 120                     # drag: straight run, snapped to 8 m (2 pieces), built on release
 at 0.8  expect walls == 2
@@ -18,7 +19,7 @@ at 1.8  expect spent == 160
 at 2.0  wallpreview reinforced -13 117 -5 117          # preview (capture)
 at 2.1  shot b2_input_preview.png
 at 2.2  wallpreview off
-at 2.3  key m
+at 2.3  key 2                                          # reinforced wall (card 2)
 at 2.4  expect tool == 6
 at 2.5  key esc
 at 2.6  expect tool == 0
