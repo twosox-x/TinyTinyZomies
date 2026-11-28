@@ -216,7 +216,7 @@ function cityParkKit(K0) {
       // a low wall along the park rectangle, open where the walks cross it
       for (const [s0, t0, s1, t1] of [[-Lp.hu, -Lp.hv, Lp.hu, -Lp.hv], [Lp.hu, -Lp.hv, Lp.hu, Lp.hv], [Lp.hu, Lp.hv, -Lp.hu, Lp.hv], [-Lp.hu, Lp.hv, -Lp.hu, -Lp.hv]]) {
         const l = Math.hypot(s1 - s0, t1 - t0), ds = (s1 - s0) / l, dt = (t1 - t0) / l;
-        for (let t = 1.5; t < l - 1.5; t += 2.65) { const p = W(s0 + ds * t, t0 + dt * t); item('lowwall', Lp.idx % 3, p[0], p[1], alongYaw(ds, dt), { mg: 0.05, gap: -0.1 }); }
+        for (let t = 1.5; t < l - 1.5; t += 2.65) { const p = W(s0 + ds * t, t0 + dt * t); if (G.dEdge(p[0], p[1]) > 7) continue; item('lowwall', Lp.idx % 3, p[0], p[1], alongYaw(ds, dt), { mg: 0.05, gap: -0.1 }); }
       }
       edgeTrees(['maple', 'oak', 'red'], 6);
       // corner groves and shade trees
@@ -294,8 +294,8 @@ function cityParkKit(K0) {
     for (let j = 0; j < nz; ++j) for (let i = 0; i < nx; ++i) {
       const x = x0 + (i + 0.5) * GC, z = z0 + (j + 0.5) * GC;
       Rr.classify(x, z, o, cls);
-      mat[j * nx + i] = cls[1]; h[j * nx + i] = (cls[0] - Rr.hs) * voxel;
-      if (C.PARK_GROUND.has(cls[1])) { gx0 = Math.min(gx0, x); gx1 = Math.max(gx1, x); gz0 = Math.min(gz0, z); gz1 = Math.max(gz1, z); }
+      mat[j * nx + i] = C.PARK_GROUND.has(cls[1]) && !C.parkUnitHas(Lp, x, z) ? 0 : cls[1]; h[j * nx + i] = (cls[0] - Rr.hs) * voxel;   // another park unit: not ours
+      if (C.PARK_GROUND.has(mat[j * nx + i])) { gx0 = Math.min(gx0, x); gx1 = Math.max(gx1, x); gz0 = Math.min(gz0, z); gz1 = Math.max(gz1, z); }
     }
     // distance (m) to the nearest cell that is not park ground
     const D = new Float32Array(nx * nz);

@@ -2084,9 +2084,18 @@ class Rasterizer {
       });
     }
     this.blockArea = new Map();
+    const unitParks = this.net.kind === 'city';                  // generateCity's park polygons: the blocks of parkLayouts' units
     for (const [key, v] of inside) {
-      const c = Math.floor(key / 4096), k = key % 4096;
-      if (v / cnt.get(c) >= 0.35 && v * F.cell * F.cell < 25000) this.blockArea.set(c, this.areas[k].kind);
+      const c = Math.floor(key / 4096), k = key % 4096, a = this.areas[k];
+      if (unitParks && a.kind === 'park' && a.shape === 'poly') continue;
+      if (v / cnt.get(c) >= 0.35 && v * F.cell * F.cell < 25000) this.blockArea.set(c, a.kind);
+    }
+    // park units are decided once per net (a fixed window per park, parkLayouts), not per window: a block a window
+    // cuts must not turn into a park in one page and stay a plot in the next
+    if (unitParks) for (const L of parkLayouts(this.net)) {
+      if (L.c[0] < F.x0 || L.c[1] < F.z0 || L.c[0] > F.x0 + (F.nx - 1) * F.cell || L.c[1] > F.z0 + (F.nz - 1) * F.cell) continue;
+      const c = F.blockAt(L.c[0], L.c[1]);
+      if (c >= 0) this.blockArea.set(c, 'park');
     }
     // pocket plazas: in the city (downtown / along avenues), small blocks and wedge-shaped slivers left between
     // diagonal and grid streets are paved squares with kiosks, not building plots
@@ -2335,10 +2344,9 @@ function plazaTile(x, z, v) {
   return (fx < v * 0.999 || fz < v * 0.999) ? MAT.PLAZA_JOINT : MAT.PLAZA;
 }
 function parkSurface(x, z, v) {
-  // gravel paths on a loose diagonal lattice
-  const a = (x * 0.7071 + z * 0.7071), b = (x * 0.7071 - z * 0.7071);
-  const pa = ((a % 38) + 38) % 38, pb = ((b % 51) + 51) % 51;
-  return (pa < 2.6 || pb < 2.6) ? MAT.PARK_PATH : MAT.PARK;
+  // open park land without a designed layout (city_core parkLayouts covers generateCity's parks): lawn in patches
+  const n = 0.68 * vnoise(911, x / 11, z / 11) + 0.32 * hash2(Math.floor(x / 1.6), Math.floor(z / 1.6), 913);
+  return n > 0.66 ? MAT.MEDIAN_GRASS : MAT.PARK;
 }
 // ---- city parks: the open blocks of generateCity's 'park' areas (rectangles; schools are parks with school: true)
 // get a designed layout per park, deterministic from the area polygon, its index and the city seed (no window state):
@@ -2352,25 +2360,67 @@ const PG = { LAWN: 14, LAWN_D: 10, LAWN_L: 155, PATH: 18, PLAZA: 12, PLAZA_J: 13
 const PARK_GROUND = new Set([14, 10, 155, 18, 12, 13, 207, 140, 206, 216, 65, 127, 64, 141]);
 function parkLayouts(net) {
   if (net._parkL) return net._parkL;
-  const out = [], seed = net.seed || 1;
-  let nPark = 0;
+  const out = [], seed = net.seed || 1, THEMES = ['woodland', 'formal', 'sports'];
+  let nUnit = 0;
   (net.areas || []).forEach((a, idx) => {
     if (a.kind !== 'park' || a.shape !== 'poly' || !a.pts || a.pts.length !== 4) return;
     const p = a.pts;
     let e1 = [p[0][0] - p[1][0], p[0][1] - p[1][1]], e2 = [p[0][0] - p[3][0], p[0][1] - p[3][1]];
-    if (Math.hypot(e1[0], e1[1]) < Math.hypot(e2[0], e2[1])) { const t = e1; e1 = e2; e2 = t; }
     const l1 = Math.hypot(e1[0], e1[1]), l2 = Math.hypot(e2[0], e2[1]);
-    const c = [(p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4, (p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4];
-    const L = { idx, name: a.name, c, u: [e1[0] / l1, e1[1] / l1], v: [e2[0] / l2, e2[1] / l2], hu: l1 / 2, hv: l2 / 2,
-      theme: a.school ? 'sports' : (nPark++ % 2 === 0 ? 'woodland' : 'formal'), seed: (hash2(idx, 77, seed + 911) * 4294967296) >>> 0,
-      segs: [], rings: [], discs: [], rects: [], mounds: [], feats: [] };
-    const bb = 30 + Math.hypot(L.hu, L.hv);
-    L.bb = [c[0] - bb, c[1] - bb, c[0] + bb, c[1] + bb];
-    parkDesign(L);
-    out.push(L);
+    const U = [e1[0] / l1, e1[1] / l1], V = [e2[0] / l2, e2[1] / l2];
+    // the blocks this area claims (as Rasterizer.blockAreas: >= 35 % of the block inside the polygon, < 25000 m2
+    // inside), found in a fixed window round the polygon: each block is one park unit with its own design
+    const xs = p.map(q => q[0]), zs = p.map(q => q[1]), pad = 170;
+    const F = new FieldSampler(net, 0.5, [Math.min(...xs) - pad, Math.min(...zs) - pad, Math.max(...xs) + pad, Math.max(...zs) + pad]); F.build(null, true);
+    const cnt = new Map(), ins = new Map(), cell = F.cell;
+    for (let iz = 0; iz < F.nz; ++iz) for (let ix = 0; ix < F.nx; ++ix) {
+      const c = F.comp[iz * F.nx + ix]; if (c < 0) continue;
+      cnt.set(c, (cnt.get(c) || 0) + 1);
+      if (inPoly(p, F.x0 + ix * cell, F.z0 + iz * cell)) ins.set(c, (ins.get(c) || 0) + 1);
+    }
+    // (or a substantial part of the polygon: a large block the polygon only partly covers is park too - page windows
+    // used to cut such blocks and call them park, so the bake showed them open; now every window agrees)
+    const blocks = [...ins.keys()].filter(c => (ins.get(c) / cnt.get(c) >= 0.35 || ins.get(c) * cell * cell >= 1200) && ins.get(c) * cell * cell < 25000)
+      .sort((A, B) => cnt.get(B) - cnt.get(A));
+    blocks.forEach((cb, k) => {
+      // block cells: bbox, a 1 m mask, the most interior point (distance to the block edge)
+      let ix0 = 1e9, ix1 = -1, iz0 = 1e9, iz1 = -1;
+      for (let iz = 0; iz < F.nz; ++iz) for (let ix = 0; ix < F.nx; ++ix) if (F.comp[iz * F.nx + ix] === cb) { ix0 = Math.min(ix0, ix); ix1 = Math.max(ix1, ix); iz0 = Math.min(iz0, iz); iz1 = Math.max(iz1, iz); }
+      const W = ix1 - ix0 + 3, H = iz1 - iz0 + 3, D = new Float32Array(W * H);
+      const inB = (i, j) => { const ix = ix0 - 1 + i, iz = iz0 - 1 + j; return ix >= 0 && iz >= 0 && ix < F.nx && iz < F.nz && F.comp[iz * F.nx + ix] === cb; };
+      for (let j = 0; j < H; ++j) for (let i = 0; i < W; ++i) D[j * W + i] = inB(i, j) ? 1e9 : 0;
+      const rel = (q, r, w) => { if (D[r] + w < D[q]) D[q] = D[r] + w; }, A1 = cell, A2 = cell * Math.SQRT2;
+      for (let j = 1; j < H; ++j) for (let i = 1; i < W - 1; ++i) { const q = j * W + i; rel(q, q - 1, A1); rel(q, q - W, A1); rel(q, q - W - 1, A2); rel(q, q - W + 1, A2); }
+      for (let j = H - 2; j >= 0; --j) for (let i = W - 2; i >= 1; --i) { const q = j * W + i; rel(q, q + 1, A1); rel(q, q + W, A1); rel(q, q + W + 1, A2); rel(q, q + W - 1, A2); }
+      let best = -1, bi = 0, bj = 0;
+      for (let j = 0; j < H; ++j) for (let i = 0; i < W; ++i) if (D[j * W + i] > best + 1e-6) { best = D[j * W + i]; bi = i; bj = j; }
+      const c = [F.x0 + (ix0 - 1 + bi) * cell, F.z0 + (iz0 - 1 + bj) * cell];
+      const at = (x, z) => { const i = Math.round((x - F.x0) / cell) - ix0 + 1, j = Math.round((z - F.z0) / cell) - iz0 + 1; return i >= 0 && j >= 0 && i < W && j < H ? D[j * W + i] : 0; };
+      const ray = (d) => { let t = 0; while (t < 400 && at(c[0] + d[0] * t, c[1] + d[1] * t) > 0) t += 0.5; return t; };
+      const SW = 4.5;                                              // curb + sidewalk + a margin
+      let u = U, v = V, hu = Math.min(ray(U), ray([-U[0], -U[1]])) - SW, hv = Math.min(ray(V), ray([-V[0], -V[1]])) - SW;
+      if (hu < hv) { const t = u; u = v; v = t; const h = hu; hu = hv; hv = h; }
+      if (hv < 8) return;                                          // a sliver: lawn only
+      const x0 = F.x0 + (ix0 - 1) * cell, z0 = F.z0 + (iz0 - 1) * cell, mw = Math.ceil(W * cell) + 1, mh = Math.ceil(H * cell) + 1, mask = new Uint8Array(mw * mh);
+      for (let j = 0; j < H; ++j) for (let i = 0; i < W; ++i) if (D[j * W + i] > 0) {
+        const mx = Math.floor((i * cell) / 1), mz = Math.floor((j * cell) / 1);
+        for (const [di, dj] of [[0, 0], [1, 0], [0, 1], [1, 1], [-1, 0], [0, -1]]) { const a2 = mx + di, b2 = mz + dj; if (a2 >= 0 && b2 >= 0 && a2 < mw && b2 < mh) mask[b2 * mw + a2] = 1; }
+      }
+      const school = !!a.school && k === 0;
+      const L = { idx: idx * 8 + k, area: idx, name: a.name, c, u, v, hu, hv, mask, mx0: x0 - 0.5, mz0: z0 - 0.5, mw, mh,
+        theme: school ? 'sports' : THEMES[nUnit++ % 3], seed: (hash2(idx * 8 + k, 77, seed + 911) * 4294967296) >>> 0,
+        segs: [], rings: [], discs: [], rects: [], mounds: [], feats: [] };
+      L.bb = [x0 - 2, z0 - 2, x0 + W * cell + 2, z0 + H * cell + 2];
+      parkDesign(L);
+      out.push(L);
+    });
   });
   net._parkL = out;
   return out;
+}
+function parkUnitHas(L, x, z) {
+  const i = Math.floor(x - L.mx0), j = Math.floor(z - L.mz0);
+  return i >= 0 && j >= 0 && i < L.mw && j < L.mh && L.mask[j * L.mw + i] === 1;
 }
 function parkDesign(L) {
   const R = mulberry32(L.seed), hu = L.hu, hv = L.hv, m = Math.min(hu, hv), X = 22;
@@ -2453,7 +2503,7 @@ function parkPathDist(L, s, t) {
   return d;
 }
 function parkAt(net, x, z) {
-  for (const L of parkLayouts(net)) if (x > L.bb[0] && x < L.bb[2] && z > L.bb[1] && z < L.bb[3]) return L;
+  for (const L of parkLayouts(net)) if (x > L.bb[0] && x < L.bb[2] && z > L.bb[1] && z < L.bb[3] && parkUnitHas(L, x, z)) return L;
   return null;
 }
 // ground of a city park at (x, z): [material, height offset in voxels]
@@ -4663,6 +4713,6 @@ function exportNetwork(net) {
 Object.assign(PROP_PALETTE, VEH_PALETTE);
 // rural ground (city_core GROUND): crop green, furrow, wheat, forest floor, water, farmyard gravel
 Object.assign(PROP_PALETTE, { 202: [112, 146, 74], 203: [128, 104, 78], 204: [204, 182, 116], 205: [86, 100, 66], 206: [76, 114, 138], 207: [166, 156, 138] });
-const CityCore = { parkLayouts, parkAt, parkGround, parkPathDist, PARK_GROUND, PG, WATER, waterSD, bankY, bridgePlan, bridgeAt, waterColumn, roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { parkLayouts, parkAt, parkUnitHas, parkGround, parkPathDist, PARK_GROUND, PG, WATER, waterSD, bankY, bridgePlan, bridgeAt, waterColumn, roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);
