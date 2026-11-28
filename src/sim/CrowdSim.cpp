@@ -168,6 +168,13 @@ void CrowdSim::requestSpawn(const Rect& r, uint32_t count) {
     if (count > 0) pendingSpawns_.push_back({r, count});
 }
 
+void CrowdSim::requestSpawnLevel(const Rect& r, uint32_t count, float levelY) {
+    if (count == 0) return;
+    SpawnRequest q{r, count};
+    q.levelY = std::max(0.f, levelY);
+    pendingSpawns_.push_back(q);
+}
+
 void CrowdSim::requestSpawnLook(const Rect& r, uint32_t count, uint32_t lookX, uint32_t lookY, bool asCorpse) {
     if (count > 0) pendingSpawns_.push_back({r, count, lookX, lookY, true, asCorpse});
 }
@@ -188,9 +195,10 @@ void CrowdSim::requestSpawnPoints(const std::vector<Vec4>& pts) {
     }
 }
 
-void CrowdSim::requestSpawnZombie(float x, float z, float radius, uint32_t lookX, uint32_t lookY, float health) {
+void CrowdSim::requestSpawnZombie(float x, float z, float radius, uint32_t lookX, uint32_t lookY, float health, float levelY) {
     SpawnRequest q{Rect{x - radius, z - radius, x + radius, z + radius}, 1u, lookX, lookY, true, false};
     q.health = health > 0.f ? health : 1.f;
+    q.levelY = levelY;
     pendingSpawns_.push_back(q);
 }
 
@@ -332,12 +340,14 @@ void CrowdSim::step(SDL_GPUCommandBuffer* cmd) {
         if (req.health > 0.f) std::memcpy(&hpBits, &req.health, 4);
         u.forcedLook = {req.lookX, req.lookY, req.forced ? (req.health > 0.f ? 2u : 1u) : 0u, hpBits};
         u.lookB.z = req.corpse ? 1.f : 0.f;
+        u.lookB.w = req.levelY >= 0.f ? req.levelY + 1.f : 0.f;   // sim_spawn: level spawn (roofs)
         if (req.points) u.misc.x = req.ptOffset, u.misc.y = 1;
         dispatch(D(pSpawn_, {staticH_, spawnPts_}, {agentsA_, counters_}), groups(req.count, 256));
         u.misc.x = (uint32_t)p_.maxNeighbors, u.misc.y = 0;
         u.counts.z = 0;
         u.forcedLook = {};
         u.lookB.z = 0.f;
+        u.lookB.w = 0.f;
     }
     if (ne > 0 && p_.corpsesEnabled)
         dispatchIndirect(D(pCorpseBlast_, {staticH_}, {corpses_, agentsA_, corpseH_, counters_}), indirect_,

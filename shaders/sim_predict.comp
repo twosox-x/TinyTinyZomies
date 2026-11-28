@@ -269,6 +269,36 @@ void main() {
         }
     }
 
+    // ---- roof-edge fall: a walker that went over a drop dies on a hard landing (gore pudding; corpse + blood pool) ----
+    if (st == ST_FALL && timer <= FALL_EDGE_TIMER + 1.0) {
+        float vy = v.y - moveP.y * dt;
+        float gnd = groundHeight(p.xz, p.y);
+        if (p.y + vy * dt <= gnd + 0.05 && -vy >= FALL_LETHAL_V) {
+            health = min(health, 0.0);
+            st = ST_DYING;
+            timer = -1.0;                                  // sim_finalize: impact frame (blood pool)
+            atomicAdd(gore[6], 1u);                        // G_FALL_SPLAT
+            if (goreP.w > 0.5) {
+                spawnBlood(vec3(p.x, gnd + 0.3, p.z), vec3(0.0, 1.5, 0.0), 4.0, 24.0, rng);
+                for (int k = 0; k < 6; ++k) {
+                    vec3 d = randDir(rng);
+                    spawnParticle(vec3(p.x, gnd + 0.1, p.z), vec3(d.x * 3.0, abs(d.y) * 1.2 + 0.3, d.z * 3.0), 1.2 + rand01(rng), PT_DUST, 0.3 + 0.3 * rand01(rng));
+                }
+                blood = 3u;
+                uint add = 0u;
+                const uint CAND[5] = uint[5](2u, 4u, 5u, 6u, 8u);
+                for (int c = 0; c < 5; ++c) if (rand01(rng) < 0.45) add |= severWithChildren(CAND[c]);
+                add &= ~sev;
+                if (add != 0u) {
+                    blowOff(add, p, vec3(v.x, 2.0, v.z), a.dirs.z, 0.7, lx, ly, blood, rng);
+                    atomicAdd(gore[G_SEVERED], bitCount(add));
+                    sev |= add;
+                }
+            }
+            v.y = 0.0;
+        }
+    }
+
     // ---- awareness (roaming): an attractor within reach (nav distance under the gate) = pursuit; memory decays ----
     const bool roam = roamP.x > 0.5;
     uint alert = agentAlert(a.info.z);

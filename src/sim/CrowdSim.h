@@ -31,12 +31,14 @@ public:
     void reset(const Sandbox& sb);          // clears agents, corpses, nav; re-uploads static geometry
 
     void requestSpawn(const Rect& r, uint32_t count);
+    // spawn on one surface level (a roof at height levelY): cells of other heights in the rect are skipped
+    void requestSpawnLevel(const Rect& r, uint32_t count, float levelY);
     // spawn with a fixed appearance (showcase / validation) or as settling corpses (benchmarks / tests)
     void requestSpawnLook(const Rect& r, uint32_t count, uint32_t lookX, uint32_t lookY, bool asCorpse = false);
     void requestSpawnCorpses(const Rect& r, uint32_t count);
     // One walker with a fixed appearance, random facing and a start health (1.0 = normal zombie) near (x, z) within
     // `radius` (never inside static geometry). Game: dead soldiers rising as tougher zombies (GAME_DESIGN 14c).
-    void requestSpawnZombie(float x, float z, float radius, uint32_t lookX, uint32_t lookY, float health);
+    void requestSpawnZombie(float x, float z, float radius, uint32_t lookX, uint32_t lookY, float health, float levelY = -1.f);
     // One agent per point {x, z, jitter radius, 0} (ambient population, CityAmbient): each point is tried, then up to 7
     // positions within the jitter radius, never inside static geometry. Uploaded now (synchronous: init / window moves).
     void requestSpawnPoints(const std::vector<Vec4>& pts);
@@ -166,7 +168,8 @@ private:
     std::vector<float> goals_;
     struct SpawnRequest { Rect rect; uint32_t count; uint32_t lookX = 0, lookY = 0; bool forced = false, corpse = false;
                           bool points = false; uint32_t ptOffset = 0;
-                          float health = 0.f; };   // > 0: start health of a single forced-look walker (keeps its facing)
+                          float health = 0.f;      // > 0: start health of a single forced-look walker (keeps its facing)
+                          float levelY = -1.f; };  // >= 0: spawn only on cells of this surface height (roofs)   // > 0: start health of a single forced-look walker (keeps its facing)
     SDL_GPUBuffer* spawnPts_ = nullptr;
     uint32_t spawnPtsHead_ = 0;
     std::vector<SpawnRequest> pendingSpawns_;   // one request is consumed per step

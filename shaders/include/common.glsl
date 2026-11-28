@@ -158,6 +158,8 @@ float bodyHeight(float prone) { return mix(agentP.y, agentP.z, clamp(prone, 0.0,
 #define GAME_VERTICAL 8u   // B3b: roof plateaus walkable, no flow up walls taller than VERT_PILE_REACH, roof attractors seed only their level
 #define VERT_PILE_REACH 4.5   // m: walls up to this height stay in the flow (corpse-pile climbing of low roofs, unchanged)
 #define VERT_DROP_MAX 3.0     // m: wanderers on a roof do not walk off a drop deeper than this
+#define FALL_EDGE_TIMER -100.0  // ST_FALL timer sentinel: a walker that went over a drop (roof edge), not thrown by a blast
+#define FALL_LETHAL_V 10.5     // m/s at impact (~5.6 m free fall): an edge faller dies on landing (gore splat, corpse)
 #define GAME_NO_SEED  0xFFFFFFFFu
 #define GAME_KILL_HEADER 16u
 #define GAME_KILL_CAP    1024u

@@ -63,6 +63,8 @@ void main() {
     float climbTarget = uintBitsToFloat(a.info.w);
     float standH = agentP.y;
 
+    // over a drop (roof edge: pushed by the crowd, stepping off): free fall under gravity (not the walk speed clamp)
+    if ((st == ST_WALK || st == ST_CLIMB) && !supported && elev > 1.5 && v.y < -1.0) { st = ST_FALL; timer = FALL_EDGE_TIMER; }
     if (st == ST_WALK) {
         // Climb onto the blocking body ahead if we have been pushed long enough.
         // The target is the top of an actual neighbour -> no climbing invisible walls.
@@ -79,8 +81,13 @@ void main() {
         if (!vertical || x.y >= climbTarget - 0.03 || timer > climbP.w || aux.w < 0.5) { st = ST_WALK; timer = 0.0; }
     } else if (st == ST_FALL) {
         timer -= dt;
+        if (timer < FALL_EDGE_TIMER + 1.0 && timer > FALL_EDGE_TIMER - 60.0) timer = FALL_EDGE_TIMER;   // keep the edge-fall mark
         if (timer <= 0.0 && supported) { st = ST_WALK; timer = 0.0; }
     } else if (st == ST_DYING) {
+        if (timer < -0.5) {   // impact of a roof-edge fall (sim_predict): splat of blood around the body
+            timer = 0.0;
+            addBloodPool(x.xz, 1.3, 600u);
+        }
         timer += dt;
         float spd = length(v);
         bool resting = (grounded || supported) && spd < max(corpseP.z * 3.0, 1.2);

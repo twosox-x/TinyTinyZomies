@@ -31,7 +31,8 @@ void main() {
     for (int t = 0; t < 32 && !found; ++t) {
         p = vec2(mix(spawnRect.x, spawnRect.z, rand01(rng)), mix(spawnRect.y, spawnRect.w, rand01(rng)));
         sh = staticH[cellIndex(cellCoord(p))];
-        found = sh <= moveP.w;
+        // lookB.w > 0: spawn on the level lookB.w - 1 (a roof: risen soldiers, roof tests), never on the street below
+        found = lookB.w > 0.5 ? abs(sh - (lookB.w - 1.0)) <= moveP.w : sh <= moveP.w;
     }
     if (!found) return;
     uint slot = counters[C_LIVE] + atomicAdd(counters[C_APPEND], 1u);
