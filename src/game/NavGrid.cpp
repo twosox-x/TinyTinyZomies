@@ -33,6 +33,8 @@ void NavGrid::build(const std::vector<float>& heights, int gw, int gh, float ox,
     g_.assign(n, 0.f); parent_.assign(n, 0); stamp_.assign(n, 0); closed_.assign(n, 0); searchStamp_ = 0;
     computeWalk(0, gh_);
     computeIslands();
+    edgeD_.assign(n, kRoofScan); obsD_.assign(n, kRoofScan);
+    computeRoof(0, gh_);
     for (Query& q : queries_) q.started = false;   // grid changed: restart searches in flight
 }
 
@@ -46,6 +48,8 @@ void NavGrid::updateRows(const std::vector<float>& heights, int z0, int rows) {
             std::copy(heights.begin() + (size_t)j * gw_, heights.begin() + (size_t)(j + 1) * gw_, shotH_.begin() + (size_t)j * gw_);
     computeWalk(std::max(0, a - 1), std::min(gh_, b + 1));
     computeIslands();
+    const int R = (int)std::ceil(kRoofScan / cell_) + 3;   // clearances depend on cells up to kRoofScan (+ min5) away
+    computeRoof(std::max(0, a - R), std::min(gh_, b + R));
     for (Query& q : queries_) if (!q.done) q.started = false;
 }
 
@@ -80,7 +84,8 @@ bool NavGrid::edge(int i, int j, int di, int dj) const {
 
 void NavGrid::computeIslands() {
     std::fill(island_.begin(), island_.end(), 0u);
-    std::vector<uint32_t> stack, members;
+    std::vector<uint32_t> stack, members, sizes(1, 0);
+    islandRoof_.assign(1, 0);
     uint32_t next = 1;
     for (int j = 0; j < gh_; ++j)
         for (int i = 0; i < gw_; ++i) {
@@ -102,8 +107,169 @@ void NavGrid::computeIslands() {
             }
             if ((int)members.size() < kMinIslandCells) {
                 for (uint32_t c : members) { walk_[c] = 0; island_[c] = 0; }
-            } else ++next;
+                continue;
+            }
+            // roof island: a drop of more than 2.5 m somewhere along its rim
+            bool drop = false;
+            for (uint32_t c : members) {
+                const int ci = (int)(c % gw_), cj = (int)(c / gw_);
+                const int d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                for (auto& o : d) {
+                    const int x = ci + o[0], z = cj + o[1];
+                    if (x >= 0 && z >= 0 && x < gw_ && z < gh_ && h_[(size_t)z * gw_ + x] < h_[c] - 2.5f) { drop = true; break; }
+                }
+                if (drop) break;
+            }
+            if (islandRoof_.size() <= next) islandRoof_.resize(next + 1, 0);
+            islandRoof_[next] = drop ? 1 : 0;
+            sizes.resize(next + 1, 0);
+            sizes[next] = (uint32_t)members.size();
+            ++next;
         }
+    // the largest island is the street network, never a roof
+    uint32_t big = 0;
+    for (uint32_t k = 1; k < sizes.size(); ++k) if (sizes[k] > sizes[big]) big = k;
+    if (big < islandRoof_.size()) islandRoof_[big] = 0;
+    islandRoof_.resize(next, 0);
+}
+
+void NavGrid::computeRoof(int z0, int z1) {
+    if (edgeD_.size() != h_.size()) return;
+    // lowest height within 2 cells of every cell (separable min filter; parapet = a raised cell next to a drop)
+    min5_.assign(h_.size(), 0.f);
+    std::vector<float> rowMin(h_.size());
+    for (int j = 0; j < gh_; ++j)
+        for (int i = 0; i < gw_; ++i) {
+            float m = h_[(size_t)j * gw_ + i];
+            for (int d = -2; d <= 2; ++d) { const int x = i + d; if (x >= 0 && x < gw_) m = std::min(m, h_[(size_t)j * gw_ + x]); }
+            rowMin[(size_t)j * gw_ + i] = m;
+        }
+    for (int j = 0; j < gh_; ++j)
+        for (int i = 0; i < gw_; ++i) {
+            float m = rowMin[(size_t)j * gw_ + i];
+            for (int d = -2; d <= 2; ++d) { const int z = j + d; if (z >= 0 && z < gh_) m = std::min(m, rowMin[(size_t)z * gw_ + i]); }
+            min5_[(size_t)j * gw_ + i] = m;
+        }
+    const int R = (int)std::ceil(kRoofScan / cell_);
+    for (int j = std::max(0, z0); j < std::min(gh_, z1); ++j)
+        for (int i = 0; i < gw_; ++i) {
+            const size_t c = (size_t)j * gw_ + i;
+            float e = kRoofScan, o = kRoofScan;
+            if (walk_[c] && roofIsland(island_[c])) {
+                const float y = h_[c];
+                const uint32_t I = island_[c];
+                for (int dj = -R; dj <= R; ++dj)
+                    for (int di = -R; di <= R; ++di) {
+                        const int x = i + di, z = j + dj;
+                        if (x < 0 || z < 0 || x >= gw_ || z >= gh_) continue;
+                        const size_t b = (size_t)z * gw_ + x;
+                        if (island_[b] == I) continue;
+                        const float ax = std::max(0.f, (float)std::abs(di) - 0.5f), az = std::max(0.f, (float)std::abs(dj) - 0.5f);
+                        const float d = cell_ * std::sqrt(ax * ax + az * az);
+                        if (d >= e && d >= o) continue;
+                        const float hb = h_[b];
+                        const bool edge = hb < y - 1.5f || (hb > y - stepUp_ && min5_[b] < y - 1.5f);
+                        if (edge) e = std::min(e, d); else o = std::min(o, d);
+                    }
+            }
+            edgeD_[c] = e; obsD_[c] = o;
+        }
+}
+
+float NavGrid::roofPenalty(size_t c) const {
+    if (c >= edgeD_.size() || !walk_[c] || !roofIsland(island_[c])) return 0.f;
+    return std::max(0.f, roofEdgeInset - edgeD_[c]) * 3.f + std::max(0.f, roofObstacleMargin - obsD_[c]) * 3.f;
+}
+
+float NavGrid::cellEdge(float x, float z) const {
+    int i, j;
+    return ready() && cellOf(x, z, i, j) && edgeD_.size() == h_.size() ? edgeD_[(size_t)j * gw_ + i] : kRoofScan;
+}
+
+float NavGrid::cellObstacle(float x, float z) const {
+    int i, j;
+    return ready() && cellOf(x, z, i, j) && obsD_.size() == h_.size() ? obsD_[(size_t)j * gw_ + i] : kRoofScan;
+}
+
+float NavGrid::clearanceAt(float x, float z, bool wantEdge) const {
+    int ci, cj;
+    if (!ready() || !cellOf(x, z, ci, cj) || min5_.size() != h_.size()) return kRoofScan;
+    const size_t c = (size_t)cj * gw_ + ci;
+    // a point on a rim cell that is not part of the roof (parapet top, ledge): clearance 0 from the island beside it
+    uint32_t I = island_[c];
+    float y = h_[c];
+    if (!I || !roofIsland(I)) {
+        V3 o;
+        if (!nearestWalkableLevel({x, y, z}, 1.6f, y, 0.6f, o) || !onRoof(o.x, o.z)) return kRoofScan;
+        return 0.f;
+    }
+    const int R = (int)std::ceil(kRoofScan / cell_) + 1;
+    float best = kRoofScan;
+    for (int dj = -R; dj <= R; ++dj)
+        for (int di = -R; di <= R; ++di) {
+            const int i = ci + di, j = cj + dj;
+            if (i < 0 || j < 0 || i >= gw_ || j >= gh_) continue;
+            const size_t b = (size_t)j * gw_ + i;
+            if (island_[b] == I) continue;
+            const float hb = h_[b];
+            const bool edge = hb < y - 1.5f || (hb > y - stepUp_ && min5_[b] < y - 1.5f);
+            if (edge != wantEdge) continue;
+            const float bx = ox_ + (i + 0.5f) * cell_, bz = oz_ + (j + 0.5f) * cell_;
+            const float ax = std::max(0.f, std::fabs(x - bx) - cell_ * 0.5f), az = std::max(0.f, std::fabs(z - bz) - cell_ * 0.5f);
+            best = std::min(best, std::sqrt(ax * ax + az * az));
+        }
+    return best;
+}
+
+float NavGrid::edgeClearance(float x, float z) const { return clearanceAt(x, z, true); }
+float NavGrid::obstacleClearance(float x, float z) const { return clearanceAt(x, z, false); }
+
+bool NavGrid::insetSpot(V3 p, float maxR, float minEdge, float minObs, uint32_t isl, V3& out) const {
+    if (!ready() || edgeD_.size() != h_.size()) return false;
+    if (!isl) isl = island(p.x, p.z);
+    const int ci = (int)std::floor((p.x - ox_) / cell_), cj = (int)std::floor((p.z - oz_) / cell_);
+    const int r = (int)std::ceil(maxR / cell_);
+    float best = maxR * maxR;
+    bool found = false;
+    for (int j = cj - r; j <= cj + r; ++j)
+        for (int i = ci - r; i <= ci + r; ++i) {
+            if (i < 0 || j < 0 || i >= gw_ || j >= gh_) continue;
+            const size_t c = (size_t)j * gw_ + i;
+            if (!walk_[c]) continue;
+            if (isl ? island_[c] != isl : std::fabs(h_[c] - p.y) > 0.6f) continue;
+            if (edgeD_[c] < minEdge || obsD_[c] < minObs) continue;
+            const V3 q = centre(i, j);
+            const float d2 = (q.x - p.x) * (q.x - p.x) + (q.z - p.z) * (q.z - p.z);
+            if (d2 <= best) { best = d2; out = q; found = true; }
+        }
+    return found;
+}
+
+void NavGrid::islandCells(V3 p, float maxR, int maxCells, std::vector<V3>& out) const {
+    out.clear();
+    int si, sj;
+    if (!ready() || !cellOf(p.x, p.z, si, sj) || !walk_[(size_t)sj * gw_ + si]) return;
+    std::vector<uint32_t> q{(uint32_t)(sj * gw_ + si)};
+    std::vector<uint8_t> seen((size_t)gw_ * gh_, 0);
+    seen[q[0]] = 1;
+    const float r2 = maxR * maxR;
+    for (size_t k = 0; k < q.size() && (int)out.size() < maxCells; ++k) {
+        const int ci = (int)(q[k] % gw_), cj = (int)(q[k] / gw_);
+        out.push_back(centre(ci, cj));
+        const int d[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (auto& o : d) {
+            if (!edge(ci, cj, o[0], o[1])) continue;
+            const uint32_t n = (uint32_t)((cj + o[1]) * gw_ + ci + o[0]);
+            const V3 c = centre(ci + o[0], cj + o[1]);
+            if ((c.x - p.x) * (c.x - p.x) + (c.z - p.z) * (c.z - p.z) > r2) continue;
+            if (seen[n]) continue;
+            seen[n] = 1;
+            q.push_back(n);
+        }
+    }
+    std::sort(out.begin(), out.end(), [&](const V3& a, const V3& b) {
+        return (a.x - p.x) * (a.x - p.x) + (a.z - p.z) * (a.z - p.z) < (b.x - p.x) * (b.x - p.x) + (b.z - p.z) * (b.z - p.z);
+    });
 }
 
 bool NavGrid::walkable(float x, float z) const {
@@ -199,6 +365,19 @@ bool NavGrid::walkLine(V3 a, V3 b) const {
     return true;
 }
 
+bool NavGrid::walkLinePen(V3 a, V3 b, float maxPen) const {
+    if (!walkLine(a, b)) return false;
+    const float dx = b.x - a.x, dz = b.z - a.z, len = std::sqrt(dx * dx + dz * dz);
+    const int n = std::max(1, (int)std::ceil(len / (cell_ * 0.25f)));
+    for (int k = 0; k <= n; ++k) {
+        const float t = (float)k / n;
+        int i, j;
+        if (!cellOf(a.x + dx * t, a.z + dz * t, i, j)) return false;
+        if (roofPenalty((size_t)j * gw_ + i) > maxPen + 1e-3f) return false;
+    }
+    return true;
+}
+
 bool NavGrid::nearestWalkable(V3 p, float maxR, V3& out) const { return nearestWalkable(p, maxR, out, 0u); }
 
 bool NavGrid::nearestWalkable(V3 p, float maxR, V3& out, uint32_t onIsland) const {
@@ -214,6 +393,25 @@ bool NavGrid::nearestWalkable(V3 p, float maxR, V3& out, uint32_t onIsland) cons
             if (!walk_[c] || (onIsland && island_[c] != onIsland)) continue;
             const V3 q = centre(i, j);
             // the point itself when it is inside this cell, else the cell centre
+            const bool inside = i == ci && j == cj;
+            const float dx = inside ? 0.f : q.x - p.x, dz = inside ? 0.f : q.z - p.z, d2 = dx * dx + dz * dz;
+            if (d2 <= best) { best = d2; out = inside ? V3{p.x, q.y, p.z} : q; found = true; }
+        }
+    return found;
+}
+
+bool NavGrid::nearestWalkableLevel(V3 p, float maxR, float y, float tol, V3& out) const {
+    if (!ready()) return false;
+    const int ci = (int)std::floor((p.x - ox_) / cell_), cj = (int)std::floor((p.z - oz_) / cell_);
+    const int r = (int)std::ceil(maxR / cell_);
+    float best = maxR * maxR;
+    bool found = false;
+    for (int j = cj - r; j <= cj + r; ++j)
+        for (int i = ci - r; i <= ci + r; ++i) {
+            if (i < 0 || j < 0 || i >= gw_ || j >= gh_) continue;
+            const size_t c = (size_t)j * gw_ + i;
+            if (!walk_[c] || std::fabs(h_[c] - y) > tol) continue;
+            const V3 q = centre(i, j);
             const bool inside = i == ci && j == cj;
             const float dx = inside ? 0.f : q.x - p.x, dz = inside ? 0.f : q.z - p.z, d2 = dx * dx + dz * dz;
             if (d2 <= best) { best = d2; out = inside ? V3{p.x, q.y, p.z} : q; found = true; }
@@ -255,7 +453,8 @@ bool NavGrid::startQuery(Query& q) {
     q.started = true; q.expanded = 0; q.result.clear();
     int si, sj, ti, tj;
     V3 from = q.from, to = q.to;
-    if (!walkable(from.x, from.z) && !nearestWalkable(from, 2.f, from)) return false;
+    // off-grid start (roof rim, a level's edge): snap onto the SAME level first (never onto the street below)
+    if (!walkable(from.x, from.z) && !nearestWalkableLevel(from, 2.f, from.y, 0.6f, from) && !nearestWalkable(from, 2.f, from)) return false;
     cellOf(from.x, from.z, si, sj);
     const uint32_t isl = island_[(size_t)sj * gw_ + si];
     if (island(to.x, to.z) != isl && !nearestWalkable(to, 6.f, to, isl)) return false;
@@ -295,6 +494,7 @@ bool NavGrid::expand(Query& q, int& budget) {
                 if (closed_[n] == searchStamp_) continue;
                 float g = g_[o.c] + ((di && dj) ? kSqrt2 : 1.f);
                 if (costL_) { const V3 cn = centre(ci + di, cj + dj); g += ((di && dj) ? kSqrt2 : 1.f) * extraCost(cn.x, cn.z); }   // gas (14d)
+                g += ((di && dj) ? kSqrt2 : 1.f) * roofPenalty(n);   // roofs: keep off the rim, a margin around roof objects
                 if (stamp_[n] == searchStamp_ && g >= g_[n]) continue;
                 stamp_[n] = searchStamp_; g_[n] = g; parent_[n] = o.c;
                 open_.push_back({g + heur(ci + di, cj + dj), n});
@@ -313,16 +513,27 @@ void NavGrid::finish(Query& q, uint32_t goal) {
     for (uint32_t c : cells) pts.push_back(centre((int)(c % gw_), (int)(c / gw_)));
     pts.front() = {q.from.x, pts.front().y, q.from.z};
     pts.back() = {q.to.x, pts.back().y, q.to.z};
-    // String pulling: from each anchor, jump to the farthest point reachable in a walkable straight line.
+    // String pulling: from each anchor, jump to the farthest point reachable in a walkable straight line. On roofs a leg
+    // never crosses a cell nearer the rim / a roof object than the A* path between its ends went (no shortcut along the
+    // edge the planner avoided).
+    std::vector<float> pen(cells.size()), runMax(cells.size());
+    bool anyPen = false;
+    for (size_t k = 0; k < cells.size(); ++k) { pen[k] = roofPenalty(cells[k]); anyPen |= pen[k] > 0.f; }
     std::vector<V3> out;
     size_t a = 0;
     while (a + 1 < pts.size()) {
         size_t b = a + 1;
+        if (anyPen) { float m = pen[a]; for (size_t k = a; k < pts.size(); ++k) { m = std::max(m, pen[k]); runMax[k] = m; } }
         for (size_t k = pts.size() - 1; k > a + 1; --k) {
             // the leg must stay walkable when followed 0.3 m off its axis (steering, separation): no corner hugging
             const float dx = pts[k].x - pts[a].x, dz = pts[k].z - pts[a].z, l = std::max(1e-4f, std::sqrt(dx * dx + dz * dz));
             const V3 o{-dz / l * 0.3f, 0, dx / l * 0.3f};
-            if (walkLine(pts[a], pts[k]) && (k + 1 == pts.size() || (walkLine(pts[a] + o, pts[k] + o) && walkLine(pts[a] - o, pts[k] - o)))) { b = k; break; }
+            if (!anyPen) {
+                if (walkLine(pts[a], pts[k]) && (k + 1 == pts.size() || (walkLine(pts[a] + o, pts[k] + o) && walkLine(pts[a] - o, pts[k] - o)))) { b = k; break; }
+                continue;
+            }
+            const float mp = runMax[k];
+            if (walkLinePen(pts[a], pts[k], mp) && (k + 1 == pts.size() || (walkLinePen(pts[a] + o, pts[k] + o, mp) && walkLinePen(pts[a] - o, pts[k] - o, mp)))) { b = k; break; }
         }
         out.push_back(pts[b]);
         a = b;

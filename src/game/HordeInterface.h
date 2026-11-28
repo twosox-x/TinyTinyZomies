@@ -26,6 +26,10 @@ struct HordeSoldier {
     float height = 1.75f;
     uint32_t packedId = 0;   // Handle::packed()
     float attraction = 1.f;  // attractor strength (0: invisible to the horde, e.g. while under canopy)
+    // Long-range lock tracking (owner feedback 2026-11-28): the point the soldier's target lock aims at (a coarse field
+    // sample beyond the exact list); the horde returns the exact live zombie nearest to it (SoldierContact::lock*).
+    bool hasLock = false;
+    V3 lockPos;
 };
 constexpr uint32_t kMaxGpuSoldiers = 2048;   // stress target is 1000 (GAME_DESIGN 14b); not a gameplay limit
 constexpr uint32_t kMaxHitsPerTick = 4096;
@@ -75,6 +79,12 @@ struct SoldierContact {
     V3 nearPos[kNear];
     V3 nearVel[kNear];
     float nearProne[kNear] = {0, 0, 0, 0};   // 0 upright .. 1 crawling / flat (aim low)
+    // the exact live zombie nearest to the uploaded HordeSoldier::lockPos (within kLockReach m), same frame as nearPos
+    static constexpr float kLockReach = 2.0f;
+    bool lockFound = false;
+    V3 lockQuery;             // the lock point it answers
+    V3 lockPos, lockVel;
+    float lockProne = 0.f;
 };
 
 // Horde attractor (zombies' flow field source): soldiers, noise. Bounded list (kMaxAttractors; HordeBridge keeps the

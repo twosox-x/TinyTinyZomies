@@ -220,6 +220,11 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
   - **Placeable lights** that need a **generator**, which needs **fuel**.
 - New fuel logistics: with engineers selected, hovering a car offers "siphon fuel" (deliver it to base) or "disassemble" (which also empties the fuel). A car emptied of fuel can no longer explode.
 
+- Towers: zombies attack the base rather than climbing, but a large horde forms a wall or heap around it (APPROVED 2026-11-28).
+- Generators make noise that attracts zombies, and noise in one area stacks (APPROVED).
+- Soldiers path through real gaps between cars instead of detouring around blocks.
+- Windows reflect the sun by day, clearly visible at RTS views.
+
 ## 15. Progress and known limitations
 - 2026-11-27: Engineers (14d) implemented (docs/GAMEPLAY_ARCHITECTURE.md 12): engineer squad of 3 (buy, parachute;
   approved engineer model, tools and work clips since the final stabilisation pass), construction only

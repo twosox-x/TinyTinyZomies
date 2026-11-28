@@ -11,7 +11,7 @@ namespace ttz::game {
 namespace {
 constexpr float kPi = 3.14159265f;
 constexpr float kPieceLen = 4.f;        // approved straight / gate asset length
-constexpr float kMinLeg = 1.0f;         // shortest piece (a 1 m gabion basket closes a 1 m gap)
+constexpr float kMinLeg = 0.5f;         // shortest piece (a filler basket closes a 0.5 m gap; GAME_DESIGN 14e finer grid)
 constexpr float kSplitEnd = 1.0f;       // m: a mid-piece snap keeps at least this much of the piece on both sides
 constexpr float kBuildingRise = 2.0f;   // m above the street: a building / water (facade trimming)
 constexpr float kSnapNode = 1.5f;       // m: the cursor snaps to an existing node within this
@@ -103,12 +103,12 @@ V3 Walls::snap(V3 p, const V3* from, bool fine, int& node, int* piece) const {
     if (from) {
         const float dx = p.x - from->x, dz = p.z - from->z, l = std::sqrt(dx * dx + dz * dz);
         if (l > 0.5f) {
-            const float step = fine ? 1.f : kPieceLen;
+            const float step = fine ? Walls::kGrid : kPieceLen;
             const float n = std::max(1.f, std::round(l / step)), k = n * step / l;
             return {from->x + dx * k, p.y, from->z + dz * k};
         }
     }
-    return {std::round(p.x), p.y, std::round(p.z)};
+    return {std::round(p.x / kGrid) * kGrid, p.y, std::round(p.z / kGrid) * kGrid};
 }
 
 int Walls::nearestNode(float x, float z, float maxR) const {
@@ -187,23 +187,107 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
     WallPlan P;
     P.type = type; P.gate = gate;
     if (ptsIn.size() < 2) { P.reason = "click to add points, double-click / Enter to confirm"; return P; }
-    // walls butt against facades: an end clicked inside a building (not on a joint) is pulled back to the facade
+    // Sealing (GAME_DESIGN 14e: walls meet facades with no gap): a free end inside a building, or within kSealReach in
+    // front of a facade / a container / a wall piece along the run, is moved onto it (see Walls.h).
     std::vector<V3> pts = ptsIn;
     auto inBuilding = [&](float x, float z) { return env.ground && env.ground(x, z) - env.streetY > kBuildingRise; };
-    auto trim = [&](V3& end, const V3& other) {
-        if (nearestNode(end.x, end.z, kSameNode) >= 0 || !inBuilding(end.x, end.z) || inBuilding(other.x, other.z)) return;
-        const float dx = other.x - end.x, dz = other.z - end.z, L = std::hypot(dx, dz);
-        if (L < 0.3f) return;
-        for (float t = 0.25f; t < L; t += 0.25f)
-            if (!inBuilding(end.x + dx * t / L, end.z + dz * t / L)) {
-                const float back = std::max(0.f, t - 0.4f);   // 0.4 m into the facade (the end allowance)
-                end.x += dx * back / L; end.z += dz * back / L;
-                P.trimmed = true;
-                return;
-            }
+    auto vehicleAt = [&](float x, float z) {
+        if (!env.solid || !env.ground || env.solid(x, z) - env.ground(x, z) <= 0.4f) return false;
+        for (const Obb& c : env.clearing) if (c.contains(x, z, -0.3f)) return false;
+        return true;
     };
-    trim(pts.front(), pts[1]);
-    trim(pts.back(), pts[pts.size() - 2]);
+    // ray (ox, oz) + t d vs an oriented box: entry distance (0 when starting inside), < 0 when missed within maxT
+    auto rayBox = [](const Obb& o, float ox, float oz, float dx, float dz, float maxT) {
+        const float c = std::cos(o.yaw), sn = std::sin(o.yaw);
+        const float px = ox - o.cx, pz = oz - o.cz;
+        const float u0 = px * c - pz * sn, v0 = px * sn + pz * c, du = dx * c - dz * sn, dv = dx * sn + dz * c;
+        float t0 = 0.f, t1 = maxT;
+        for (int k = 0; k < 2; ++k) {
+            const float p0 = k ? v0 : u0, d = k ? dv : du, h = k ? o.hz : o.hx;
+            if (std::fabs(d) < 1e-6f) { if (std::fabs(p0) > h) return -1.f; continue; }
+            float a = (-h - p0) / d, b = (h - p0) / d;
+            if (a > b) std::swap(a, b);
+            t0 = std::max(t0, a); t1 = std::min(t1, b);
+            if (t0 > t1) return -1.f;
+        }
+        return t0;
+    };
+    // facade distance along the leg from `other` (unit d towards the end): exact record footprint near the height
+    // grid's facade tg when there is one, else a little behind the grid edge (the grid over-covers buildings)
+    auto facadeAt = [&](const V3& other, float dx, float dz, float tg) {
+        if (env.facadeRay) {
+            const float te = env.facadeRay(other.x, other.z, dx, dz, other.x + dx * (tg + 0.4f), other.z + dz * (tg + 0.4f));
+            if (te >= tg - 0.25f && te <= tg + 1.2f) return te;
+        }
+        return tg + 0.3f;
+    };
+    auto seal = [&](V3& end, const V3& other, uint8_t& kind, float& allow) {
+        if (nearestNode(end.x, end.z, kSameNode) >= 0 || pieceAt(end.x, end.z, 0.3f) >= 0) return;   // already a joint / T
+        {   // 0. a wall joint right next to the end (end-to-end runs): onto it
+            const int nn = nearestNode(end.x, end.z, 1.0f);
+            if (nn >= 0) { end = {nodes_[(size_t)nn].x, end.y, nodes_[(size_t)nn].z}; kind = 3; P.trimmed = true; return; }
+        }
+        const float ex = end.x - other.x, ez = end.z - other.z, L = std::hypot(ex, ez);
+        if (L < 0.3f) return;
+        const float dx = ex / L, dz = ez / L;
+        if (inBuilding(other.x, other.z)) return;
+        float best = -1.f;   // new length of the leg from `other`
+        uint8_t bestKind = 0;
+        float bestAllow = 0.6f;
+        // 1. facade: the end is inside a building (pulled back) or a facade is within reach in front of it
+        {
+            float tg = -1.f;
+            if (inBuilding(end.x, end.z)) {
+                for (float t = 0.f; t < L; t += 0.1f)
+                    if (inBuilding(other.x + dx * t, other.z + dz * t)) { tg = t; break; }
+            } else {
+                for (float t = L; t <= L + kSealReach; t += 0.1f) {
+                    if (vehicleAt(other.x + dx * t, other.z + dz * t)) break;   // a car in between: not this facade
+                    if (inBuilding(other.x + dx * t, other.z + dz * t)) { tg = t; break; }
+                }
+            }
+            if (tg > 0.f) {
+                const float f = facadeAt(other, dx, dz, tg);
+                best = f + kSealDepth;
+                bestKind = 1;
+                bestAllow = best - tg + 0.9f;   // the grid's building cells between its edge and the sealed end
+            }
+        }
+        // 2. a supply container in front of (or under) the end
+        for (const Obb& c : env.containers) {
+            const float te = rayBox(c, other.x, other.z, dx, dz, L + kSealReach);
+            if (te <= 0.f || te < L - 6.f) continue;   // starts inside it / far behind the end: not a seal
+            const float nl = te + kSealDepth;
+            if (best < 0.f || nl < best) { best = nl; bestKind = 2; bestAllow = kSealDepth + 0.3f; }
+        }
+        // 3. an existing wall piece across the run in front of the end: onto its axis (T junction / its joint)
+        for (size_t e = 0; e < pieces_.size(); ++e) {
+            const WallPiece& p = pieces_[e];
+            if (!p.alive) continue;
+            const WallNode &na = nodes_[p.a], &nb = nodes_[p.b];
+            const float sx = nb.x - na.x, sz = nb.z - na.z, den = dx * sz - dz * sx;
+            if (std::fabs(den) < 0.2f * std::hypot(sx, sz)) continue;   // (nearly) parallel
+            const float wx = na.x - other.x, wz = na.z - other.z;
+            const float t = (wx * sz - wz * sx) / den, sp = (wx * dz - wz * dx) / den;
+            if (t < L - 0.6f || t > L + kSealReach || sp < 0.f || sp > 1.f) continue;   // overshoots up to 0.6 m pull back
+            if (best >= 0.f && t > best) continue;
+            best = t; bestKind = 3; bestAllow = 0.6f;
+        }
+        if (bestKind == 0) return;
+        V3 n{other.x + dx * best, end.y, other.z + dz * best};
+        if (bestKind == 3) {   // near a joint of that piece: onto the joint
+            const int nn = nearestNode(n.x, n.z, kSplitEnd);
+            if (nn >= 0) n = {nodes_[(size_t)nn].x, end.y, nodes_[(size_t)nn].z};
+        }
+        end = n;
+        kind = bestKind;
+        allow = bestAllow;
+        P.trimmed = true;
+    };
+    const bool loop = pts.size() > 2 && std::hypot(pts.front().x - pts.back().x, pts.front().z - pts.back().z) < 0.05f;
+    if (!loop) seal(pts.front(), pts[1], P.sealFront, P.allowFront);
+    if (!loop)
+    seal(pts.back(), pts[pts.size() - 2], P.sealBack, P.allowBack);
     // connectivity of the existing network (loop closure): union-find over nodes, new points get ids after them
     std::vector<int> uf(nodes_.size());
     for (size_t i = 0; i < uf.size(); ++i) uf[i] = (int)i;
@@ -230,15 +314,16 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
             const int n = std::max(1, (int)std::lround(L / kPieceLen));
             for (int j = 1; j <= n; ++j) cut.push_back(L * (float)j / (float)n);
         } else {
+            // whole 4 m pieces + one filler piece for the remainder (>= 0.5 m: 0.5 m granularity, GAME_DESIGN 14e); a
+            // smaller remainder stretches the 4 m pieces (at most 12 %). The filler sits at the sealed end (facade /
+            // container / wall) when only the start is free, else at the end of the leg.
             const int n4 = (int)std::floor(L / kPieceLen + 1e-3f);
             const float r = L - kPieceLen * (float)n4;
+            const bool fillFirst = k == 0 && P.sealFront && !(k + 2 == pts.size() && P.sealBack);
             if (n4 == 0) cut.push_back(L);
             else if (r < kMinLeg) for (int j = 1; j <= n4; ++j) cut.push_back(L * (float)j / (float)n4);
-            else if (r < 2.5f) {   // a short remainder shares the last 4 m: two end pieces of (4 + r) / 2 (2.5 .. 3 m)
-                for (int j = 1; j < n4; ++j) cut.push_back(kPieceLen * (float)j);
-                cut.push_back(kPieceLen * (float)(n4 - 1) + 0.5f * (kPieceLen + r));
-                cut.push_back(L);
-            } else { for (int j = 1; j <= n4; ++j) cut.push_back(kPieceLen * (float)j); cut.push_back(L); }
+            else if (fillFirst) { cut.push_back(r); for (int j = 1; j <= n4; ++j) cut.push_back(r + kPieceLen * (float)j); }
+            else { for (int j = 1; j <= n4; ++j) cut.push_back(kPieceLen * (float)j); cut.push_back(L); }
         }
         for (size_t j = 0; j + 1 < cut.size(); ++j) {
             WallPlanPiece q;
@@ -250,7 +335,7 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
             if (q.nodeA < 0) q.splitA = pieceAt(q.ax, q.az, 0.3f);
             if (q.nodeB < 0) q.splitB = pieceAt(q.bx, q.bz, 0.3f);
             q.fill = !gate && cut[j + 1] - cut[j] < kPieceLen - 0.5f;
-            if (L < kMinLeg) { q.ok = false; q.why = "segment too short (min 1 m)"; }
+            if (L < kMinLeg - 1e-3f) { q.ok = false; q.why = "segment too short (min 0.5 m)"; }
             q.closesLoop = !unite(idOf(q.ax, q.az, q.nodeA, q.splitA), idOf(q.bx, q.bz, q.nodeB, q.splitB));
             P.closesLoop |= q.closesLoop;
             P.pieces.push_back(q);
@@ -267,11 +352,13 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
         P.price += q.price;
         if (!q.ok) continue;
         auto fail = [&](const char* why) { if (q.ok) { q.ok = false; q.why = why; } };
-        if (q.nodeA >= 0 && q.nodeA == q.nodeB) { fail("segment too short (min 1 m)"); continue; }
+        if (q.nodeA >= 0 && q.nodeA == q.nodeB) { fail("segment too short (min 0.5 m)"); continue; }
         if (env.buildable && (!env.buildable(q.ax, q.az) || !env.buildable(q.bx, q.bz))) { fail("outside engineer range"); continue; }
         // footprint samples
-        float gmin = 1e9f, gmax = -1e9f;
+        float gmin = 1e9f, gmax = -1e9f, gall = 1e9f;
         std::vector<float> gs;
+        // the run's sealed ends may overlap the facade / container they were sealed onto (allowFront / allowBack)
+        const float allowA = i == 0 ? P.allowFront : 0.6f, allowB = i + 1 == P.pieces.size() ? P.allowBack : 0.6f;
         bool outside = false, vehicle = false, container = false, clearing = false;
         const int nu = std::max(2, (int)std::ceil(len / 0.5f)), nv = 2;
         for (int a = 0; a <= nu; ++a)
@@ -280,8 +367,10 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
                 box.at(-box.hx + 2.f * box.hx * (float)a / (float)nu, -box.hz + 2.f * box.hz * (float)b / (float)nv, x, z);
                 if (env.simulated && !env.simulated(x, z)) { outside = true; continue; }
                 // the last 0.6 m at each end may overlap a building / vehicle edge: walls butt against facades
-                if (std::fabs(-box.hx + 2.f * box.hx * (float)a / (float)nu) > box.hx - 0.6f) continue;
+                const float u = -box.hx + 2.f * box.hx * (float)a / (float)nu;
                 const float g = env.ground ? env.ground(x, z) : 0.f;
+                gall = std::min(gall, g);
+                if (box.hx + u < allowA || box.hx - u < allowB) continue;
                 gmin = std::min(gmin, g); gmax = std::max(gmax, g);
                 gs.push_back(g);
                 if (env.solid && env.solid(x, z) - g > 0.4f) {
@@ -292,7 +381,7 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
                 }
                 for (const Obb& c : env.containers) if (c.contains(x, z, 0.15f)) container = true;
             }
-        q.y = gmin < 1e8f ? gmin : 0.f;
+        q.y = gmin < 1e8f ? gmin : gall < 1e8f ? gall : 0.f;
         q.clearing = clearing;
         if (outside) { fail("outside the simulated area"); continue; }
         // a building / water / step blocks; a thin pole, bollard or tree in the line does not (the wall swallows it)

@@ -26,7 +26,7 @@ constexpr uint32_t kRbKills = 0, kKillBytes = kGameKillWords * 4;
 constexpr uint32_t kRbHits = kRbKills + kKillBytes, kHitResBytes = kMaxHitsPerTick * 8;
 constexpr uint32_t kRbContacts = kRbHits + kHitResBytes, kContactBytes = kMaxGpuSoldiers * 16;
 constexpr uint32_t kRbField = kRbContacts + kContactBytes;
-constexpr uint32_t kNearBytesPerSoldier = 8 * 16;   // 4 x (pos, dist) + 4 x (vel) (game_contacts.comp)
+constexpr uint32_t kNearBytesPerSoldier = 10 * 16;   // 4 x (pos, dist) + 4 x (vel) + lock (pos, dist) + lock vel (game_contacts.comp)
 uint32_t fieldBytes(uint32_t tiles) { return tiles * 4 + tiles * kFieldSamples * 16; }
 double msSince(uint64_t t0) { return (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency(); }
 } // namespace
@@ -145,15 +145,25 @@ void HordeBridge::preSim(SDL_GPUCommandBuffer* cmd) {
     auto* up = (uint8_t*)SDL_MapGPUTransferBuffer(d, upload_, true);   // cycle: the GPU may still read last frame's
     if (!up) return;
     frameIds_.resize(nS);
+    frameLocks_.resize(nS);
     for (uint32_t i = 0; i < nS; ++i) {
         const HordeSoldier& s = soldiers_[i];
         GpuSoldier g;
         g.posR = {s.pos.x, s.pos.y, s.pos.z, std::max(s.radius, 0.05f)};
         float idBits;
         std::memcpy(&idBits, &s.packedId, 4);
-        g.info = {std::max(s.height, 0.2f), s.attraction, idBits, 0.f};
+        // word 7: the target lock point as 16-bit offsets from the feet (1/128 m, +-256 m; 0 = none), game_contacts
+        uint32_t lockBits = 0;
+        if (s.hasLock) {
+            const auto q = [](float v) { return (uint32_t)std::clamp((int)std::lround(v * 128.f) + 32768, 1, 65535); };
+            lockBits = q(s.lockPos.x - s.pos.x) | q(s.lockPos.z - s.pos.z) << 16;
+        }
+        float lockF;
+        std::memcpy(&lockF, &lockBits, 4);
+        g.info = {std::max(s.height, 0.2f), s.attraction, idBits, lockF};
         std::memcpy(up + kUpSoldiers + i * sizeof(GpuSoldier), &g, sizeof(g));
         frameIds_[i] = s.packedId;
+        frameLocks_[i] = s.hasLock ? V3{s.pos.x + ((float)(lockBits & 0xFFFFu) - 32768.f) / 128.f, s.lockPos.y, s.pos.z + ((float)(lockBits >> 16) - 32768.f) / 128.f} : V3{1e9f, 0.f, 1e9f};
     }
     frameShooters_.resize(nH);
     for (uint32_t i = 0; i < nH; ++i) {
@@ -279,6 +289,7 @@ void HordeBridge::postSim(SDL_GPUCommandBuffer* cmd, uint64_t frameIndex) {
     s.tilesX = tilesX_; s.tilesZ = tilesZ_;
     s.originX = sim_->originX(); s.originZ = sim_->originZ();
     s.ids.assign(frameIds_.begin(), frameIds_.begin() + s.nSoldiers);
+    s.locks.assign(frameLocks_.begin(), frameLocks_.begin() + s.nSoldiers);
     s.shooters.assign(frameShooters_.begin(), frameShooters_.begin() + frameHits_);
     frameHits_ = 0;
     st_.cpuMs += msSince(t0);
@@ -352,8 +363,15 @@ void HordeBridge::parseSlot(int si) {
             c.attackers = (uint16_t)std::min<uint32_t>(w[0], 0xFFFFu);
             c.nearby = (uint16_t)std::min<uint32_t>(w[1], 0xFFFFu);
             std::memcpy(&c.nearestDist, &w[2], 4);
-            float nb[32];
+            float nb[40];
             std::memcpy(nb, b + rbNear_ + i * kNearBytesPerSoldier, sizeof(nb));
+            c.lockFound = i < s.locks.size() && s.locks[i].x < 1e8f && nb[35] < SoldierContact::kLockReach + 0.01f;
+            if (c.lockFound) {
+                c.lockQuery = s.locks[i];
+                c.lockPos = {nb[32], nb[33], nb[34]};
+                c.lockVel = {nb[36], 0.f, nb[37]};
+                c.lockProne = nb[38];
+            }
             c.nNear = 0;
             for (uint32_t q = 0; q < SoldierContact::kNear; ++q) {
                 if (!(nb[q * 4 + 3] < 1e8f)) break;

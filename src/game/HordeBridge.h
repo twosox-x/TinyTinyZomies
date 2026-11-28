@@ -136,6 +136,7 @@ private:
     // this frame (preSim -> postSim)
     uint32_t frameSoldiers_ = 0, frameHits_ = 0;
     std::vector<uint32_t> frameIds_, frameShooters_;
+    std::vector<V3> frameLocks_;   // per uploaded soldier: its lock point as uploaded (1e9: none)
     bool frameHitsResolved_ = false;
 
     struct Slot {
@@ -146,6 +147,7 @@ private:
         uint32_t nSoldiers = 0, nHits = 0, tilesX = 0, tilesZ = 0;
         float originX = 0, originZ = 0;
         std::vector<uint32_t> ids, shooters;
+        std::vector<V3> locks;
     };
     std::array<Slot, 3> ring_{};
 };

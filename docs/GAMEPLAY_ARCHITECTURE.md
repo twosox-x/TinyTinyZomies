@@ -869,3 +869,72 @@ channels (dropped tools follow the death clip's weapon track); the carbine goes 
 **Tests.** `tests/game/b4_engineers.txt` (no engineers -> refused, radius, blueprints, queue, undo + refund, build loop,
 mid-piece T split), `tests/game/b4_gate_car.txt` (gate into a wall, gates onto joints, territory closed by gates, soldiers
 pass, car clearing, a wall planned through the car built after it). B2 scripts run with `cheat build 1`.
+
+## 13. UI: HUD 2 and the registration API (GAME_DESIGN 11 / 14e; layout PROPOSED)
+
+Owner feedback (14e): thin and unobtrusive but more dynamic, visual and tactical; categories; no clipped buttons; the unit
+info panel never overlaps the menu. HUD 2 (`src/game/HudBar.cpp`, part of `GameUI`) replaces the single build bar:
+
+- **Top bar** (centred, one thin strip): funding + income, kills, troops, territory, clock (time of day, sun / moon) and
+  game time, UNAPPROVED tag. Drops secondary labels on narrow windows.
+- **Notification feed** (top right, under the top bar): compact, fading, deduplicated (`x3`); entries with a position
+  (breach, squad under attack, out of ammo, gas, building events) are clickable and move the camera there.
+- **Command bar** (bottom centre): category tabs **Units / Structures / Supplies / Engineering / Vehicles** (Vehicles greyed,
+  "coming later"); each tab shows icon cards (voxel-style icon, name, cost, hotkey badge; tooltip with description / stats;
+  greyed when unaffordable or unavailable, with the reason). Cards never clip: when they do not fit, the row scrolls
+  (arrows or mouse wheel over the bar). Sizes scale with the DPI / `--ui-scale F`.
+- **Selection panel** (left, always above the command bar): squad class icon, members with health / ammo / stamina bars,
+  state, pace (auto / run / walk) and halt, context actions of the selection (registered), multi-squad summary rows.
+  The building panel (BuildingGame) stacks above it (`GameUI::layout()`).
+- **Placement banner** (top centre, under the top bar) while a tool is active: what is being placed, its price, and the
+  hints (LMB place, Shift keep, Q / E rotate, RMB / Esc cancel).
+- **World hover menus**: providers fill a small menu for the object under the cursor (e.g. a parked car with engineers
+  selected); the menu stays open while the cursor moves onto it.
+
+### Registration API (`src/game/UiActions.h`, `GameUI`)
+
+Features never edit the layout; they register at init (where `GameWorld` installs its modules, e.g. next to
+`installBuildingUI(ui_, buildings_)`; `GameWorld::ui()` returns the `GameUI`):
+
+```cpp
+#include "game/GameUI.h"
+// 1) a command-bar card
+UiAction a;
+a.id = "struct.tower"; a.category = UiCategory::Structures; a.label = "Defense tower"; a.icon = UiIcon::Tower;
+a.cost = [](const UiCtx& u) { return u.ctx.cfg->towers.price; };
+a.hotkey = SDLK_O;                                  // optional; fires onSelect (Shift allowed, never with Ctrl)
+a.onSelect = [](const UiCtx& u) { u.ui.beginTargeting("Defense tower", "LMB place | Q/E rotate", [](const UiCtx& u, V3 p) {
+    Command c; /* ... */ u.out.push(c); }); };
+a.enabled = [](const UiCtx& u, std::string* why) { if (!hasEngineers(u.ctx)) { *why = "Needs engineers"; return false; } return true; };
+a.tooltip = [](const UiCtx&) { return std::string("Snipers occupy it: +range, protected.\nBuilt by engineers."); };
+a.order = 40;                                       // position inside the tab
+ui.registerAction(a);                               // or the positional overload:
+ui.registerAction(UiCategory::Supplies, "sup.fuel", UiIcon::Fuel, "Fuel drop", costFn, SDLK_L, onSelect, enabledFn, tooltipFn);
+
+// 2) a selection-panel context button
+UiSelectionAction s;
+s.id = "sel.garrison"; s.label = "Garrison"; s.icon = UiIcon::Garrison; s.hotkeyLabel = "G";
+s.visible = [](const UiCtx& u) { return !u.ui.selectionConst().squads.empty(); };
+s.onSelect = [](const UiCtx& u) { /* request */ };
+ui.registerSelectionAction(s);
+
+// 3) a world hover menu (structures agent: siphon / disassemble)
+ui.registerHoverProvider("car.fuel", [](const UiCtx& u, V3 ground, float sx, float sy, UiHoverMenu& m) {
+    const uint32_t v = u.app.vehicles.parkedAt(ground.x, ground.z, 2.f);
+    if (v == UINT32_MAX || !engineersSelected(u)) return false;
+    m.title = "Parked car"; m.anchor = ground; m.key = v;
+    m.entries.push_back({"Siphon fuel", UiIcon::Siphon, "", -1, true, "", [v](const UiCtx& u) { /* push command */ }});
+    return true;
+});
+```
+
+- Built-in icons: `UiIcon` (rifle, MG, sniper, flamethrower, engineer, container, airdrop, walls, gate, clear car, tower,
+  light, generator, fuel, crate, barricade, garrison, hospital, vehicle, siphon, disassemble, halt, run, walk, burn, build,
+  undo). `UiAction::painter` draws a custom one; `drawUiIcon` is public for feature panels.
+- Callbacks only push Commands / switch GameUI tools / use the module's request queue (never mutate state directly).
+- `beginTargeting(label, hint, fn)`: generic "click a ground point" mode (`Tool::Target`), shown in the placement banner.
+- `notifyAt(text, bad, time, pos)`: a clickable feed entry. `GameUI::watchEvents` adds squad under attack / out of ammo /
+  breach entries by itself.
+- Script verbs (`GameScript`): `ui action ID` (runs a card / selection action as if clicked), `ui tab units|structures|supplies|
+  engineering|vehicles`; metrics `ui_tab`, `ui_actions` (registered cards). Scripts click world coordinates only, never UI
+  pixels, so the layout can change freely.

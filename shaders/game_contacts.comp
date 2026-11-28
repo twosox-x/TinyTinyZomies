@@ -9,8 +9,12 @@
 // near[32 * s ...]: the 4 nearest live walkers / climbers within extraP.z (any height: rooftop soldiers see the street),
 // exact positions of this step: 4 x (pos.xyz, dist) then 4 x (vel.xz, prone, 0); dist 1e9 = empty. Searched tile ring by
 // tile ring (6 m tiles from game_field, empty tiles skipped), stopping once the 4th is closer than the next ring.
+// near[32 * s + 32 ...] (stride 40 floats): the live walker / climber nearest to the soldier's target lock point (word 7
+// of its GameSolid record: 16-bit x / z offsets from the feet, 1/128 m, 0 = no lock) within LOCK_R: (pos.xyz, dist),
+// (vel.xz, prone, 0); dist 1e9 = none. Long-range locks are coarse field samples; this keeps them on the real zombie.
 #include "common.glsl"
 layout(local_size_x = 64) in;
+const float LOCK_R = 2.0;   // == SoldierContact::kLockReach
 layout(std430, set = 0, binding = 0) readonly buffer GameSolid { uint gameSolid[]; };   // 8 uints per soldier from word 0
 layout(std430, set = 0, binding = 1) readonly buffer Agents    { Agent agents[]; };
 layout(std430, set = 0, binding = 2) readonly buffer CellStart { uint cellStart[]; };
@@ -109,7 +113,29 @@ void main() {
             if (scanned > 6000u) break;   // bounded per soldier (dense crowds: the nearest rings are already full)
         }
     }
-    for (uint q = 0u; q < 4u; ++q) { nearOut[8u * s + q] = bp[q]; nearOut[8u * s + 4u + q] = vec4(bv[q], 0.0); }
+    // ---- the exact zombie at the target lock point (7 x 7 cells around it)
+    vec4 lp = vec4(0.0, 0.0, 0.0, 1e9), lv = vec4(0.0);
+    uint lk = gameSolid[8u * s + 7u];
+    if (inside && lk != 0u) {
+        vec2 q = sp.xz + (vec2(float(lk & 0xFFFFu), float(lk >> 16)) - 32768.0) / 128.0;
+        ivec2 c = ivec2(floor((q - world.xy) * world.w));
+        for (int dy = -3; dy <= 3; ++dy)
+        for (int dx = -3; dx <= 3; ++dx) {
+            ivec2 cc = c + ivec2(dx, dy);
+            if (cc.x < 0 || cc.y < 0 || cc.x >= int(grid.x) || cc.y >= int(grid.y)) continue;
+            uint cid = cellIndex(cc);
+            uint b = cellStart[cid], e = min(b + cellCount[cid], live);
+            for (uint k = b; k < e && k < b + 32u; ++k) {
+                Agent a = agents[k];
+                if (agentState(a) >= ST_DYING) continue;
+                float dist = distance(a.pos.xz, q);
+                if (dist <= LOCK_R && dist < lp.w) { lp = vec4(a.pos.xyz, dist); lv = vec4(a.vel.xz, a.pos.w, 0.0); }
+            }
+        }
+    }
+    for (uint q = 0u; q < 4u; ++q) { nearOut[10u * s + q] = bp[q]; nearOut[10u * s + 4u + q] = vec4(bv[q], 0.0); }
+    nearOut[10u * s + 8u] = lp;
+    nearOut[10u * s + 9u] = lv;
     contacts[4u * s] = attackers;
     contacts[4u * s + 1u] = nearby;
     contacts[4u * s + 2u] = floatBitsToUint(nearest);

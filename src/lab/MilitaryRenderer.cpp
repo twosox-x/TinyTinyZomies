@@ -1,6 +1,7 @@
 // MilitaryRenderer (WS-B): the military asset GPU path, extracted from MilitaryLab without behaviour changes (the
 // lab's review captures are pixel-identical before / after). See MilitaryRenderer.h.
 #include "lab/MilitaryRenderer.h"
+#include "lab/TracerMotion.h"
 
 #include "gpu/GpuContext.h"
 #include "render/Camera.h"
@@ -243,6 +244,7 @@ void MilitaryRenderer::beginFrame(const Camera& camera, float aspect) {
     }
     eye_ = camera.eye();
     focus_ = camera.target();
+    pxAngle_ = camera.fovY / 1080.f;   // rad per pixel at 1080p (tracer minimum width)
     charsU_.clear();
     for (auto& b : attBuckets_) b.clear();
     for (auto& b : instBuckets_) b.clear();
@@ -479,12 +481,14 @@ uint32_t MilitaryRenderer::fxTracer(V3 from, V3 to, int style) {
     V3 d = to - from;
     const float len = length(d);
     if (len < 1.f) return 0;
-    const float speed = style == 2 ? 900.f : 750.f;
+    // owner 14e: ~20 % slower than 750 / 900 m/s, drawn from the muzzle on the spawn frame (TracerMotion.h)
+    const float speed = style == 2 ? TracerMotion::kSpeedSniper : TracerMotion::kSpeedRifle;
     Fx f{lib_.fxModels[MilitaryLibrary::FX_STREAK], from, d * (1.f / len), {0, 0, 0, 1}, 0.f, 0.f, 4};
     f.a = len;
     f.b = (float)style;
     f.id = ++fxIds_ ? fxIds_ : ++fxIds_;
-    f.life = (len + tracerLength) / speed + 0.02f;
+    f.life = TracerMotion::life(speed, len, tracerLength);
+    f.fresh = true;   // not aged before its first draw: the first segment starts at the barrel
     f.speed = speed;
     fx_.push_back(f);
     return f.id;
@@ -495,7 +499,7 @@ void MilitaryRenderer::fxTracerEnd(uint32_t id, float dist) {
     for (Fx& f : fx_)
         if (f.id == id && f.kind == 4) {
             f.a = std::max(1.f, dist);
-            f.life = std::min(f.life, (f.a + tracerLength) / f.speed + 0.02f);
+            f.life = TracerMotion::life(f.speed, f.a, tracerLength);
             return;
         }
 }
@@ -931,6 +935,11 @@ void MilitaryRenderer::addDrop(const MilDrop& d) {
 // ---------------------------------------------------------------------------------------------------------------
 void MilitaryRenderer::updateFx(float fdt) {
     for (Fx& f : fx_) {
+        if (f.kind == 4) {   // ray tracer: drawn once at age 0, then capped steps (>= kMinFrames frames muzzle -> target)
+            if (f.fresh) f.fresh = false;
+            else f.age += TracerMotion::step(fdt, f.speed, f.a);
+            continue;
+        }
         f.age += fdt;
         if (f.kind == 1) {   // casing: gravity, one bounce on the surface below
             f.v.y -= 9.81f * fdt;
@@ -959,12 +968,14 @@ void MilitaryRenderer::updateFx(float fdt) {
             model = lib_.fxModels[a < 0.33f ? MilitaryLibrary::FX_PUFF_S : a < 0.66f ? MilitaryLibrary::FX_PUFF_M : MilitaryLibrary::FX_PUFF_L];
         }
         if (f.kind == 4) {   // ray tracer: head travels from the muzzle to the hit point, the streak follows it
-            const float head = std::min(f.age * f.speed, f.a), tail = std::clamp(f.age * f.speed - tracerLength, 0.f, f.a);
+            float head, tail;
+            TracerMotion::span(f.age, f.speed, f.a, tracerLength, head, tail);
             if (head - tail < 0.05f) continue;
             const V3 hp = f.p + f.v * head;
-            // thickness: a minimum angular size (~2 px at 1080p; sniper ~1 px) so it reads at any RTS distance
-            const float dEye = length(hp - eye_), px = f.b > 1.5f ? 0.0008f : 0.0017f;
-            const float thick = std::max(f.b > 1.5f ? 0.025f : 0.05f, dEye * px * tracerWidth);
+            // thickness (owner 14e: thinner, finer): a minimum angular size of ~1.2 px at 1080p (sniper 1 px, never
+            // below one pixel) so it still reads at RTS distance; 2 / 1.5 cm up close
+            const float dEye = length(hp - eye_), px = pxAngle_ * (f.b > 1.5f ? 1.0f : 1.2f);
+            const float thick = std::max(f.b > 1.5f ? 0.015f : 0.02f, dEye * px * tracerWidth);
             float q[4];
             const V3 d = f.v;   // unit direction; model +Y -> d
             if (d.y < -0.9999f) { q[0] = 1; q[1] = q[2] = 0; q[3] = 0; }

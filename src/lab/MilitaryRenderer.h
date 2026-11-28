@@ -125,8 +125,8 @@ public:
     // small ember along `dir`. The flame stream itself is a voxel fx volume (Renderer::setFlameVolumes, kind 2).
     void fxFlame(const MilPoseInput& s, V3 dir, float range);
     void fxTracerEnd(uint32_t id, float distFromStart);     // shorten / lengthen a live tracer (hit resolved)
-    float tracerLength = 9.f;                               // m, visible streak behind the head
-    float tracerWidth = 1.5f;                               // x the minimum angular width (1.5: ~3 px at 1080p)
+    float tracerLength = 4.5f;                              // m, short visible streak behind the head (owner 14e)
+    float tracerWidth = 1.f;                                // x the minimum angular width (1: ~1.2 px at 1080p)
     float flashScale = 1.f;                                 // x the minimum angular size of muzzle flashes (~3 px)
     void clearFx() { fx_.clear(); flashes_.clear(); }
     void updateFx(float dt);                                // age / move FX, emit their instances (before endFrame)
@@ -145,7 +145,7 @@ public:
 
 private:
     // kind 0 static, 1 ballistic, 2 drift, 3 tracer (clip event), 4 ray tracer (p start, v unit dir, a length, b style)
-    struct Fx { int model; V3 p, v; float q[4]; float age, life; int kind; float glow = 0.f, a = 0.f, b = 0.f, speed = 0.f; uint32_t id = 0; };
+    struct Fx { int model; V3 p, v; float q[4]; float age, life; int kind; float glow = 0.f, a = 0.f, b = 0.f, speed = 0.f; uint32_t id = 0; bool fresh = false; };
     static constexpr float kStreakVoxel = 0.05f, kStreakLength = 0.8f;   // FX_STREAK model: 1 x 16 x 1 voxels of 5 cm
     struct Flash { V3 p; float life; float radius; float intensity; };
     uint32_t flameSeq_ = 0;   // fxFlame jitter stream
@@ -193,6 +193,7 @@ private:
     std::vector<std::vector<Inst>> markerBuckets_;
 
     std::vector<Fx> fx_;
+    float pxAngle_ = 0.0007f;   // rad per pixel at 1080p (beginFrame: camera fovY / 1080)
     std::vector<Flash> flashes_;
     int mgRound_ = 0;
 };

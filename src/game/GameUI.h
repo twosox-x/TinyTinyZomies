@@ -16,6 +16,7 @@
 // H halt (stop) the selection, Tab next squad, 1..9 select squad N, Esc cancel tool / clear selection.
 #include "game/Commands.h"
 #include "game/GameContext.h"
+#include "game/UiActions.h"
 
 #include <functional>
 #include <string>
@@ -30,9 +31,21 @@ struct AppState;
 namespace ttz::game {
 
 enum class Tool : uint8_t { Select, BuyRifle, BuyMG, BuySniper, PlaceContainer, Airdrop, BuildWall /* B2 */, BuyFlame /* 14d */,
-                           BuyEngineer /* 14d */, ClearCar /* 14d: engineers remove a parked vehicle */ };
+                           BuyEngineer /* 14d */, ClearCar /* 14d: engineers remove a parked vehicle */,
+                           Target /* UI: a selection / hover action waits for a ground click (beginTargeting) */ };
 
-struct UiNotice { std::string text; double time = 0; bool bad = false; };
+struct UiNotice { std::string text; double time = 0; bool bad = false; bool hasPos = false; V3 pos; uint32_t repeat = 1; };
+
+// Screen rectangles of the HUD (pixels), refreshed every draw: features place their own panels with these so nothing
+// overlaps the command bar (BuildingGame's panel sits above the selection panel).
+struct HudLayout {
+    float scale = 1.f;                 // UI scale (DPI / --ui-scale)
+    float topBarBottom = 0.f;          // y below the top bar
+    float barX0 = 0, barY0 = 0, barX1 = 0, barY1 = 0;   // command bar (tabs + cards)
+    float panelX = 0;                  // left edge of the selection panel column
+    float panelBottom = 0;             // y the next panel above the selection panel must end at
+    float panelMaxW = 420.f;           // max width of a left-column panel
+};
 
 class GameUI {
 public:
@@ -43,6 +56,25 @@ public:
     Tool tool() const { return tool_; }
     void setTool(Tool t) { tool_ = t; }
     void notify(const std::string& text, bool bad, double time);
+    void notifyAt(const std::string& text, bool bad, double time, V3 pos);   // clickable: jumps the camera to pos
+    // ---- HUD registration API (UiActions.h; docs/GAMEPLAY_ARCHITECTURE.md "UI") ----
+    void registerAction(UiAction a);
+    void registerAction(UiCategory cat, const std::string& id, UiIcon icon, const std::string& label, std::function<int(const UiCtx&)> cost,
+                        int hotkey, std::function<void(const UiCtx&)> onSelect, std::function<bool(const UiCtx&, std::string*)> enabled = {},
+                        std::function<std::string(const UiCtx&)> tooltip = {});
+    void unregisterAction(const std::string& id);
+    void registerSelectionAction(UiSelectionAction a);
+    void registerHoverProvider(const std::string& id, UiHoverProvider p);
+    const std::vector<UiAction>& actions() const { return actions_; }
+    // Scripts / tests: run a registered action as if its card (or selection button) was clicked. False: unknown id.
+    bool invokeAction(AppState& app, const GameContext& ctx, CommandQueue& out, const std::string& id);
+    void setCategory(UiCategory c) { tab_ = c; }
+    UiCategory category() const { return tab_; }
+    // A context action that needs a ground point: the next LMB on the ground calls fn (RMB / Esc cancel).
+    void beginTargeting(const std::string& label, const std::string& hint, std::function<void(const UiCtx&, V3)> fn);
+    const HudLayout& layout() const { return layout_; }
+    // Sticky move pace for RMB orders chosen in the selection panel (0 auto, 1 run, 2 walk); Shift / Ctrl still override.
+    int movePace = 0;
     // Scripted previews / captures: show the placement preview of `t` at a world point (no mouse needed).
     void forcePreview(Tool t, V3 pos) { tool_ = t; forced_ = true; forcedPos_ = pos; }
     void clearForcedPreview() { forced_ = false; tool_ = Tool::Select; }
@@ -77,6 +109,38 @@ private:
     void drawMarkers(AppState& app, const GameContext& ctx);
     void drawPreview(AppState& app, const GameContext& ctx);
     void drawNotices(AppState& app, const GameContext& ctx);
+    // HUD 2 (HudBar.cpp): command bar, selection panel, top bar, feed, hover menus, placement banner
+    void registerBuiltinActions();
+    bool actionHotkey(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out);
+    void drawPlacementBanner(AppState& app, const GameContext& ctx, CommandQueue& out);
+    void drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& out);
+    void watchEvents(const GameContext& ctx);
+    void registerFortActions();   // FortUI.cpp: walls / gate / engineers / clear car cards
+    std::vector<UiAction> actions_;
+    std::vector<UiSelectionAction> selActions_;
+    std::vector<std::pair<std::string, UiHoverProvider>> hover_;
+    bool builtins_ = false;
+    UiCategory tab_ = UiCategory::Units;
+    float tabAnim_ = 0.f, barScroll_ = 0.f, barScrollGoal_ = 0.f, panelAnim_ = 0.f;
+    HudLayout layout_;
+    std::string targetLabel_, targetHint_;
+    std::function<void(const UiCtx&, V3)> targetFn_;
+    UiHoverMenu hoverMenu_;
+    bool hoverOpen_ = false;
+    double hoverSeen_ = -100, hoverOverMenu_ = -100;
+    std::vector<uint32_t> prevFlags_;
+    std::vector<size_t> seenRubble_;
+    size_t rubbleCount_ = 0;
+    std::vector<int> prevAlive_;
+    std::vector<double> lastAttackNote_;
+    double fundShown_ = -1, fundFlashT_ = -100;
+    int fundFlashDir_ = 0;
+    float tabIndX_ = -1, tabIndW_ = 0;
+    std::string revealId_;
+public:
+    std::string forceTip;            // scripts / captures: show this card's tooltip (headless shots have no mouse)
+    bool forceHover = false;         // scripts / captures: the hover menu at the forced preview position
+private:
     // B2 (FortUI.cpp)
     bool wallEvent(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out);
     void confirmWall(const AppState& app, const GameContext& ctx, CommandQueue& out);

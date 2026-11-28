@@ -14,9 +14,14 @@
 namespace ttz::game {
 
 V3 Combat::spreadDir(V3 dir, float spreadDeg, uint32_t& rng) {
+    // Owner feedback 2026-11-28 (long range: "10 shots before I moved him closer"): the cone is the HARD limit, the
+    // rounds cluster toward its axis (angle ~ |N(0, a / 2)|, clamped to a), not uniform over the cap area (which put
+    // most rounds near the rim: 33 % body hits at 50 m for the rifle). Now ~66 % at 50 m, ~59 % at 60 m (perfect aim).
     const float a = spreadDeg * 3.14159265f / 180.f;
-    const float u = rand01(rng), v = rand01(rng);
-    const float cosT = 1.f - u * (1.f - std::cos(a)), sinT = std::sqrt(std::max(0.f, 1.f - cosT * cosT)), phi = v * 6.2831853f;
+    const float u1 = std::max(rand01(rng), 1e-7f), u2 = rand01(rng), v = rand01(rng);
+    const float g = std::sqrt(-2.f * std::log(u1)) * std::cos(6.2831853f * u2);   // Box-Muller
+    const float th = std::min(a, std::fabs(g) * 0.5f * a);
+    const float cosT = std::cos(th), sinT = std::sin(th), phi = v * 6.2831853f;
     V3 d = normalize(dir);
     V3 t = std::fabs(d.y) < 0.99f ? normalize(cross(d, V3{0, 1, 0})) : V3{1, 0, 0};
     V3 b = cross(d, t);
@@ -69,13 +74,16 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
     const bool head = rand01(P.rng[i]) < w.headshotChance;
     const bool quiet = P.cls[i] == SoldierClass::Sniper;   // suppressed rifle
     HitRequest h;
-    h.origin = origin; h.dir = dir; h.maxDist = w.range; h.damage = w.damage;
+    // the ray reaches the aim point and a bit beyond: a target locked at 2D range from a roof / window is farther in
+    // 3D (the round used to stop short of it: "shoots it but the kill does not register")
+    const float reach = std::max(w.range, std::sqrt(dot(aim - origin, aim - origin)) + 2.f);
+    h.origin = origin; h.dir = dir; h.maxDist = reach; h.damage = w.damage;
     h.shooterPacked = P.idOf(i).packed();
     h.flags = (head ? 1u : 0u) | (quiet ? 2u : 0u);
     if (hits_.size() < kMaxHitsPerTick) hits_.push_back(h);
     if (ctx.events) {
         ShotEvent s;
-        s.shooter = P.idOf(i); s.cls = P.cls[i]; s.origin = origin; s.dir = dir; s.maxDist = w.range; s.damage = w.damage; s.headshot = head;
+        s.shooter = P.idOf(i); s.cls = P.cls[i]; s.origin = origin; s.dir = dir; s.maxDist = reach; s.damage = w.damage; s.headshot = head;
         ctx.events->shots.push_back(s);
         NoiseEvent n;
         n.pos = P.pos[i]; n.intensity = w.noise; n.radius = w.noiseRadius;

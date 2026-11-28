@@ -65,6 +65,39 @@ public:
     bool walkLine(V3 a, V3 b) const;
     // Island id of a walkable cell (connected component; street network vs each roof). Same island = reachable.
     uint32_t island(float x, float z) const;
+    // Nearest walkable point within maxR on the level `y` (|surface - y| <= tol): a soldier standing on a roof rim cell
+    // snaps onto his roof, never onto the street a metre away (path starts, recovery).
+    bool nearestWalkableLevel(V3 p, float maxR, float y, float tol, V3& out) const;
+
+    // ---- Rooftops (owner feedback 2026-11-28, GAME_DESIGN 14e: "units on roofs respect the roof collisions, pathfind
+    // properly and keep back from the edge"). A roof island is an elevated island (a drop of more than 2.5 m at its
+    // rim; never the largest island = the street network). For each of its cells two clearances are kept, from the cell
+    // centre to the nearest cell that is not part of the island (capped at kRoofScan m):
+    //   edge     : the roof edge = a drop of more than 1.5 m, or a raised rim cell (parapet / ledge) with such a drop
+    //              within 2 cells of it
+    //   obstacle : anything else rising out of the roof or a small step down (HVAC units, water tanks, stair housings,
+    //              skylights, the other level of a stepped roof)
+    // A* adds a cost for roof cells closer than roofEdgeInset to the edge or roofObstacleMargin to an obstacle (paths
+    // keep off the rim and go around roof objects with a margin), and string pulling never cuts a leg through cells
+    // closer to the rim than the A* path itself went.
+    static constexpr float kRoofScan = 3.0f;
+    float roofEdgeInset = 1.2f;      // m: idle / standing positions keep at least this far from the roof edge
+    float roofObstacleMargin = 0.6f; // m: clearance margin kept from roof objects (A* cost, standing positions)
+    bool roofIsland(uint32_t island) const { return island < islandRoof_.size() && islandRoof_[island]; }
+    bool onRoof(float x, float z) const { return roofIsland(island(x, z)); }
+    // Clearances of the cell containing (x, z) (cell centre; kRoofScan when off a roof island or farther).
+    float cellEdge(float x, float z) const;
+    float cellObstacle(float x, float z) const;
+    // Exact clearance of the POINT (x, z) to the nearest edge / obstacle cell square of its roof island (kRoofScan when
+    // not on a roof island): tests, steering decisions.
+    float edgeClearance(float x, float z) const;
+    float obstacleClearance(float x, float z) const;
+    // Nearest standing spot (cell centre) on `island` (0: the island at p) within maxR whose clearances are at least
+    // minEdge / minObs. Relaxes nothing: false when no such cell exists.
+    bool insetSpot(V3 p, float maxR, float minEdge, float minObs, uint32_t island, V3& out) const;
+    // Cells of one island reachable from p (flood over the island, at most maxCells, within maxR of p), nearest first:
+    // the roof-surface picker of drops / crates searches these.
+    void islandCells(V3 p, float maxR, int maxCells, std::vector<V3>& out) const;
 
     // Asynchronous-style queries served in budgeted slices from tick(): returns a request id (> 0).
     uint32_t requestPath(V3 from, V3 to);
@@ -92,6 +125,13 @@ private:
     int costW_ = 0, costH_ = 0;
     float costOx_ = 0, costOz_ = 0, costCell_ = 1.f, costScale_ = 0.f;
     std::vector<uint32_t> island_;
+    std::vector<uint8_t> islandRoof_;   // per island id: elevated roof island
+    std::vector<float> edgeD_, obsD_;   // roof clearances per cell (kRoofScan off roofs)
+    std::vector<float> min5_;           // lowest height within 2 cells (parapet test)
+    void computeRoof(int z0, int z1);
+    float roofPenalty(size_t c) const;  // A* extra cost per step of a roof cell near the rim / an obstacle
+    bool walkLinePen(V3 a, V3 b, float maxPen) const;   // walkLine that never crosses a cell with a higher penalty
+    float clearanceAt(float x, float z, bool edge) const;
     struct Query { uint32_t id; V3 from, to; bool done = false, failed = false, started = false; std::vector<V3> result; int expanded = 0; };
     std::vector<Query> queries_;
     uint32_t nextId_ = 1;

@@ -4,11 +4,16 @@
 // the oriented footprints that GameWorld stamps into the zombies' static height grid (CityVehicles::addObstacle) and
 // that Territory rasterises.
 //
-// Network: a wall is a set of nodes (joints, snapped to the 1 m grid, to existing nodes or onto an existing piece,
+// Network: a wall is a set of nodes (joints, snapped to the 0.5 m grid, to existing nodes or onto an existing piece,
 // which is then split there) and pieces between two nodes. A drawn leg of length L becomes whole 4 m pieces of the
-// approved straight asset plus one auto-fill end piece for a remainder >= 1 m (a remainder < 1 m stretches the 4 m
-// pieces); gates stay n = round(L / 4) pieces scaled by L / 4n. Pieces shorter than 3.5 m are drawn as a row of 1 m
-// gabion baskets (the approved joint post asset), never as a squashed 4 m piece.
+// approved straight asset plus one auto-fill end piece for a remainder >= 0.5 m (a remainder < 0.5 m stretches the
+// 4 m pieces); gates stay n = round(L / 4) pieces scaled by L / 4n. Pieces shorter than 3.5 m are drawn as a row of
+// full-size 1 m gabion baskets (the approved joint post asset; fillers under 1 m overlap their neighbours), never as a
+// squashed 4 m piece.
+// Sealing (GAME_DESIGN 14e): a run's free end inside a building, or within kSealReach in front of a facade, a supply
+// container or a wall piece along the run, is moved onto it: kSealDepth into the facade (the exact building record
+// footprint when there is one, else the height grid) / container, onto the wall's axis (T junction). The end piece
+// then overlaps the facade / container, so no cell between them stays open for zombies or territory.
 // Construction (GAME_DESIGN 14d): committed pieces start as blueprints (build 0) and become solid (collision,
 // territory, joints, pressure) only when engineers finish them (EngineerAI); commit(plan, instant = true) is the
 // debug / test cheat. Blueprints already count for placement (no overlaps) and snapping. Each node shows the joint
@@ -106,6 +111,10 @@ struct WallEnv {
     std::vector<Obb> clearing;                     // vehicles engineers are ordered to remove: not obstacles for planning
     std::function<bool(float, float)> buildable;   // inside an engineer squad's construction radius (null: anywhere)
     float streetY = 0.f;                           // street level of the window (walls stand on the street, not on roofs)
+    // Exact facade (owner 2026-11-28, GAME_DESIGN 14e: walls meet facades with no gap): distance along the unit ray
+    // (ox, oz) + t (dx, dz) at which it enters the footprint of the building record holding (hx, hz) (within 0.6 m),
+    // < 0 when there is none (the height grid's facade is used then). Null: height grid only.
+    std::function<float(float ox, float oz, float dx, float dz, float hx, float hz)> facadeRay;
 };
 
 struct WallPlanPiece {
@@ -131,6 +140,10 @@ struct WallPlan {
     int replacePiece = -1;        // gate placed into an existing wall piece (that part of the piece becomes the gate)
     bool trimmed = false;         // an end was pulled back to a building facade (walls butt against facades)
     bool closesLoop = false;
+    // Sealed ends (GAME_DESIGN 14e): an end inside / within kSealReach of a facade, a container or a wall piece is moved
+    // onto it (kSealDepth into a facade / container, onto a wall's axis: T); 0 none, 1 facade, 2 container, 3 wall.
+    uint8_t sealFront = 0, sealBack = 0;
+    float allowFront = 0.6f, allowBack = 0.6f;   // m at each end of the run that may overlap the building / container
 };
 
 class Walls {
@@ -141,11 +154,14 @@ public:
     // Geometry per type
     static float width(WallType t) { return t == WallType::Reinforced ? 1.3f : 1.0f; }
     static float postSize(WallType t) { return t == WallType::Reinforced ? 1.2f : 1.0f; }
+    static constexpr float kGrid = 0.5f;        // m: placement grid and segment granularity (GAME_DESIGN 14e: finer)
+    static constexpr float kSealReach = 1.6f;   // m: a wall end this close to a facade / container / wall is sealed onto it
+    static constexpr float kSealDepth = 0.35f;  // m: a sealed end reaches this far into the facade / container
     float height(WallType t) const { return height_[(size_t)t]; }
 
     // Snapping for the tool: an existing node within 1.5 m wins (node >= 0); else a point on an existing piece within
     // 1.2 m (projected onto it, *piece = its index; >= 1 m from its ends); else, from `from` (drag), the length is
-    // snapped to whole 4 m pieces along the drag direction unless `fine` (then whole metres); else the 1 m grid.
+    // snapped to whole 4 m pieces along the drag direction unless `fine` (then 0.5 m steps); else the 0.5 m grid.
     V3 snap(V3 p, const V3* from, bool fine, int& node, int* piece = nullptr) const;
     // Plan a polyline (>= 2 points, already snapped). Cost, validity and per-piece reasons; never changes anything.
     WallPlan plan(const std::vector<V3>& pts, WallType type, bool gate, const WallEnv& env) const;
