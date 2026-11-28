@@ -946,7 +946,8 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             t.key = A.comingLater || keyLab.empty() ? nullptr : keyLab.c_str();
             t.num = bdg.empty() ? nullptr : bdg.c_str();
             const ImVec2 tc(x + cardW * 0.5f, cy0 + 26 * S + lift);
-            if (fade > 0.05f) hs::token(dl, tc, t, A.painter ? nullptr : hs::iconName(A.icon), S);
+            if (fade > 0.05f) hs::token(dl, tc, t, A.painter || !hs::atlasReady() ? nullptr : hs::iconName(A.icon), S);
+            if (fade > 0.05f && !A.painter && !hs::atlasReady()) drawUiIcon(dl, A.icon, tc.x, tc.y, 26 * S, en, A.accent);   // no atlas: voxel icon
             if (A.painter && fade > 0.05f) A.painter(dl, tc.x, tc.y, 26 * S, en);
             const float by = cy0 + 53 * S + lift;
             std::string cs = A.comingLater ? std::string("soon") : cost >= 0 ? money(cost) : std::string();

@@ -4,6 +4,7 @@
 #include "game/UiActions.h"
 
 #include "imgui.h"
+#include <SDL3/SDL.h>
 #include "stb_image.h"
 
 #include <algorithm>
@@ -28,18 +29,33 @@ struct Tw { float v = 0; float kickT = -100.f; };
 std::unordered_map<ImGuiID, Tw> gTw;
 } // namespace
 
+// same lookup as the rest of the game (App.cpp dataPath): cwd, next to the executable (build/assets), then the source tree
+std::string uiPath(const char* rel) {
+    SDL_PathInfo info;
+    if (SDL_GetPathInfo(rel, &info)) return rel;
+    const char* base = SDL_GetBasePath();
+    std::string p = std::string(base ? base : "") + rel;
+    if (SDL_GetPathInfo(p.c_str(), &info)) return p;
+#ifdef TTZ_SOURCE_DIR
+    std::string q = std::string(TTZ_SOURCE_DIR) + "/" + rel;
+    if (SDL_GetPathInfo(q.c_str(), &info)) return q;
+#endif
+    return rel;
+}
+
 void hudStyleLoad(ImFontAtlas* atlas) {
     gAtlas = atlas;
+    const std::string fMed = uiPath("assets/ui/Archivo-SemiCondensed-Medium.ttf"), fBold = uiPath("assets/ui/Archivo-SemiCondensed-Bold.ttf");
+    const std::string pIdx = uiPath("assets/ui/icons.txt"), pPng = uiPath("assets/ui/icons.png");
     ImFontConfig fc; fc.OversampleH = 2;
-    if (std::ifstream("assets/ui/Archivo-SemiCondensed-Medium.ttf").good())
-        gFont = atlas->AddFontFromFileTTF("assets/ui/Archivo-SemiCondensed-Medium.ttf", 15.f, &fc);
-    if (std::ifstream("assets/ui/Archivo-SemiCondensed-Bold.ttf").good())
-        gBold = atlas->AddFontFromFileTTF("assets/ui/Archivo-SemiCondensed-Bold.ttf", 15.f, &fc);
+    if (std::ifstream(fMed).good()) gFont = atlas->AddFontFromFileTTF(fMed.c_str(), 15.f, &fc);
+    else std::fprintf(stderr, "hud: WARNING font not found (%s): default HUD font\n", fMed.c_str());
+    if (std::ifstream(fBold).good()) gBold = atlas->AddFontFromFileTTF(fBold.c_str(), 15.f, &fc);
     // icon atlas: white silhouettes, CELL px cells, names in icons.txt
-    std::ifstream idx("assets/ui/icons.txt");
+    std::ifstream idx(pIdx);
     int w = 0, h = 0, n = 0;
-    unsigned char* px = idx.good() ? stbi_load("assets/ui/icons.png", &w, &h, &n, 4) : nullptr;
-    if (!px) { std::fprintf(stderr, "hud: no icon atlas (assets/ui/icons.png)\n"); return; }
+    unsigned char* px = idx.good() ? stbi_load(pPng.c_str(), &w, &h, &n, 4) : nullptr;
+    if (!px) { std::fprintf(stderr, "hud: WARNING icon atlas not found (%s): drawn fallback icons\n", pPng.c_str()); return; }
     int cell = 96, cols = 16;
     std::string line;
     while (std::getline(idx, line)) {
@@ -73,6 +89,7 @@ const ImU32 kTok = IM_COL32(26, 29, 23, 235), kTokHi = IM_COL32(37, 42, 32, 240)
             kToxic = IM_COL32(200, 232, 62, 255), kInfo = IM_COL32(124, 198, 226, 255), kInk = IM_COL32(21, 23, 15, 255),
             kShadow = IM_COL32(0, 0, 0, 190);
 
+bool atlasReady() { return !gIcons.empty(); }
 bool icon(ImDrawList* dl, const char* name, ImVec2 c, float size, ImU32 col, bool shadow) {
     if (!gAtlas || !name) return false;
     auto it = gIcons.find(name);
@@ -144,7 +161,10 @@ void token(ImDrawList* dl, ImVec2 c, const Tok& t, const char* iconN, float S) {
     if (t.on) dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 1), IM_COL32(244, 183, 64, (int)(70 + 50 * std::sin(gTime * 2.6f))), rnd, 0, 3.f * S);
     if (t.ring >= 0.f) ring(dl, c, h + 2.f * S, (t.size < 36 ? 2.f : 3.f) * S, t.ring, t.ringCol ? t.ringCol : (t.ring > 0.6f ? kOk : t.ring > 0.3f ? kWarn : kBad));
     const ImU32 ic = t.on ? kInk : t.off ? kMute : kBone;
-    icon(dl, iconN, c, sz * 0.62f, ic);
+    if (iconN && !icon(dl, iconN, c, sz * 0.62f, ic)) {   // atlas missing: a drawn diamond instead of an empty face
+        const float r = sz * 0.2f;
+        dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), ic);
+    }
     if (t.off) dl->AddLine(ImVec2(c.x - h * 0.55f, c.y + h * 0.45f), ImVec2(c.x + h * 0.55f, c.y - h * 0.45f), kBad, 2.f * S);
     ImFont* f = gBold ? gBold : ImGui::GetFont();
     if (t.key && *t.key) {
