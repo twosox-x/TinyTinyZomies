@@ -36,7 +36,12 @@ void main() {
         if (I.pos.w > 1.5) {   // deformed prop (parachute canopy, docs/MILITARY_ANIMS.md 2.3): xz radial / y height scale
             // dissolve (2.3.3): pos.w = 2 + 0.9 * d. Voxel id from the quantised position (half-cell units, cells centred on
             // integers): step half a cell inwards along the face normal, so every fragment of a face reads its own voxel.
-            vDissolve = clamp((I.pos.w - 2.0) / 0.9, 0.0, 1.0);
+            // pos.w >= 4: draw-time tint (fortification barricades), no dissolve; floor(pos.w) - 4 = palette index
+            vDissolve = I.pos.w > 3.5 ? 0.0 : clamp((I.pos.w - 2.0) / 0.9, 0.0, 1.0);
+            if (I.pos.w > 3.5) {
+                int ti = int(I.pos.w + 0.01) - 4;
+                vPaint = vec4(ti == 1 ? vec3(0.86, 0.72, 0.50) : ti == 2 ? vec3(0.50, 0.53, 0.56) : vec3(0.30, 0.31, 0.30), 2.0);
+            }
             vCell = vec3(inPos.xyz) * 0.5 - n * 0.25 + 0.5;
             vec2 sh = unpackHalf2x16(floatBitsToUint(I.paint.z));   // shear x, z (collapse drift), proportional to height
             p = I.pos.xyz + qrot(I.quat, vec3(p.x * I.paint.x + sh.x * p.y, p.y * I.paint.y, p.z * I.paint.x + sh.y * p.y));

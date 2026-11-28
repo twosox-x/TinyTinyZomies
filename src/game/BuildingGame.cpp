@@ -305,8 +305,9 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
             pips(tr == 0 ? doorLv : winLv, 3);
             for (int k = 0; k < 3; ++k) {
                 ImGui::SameLine();
-                std::snprintf(t, sizeof(t), tr == 0 ? "Doors: %s $%d##d%d" : "Windows: %s $%d##w%d", names[k], bc.barricadePrice[(size_t)k], k);
-                if (tokBtn(t, bc.barricadePrice[(size_t)k], (tr == 0 ? doorLv : winLv) == k + 1))
+                const int price = tr == 0 ? bc.barricadePrice[(size_t)k] : bc.windowCoverPrice[(size_t)k];   // windows: per building
+                std::snprintf(t, sizeof(t), tr == 0 ? "Doors: %s $%d##d%d" : "Windows: %s $%d##w%d", names[k], price, k);
+                if (tokBtn(t, price, (tr == 0 ? doorLv : winLv) == k + 1))
                     bp.request({tr == 0 ? BuildingPlay::Act::BarricadeDoors : BuildingPlay::Act::BarricadeWindows, bp.selected, {}, k + 1});
             }
         }
@@ -535,7 +536,8 @@ void shutdownBuildingRender(AppState& app) {
 namespace {
 // Approved prop scaled to fit an opening (kind 2 deformed-prop instances: xz scale sxz, height scale sy; the prop's
 // local +z points out of the facade, its back face at z = 0 sits on the given plane point).
-void putScaled(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, float sy) {
+// tint: 0 none, 1 light tan (planks), 2 steel grey (plates) - draw-time palette in shaders/city.vert (pos.w = 4 + tint)
+void putScaled(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, float sy, int tint = 0) {
     const MilitaryLibrary& lib = mil.library();
     if (prop < 0 || prop >= (int)lib.props.size()) return;
     const MilProp& P = lib.props[(size_t)prop];
@@ -544,7 +546,7 @@ void putScaled(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, floa
         const float px = pv[0] * sxz, py = pv[1] * sy, pz = pv[2] * sxz;
         MilitaryRenderer::Inst gi{};
         gi.pos[0] = o.x + px * c + pz * sn; gi.pos[1] = o.y + py; gi.pos[2] = o.z - px * sn + pz * c;
-        gi.pos[3] = 2.f;
+        gi.pos[3] = tint > 0 ? 4.f + (float)tint : 2.f;
         gi.quat[0] = 0; gi.quat[1] = std::sin(0.5f * yaw); gi.quat[2] = 0; gi.quat[3] = std::cos(0.5f * yaw);
         gi.paint[0] = sxz; gi.paint[1] = std::max(0.02f, sy); gi.paint[2] = 0.f; gi.paint[3] = -1e4f;
         mil.addInstance(m, gi);
@@ -594,18 +596,25 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
             const bool door = o.type == OpeningType::Door;
             const float pw = door ? kDoorW[t] : kWinW[t], ph = door ? kDoorH : kWinH;
             const float sx = (o.width + 0.04f) / pw, sy = (o.height + 0.03f) / ph;
-            putScaled(mil, P.barricade[door ? 0 : 1][t], {o.pos.x + o.nx * 0.01f, o.pos.y - 0.01f, o.pos.z + o.nz * 0.01f}, yaw, sx, sy);
+            const float pr = t == 2 ? 0.01f : 0.04f;   // planks / plates slightly proud of the wall (no z-fight)
+            putScaled(mil, P.barricade[door ? 0 : 1][t], {o.pos.x + o.nx * pr, o.pos.y - 0.01f, o.pos.z + o.nz * pr}, yaw, sx, sy, t == 0 ? 1 : t == 1 ? 2 : 0);
         }
-        // closed lower windows (Building::covers): planks / plates sized to the glass rect, flush on the glass; at
-        // defence level 3 the ground floor gets the heavy steel plate instead
+        // closed lower windows (Building::covers): sized to the glass rect, slightly proud of the glass. Defence levels:
+        // L1 light-tan planks on the ground floor, L2 grey plates there, L3 heavy steel on the ground floor and planks
+        // on the first floor (firing windows are never covers). Without a defence level (the window upgrade alone) the
+        // bought cover type on both floors.
         if (B.coverType != BarricadeType::None) {
-            const int t = (int)B.coverType - 1;
             for (const WindowCover& c : B.covers) {
+                int t = (int)B.coverType - 1;
+                if (B.defence >= 1 && B.defence < 3 && c.floor > 0) continue;
+                if (B.defence >= 3 && c.floor > 0) t = 0;
                 const float yaw = std::atan2(c.nx, c.nz);
                 const bool steel = B.defence >= 3 && c.floor == 0 && P.steel >= 0;
                 const float pw = steel ? kSteelW : kWinW[t], ph = steel ? kSteelH : kWinH;
                 const float sx = (2.f * c.halfW + 0.03f) / pw, sy = (c.h + 0.03f) / ph;
-                putScaled(mil, steel ? P.steel : P.barricade[1][t], {c.c.x + c.nx * 0.01f, c.c.y - 0.015f, c.c.z + c.nz * 0.01f}, yaw, sx, sy);
+                const float pr = t == 0 && !steel ? 0.04f : 0.015f;
+                putScaled(mil, steel ? P.steel : P.barricade[1][t], {c.c.x + c.nx * pr, c.c.y - 0.015f, c.c.z + c.nz * pr}, yaw, sx, sy,
+                          steel ? 2 : t == 0 ? 1 : t == 1 ? 2 : 0);
             }
         }
         // entrances: L2 sandbag walls beside each door (U positions facing the street, the doorway kept clear),
@@ -623,13 +632,40 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
                     const float x = o.pos.x + o.nx * out + tx * off * (float)sd, z = o.pos.z + o.nz * out + tz * off * (float)sd;
                     mil.addProp(P.roofPos, {x, ground(x, z, o.pos.y), z}, yaw);
                 }
-                if (B.defence >= 3 && P.slit >= 0)
-                    for (int sd = -1; sd <= 1; sd += 2) {
-                        const float out = ins + 3.4f, off = 2.0f;
-                        const float x = o.pos.x + o.nx * out + tx * off * (float)sd, z = o.pos.z + o.nz * out + tz * off * (float)sd;
-                        mil.addProp(P.slit, {x, ground(x, z, o.pos.y), z}, yaw - (float)sd * 0.35f);
-                    }
             }
+        // L3: sandbag perimeter (approved slit walls, 2 m each) along every facade with an entrance, 3 m out from the
+        // footprint edge, a 2.6 m gap on each door axis
+        if (B.defence >= 3 && P.slit >= 0) {
+            const float ax[4][2] = {{-B.e2x, -B.e2z}, {B.e1x, B.e1z}, {B.e2x, B.e2z}, {-B.e1x, -B.e1z}};   // outward normals v=0, u=w, v=d, u=0
+            unsigned sides = 0;
+            for (const Opening& o : B.openings) {
+                if (o.type != OpeningType::Door) continue;
+                int best = 0; float bd = -2.f;
+                for (int k = 0; k < 4; ++k) { const float dd = o.nx * ax[k][0] + o.nz * ax[k][1]; if (dd > bd) { bd = dd; best = k; } }
+                sides |= 1u << best;
+            }
+            for (int k = 0; k < 4; ++k) {
+                if (!(sides & (1u << k))) continue;
+                const float len = (k & 1) ? B.d : B.w;
+                const float yaw = std::atan2(ax[k][0], ax[k][1]);
+                const int n = std::max(1, (int)std::floor(len / 2.0f));
+                for (int i = 0; i < n; ++i) {
+                    const float a = (len - 2.0f * (float)n) * 0.5f + 1.0f + 2.0f * (float)i;   // along the side
+                    float u, v;
+                    if (k == 0) { u = a; v = -3.0f; } else if (k == 2) { u = len - a; v = B.d + 3.0f; }
+                    else if (k == 1) { u = B.w + 3.0f; v = a; } else { u = -3.0f; v = len - a; }
+                    const V3 p = B.toWorld(u, v, B.y0);
+                    bool gap = false;
+                    for (const Opening& o : B.openings) {
+                        if (o.type != OpeningType::Door) continue;
+                        const float dx = p.x - o.pos.x, dz = p.z - o.pos.z;
+                        const float along = std::fabs(dx * o.nz - dz * o.nx);
+                        if (along < 1.0f + 0.5f * std::max(o.width, 1.6f) && dx * o.nx + dz * o.nz > 0.f) gap = true;
+                    }
+                    if (!gap) mil.addProp(P.slit, {p.x, ground(p.x, p.z, B.y0), p.z}, yaw);
+                }
+            }
+        }
         // nests / roof rings at firing positions; occupied roof edges get the approved sandbag roof position. Window
         // nests stand on the room floor behind the reveal (front course against the wall, the soldier inside the U);
         // roof posts are set back from the edge (Buildings.cpp): the ring around him / the U position in front of him

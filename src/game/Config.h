@@ -133,6 +133,7 @@ struct BuildingConfig {              // B3a buildings (GAME_DESIGN 6 / 7 / 14b);
     int maxPositions = 12;           // firing positions per building (capacity cap)
     std::array<int, 3> barricadePrice = {30, 80, 60};            // planks, plate, sandbags (UNAPPROVED)
     std::array<float, 3> barricadeHealth = {300.f, 1200.f, 800.f};
+    std::array<int, 3> windowCoverPrice = {150, 400, 300};       // all closed lower windows of one building, per type (UNAPPROVED)
     float breachDps = 4.f;           // hp / s per zombie pressing at a barricaded opening (CPU fallback until B3b)
     int nestPrice = 60;              // fort_window_nest / fort_roof_ring at a firing position (UNAPPROVED)
     float nestDamageScale = 0.6f;    // contact damage taken at a position with a nest (defence value, PROPOSED)

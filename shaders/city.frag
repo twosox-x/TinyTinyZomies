@@ -216,7 +216,8 @@ void main() {
     Mat m = mats[vMat];
     vec3 N = normalize(vNormal);
     vec3 albedo = m.albedo.rgb;
-    if (vPaint.w > 0.5) albedo = vPaint.rgb;
+    if (vPaint.w > 1.5) albedo = mix(albedo, vPaint.rgb, 0.8);   // draw-time tint of approved props (fortifications)
+    else if (vPaint.w > 0.5) albedo = vPaint.rgb;
     uint flags = m.info.x;
     if ((flags & M_EMISSIVE) != 0u && int(m.emis.y + 0.5) == 2 && todP.x < 1.0) {   // lit windows by day: the unlit glass
         Mat dm = mats[m.info.y];

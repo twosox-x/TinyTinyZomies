@@ -100,6 +100,7 @@ bool BalanceConfig::load(const std::string& path, std::string* error) {
         for (int k = 0; k < 3; ++k) {
             if (bo.has("barricadePrice")) num(bo["barricadePrice"], bk[k], b.barricadePrice[(size_t)k]);
             if (bo.has("barricadeHealth")) num(bo["barricadeHealth"], bk[k], b.barricadeHealth[(size_t)k]);
+            if (bo.has("windowCoverPrice")) num(bo["windowCoverPrice"], bk[k], b.windowCoverPrice[(size_t)k]);
         }
     }
     {

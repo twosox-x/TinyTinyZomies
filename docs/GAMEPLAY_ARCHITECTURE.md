@@ -731,11 +731,16 @@ support rules above.
   placed 1 cm in front of it (the old prop stood at the bake position on the footprint edge, often under a canopy out on
   the pavement: the "black blob").
 - *Defence levels (`BuildingPlay::fortify`, `bfortify`, panel button; prices UNAPPROVED = sum of the existing
-  barricade / nest prices):* L1 planks on doors + covers; L2 plates on doors + covers, two `garrison_roof_position`
-  sandbag walls beside each entrance (doorway clear), sandbag positions at every roof post; L3 sandbags in the doors
-  (health plate + sandbags), heavy steel plate on the ground-floor covers, a perimeter of two angled `fort_slit_wall`
-  pieces 3.4 m in front of each door (2 m gap on the door axis), roof nests (`fort_roof_ring` where it fits, else the U
-  position) at the roof posts.
+  barricade / nest prices; window covers at `windowCoverPrice` per building, not per panel):* L1 light-tan planks on
+  the doors and the ground-floor covers; L2 grey plates there, two `garrison_roof_position` sandbag walls beside each
+  entrance (doorway clear), sandbag positions at every roof post; L3 sandbags in the doors (health plate + sandbags),
+  heavy steel plate on the ground-floor covers, light-tan planks on the first-floor covers (firing windows stay open), a
+  perimeter of `fort_slit_wall` pieces 3 m out along every facade with an entrance (2.6 m gap on each door axis; no
+  approved wire prop exists, so sandbags only), roof nests (`fort_roof_ring` where it fits, else the U position) at the
+  roof posts. Tint (round 15 follow-up): the approved props are tinted at draw time only (kind-2 instance `pos.w = 4 +
+  palette index`, shaders/city.vert; city.frag mixes 80 % toward it): 1 light tan (planks), 2 steel grey (plates); the
+  asset files are unchanged. Planks sit 4 cm proud of the glass / leaf, plates 1.5 cm. Without a defence level, the
+  "Window planks / plates" upgrade alone still covers both lower floors.
 - *Test:* `tests/game/b6_garrison_all.txt` (mid-rise, 39-floor tower, 34-floor tower, house: support, posts on several
   facades, art doors, covers never on firing windows / above floor 1, a squad garrisons the 39-floor tower, L0-L3 on the
   mid-rise, the tower and the house with screenshots in `docs/review/ws-c/`).

@@ -182,7 +182,7 @@ bool BuildingPlay::barricadeWindows(GameContext& ctx, BuildingId id, BarricadeTy
     if (B->coverType == t) { msg = std::string("windows already covered (") + barricadeName(t) + ")"; return false; }
     const BuildingConfig& bc = ctx.cfg->buildings;
     const int n = (int)B->covers.size();
-    const int price = bc.barricadePrice[(size_t)t - 1] * n;
+    const int price = bc.windowCoverPrice[(size_t)t - 1];   // per building, not per panel (UNAPPROVED)
     if (!ctx.economy || !ctx.economy->spend(price, "barricade", ctx.time)) { msg = "Not enough funding"; return false; }
     B->coverType = t;
     stats_.barricades += (uint32_t)n;
@@ -204,7 +204,7 @@ int BuildingPlay::fortifyPrice(const BuildingConfig& bc, const Building& B) {
     for (const Opening& o : B.openings) doors += o.type == OpeningType::Door ? 1 : 0;
     for (const FiringPosition& f : B.firing) roof += f.kind == FiringKind::RoofEdge && !f.nest ? 1 : 0;
     int p = doors * bc.barricadePrice[(size_t)levelDoor(L) - 1];
-    if (B.coverType != levelCover(L) || L == 3) p += (int)B.covers.size() * bc.barricadePrice[(size_t)levelCover(L) - 1];
+    if (B.coverType != levelCover(L) || L == 3) p += B.covers.empty() ? 0 : bc.windowCoverPrice[(size_t)levelCover(L) - 1];
     if (L == 2) p += doors * bc.barricadePrice[(size_t)BarricadeType::Sandbags - 1];   // sandbag walls at the entrances
     if (L == 3) p += roof * bc.nestPrice + doors * bc.barricadePrice[(size_t)BarricadeType::Sandbags - 1];
     return p;
