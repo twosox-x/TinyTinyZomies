@@ -1,0 +1,97 @@
+# WS-C (owner round 15, tracker items 3 / 15 / 16 / 17): every building is supported and can be garrisoned (no "too tall"
+# / "no entrance" refusals), window posts on every facade with usable glass, window covers only on the closed windows of
+# the ground and first floor (never a firing window), door barricades in the real door leaf, defence levels L1-L3 with
+# visible props. Buildings: a 9-floor mid-rise, a 39-floor downtown tower, a 34-floor tower, a 2-storey house.
+# City seed1 (BLDG section). Run headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_garrison_all.txt
+at 0.1  camera 20 90 0.6 0.9 80
+at 0.1  expect buildings_prepared > 20
+at 0.1  expect buildings_supported == buildings_prepared   # nothing refused
+# ---- mid-rise (bake 00709005)
+at 0.2  bselect 24 93.2
+at 0.2  expect building supported == 1
+at 0.2  expect building positions >= 8
+at 0.2  expect building facades >= 3
+at 0.2  expect building roofpos >= 1
+at 0.2  expect building doorart >= 1                # the door is snapped onto the door leaf of the facade art
+at 0.2  expect building covers >= 4
+at 0.2  expect building cover_on_firing == 0
+at 0.2  expect building cover_low == 0
+# ---- 39-floor tower (bake 00709006): posts on the lower floors + the roof, several facades
+at 0.3  bselect 8.2 95.1
+at 0.3  expect building supported == 1
+at 0.3  expect building floors > 30
+at 0.3  expect building positions >= 8
+at 0.3  expect building facades >= 2
+at 0.3  expect building doors >= 1
+at 0.3  expect building cover_on_firing == 0
+at 0.3  expect building cover_low == 0
+# ---- 34-floor tower (bake 0060900b)
+at 0.4  bselect 28.9 -50.8
+at 0.4  expect building supported == 1
+at 0.4  expect building positions >= 4
+at 0.4  expect building doors >= 1
+# ---- garrison the 39-floor tower: a rifle squad enters through the door and is posted
+at 0.5  bselect 8.2 95.1
+at 0.5  bcapture
+at 0.6  brole garrison
+at 0.6  buy rifle 4 66
+at 1    expect building role == 1
+at 25   expect landed == 5
+at 25   bgarrison 1
+at 60   log
+at 60   expect squad_posted 1 == 5
+at 60   expect posted_min_y > 2
+# ---- defence levels on the mid-rise (screenshots before / after per level)
+at 61   bselect 24 93.2
+at 61   bcapture
+at 61   bcamera 55 0.55 0.5
+at 63   shot docs/review/ws-c/midrise_L0.png
+at 64   bfortify
+at 65   expect building defence == 1
+at 65   expect building covered == building covers
+at 65   expect building barricades >= 5
+at 65   shot docs/review/ws-c/midrise_L1.png
+at 66   bfortify
+at 67   expect building defence == 2
+at 67   shot docs/review/ws-c/midrise_L2.png
+at 68   bfortify
+at 69   expect building defence == 3
+at 69   expect building nests >= 1
+at 69   shot docs/review/ws-c/midrise_L3.png
+at 70   bfortify                                    # refused: already L3
+at 71   expect building defence == 3
+at 71   bcamera 18 0.35 0.5
+at 73   shot docs/review/ws-c/midrise_L3_door.png
+# ---- tower levels
+at 74   bselect 8.2 95.1
+at 74   bcamera 70 0.55 0.6
+at 76   shot docs/review/ws-c/tower_L0.png
+at 77   bfortify
+at 78   expect building defence == 1
+at 78   shot docs/review/ws-c/tower_L1.png
+at 79   bfortify
+at 80   shot docs/review/ws-c/tower_L2.png
+at 81   bfortify
+at 82   expect building defence == 3
+at 82   shot docs/review/ws-c/tower_L3.png
+# ---- house (suburbs: the window follows the camera)
+at 83   camera -245 452 0.6 0.8 60
+at 87   bselect -252.5 453
+at 87   expect building supported == 1
+at 87   expect building doorart >= 1
+at 87   expect building covers >= 4
+at 87   expect building cover_on_firing == 0
+at 87   bcapture
+at 87   bcamera 30 0.55 0.5
+at 89   shot docs/review/ws-c/house_L0.png
+at 90   bfortify
+at 91   expect building covered == building covers
+at 91   shot docs/review/ws-c/house_L1.png
+at 92   bfortify
+at 93   shot docs/review/ws-c/house_L2.png
+at 94   bfortify
+at 95   expect building defence == 3
+at 95   shot docs/review/ws-c/house_L3.png
+at 96   expect ledger_balanced
+at 97   end

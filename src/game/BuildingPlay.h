@@ -31,7 +31,12 @@ public:
     bool setRole(GameContext& ctx, BuildingId b, BuildingRole role, std::string& msg);
     bool garrison(GameContext& ctx, SquadId squad, BuildingId b, std::string& msg);   // squad occupies firing positions
     bool barricade(GameContext& ctx, BuildingId b, int opening, BarricadeType t, std::string& msg);   // opening -1: all doors
-    bool barricadeWindows(GameContext& ctx, BuildingId b, BarricadeType t, std::string& msg);         // windows not used to fire from
+    bool barricadeWindows(GameContext& ctx, BuildingId b, BarricadeType t, std::string& msg);         // closed lower windows (covers), never firing windows
+    // Defence level +1 (owner round 15, item 16; prices UNAPPROVED): L1 planks on the doors and the closed lower windows;
+    // L2 plates there, sandbag walls beside the entrances, sandbag positions at the roof posts; L3 heavy plating on the
+    // ground floor, sandbags in the doors with a sandbag perimeter in front, roof nests (rings) at the roof posts.
+    bool fortify(GameContext& ctx, BuildingId b, std::string& msg);
+    static int fortifyPrice(const BuildingConfig& bc, const Building& B);   // price of the next level (0: at L3)
     bool nest(GameContext& ctx, BuildingId b, int firing, std::string& msg);                          // -1: every position
     void release(GameContext& ctx, uint32_t soldier);       // step out of the building (door), slot freed
 
@@ -47,7 +52,7 @@ public:
     BuildingId selected;              // UI selection (one building)
 
     // UI / script requests, applied at the start of the next tick (input never mutates game state directly)
-    enum class Act : uint8_t { Role, Garrison, BarricadeDoors, BarricadeWindows, Nest, Release };
+    enum class Act : uint8_t { Role, Garrison, BarricadeDoors, BarricadeWindows, Nest, Release, Fortify };
     struct Action { Act act; BuildingId b; SquadId squad; int arg = 0; };
     void request(const Action& a) { pending_.push_back(a); }
     void applyPending(GameContext& ctx);

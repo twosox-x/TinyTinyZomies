@@ -39,10 +39,13 @@ void shutdownBuildingRender(AppState& app);
 //   brelease                         the garrison steps out
 //   bbarricade doors|windows planks|plate|sandbags
 //   bnest                            window nests / roof rings at every firing position
+//   bfortify                         defence level +1 (L1 planks, L2 plates + sandbags, L3 heavy plating + perimeter + roof nests)
+//   bcamera DIST [PITCH] [YAWOFF]    camera on the selected building's front
+//   bcapture                         TEST HOOK: the selected building is captured
 //   bdamage HP                       TEST HOOK: damage the first barricaded door of the selected building
 //   bzombies N                       TEST HOOK: zombies inside (what B3b reports) for the selected building
 // Metrics: building capture|progress|role|garrison|posted|patients|capacity|positions|supported|barricades|nests|ammo
-//            |doors|windows|roofpos|floors|inside
+//            |doors|windows|roofpos|floors|inside|covers|covered|defence|doorart|dooradded|facades|cover_on_firing|cover_low
 //          bstat captured|entered|posted|admitted|discharged|healed|barricades|breached|nests|released|ammo
 //          buildings | buildings_supported | buildings_prepared | posted_rounds | posted_min_y | posted_roof | posted_window
 //          squad_posted N | squad_inside N | squad_maxhp N | squad_hp N

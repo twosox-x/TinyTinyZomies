@@ -6,6 +6,7 @@
 #include "game/GameScript.h"
 #include "game/GameUI.h"
 #include "game/GameWorld.h"
+#include "game/NavGrid.h"
 #include "lab/MilitaryRenderer.h"
 #include "render/TimeOfDay.h"
 
@@ -13,6 +14,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -38,10 +40,12 @@ void printBuilding(const BuildingRegistry& reg, BuildingId id) {
                 B->captureProgress * 100.f, roleName(B->role), B->capacity);
     for (size_t k = 0; k < B->openings.size(); ++k) {
         const Opening& o = B->openings[k];
-        std::printf("    opening %zu: %s floor %d at (%.1f %.1f %.1f) n (%.2f %.2f) barricade %s %.0f/%.0f\n", k,
+        std::printf("    opening %zu: %s floor %d at (%.1f %.1f %.1f) n (%.2f %.2f) %.2f x %.2f m%s barricade %s %.0f/%.0f\n", k,
                     o.type == OpeningType::Door ? "door" : o.type == OpeningType::Window ? "window" : "roof hatch", o.floor == kRoofFloor ? -1 : (int)o.floor,
-                    o.pos.x, o.pos.y, o.pos.z, o.nx, o.nz, barricadeName(o.barricade), o.barricadeHealth, o.barricadeMax);
+                    o.pos.x, o.pos.y, o.pos.z, o.nx, o.nz, o.width, o.height, o.art ? " (art door)" : "", barricadeName(o.barricade), o.barricadeHealth, o.barricadeMax);
     }
+    std::printf("    %zu art doors, %zu glass rects, %zu window covers (%s), defence L%d%s\n", B->doorArt.size(), B->glass.size(), B->covers.size(),
+                barricadeName(B->coverType), (int)B->defence, B->doorAdded ? ", entrance added" : "");
     for (size_t k = 0; k < B->firing.size(); ++k) {
         const FiringPosition& f = B->firing[k];
         std::printf("    firing %zu: %s floor %d at (%.1f %.1f %.1f) yaw %.0f%s%s\n", k, f.kind == FiringKind::Window ? "window" : "roof edge",
@@ -69,6 +73,15 @@ void syncBuildings(AppState& app, BuildingPlay& bp, const std::vector<float>& h,
         std::vector<uint8_t> glass(256, 0);
         for (size_t m = 0; m < C.materials.size() && m < 256; ++m) glass[m] = (C.materials[m].flags & MAT_GLASS) ? 1 : 0;
         reg.setGlassMaterials(glass);
+        // door leaves of the facade art (city_arch: DOOR_*, WOOD / SHUTTER_* doors, BRONZE revolving / lobby doors);
+        // Buildings.cpp keeps only rects from the ground that are door sized
+        std::vector<uint8_t> door(256, 0);
+        for (size_t m = 0; m < C.materials.size() && m < 256; ++m) {
+            const std::string& n = C.materials[m].name;
+            door[m] = !glass[m] && n.find("BENCH") == std::string::npos && (n.find("DOOR") != std::string::npos || n.find("WOOD") != std::string::npos ||
+                                    n.find("SHUTTER") != std::string::npos || n.find("BRONZE") != std::string::npos) ? 1 : 0;
+        }
+        reg.setDoorMaterials(door);
     }
     const size_t before = reg.size();
     for (int j = j0; j <= j1; ++j)
@@ -187,6 +200,12 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
         }
         std::snprintf(t, sizeof(t), "Window nests / roof rings  $%d each", bc.nestPrice);
         if (ImGui::Button(t)) bp.request({BuildingPlay::Act::Nest, bp.selected, {}, 0});
+        ImGui::Text("Defence level %d / 3", (int)B.defence);
+        if (B.defence < 3) {
+            static const char* lv[3] = {"planks on doors + lower windows", "plates, entrance sandbags, roof positions", "heavy plating, door perimeter, roof nests"};
+            std::snprintf(t, sizeof(t), "Fortify L%d: %s  $%d", B.defence + 1, lv[B.defence], BuildingPlay::fortifyPrice(bc, B));
+            if (ImGui::Button(t)) bp.request({BuildingPlay::Act::Fortify, bp.selected, {}, 0});
+        }
     } else {
         ImGui::ProgressBar(B.captureProgress, ImVec2(-1, 6), "");
         ImGui::TextDisabled("Send a squad to an entrance to capture it");
@@ -392,11 +411,33 @@ void shutdownBuildingRender(AppState& app) {
     S = RoomState{};
 }
 
+namespace {
+// Approved prop scaled to fit an opening (kind 2 deformed-prop instances: xz scale sxz, height scale sy; the prop's
+// local +z points out of the facade, its back face at z = 0 sits on the given plane point).
+void putScaled(MilitaryRenderer& mil, int prop, V3 o, float yaw, float sxz, float sy) {
+    const MilitaryLibrary& lib = mil.library();
+    if (prop < 0 || prop >= (int)lib.props.size()) return;
+    const MilProp& P = lib.props[(size_t)prop];
+    auto put = [&](int m, std::array<float, 3> pv) {
+        const float c = std::cos(yaw), sn = std::sin(yaw);
+        const float px = pv[0] * sxz, py = pv[1] * sy, pz = pv[2] * sxz;
+        MilitaryRenderer::Inst gi{};
+        gi.pos[0] = o.x + px * c + pz * sn; gi.pos[1] = o.y + py; gi.pos[2] = o.z - px * sn + pz * c;
+        gi.pos[3] = 2.f;
+        gi.quat[0] = 0; gi.quat[1] = std::sin(0.5f * yaw); gi.quat[2] = 0; gi.quat[3] = std::cos(0.5f * yaw);
+        gi.paint[0] = sxz; gi.paint[1] = std::max(0.02f, sy); gi.paint[2] = 0.f; gi.paint[3] = -1e4f;
+        mil.addInstance(m, gi);
+    };
+    if (P.parts.empty()) { put(P.model, {0, 0, 0}); return; }
+    for (const auto& pr : P.parts) put(pr.first, pr.second);
+}
+} // namespace
+
 // ---------------------------------------------------------------------------------------------------------------------
 void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const BuildingPlay& bp, AppState* app) {
     struct Ids {
         bool init = false;
-        int flag[2], banner[2], barricade[2][3], nest, ring, roofPos, ammo, antenna, awning, stretcher, crate, cot;
+        int flag[2], banner[2], barricade[2][3], nest, ring, roofPos, ammo, antenna, awning, stretcher, crate, cot, steel, slit;
     };
     static Ids P;
     if (!P.init) {
@@ -413,20 +454,61 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
         P.ammo = mil.findProp("garrison_ammo_stack"); P.antenna = mil.findProp("garrison_antenna");
         P.awning = mil.findProp("hospital_awning"); P.stretcher = mil.findProp("hospital_stretcher"); P.crate = mil.findProp("hospital_crate");
         P.cot = mil.findProp("hospital_cot");
+        P.steel = mil.findProp("fort_steel_plate"); P.slit = mil.findProp("fort_slit_wall");
     }
+    // approved prop sizes (assets/military/props.json bounds): x width, height; back face at z = 0
+    static const float kDoorW[3] = {1.7f, 1.4f, 1.4f}, kDoorH = 2.65f, kWinW[3] = {1.6f, 1.3f, 1.3f}, kWinH = 2.05f, kSteelW = 1.3f, kSteelH = 2.0f;
+    auto ground = [&](float x, float z, float def) { return ctx.nav && ctx.nav->ready() ? ctx.nav->surface(x, z) : def; };
     if (app) updateRooms(*app, ctx, bp, mil);
     const BuildingRegistry& reg = bp.registry();
     for (uint32_t b = 0; b < (uint32_t)reg.size(); ++b) {
         const Building& B = *reg.get(BuildingId{b});
         if (!B.prepared) continue;
-        // barricades (any captured building): doors at the threshold, windows on the sill line, facing out
+        // barricades: door barricades scaled into the door opening (the door leaf of the facade art: its plane, width and
+        // height), flush 1 cm in front of the leaf; window barricades on the window openings the same way
         for (const Opening& o : B.openings) {
             if (o.open() || o.type == OpeningType::RoofHatch) continue;
             const int t = (int)o.barricade - 1;
             const float yaw = std::atan2(o.nx, o.nz);
-            if (o.type == OpeningType::Door) mil.addProp(P.barricade[0][t], {o.pos.x + o.nx * 0.05f, o.pos.y, o.pos.z + o.nz * 0.05f}, yaw);
-            else mil.addProp(P.barricade[1][t], {o.pos.x + o.nx * 0.05f, o.pos.y - 0.1f, o.pos.z + o.nz * 0.05f}, yaw);   // sill - frame
+            const bool door = o.type == OpeningType::Door;
+            const float pw = door ? kDoorW[t] : kWinW[t], ph = door ? kDoorH : kWinH;
+            const float sx = (o.width + 0.04f) / pw, sy = (o.height + 0.03f) / ph;
+            putScaled(mil, P.barricade[door ? 0 : 1][t], {o.pos.x + o.nx * 0.01f, o.pos.y - 0.01f, o.pos.z + o.nz * 0.01f}, yaw, sx, sy);
         }
+        // closed lower windows (Building::covers): planks / plates sized to the glass rect, flush on the glass; at
+        // defence level 3 the ground floor gets the heavy steel plate instead
+        if (B.coverType != BarricadeType::None) {
+            const int t = (int)B.coverType - 1;
+            for (const WindowCover& c : B.covers) {
+                const float yaw = std::atan2(c.nx, c.nz);
+                const bool steel = B.defence >= 3 && c.floor == 0 && P.steel >= 0;
+                const float pw = steel ? kSteelW : kWinW[t], ph = steel ? kSteelH : kWinH;
+                const float sx = (2.f * c.halfW + 0.03f) / pw, sy = (c.h + 0.03f) / ph;
+                putScaled(mil, steel ? P.steel : P.barricade[1][t], {c.c.x + c.nx * 0.01f, c.c.y - 0.015f, c.c.z + c.nz * 0.01f}, yaw, sx, sy);
+            }
+        }
+        // entrances: L2 sandbag walls beside each door (U positions facing the street, the doorway kept clear),
+        // L3 a sandbag perimeter in front of it (two slit walls angled in, a 2 m gap on the door axis)
+        if (B.defence >= 2)
+            for (const Opening& o : B.openings) {
+                if (o.type != OpeningType::Door) continue;
+                float u, v;
+                B.toLocal(o.pos.x, o.pos.z, u, v);
+                const float ins = std::max(0.f, std::max({-(o.nx * B.e2x + o.nz * B.e2z) * v, (o.nx * B.e1x + o.nz * B.e1z) * (B.w - u),
+                                                          (o.nx * B.e2x + o.nz * B.e2z) * (B.d - v), -(o.nx * B.e1x + o.nz * B.e1z) * u}));   // leaf behind the footprint edge
+                const float tx = o.nz, tz = -o.nx, yaw = std::atan2(o.nx, o.nz);
+                for (int sd = -1; sd <= 1; sd += 2) {
+                    const float off = 0.5f * o.width + 1.5f, out = ins + 1.0f;
+                    const float x = o.pos.x + o.nx * out + tx * off * (float)sd, z = o.pos.z + o.nz * out + tz * off * (float)sd;
+                    mil.addProp(P.roofPos, {x, ground(x, z, o.pos.y), z}, yaw);
+                }
+                if (B.defence >= 3 && P.slit >= 0)
+                    for (int sd = -1; sd <= 1; sd += 2) {
+                        const float out = ins + 3.4f, off = 2.0f;
+                        const float x = o.pos.x + o.nx * out + tx * off * (float)sd, z = o.pos.z + o.nz * out + tz * off * (float)sd;
+                        mil.addProp(P.slit, {x, ground(x, z, o.pos.y), z}, yaw - (float)sd * 0.35f);
+                    }
+            }
         // nests / roof rings at firing positions; occupied roof edges get the approved sandbag roof position. Window
         // nests stand on the room floor behind the reveal (front course against the wall, the soldier inside the U);
         // roof posts are set back from the edge (Buildings.cpp): the ring around him / the U position in front of him
@@ -435,7 +517,7 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
             if (f.kind == FiringKind::Window) {
                 if (f.nest) mil.addProp(P.nest, {f.win.x - c * 0.6f, f.roomFloor, f.win.z - s * 0.6f}, f.yaw);
             } else if (f.nest && f.ringFits) mil.addProp(P.ring, {f.pos.x - c * 0.9f, f.pos.y, f.pos.z - s * 0.9f}, f.yaw);
-            else if (f.nest || f.occupant.valid()) mil.addProp(P.roofPos, {f.pos.x - c * 0.3f, f.pos.y, f.pos.z - s * 0.3f}, f.yaw);
+            else if (f.nest || f.occupant.valid() || B.defence >= 2) mil.addProp(P.roofPos, {f.pos.x - c * 0.3f, f.pos.y, f.pos.z - s * 0.3f}, f.yaw);
         }
         if (B.role == BuildingRole::None) continue;
         const int r = B.role == BuildingRole::Garrison ? 0 : 1;
@@ -531,12 +613,29 @@ bool buildingVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
         return true;
     }
     if (v == "bnest") { bp.request({BuildingPlay::Act::Nest, bp.selected, {}, 0}); return true; }
+    if (v == "bfortify") { bp.request({BuildingPlay::Act::Fortify, bp.selected, {}, 0}); return true; }
+    if (v == "bcamera") {   // camera on the selected building's front: bcamera DIST [PITCH] [YAWOFF]
+        const Building* B = reg.get(bp.selected);
+        AppState* app = w.app();
+        if (!B || !app) { err = "bcamera DIST (select a building first)"; return true; }
+        const V3 c = B->toWorld(B->w * 0.5f, B->d * 0.5f, B->y0);
+        const float yaw = std::atan2(-B->e2x, -B->e2z) + fa(a, 2, 0.5f);
+        app->camera.setImmediate({c.x, B->y0 + std::min(12.f, 0.3f * (B->roofY - B->y0)), c.z}, yaw, fa(a, 1, 0.75f), fa(a, 0, 50.f));
+        return true;
+    }
     if (v == "bdamage") {   // TEST HOOK
         const Building* B = reg.get(bp.selected);
         if (!B) { err = "no building selected"; return true; }
         for (size_t k = 0; k < B->openings.size(); ++k)
             if (B->openings[k].type == OpeningType::Door && !B->openings[k].open()) { reg.damageBarricade(bp.selected, (uint16_t)k, fa(a, 0, 1e9f)); return true; }
         err = "no barricaded door";
+        return true;
+    }
+    if (v == "bcapture") {   // TEST HOOK: the selected building counts as captured (screenshots / fortification tests)
+        Building* B = reg.mut(bp.selected);
+        if (!B) { err = "no building selected"; return true; }
+        B->capture = CaptureState::Captured;
+        B->captureProgress = 1.f;
         return true;
     }
     if (v == "bzombies") {   // TEST HOOK: what B3b would report
@@ -615,7 +714,39 @@ bool buildingMetric(GameWorld& w, const std::string& m, const std::vector<std::s
         else if (f == "inside") out = B->zombiesInside;
         else if (f == "ammo") out = bp.ammoStock(bp.selected);
         else if (f == "posted") { for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) out += P.used[i] && P.post[i] == POST_FIRING && P.building[i] == bp.selected.v ? 1 : 0; }
-        else if (f == "barricades") { for (const Opening& o : B->openings) out += o.open() ? 0 : 1; }
+        else if (f == "barricades") { for (const Opening& o : B->openings) out += o.open() ? 0 : 1; out += B->coverType != BarricadeType::None ? (double)B->covers.size() : 0.0; }
+        else if (f == "covers") out = (double)B->covers.size();
+        else if (f == "covered") out = B->coverType != BarricadeType::None ? (double)B->covers.size() : 0.0;
+        else if (f == "defence") out = B->defence;
+        else if (f == "doorart") { for (const Opening& o : B->openings) out += o.type == OpeningType::Door && o.art ? 1 : 0; }
+        else if (f == "dooradded") out = B->doorAdded ? 1 : 0;
+        else if (f == "facades") {   // facades with at least one window post
+            int m = 0;
+            for (const FiringPosition& p : B->firing)
+                if (p.kind == FiringKind::Window) {
+                    const float ox = std::sin(p.yaw), oz = std::cos(p.yaw);
+                    const float d[4] = {-(ox * B->e2x + oz * B->e2z), ox * B->e1x + oz * B->e1z, ox * B->e2x + oz * B->e2z, -(ox * B->e1x + oz * B->e1z)};
+                    int sd = 0;
+                    for (int q = 1; q < 4; ++q) if (d[q] > d[sd]) sd = q;
+                    m |= 1 << sd;
+                }
+            out = (double)((m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1));
+        }
+        else if (f == "cover_on_firing") {   // covers overlapping a firing window (must be 0)
+            for (const WindowCover& c : B->covers)
+                for (const FiringPosition& p : B->firing) {
+                    if (p.kind != FiringKind::Window) continue;
+                    const float ox = std::sin(p.yaw), oz = std::cos(p.yaw);
+                    if (ox * c.nx + oz * c.nz < 0.9f) continue;
+                    const float tx = c.nz, tz = -c.nx;
+                    const float ds = (p.win.x - c.c.x) * tx + (p.win.z - c.c.z) * tz, dn = (p.win.x - c.c.x) * c.nx + (p.win.z - c.c.z) * c.nz;
+                    const bool yOv = p.win.y < c.c.y + c.h && p.win.y + p.winH > c.c.y;
+                    if (std::fabs(dn) < 0.5f && std::fabs(ds) < p.winHalfW + c.halfW - 0.02f && yOv) out += 1;
+                }
+        }
+        else if (f == "cover_low") {   // covers above the first floor (must be 0)
+            for (const WindowCover& c : B->covers) out += c.floor > 1 ? 1 : 0;
+        }
         else if (f == "nests") { for (const FiringPosition& p : B->firing) out += p.nest ? 1 : 0; }
         else if (f == "doors" || f == "windows") { for (const Opening& o : B->openings) out += o.type == (f == "doors" ? OpeningType::Door : OpeningType::Window) ? 1 : 0; }
         else if (f == "roofpos") { for (const FiringPosition& p : B->firing) out += p.kind == FiringKind::RoofEdge ? 1 : 0; }

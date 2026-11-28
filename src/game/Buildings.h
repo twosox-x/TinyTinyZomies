@@ -68,6 +68,7 @@ struct Opening {
     V3 pos;                          // world: centre of the opening at its sill / threshold height
     float nx = 0.f, nz = -1.f;       // outward facade normal (xz, unit); the roof hatch: (0, 0)
     float width = 1.2f, height = 2.1f;
+    bool art = false;                // pos / width / height snapped to the door of the facade art (pos.y = its bottom)
     // --- barricade (written by B3a placement; B3b breach damage goes through BuildingRegistry::damageBarricade)
     BarricadeType barricade = BarricadeType::None;
     float barricadeHealth = 0.f;     // 0 = none / broken (open)
@@ -100,6 +101,15 @@ struct FiringPosition {
 // facade, inset = depth of the glass plane behind the footprint edge (m).
 struct FacadeGlass { uint8_t side = 0; float s0 = 0, s1 = 0, y0 = 0, y1 = 0, inset = 0; };
 
+// A closed (non-firing) window of the facade art on the lower floors (ground + first): the fortification covers it
+// (window planks / plates / heavy plating) flush on the glass rect. Not an Opening: zombies never use windows.
+struct WindowCover {
+    uint8_t floor = 0, side = 0;
+    V3 c;                            // bottom centre of the glass rect on the glass plane (world)
+    float nx = 0.f, nz = -1.f;       // outward facade normal
+    float halfW = 0.5f, h = 1.f;     // glass rect half width / height (m)
+};
+
 struct Building {
     // ---- static (from BLDG)
     uint32_t bakeId = 0;             // tile index << 12 | record (unique per package)
@@ -118,10 +128,13 @@ struct Building {
     std::vector<Opening> openings;   // doors first (ground), then windows by floor, then the roof hatch (if flatRoof)
     std::vector<FiringPosition> firing;
     std::vector<FacadeGlass> glass;  // windows of the facade art (from the tile mesh; empty: positions derived)
+    std::vector<FacadeGlass> doorArt;// door rects of the facade art (door materials touching the ground floor)
+    std::vector<WindowCover> covers; // closed lower-floor windows (prepare): fortification covers them
     // ---- support (GAME_DESIGN 14b: unsupported buildings are documented)
     bool prepared = false;           // openings / firing positions derived (BuildingRegistry::prepare)
     bool supported = false;          // garrison / hospital possible
-    const char* unsupportedWhy = ""; // reason when !supported ("tower: > 12 floors", "no entrance", ...)
+    const char* unsupportedWhy = ""; // kept for the UI / scripts; every prepared building is supported (owner round 15)
+    bool doorAdded = false;          // prepare added the entrance (no usable door in the bake)
     // ---- dynamic: B3a writes
     CaptureState capture = CaptureState::Unclaimed;
     float captureProgress = 0.f;     // 0..1
@@ -129,6 +142,8 @@ struct Building {
     std::vector<SoldierId> garrison; // soldiers assigned to firing positions (entering or in place)
     std::vector<SoldierId> patients; // hospital: soldiers inside being treated
     int capacity = 0;                // garrison: firing positions used; hospital: beds (BuildingConfig)
+    uint8_t defence = 0;             // fortification level 0..3 (BuildingPlay::fortify)
+    BarricadeType coverType = BarricadeType::None;   // covers on the closed lower windows (None: open glass)
     // ---- dynamic: B3b writes (zombies; -1 = unknown / not simulated)
     int zombiesInside = -1;          // all floors
     int zombiesOnRoof = -1;
@@ -165,6 +180,7 @@ public:
     void addTile(const TileCPU& tile);           // idempotent per tile (i, j)
     // Glass material ids of the city palette (CityMaterial MAT_GLASS): addTile reads window rects from the tile mesh.
     void setGlassMaterials(const std::vector<uint8_t>& isGlass) { glassMat_ = isGlass; }
+    void setDoorMaterials(const std::vector<uint8_t>& isDoor) { doorMat_ = isDoor; }   // door leaf materials (art doors)
     bool hasTile(int i, int j) const { for (uint32_t t : tiles_) if (t == ((uint32_t)i | ((uint32_t)j << 16))) return true; return false; }
     // Derive openings / firing positions / support for buildings not prepared yet whose footprint lies inside the
     // height grid (heightAt returns the walkable / solid top at (x, z), NaN when unknown). B3a calls it after the
@@ -206,7 +222,7 @@ private:
     std::vector<uint32_t> tiles_;                // (i | j << 16) of tiles already added
     std::unordered_map<uint64_t, std::vector<uint32_t>> grid_;   // 16 m buckets (every bucket a footprint touches)
     std::vector<BarricadeBroken> broken_;
-    std::vector<uint8_t> glassMat_;
+    std::vector<uint8_t> glassMat_, doorMat_;
     uint64_t version_ = 0;
     void readGlass(const TileCPU& t);
 };

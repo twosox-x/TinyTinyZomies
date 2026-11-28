@@ -177,17 +177,66 @@ bool BuildingPlay::barricadeWindows(GameContext& ctx, BuildingId id, BarricadeTy
     if (!B) { msg = "no building"; return false; }
     if (B->capture != CaptureState::Captured) { msg = "capture it first"; return false; }
     if (t == BarricadeType::None || t >= BarricadeType::Count) { msg = "barricade type"; return false; }
+    // the closed windows of the ground and first floor (Building::covers), never the windows soldiers fire from
+    if (B->covers.empty()) { msg = "no closed lower-floor windows to cover"; return false; }
+    if (B->coverType == t) { msg = std::string("windows already covered (") + barricadeName(t) + ")"; return false; }
     const BuildingConfig& bc = ctx.cfg->buildings;
-    std::vector<int> ops;
-    for (size_t k = 0; k < B->openings.size(); ++k)
-        if (B->openings[k].type == OpeningType::Window && B->openings[k].open()) ops.push_back((int)k);
-    if (ops.empty()) { msg = "every window is barricaded"; return false; }
-    const int price = bc.barricadePrice[(size_t)t - 1] * (int)ops.size();
+    const int n = (int)B->covers.size();
+    const int price = bc.barricadePrice[(size_t)t - 1] * n;
     if (!ctx.economy || !ctx.economy->spend(price, "barricade", ctx.time)) { msg = "Not enough funding"; return false; }
-    for (int k : ops) reg_.setBarricade(id, (uint16_t)k, t, bc.barricadeHealth[(size_t)t - 1]);
-    stats_.barricades += (uint32_t)ops.size();
+    B->coverType = t;
+    stats_.barricades += (uint32_t)n;
     char s[96];
-    std::snprintf(s, sizeof(s), "%zu windows barricaded (%s)", ops.size(), barricadeName(t));
+    std::snprintf(s, sizeof(s), "%d windows barricaded (%s)", n, barricadeName(t));
+    msg = s;
+    return true;
+}
+
+namespace {
+BarricadeType levelDoor(int L) { return L <= 1 ? BarricadeType::Planks : L == 2 ? BarricadeType::Plate : BarricadeType::Sandbags; }
+BarricadeType levelCover(int L) { return L <= 1 ? BarricadeType::Planks : BarricadeType::Plate; }
+} // namespace
+
+int BuildingPlay::fortifyPrice(const BuildingConfig& bc, const Building& B) {
+    const int L = B.defence + 1;
+    if (L > 3) return 0;
+    int doors = 0, roof = 0;
+    for (const Opening& o : B.openings) doors += o.type == OpeningType::Door ? 1 : 0;
+    for (const FiringPosition& f : B.firing) roof += f.kind == FiringKind::RoofEdge && !f.nest ? 1 : 0;
+    int p = doors * bc.barricadePrice[(size_t)levelDoor(L) - 1];
+    if (B.coverType != levelCover(L) || L == 3) p += (int)B.covers.size() * bc.barricadePrice[(size_t)levelCover(L) - 1];
+    if (L == 2) p += doors * bc.barricadePrice[(size_t)BarricadeType::Sandbags - 1];   // sandbag walls at the entrances
+    if (L == 3) p += roof * bc.nestPrice + doors * bc.barricadePrice[(size_t)BarricadeType::Sandbags - 1];
+    return p;
+}
+
+bool BuildingPlay::fortify(GameContext& ctx, BuildingId id, std::string& msg) {
+    Building* B = reg_.get(id);
+    if (!B) { msg = "no building"; return false; }
+    if (B->capture != CaptureState::Captured) { msg = "capture it first"; return false; }
+    if (B->defence >= 3) { msg = "defence already at level 3"; return false; }
+    const BuildingConfig& bc = ctx.cfg->buildings;
+    const int price = fortifyPrice(bc, *B);
+    if (!ctx.economy || !ctx.economy->spend(price, "fortification", ctx.time)) { msg = "Not enough funding"; return false; }
+    const int L = ++B->defence;
+    const BarricadeType dt = levelDoor(L);
+    int n = 0;
+    for (size_t k = 0; k < B->openings.size(); ++k)
+        if (B->openings[k].type == OpeningType::Door) {
+            // L3: sandbags in the door backed by the plate (health of both; the perimeter in front is visual)
+            const float hp = L == 3 ? bc.barricadeHealth[(size_t)BarricadeType::Plate - 1] + bc.barricadeHealth[(size_t)BarricadeType::Sandbags - 1]
+                                    : bc.barricadeHealth[(size_t)dt - 1];
+            reg_.setBarricade(id, (uint16_t)k, dt, hp);
+            ++n;
+        }
+    B->coverType = levelCover(L);
+    n += (int)B->covers.size();
+    if (L == 3)
+        for (FiringPosition& f : B->firing)
+            if (f.kind == FiringKind::RoofEdge && !f.nest) { f.nest = true; ++stats_.nests; }
+    stats_.barricades += (uint32_t)n;
+    char s[128];
+    std::snprintf(s, sizeof(s), "Defence level %d (%d doors / windows barricaded)", L, n);
     msg = s;
     return true;
 }
@@ -300,6 +349,7 @@ void BuildingPlay::applyPending(GameContext& ctx) {
         case Act::BarricadeDoors: ok = barricade(ctx, a.b, -1, (BarricadeType)a.arg, msg); break;
         case Act::BarricadeWindows: ok = barricadeWindows(ctx, a.b, (BarricadeType)a.arg, msg); break;
         case Act::Nest: ok = nest(ctx, a.b, -1, msg); break;
+        case Act::Fortify: ok = fortify(ctx, a.b, msg); break;
         case Act::Release: {
             SoldierPool& P = *ctx.soldiers;
             int n = 0;
