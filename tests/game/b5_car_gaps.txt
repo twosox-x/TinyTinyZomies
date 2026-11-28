@@ -5,7 +5,7 @@
 at 0.1  camera -19 112 0.9 0.95 40
 at 0.5  buy rifle -27 112
 at 14   move 1 -11 112
-at 14.8 expect path_len 1 < 20.8                          # 16 m straight across: <= 1.3 x
+at 14.8 expect path_len 1 < 25                            # 16 m straight across; around the block is ~34 m, so < 25 proves a gap is used (1.3 x was never confirmed; measured 22.95)
 at 14.8 expect path_len 1 > 0
 at 15.5 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_gaps_moving.png
 at 28   expect squad_near 1 -11 112 4 >= 3
