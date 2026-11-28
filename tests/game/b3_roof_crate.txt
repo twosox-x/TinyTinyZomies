@@ -1,10 +1,10 @@
 # Owner feedback round 3: "can't drop ammo crates to snipers on roofs, so they're stuck there with no ammo". Snipers on
-# the podium roof (16.7 m) and on the top roof (147.5 m) of a stepped tower run dry; a crate airdropped on each roof
+# the podium roof (16.7 m) and on the top roof (143.95 m since 192dd74) of a stepped tower run dry; a crate airdropped on each roof
 # lands on that roof (scatter stays on the clicked surface level) and the sniper collects from it.
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b3_roof_crate.txt
 at 0.0  camera -2 84 0.6 0.9 160
 at 0.1  buy sniper -3 80                       # podium roof (16.7 m)
-at 0.2  buy sniper 8 84                        # top roof (147.5 m)
+at 0.2  buy sniper 8 84                        # top roof (143.95 m since 192dd74)
 at 30   expect squad 1 rooftop + squad 2 rooftop == 2
 at 30   setammo 1 0 0
 at 30   setammo 2 0 0
@@ -20,5 +20,5 @@ at 55   expect squad 1 ammo > 0
 at 55   expect squad 2 ammo > 0
 at 55   expect squad 1 rooftop + squad 2 rooftop == 2
 at 55   expect squad 1 y >= 16.2
-at 55   expect squad 2 y >= 147
+at 55   expect squad 2 y >= 143.9                # top roof is 143.95 m since 192dd74 removed the sky lounge
 at 56   end
