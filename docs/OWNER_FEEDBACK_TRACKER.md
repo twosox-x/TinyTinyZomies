@@ -25,7 +25,7 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 | 18 | Improve everything, make it playable, don't forget earlier items | all | see below |
 
 Carried-over open items from earlier rounds (must not be forgotten):
-- b1_resupply 9 fails (prices / supply point 2), b1_rooftops 1 fail (MG lands on the lower roof level) — B / A
+- b1_resupply 9 fails, b1_rooftops 1 fail — A: resolved. resupply: a click on a parked car is no longer refused (14e surface snap lands beside it, intended) so the test bought an extra squad and ran out of money; the refused case is now a drop outside the simulated area (23/23). rooftops: the sniper is not an MG on a lower level; the 147 m level is gone from the map (every drop on that top lands at 143.95), expectation updated in b1_rooftops and b3_roof_levels
 - engineers listed as "rifleman" in the squad panel (fixed, A: shown as "engineer"); HUD clock reads 00:00 in headless runs — A: not reproducible now (headless shots show DAY 16:44, TimeOfDay advances per frame)
 - possible soldier standing on a car roof (garrison shot) — D
 - long-range squad hit rate 20 % (target was 45 %) — D

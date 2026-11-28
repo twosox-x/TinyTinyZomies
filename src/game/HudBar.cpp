@@ -551,8 +551,8 @@ void GameUI::registerBuiltinActions() {
     burn.tooltip = [](const UiCtx&) { return std::string("Flamethrowers move onto a point and burn the rotting piles there\n(they also seek piles near their post on their own)."); };
     registerSelectionAction(burn);
     struct Eng { const char* id; const char* action; const char* label; UiIcon icon; const char* key; int order; };
-    const Eng eng[4] = {{"sel.eng.wall", "struct.wall", "Wall", UiIcon::Wall, "N", 30}, {"sel.eng.gate", "struct.gate", "Gate", UiIcon::Gate, "J", 31},
-                        {"sel.eng.car", "eng.clearcar", "Clear car", UiIcon::ClearCar, "K", 32}, {"sel.eng.undo", "eng.undo", "Undo", UiIcon::Undo, "Ctrl+Z", 33}};
+    const Eng eng[4] = {{"sel.eng.wall", "struct.wall", "Wall", UiIcon::Wall, "", 30}, {"sel.eng.gate", "struct.gate", "Gate", UiIcon::Gate, "", 31},
+                        {"sel.eng.car", "eng.clearcar", "Clear car", UiIcon::ClearCar, "", 32}, {"sel.eng.undo", "eng.undo", "Undo", UiIcon::Undo, "Ctrl+Z", 33}};
     for (const Eng& e : eng) {
         UiSelectionAction s;
         s.id = e.id; s.label = e.label; s.icon = e.icon; s.hotkeyLabel = e.key; s.order = e.order;

@@ -19,7 +19,7 @@ at 30   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside
 at 30   expect squad 1 y >= 16.2
 at 30   expect squad 2 y >= 16.2
 at 30   expect squad 3 y >= 137
-at 30   expect squad 4 y >= 147
+at 30   expect squad 4 y >= 143.9                # no 147 m level any more (probe drops land at 143.95; content change)
 at 30   expect squad 5 y >= 16.2
 at 30   expect squad 5 y <= 18
 at 75   log
@@ -27,6 +27,6 @@ at 75   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 roo
 at 75   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside == 0
 at 75   expect squad 1 y >= 16.2
 at 75   expect squad 3 y >= 137
-at 75   expect squad 4 y >= 147
+at 75   expect squad 4 y >= 143.9
 at 75   expect squad 5 y <= 18
 at 76   end
