@@ -146,8 +146,8 @@ private:
     int menuConfirm_ = 0;           // 1: inline "quit?" confirm open
     bool pauseWasOpen_ = false;     // open / close sounds on transitions (Esc toggles pauseMenu_ in GameUI.cpp)
     bool mainMenu_ = false, mainMenuDone_ = false;   // main menu once at start (never headless)
-    float musicVol_ = 1.f, uiScaleDrag_ = -1.f;
-    bool musicMute_ = false;
+    float busVol_[6] = {1.f, 1.f, 1.f, 1.f, 1.f, 1.f}, uiScaleDrag_ = -1.f;   // pause settings: master + 5 audio buses
+    bool busMute_[6] = {false, false, false, false, false, false};
     const UiAction* cardForDigit(int n) const;   // n-th (0-based) card of the active tab (number keys)
     int digitOf(const UiAction& a) const;        // its number key 1-9 (0: none)
     std::vector<float> hudRects_;   // x0 y0 x1 y1 of this frame's HUD panels (labels never cover them)

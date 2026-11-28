@@ -268,15 +268,24 @@ void GameUI::drawMenus(AppState& app) {
         auto head = [&](const char* t) { mtext(dl, mFB, cx, sy, hs::kBone, 19.f, t); sy += 34 * mS; };
         auto label = [&](const char* t) { mtext(dl, mF, cx, sy, alphaOf(hs::kBone, 0.85f), 15.f, t); };
         head("Audio");
-        label("Music");   // the only bus Audio.h exposes a volume for (setMusicVolume)
-        if (slider(dl, "##set_music", cx + labelW, sy, sw, musicVol_, musicMute_) && !musicMute_) audio::setMusicVolume(musicVol_);
-        if (speakerBtn(dl, "##set_music_mute", cx + labelW + sw + 14 * mS, sy, musicMute_)) {
-            musicMute_ = !musicMute_;
-            audio::setMusicVolume(musicMute_ ? 0.f : musicVol_);
-            audio::ui("ui_select");
+        // master + the 5 mixer buses (audio::setMasterVolume / setBusVolume, session D's API). Slider 0..100 % = 0..1
+        // linear (1 = the mixed default level); the speaker icon mutes. Values live in GameUI (not persisted yet).
+        static const char* kNames[6] = {"Master", "Effects", "Voices / radio", "Ambience", "UI", "Music"};
+        static const audio::Bus kBus[6] = {audio::Bus::Count, audio::Bus::Sfx, audio::Bus::Voice, audio::Bus::Amb, audio::Bus::Ui, audio::Bus::Music};
+        for (int k = 0; k < 6; ++k) {
+            auto apply = [&]() {
+                const float v = busMute_[k] ? 0.f : busVol_[k];
+                if (k == 0) audio::setMasterVolume(v); else audio::setBusVolume(kBus[k], v);
+            };
+            char sid[32], mid[32];
+            std::snprintf(sid, sizeof(sid), "##set_vol%d", k); std::snprintf(mid, sizeof(mid), "##set_mute%d", k);
+            label(kNames[k]);
+            if (slider(dl, sid, cx + labelW, sy, sw, busVol_[k], busMute_[k]) && !busMute_[k]) apply();
+            if (speakerBtn(dl, mid, cx + labelW + sw + 14 * mS, sy, busMute_[k])) { busMute_[k] = !busMute_[k]; apply(); audio::ui("ui_select"); }
+            char pct[16]; std::snprintf(pct, sizeof(pct), "%d%%", (int)std::lround(busVol_[k] * 100.f));
+            mtext(dl, mF, cx + labelW + sw + 42 * mS, sy, hs::kDim, 14.f, busMute_[k] ? "muted" : pct);
+            if (k < 5) sy += 28 * mS;
         }
-        char pct[16]; std::snprintf(pct, sizeof(pct), "%d%%", (int)std::lround(musicVol_ * 100.f));
-        mtext(dl, mF, cx + labelW + sw + 42 * mS, sy, hs::kDim, 14.f, musicMute_ ? "muted" : pct);
         sy += 44 * mS;
 
         head("Display");
