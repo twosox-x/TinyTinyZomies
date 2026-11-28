@@ -183,7 +183,7 @@ void installStructures(GameWorld& w, AppState& app) {
     occ.tooltip = [](const UiCtx&) { return std::string("Snipers / riflemen climb a defense tower and hold its posts\n(a new move order brings them down)."); };
     ui.registerSelectionAction(occ);
     // hover over a tower with shooters selected: "Occupy"
-    ui.registerHoverProvider("struct.tower", [&w](const UiCtx& u, V3 g, float, float, UiHoverMenu& m) {
+    ui.registerHoverProvider("struct.tower", [&w](const UiCtx& u, V3 g, float sx, float sy, UiHoverMenu& m) {
         if (!hasShooters(u) || !u.ctx.cfg) return false;
         int t = w.structures().nearest(StructureKind::Tower, g.x, g.z, u.ctx.cfg->structures.towerHalf + 0.8f);
         if (t < 0) {   // the cursor on the tower body / deck: the ground pick lands behind it, so test the screen column too
