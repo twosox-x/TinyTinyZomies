@@ -83,3 +83,7 @@ The crowd-simulation repositories evaluated in [`docs/RESEARCH.md`](docs/RESEARC
 ## game-icons.net (UI preview icons)
 Icons by Lorc, Delapouite and contributors, https://game-icons.net, licensed CC BY 3.0
 (https://creativecommons.org/licenses/by/3.0/). Used in docs/ui_preview/icons.js (via @iconify-json/game-icons).
+
+## Archivo font (HUD)
+assets/ui/Archivo-SemiCondensed-*.ttf. Archivo by Omnibus-Type, SIL Open Font License 1.1
+(https://openfontlicense.org). Static instances fetched from Google Fonts.
