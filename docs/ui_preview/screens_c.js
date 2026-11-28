@@ -218,7 +218,7 @@
 <li>Decide: keep Backspace for alerts, or give it its own key (Home, say)?</li></ul>`,
     render(ctx) {
       const pad = Math.max(64, Math.round(ctx.W * 0.06)), colW = Math.floor((ctx.W - pad * 2 - 48) / 3), top = Math.round(ctx.H * 0.08);
-      let h = `<div class="c2-veil k"></div><div class="c2-kp" style="left:${pad}px;right:${pad}px;top:${top}px">` +
+      let h = `<div class="c2-veil c2-vk"></div><div class="c2-kp" style="left:${pad}px;right:${pad}px;top:${top}px">` +
         `<div class="c2-khead"><h2 class="fl">Key bindings</h2><span class="c2-leg fl"><i class="c2-gd"></i>changed from the current game</span><button class="c2-back fl" data-back>${TTZ.k("Esc")} back</button></div><div class="c2-cols">`;
       h += GROUPS.map((col) => `<div class="c2-col" style="width:${colW}px">` + col.map(([nm, gi, rows]) => `<section><h3 class="fl">${ic(gi, 16)}${nm}</h3>` +
         rows.map((r) => `<div class="c2-kr fl"${r.was ? ` data-tip="${esc(r.was)}"` : ""}><span class="c2-keys">${r.keys}</span><span class="c2-desc">${r.was ? `<i class="c2-gd"></i>` : ""}${r.d}${r.prop ? ` <em>proposed</em>` : ""}</span></div>`).join("") + `</section>`).join("") + `</div>`).join("");
