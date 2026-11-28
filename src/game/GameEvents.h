@@ -44,7 +44,8 @@ enum class AudioCueKind : uint8_t {
     SoldierHurt, SoldierDeath, CalloutContact, CalloutAmmo, CalloutKill, CalloutPanic, CalloutOrder,
     Reload, EmptyClick, ImpactMetal, ImpactConcrete, ImpactWood,
     AlertAttack, AlertBreach, AlertCasualty, AlertAmmo,
-    GenStart, GenStop, GenOutOfFuel, StructureCollapse, TowerCreak, PlaneFlyover, ChuteDeploy, ContainerLand, Radio
+    GenStart, GenStop, GenOutOfFuel, StructureCollapse, TowerCreak, PlaneFlyover, ChuteDeploy, ContainerLand, Radio,
+    ZombieAttackWood, ZombieAttackMetal, ZombieAttackSandbag, TowerClimb
 };
 struct AudioCue { AudioCueKind kind; V3 pos; float intensity = 1.f; };
 

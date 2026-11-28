@@ -328,7 +328,7 @@ void GameWorld::tick(AppState& app) {
     }
     economy_.tick(ctx_);                                       // h
     if (script_.loaded() && !script_.tick(*this, ctx_.time)) finished_ = true;   // i
-    audio::bridgeTick(app, events_, soldiers_);                           // [SOUND HOOK] TickEvents -> audio (consumes cues)
+    audio::bridgeTick(app, events_, soldiers_, horde_.contacts());                           // [SOUND HOOK] TickEvents -> audio (consumes cues)
     ctx_.time += kTickDt;
     ++ctx_.tick;
     tickMs_ = nowMs() - t0;

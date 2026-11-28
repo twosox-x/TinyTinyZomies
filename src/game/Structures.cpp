@@ -325,6 +325,7 @@ void Structures::collapse(GameContext& ctx, int t) {
     Structure& T = list_[(size_t)t];
     T.alive = false;
     ++stats_.towersDestroyed;
+    if (ctx.events) ctx.events->cues.push_back({AudioCueKind::StructureCollapse, T.pos, 1.f});   // [SOUND HOOK]
     if (T.obstacle != ~0u && removeObstacle) removeObstacle(T.obstacle);
     T.obstacle = ~0u;
     if (ctx.soldiers) {
@@ -398,6 +399,7 @@ void Structures::tick(GameContext& ctx) {
                     P.setState(i, SoldierState::Idle);
                     P.post[i] = POST_ENTERING;
                     phase_[i] = 2; t_[i] = 0.f; from_[i] = P.pos[i];
+                    if (ctx.events) ctx.events->cues.push_back({AudioCueKind::TowerClimb, P.pos[i], 1.f});   // [SOUND HOOK]
                     P.yaw[i] = T.yaw;   // faces the ladder (tower front = +Z, ladder on -Z)
                 } else if (st == SoldierState::Idle && P.stateTime[i] > 3.f && d >= 3.0f) walkTo(ctx, i, foot);
                 continue;
@@ -451,6 +453,7 @@ void Structures::tick(GameContext& ctx) {
         T.attackers = t < forced_.size() && forced_[t] >= 0 ? forced_[t] : att[t];
         const int over = T.attackers - S.towerPressureThreshold;
         if (over > 0) T.health -= (float)over * S.towerDamagePerZombie * dt;
+        if (over > 0 && ctx.events) ctx.events->cues.push_back({AudioCueKind::TowerCreak, T.pos, 1.f});   // [SOUND HOOK] (audio rate-limits)
         if (T.health <= 0.f) collapse(ctx, (int)t);
     }
     // ---- generators: tank refill from a fuel store, lights assigned nearest first, run, burn
@@ -488,13 +491,16 @@ void Structures::tick(GameContext& ctx) {
     }
     for (int g : gens) {
         Structure& G = list_[(size_t)g];
+        const bool wasRunning = G.running;   // [SOUND HOOK] start / stop transitions
         G.running = demand && G.powered > 0 && G.tank > 0.f;
+        if (ctx.events && wasRunning != G.running) ctx.events->cues.push_back({G.running ? AudioCueKind::GenStart : AudioCueKind::GenStop, G.pos, 1.f});   // [SOUND HOOK]
         if (!G.running) continue;
         const float burn = (S.generatorBurn + S.burnPerLight * (float)G.powered) * dt;
         const float b = std::min(burn, G.tank);
         G.tank -= b;
         stats_.fuelBurned += b;
-        if (G.tank <= 0.f) { G.running = false; notice("Generator out of fuel: the lights go dark", true, G.pos); }
+        if (G.tank <= 0.f) { G.running = false; notice("Generator out of fuel: the lights go dark", true, G.pos);
+            if (ctx.events) ctx.events->cues.push_back({AudioCueKind::GenOutOfFuel, G.pos, 1.f}); }   // [SOUND HOOK]
     }
     for (Structure& L : list_)
         if (L.kind == StructureKind::Light) L.lit = L.solid() && L.source >= 0 && list_[(size_t)L.source].running;

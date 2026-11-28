@@ -4,6 +4,7 @@
 #include "audio/Audio.h"
 #include "game/GameEvents.h"
 #include "game/Soldiers.h"
+#include "game/HordeInterface.h"
 
 #include <vector>
 
@@ -14,7 +15,9 @@ size_t fxSeen = 0;
 uint32_t lastFallSplats = 0, lastReactivated = 0;
 bool statsInit = false;
 uint32_t killCount = 0;
-std::vector<uint8_t> wasAlive;   // casualty detection (alive -> dying / dead)
+std::vector<uint8_t> wasAlive;
+std::vector<uint8_t> wasNear;    // zombie aggro: a soldier's 8 m threat ring goes from empty to occupied
+uint32_t attackTick = 0;   // casualty detection (alive -> dying / dead)
 
 Ev cueEv(game::AudioCueKind k) {
     using K = game::AudioCueKind;
@@ -34,12 +37,14 @@ Ev cueEv(game::AudioCueKind k) {
         case K::TowerCreak: return Ev::TowerCreak;           case K::PlaneFlyover: return Ev::PlaneFlyover;
         case K::ChuteDeploy: return Ev::ChuteDeploy;         case K::ContainerLand: return Ev::ContainerLand;
         case K::Radio: return Ev::Radio;
+        case K::ZombieAttackWood: return Ev::ZombieAttackWood;   case K::ZombieAttackMetal: return Ev::ZombieAttackMetal;
+        case K::ZombieAttackSandbag: return Ev::ZombieAttackSandbag; case K::TowerClimb: return Ev::TowerClimb;
     }
     return Ev::Radio;
 }
 } // namespace
 
-void bridgeTick(const AppState& app, game::TickEvents& ev, const game::SoldierPool& soldiers) {
+void bridgeTick(const AppState& app, game::TickEvents& ev, const game::SoldierPool& soldiers, const std::vector<game::SoldierContact>& contacts) {
     using game::SoldierClass; using game::FxKind; using game::KillCause;
     for (const game::ShotEvent& s : ev.shots) {
         switch (s.cls) {
@@ -73,6 +78,17 @@ void bridgeTick(const AppState& app, game::TickEvents& ev, const game::SoldierPo
         const bool a = soldiers.alive(i);
         if (wasAlive[i] && !a && soldiers.used[i]) { emit(Ev::SoldierDeath, soldiers.pos[i]); emit(Ev::AlertCasualty, soldiers.pos[i]); }
         wasAlive[i] = a;
+    }
+    // zombie aggro / attacks on soldiers from the horde's soldier contacts (no separate source on the bus)
+    if (wasNear.size() < soldiers.capacity()) wasNear.resize(soldiers.capacity(), 0);
+    ++attackTick;
+    for (const game::SoldierContact& c : contacts) {
+        const uint32_t i = c.packedId & 0xFFFFu;
+        if (i >= wasNear.size() || !soldiers.alive(i)) continue;
+        const V3 zp = c.nNear ? c.nearPos[0] : soldiers.pos[i];
+        if (c.nearby > 0 && !wasNear[i]) emit(Ev::ZombieAggro, zp);
+        wasNear[i] = c.nearby > 0;
+        if (c.attackers > 0 && ((attackTick + i) % 12u) == 0) emit(Ev::ZombieAttack, zp, std::min(1.5f, 0.7f + 0.1f * c.attackers));
     }
     for (const game::AudioCue& c : ev.cues) emit(cueEv(c.kind), c.pos, c.intensity);
     ev.cues.clear();

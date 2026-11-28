@@ -85,6 +85,7 @@ void Reanimation::tick(GameContext& ctx, SoldierAnimator* animator) {
                 }
             }
             b.rise = 0.f;
+            if (ctx.events) ctx.events->cues.push_back({AudioCueKind::ZombieReanimate, P.pos[i], 1.f});   // [SOUND HOOK]
             continue;
         }
         b.rise += ctx.dt;

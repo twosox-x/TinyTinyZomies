@@ -4,11 +4,13 @@
 #include <cstdint>
 
 namespace ttz { struct AppState; }
-namespace ttz::game { struct TickEvents; struct SoldierPool; }
+#include <vector>
+namespace ttz::game { struct TickEvents; struct SoldierPool; struct SoldierContact; }
 
 namespace ttz::audio {
 
 // Call once at the end of GameWorld::tick. Consumes and clears ev.cues.
-void bridgeTick(const ttz::AppState& app, ttz::game::TickEvents& ev, const ttz::game::SoldierPool& soldiers);
+void bridgeTick(const ttz::AppState& app, ttz::game::TickEvents& ev, const ttz::game::SoldierPool& soldiers,
+                const std::vector<ttz::game::SoldierContact>& contacts);
 
 } // namespace ttz::audio

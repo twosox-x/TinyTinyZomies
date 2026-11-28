@@ -343,7 +343,13 @@ void Fortifications::tick(AppState& app, GameContext& ctx) {
     });
     // pressure damage from the latest GPU counts (made against the current id grid)
     for (uint32_t i = 0; i < walls_.pieces().size() && i + 1 < pressure_.size(); ++i)
-        if (walls_.pieces()[i].solid()) walls_.addPressure(i, (float)pressure_[i + 1], dt);
+        if (walls_.pieces()[i].solid()) {
+            walls_.addPressure(i, (float)pressure_[i + 1], dt);
+            if (ctx.events && pressure_[i + 1] > 0 && ((ctx.tick + i) % 15u) == 0) {   // [SOUND HOOK] zombies hitting the wall (material)
+                const WallPiece& wp = walls_.pieces()[i]; const Obb ob = walls_.pieceBox(i);
+                ctx.events->cues.push_back({wp.gate ? AudioCueKind::ZombieAttackMetal : wp.type == WallType::Reinforced ? AudioCueKind::ZombieAttackSandbag : AudioCueKind::ZombieAttackWood, {ob.cx, 0.f, ob.cz}, 1.f});
+            }
+        }
     // breaches
     destroyedScratch_.clear();
     walls_.takeDestroyed(destroyedScratch_);
