@@ -132,6 +132,7 @@ add_executable(ttz
   src/game/GameWorld.cpp
   src/audio/Audio.cpp
   src/audio/GameAudioBridge.cpp
+  src/audio/Music.cpp
   src/game/HordeBridge.cpp
   src/game/HordeBridgeTest.cpp
   src/game/HordeVertical.cpp

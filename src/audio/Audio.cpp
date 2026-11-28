@@ -1,6 +1,7 @@
 // Tiny Tiny Zombies audio: bank loading (stb_vorbis), software mixer, camera-height mix, horde aggregation.
 // See Audio.h for the API and the mixing rules.
 #include "audio/Audio.h"
+#include "audio/Music.h"
 
 #include <SDL3/SDL.h>
 
@@ -133,6 +134,8 @@ struct State {
     std::mt19937 rng{1234};
     std::vector<float> mixBuf;
     float limEnv = 1.f;
+    MusicDirector music;
+    float musicVol = 1.f, duck = 1.f;
     Stats st;
 };
 State* S = nullptr;
@@ -212,6 +215,7 @@ void spatialise(Voice& v) {
     switch (v.cls) {
         case Cls::Individual: g *= std::pow(1.f - hn, 1.6f) + 0.04f; cutoff = std::min(cutoff, 18000.f * (1.f - hn) * (1.f - hn) + 1400.f); break;
         case Cls::Weapon: g *= 0.3f + 0.7f * (1.f - hn); cutoff = std::min(cutoff, 16000.f * (1.f - hn) + 3000.f); break;
+        case Cls::Aggregate: cutoff = std::min(cutoff, 9000.f * (1.f - hn) * (1.f - hn) + 1000.f); break;   // far swarm: muffled
         default: break;
     }
     const float a = (pan + 1.f) * kPi * 0.25f;
@@ -285,6 +289,15 @@ void mix(int frames) {
         }
         v.gl = v.tl; v.gr = v.tr;
     }
+    if (S->music.loaded()) {   // music bus, ducked under the battlefield (sfx + voices stay clearly audible)
+        float pk = 0.f;
+        for (int i = 0; i < frames * 2; ++i) pk = std::max(pk, std::fabs(out[(size_t)i]));
+        const MusicConfig& mc = S->music.config();
+        const float want = pk > mc.duckThreshold ? dbToLin(mc.duckDb * std::min(1.f, pk / 0.5f)) : 1.f;
+        const float blk = (float)frames / kRate;
+        S->duck += (want - S->duck) * (1.f - std::exp(-blk / (want < S->duck ? mc.duckAttack : mc.duckRelease)));
+        S->music.render(out.data(), frames, S->musicVol * S->master * S->duck);
+    }
     for (int i = 0; i < frames; ++i) {   // master peak limiter (fast attack, 150 ms release), then soft clip
         const float pk = std::max(std::fabs(out[(size_t)i * 2]), std::fabs(out[(size_t)i * 2 + 1]));
         const float want = pk > 0.89f ? 0.89f / pk : 1.f;
@@ -299,9 +312,12 @@ float smooth01(float x, float a, float b) { const float t = std::clamp((x - a) /
 void updateLoops(float dt) {
     const float hn = S->hn, n = (float)S->live;
     float* T = S->loopTarget;
-    T[L_HordeS] = smooth01(n, 0.f, 25.f) * (1.f - 0.8f * hn) * 0.8f;               // a street group, close up
-    T[L_HordeM] = smooth01(n, 15.f, 300.f) * (0.5f + 0.5f * (1.f - hn));
-    T[L_HordeL] = smooth01(n, 150.f, 2500.f) * (0.25f + 0.75f * hn);              // the swarm roar from above
+    // owner feedback: from far away the horde must get quieter and muffled, never louder. The swarm layer replaces the
+    // individual voices as the camera rises, but the overall level falls with height (and spatialise() lowpasses it).
+    const float far = 1.f - 0.45f * hn;
+    T[L_HordeS] = smooth01(n, 0.f, 25.f) * (1.f - hn) * 0.8f;                       // a street group, close up
+    T[L_HordeM] = smooth01(n, 15.f, 300.f) * (1.f - 0.6f * hn) * 0.75f * far;
+    T[L_HordeL] = smooth01(n, 150.f, 2500.f) * (0.15f + 0.35f * hn) * far;        // the swarm roar from above
     T[L_March] = std::clamp(S->stepRate / 25.f, 0.f, 1.f) * (0.35f + 0.65f * hn) * 0.7f;
     T[L_Day] = S->night ? 0.f : 0.8f - 0.25f * hn;
     T[L_Night] = S->night ? 0.8f - 0.25f * hn : 0.f;
@@ -328,6 +344,13 @@ void updateLoops(float dt) {
 
 } // namespace
 
+bool decodeOggStereo48k(const std::string& path, std::vector<int16_t>& pcm, uint64_t& frames) {
+    Clip c;
+    if (!loadOgg(path, c)) return false;
+    pcm.swap(c.s); frames = c.frames;
+    return true;
+}
+
 const char* evName(Ev e) { return (size_t)e < (size_t)Ev::Count ? kEvNames[(size_t)e] : "?"; }
 const Stats& stats() { static Stats empty; return S ? S->st : empty; }
 bool enabled() { return S && S->enabled; }
@@ -339,6 +362,7 @@ bool init(const std::string& assetsRoot, bool on, bool headless) {
     if (!on) { SDL_Log("audio: disabled (--no-audio)"); return true; }
     if (headless) SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
     loadBank(assetsRoot);
+    S->music.load((std::filesystem::path(assetsRoot).parent_path() / "music").string(), kRate);
     if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
         SDL_Log("audio: SDL audio init failed (%s); events are still counted", SDL_GetError());
     } else {
@@ -358,6 +382,14 @@ void emit(Ev e, V3 pos, float intensity) {
     if (!S || (size_t)e >= (size_t)Ev::Count) return;
     ++S->st.emitted[(size_t)e];
     if (!S->enabled) return;
+    switch (e) {   // music intensity: only from what the game already reports (no separate threat model)
+        case Ev::ShotRifle: case Ev::ShotMG: case Ev::ShotSniper: case Ev::ShotCarbine: S->music.note(MusicIn::Shot); break;
+        case Ev::ZombieDeath: S->music.note(MusicIn::ZombieKill); break;
+        case Ev::Explosion: S->music.note(MusicIn::Explosion, intensity); break;
+        case Ev::SoldierDeath: case Ev::AlertCasualty: S->music.note(MusicIn::Casualty); break;
+        case Ev::AlertBreach: S->music.note(MusicIn::Breach); break;
+        default: break;
+    }
     if (e == Ev::Footstep) { ++S->stepsThisFrame; return; }
     if (e == Ev::Flame) { S->lastFlame = S->now; S->flamePos = pos; return; }
     double& last = S->lastPlay[(size_t)e];
@@ -402,7 +434,10 @@ void uiAction(const std::string& id, bool ok) {
     ui("ui_select");
 }
 
-void setHorde(uint32_t live) { if (S) S->live = live; }
+void setHorde(uint32_t live) { if (S) { S->live = live; S->music.setLiveZombies(live); } }
+void setMusicVolume(float v) { if (S) S->musicVol = std::clamp(v, 0.f, 2.f); }
+void setMusicIntensity(float v) { if (S) S->music.setOverride(v); }
+float musicIntensity() { return S ? S->music.intensity() : 0.f; }
 void setNight(bool night) {
     if (!S) return;
     if (night != S->night && S->now > 1.0) emit(Ev::DayNight, S->lis);
@@ -419,9 +454,11 @@ void frame(V3 camTarget, float camHeight, float camYaw, float dt) {
     S->stepRate += (rate - S->stepRate) * (1.f - std::exp(-dt / 1.0f));
     S->stepsThisFrame = 0;
     updateLoops(dt);
+    S->music.update(dt);
     for (Voice& v : S->voices) if (v.alive && !v.loop) spatialise(v);
     if (!S->stream) {   // no device: advance voices in time so the voice accounting stays realistic
         const uint32_t adv = (uint32_t)(dt * kRate);
+        S->music.advance((int)adv);
         for (Voice& v : S->voices) if (v.alive && !v.loop) { v.pos += adv; if (v.pos >= v.clip->frames) v.alive = false; }
         return;
     }
@@ -444,6 +481,12 @@ void shutdown() {
             (unsigned long long)s.culledFar, (unsigned long long)s.stolen, (unsigned long long)s.dropped, (unsigned long long)s.missing,
             s.peakVoices, s.framesMixed / (double)kRate);
     SDL_Log("audio: events %s", line.empty() ? "(none)" : line.c_str());
+    if (S->music.loaded()) {
+        std::string m;
+        for (const MusicTrack& t : S->music.tracks()) { char b[96]; std::snprintf(b, sizeof(b), "%s=%.1fs ", t.id.c_str(), t.secondsPlayed); m += b; }
+        SDL_Log("audio: music %stransitions=%d maxIntensity=%.2f final=%.2f active=%s", m.c_str(), S->music.transitions(),
+                S->music.maxIntensity(), S->music.intensity(), S->music.tracks()[(size_t)S->music.activeTrack()].id.c_str());
+    }
     if (S->stream) SDL_DestroyAudioStream(S->stream);
     if (S->enabled) SDL_QuitSubSystem(SDL_INIT_AUDIO);
     delete S; S = nullptr;

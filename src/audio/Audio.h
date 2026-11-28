@@ -51,6 +51,9 @@ void ui(const char* name);
 void uiAction(const std::string& actionId, bool ok);   // HUD card / selection action clicked (ok=false: refused)
 void setHorde(uint32_t live);
 void setNight(bool night);
+void setMusicVolume(float linear);      // independent music volume (1 = config level)
+void setMusicIntensity(float v);        // manual intensity 0..1 for testing; < 0 = automatic (battlefield data)
+float musicIntensity();
 void frame(V3 camTarget, float camHeight, float camYaw, float dt);
 const Stats& stats();
 bool enabled();

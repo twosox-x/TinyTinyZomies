@@ -3,6 +3,9 @@
 #include "app/App.h"
 #include "audio/Audio.h"
 #include "game/GameEvents.h"
+#include "game/Soldiers.h"
+
+#include <vector>
 
 namespace ttz::audio {
 namespace {
@@ -11,6 +14,7 @@ size_t fxSeen = 0;
 uint32_t lastFallSplats = 0, lastReactivated = 0;
 bool statsInit = false;
 uint32_t killCount = 0;
+std::vector<uint8_t> wasAlive;   // casualty detection (alive -> dying / dead)
 
 Ev cueEv(game::AudioCueKind k) {
     using K = game::AudioCueKind;
@@ -35,7 +39,7 @@ Ev cueEv(game::AudioCueKind k) {
 }
 } // namespace
 
-void bridgeTick(const AppState& app, game::TickEvents& ev) {
+void bridgeTick(const AppState& app, game::TickEvents& ev, const game::SoldierPool& soldiers) {
     using game::SoldierClass; using game::FxKind; using game::KillCause;
     for (const game::ShotEvent& s : ev.shots) {
         switch (s.cls) {
@@ -64,6 +68,12 @@ void bridgeTick(const AppState& app, game::TickEvents& ev) {
         }
     }
     fxSeen = ev.fx.size();
+    if (wasAlive.size() < soldiers.capacity()) wasAlive.resize(soldiers.capacity(), 0);
+    for (uint32_t i = 0; i < (uint32_t)soldiers.capacity(); ++i) {
+        const bool a = soldiers.alive(i);
+        if (wasAlive[i] && !a && soldiers.used[i]) { emit(Ev::SoldierDeath, soldiers.pos[i]); emit(Ev::AlertCasualty, soldiers.pos[i]); }
+        wasAlive[i] = a;
+    }
     for (const game::AudioCue& c : ev.cues) emit(cueEv(c.kind), c.pos, c.intensity);
     ev.cues.clear();
     // horde aggregate + GPU-side counters (roof-edge falls, reanimations) from the sim stats readback

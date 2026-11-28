@@ -1,0 +1,31 @@
+{
+  "_note": "Adaptive music config (sessionD/sound). All values are for playtesting. Tracks are the owner's compositions, unmodified (transcoded only). Add a composition by adding a track with a higher 'tier'. Times in seconds.",
+  "musicVolumeDb": -9.0,
+  "duck": { "depthDb": -5.0, "attack": 0.06, "release": 0.6, "threshold": 0.08 },
+  "tracks": [
+    { "id": "infection", "title": "The Infection", "file": "infection.ogg", "tier": 0, "gainDb": 0.0,
+      "bpm": 92.31, "beatsPerBar": 4, "gridOrigin": 0.209,
+      "entryPoint": 0.0, "loopStart": 27.353, "loopEnd": 120.488, "loopCrossfadeBars": 1 },
+    { "id": "last_stand", "title": "The Last Stand", "file": "last_stand.ogg", "tier": 1, "gainDb": -0.5,
+      "bpm": 92.31, "beatsPerBar": 4, "gridOrigin": 0.585,
+      "entryPoint": 18.785, "loopStart": 71.285, "loopEnd": 154.366, "loopCrossfadeBars": 1 }
+  ],
+  "intensity": {
+    "_inputs": "each input is normalised to 0..1 by its 'full' value, then weighted; the sum is clamped to 0..1",
+    "shotsPerSec":      { "full": 18.0, "weight": 0.30 },
+    "zombieKillsPerSec": { "full": 3.0, "weight": 0.20 },
+    "explosionsPerMin": { "full": 6.0,  "weight": 0.15 },
+    "liveZombies":      { "full": 2500, "weight": 0.10, "onlyInCombat": true },
+    "casualtiesPerMin": { "full": 4.0,  "weight": 0.15 },
+    "breachesPerMin":   { "full": 1.0,  "weight": 0.10 },
+    "rateWindow": 6.0,
+    "rise": 3.0,
+    "fall": 12.0
+  },
+  "director": {
+    "escalateAbove": 0.55, "escalateHold": 12.0,
+    "deescalateBelow": 0.28, "deescalateHold": 25.0,
+    "minTimeOnTrack": 30.0,
+    "escalateBars": 4, "deescalateBars": 8
+  }
+}
