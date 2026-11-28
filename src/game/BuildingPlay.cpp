@@ -253,12 +253,23 @@ void BuildingPlay::placeFortPieces(GameContext& ctx, Building& B) {
                 }
             }
         if (carNear && carNear(b.cx, b.cz, std::max(b.hx, b.hz) + 0.3f)) return false;
+        // baked street props, garden walls, bins, curbs (HGT0 'top' = prop / wall tops): the footprint + 0.15 m must
+        // stay within 0.12 m of the base height, sampled every 0.25 m (the grid is 0.5 m)
+        if (bakedTop) {
+            const float base = bakedTop(b.cx, b.cz);
+            const int nu = (int)std::ceil((b.hx + 0.15f) / 0.25f), nv = (int)std::ceil((b.hz + 0.15f) / 0.25f);
+            for (int i = -nu; i <= nu; ++i)
+                for (int j = -nv; j <= nv; ++j) {
+                    const float lx = std::clamp((float)i * 0.25f, -(b.hx + 0.15f), b.hx + 0.15f), lz = std::clamp((float)j * 0.25f, -(b.hz + 0.15f), b.hz + 0.15f);
+                    if (std::fabs(bakedTop(b.cx + lx * b.c + lz * b.s, b.cz - lx * b.s + lz * b.c) - base) > 0.12f) return false;
+                }
+        }
         return true;
     };
-    auto place = [&](uint8_t kind, V3 at, float yaw, float nx, float nz) {
+    auto place = [&](uint8_t kind, V3 at, float yaw, float nx, float nz, int sc0 = 0) {
         const float tx = nz, tz = -nx;
         static const float outs[5] = {0.f, -0.6f, -1.2f, 1.0f, 2.0f}, alongs[3] = {0.f, 0.8f, -0.8f};
-        for (int sc = 0; sc < 2; ++sc)
+        for (int sc = sc0; sc < 2; ++sc)
             for (int rot = 0; rot < 2; ++rot)
                 for (float dO : outs)
                     for (float dA : alongs) {
@@ -275,6 +286,16 @@ void BuildingPlay::placeFortPieces(GameContext& ctx, Building& B) {
                         return;
                     }
     };
+    if (B.defence >= 1 && B.fortLevel < 1)   // L1: one small (0.6) sandbag U beside each door
+        for (const Opening& o : B.openings) {
+            if (o.type != OpeningType::Door) continue;
+            float u, v;
+            B.toLocal(o.pos.x, o.pos.z, u, v);
+            const float ins = std::max(0.f, std::max({-(o.nx * B.e2x + o.nz * B.e2z) * v, (o.nx * B.e1x + o.nz * B.e1z) * (B.w - u),
+                                                      (o.nx * B.e2x + o.nz * B.e2z) * (B.d - v), -(o.nx * B.e1x + o.nz * B.e1z) * u}));
+            const float off = 0.5f * o.width + 1.1f, out = ins + 0.8f;
+            place(0, {o.pos.x + o.nx * out + o.nz * off, o.pos.y, o.pos.z + o.nz * out - o.nx * off}, std::atan2(o.nx, o.nz), o.nx, o.nz, 1);
+        }
     if (B.defence >= 2 && B.fortLevel < 2)
         for (const Opening& o : B.openings) {
             if (o.type != OpeningType::Door) continue;
