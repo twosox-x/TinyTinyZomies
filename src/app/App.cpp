@@ -3,6 +3,7 @@
 #include "city/CityWorld.h"
 #include "debug/DebugUI.h"
 #include "game/GameWorld.h"
+#include "audio/Audio.h"   // [SOUND HOOK]
 #include "lab/MilitaryLab.h"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -176,6 +177,7 @@ bool App::init() {
         if (!s_.game->init(s_, go)) { SDL_Log("game: init failed"); return false; }
         s_.showUI = false;   // minimal clutter: the debug panel stays on F1
     }
+    audio::init(dataPath("assets/audio/sfx"), !o.noAudio, o.headless);   // [SOUND HOOK]
     if (s_.cityMode && o.headless && o.frames > 0 && o.cityBench == 0) s_.cityRenderer.flush(s_.camera, (float)o.width / (float)o.height);
     return true;
 }
@@ -540,6 +542,7 @@ void App::frame(double dt) {
     if (s.cityMode && !s.paused) {   // vehicles: blasts of this frame, rigid bodies, fuses -> new explosions, obstacle rows
         s.vehicles.update(cmd, (float)(dt * s.simSpeed), s.sim, [&](float x, float y, float z, float scale) {
             s.renderer.addBlast(x, y, z, scale);
+            audio::emit(audio::Ev::Explosion, {x, y, z}, scale);   // [SOUND HOOK] car blasts / chain reactions
             if (s.window) s.trauma = std::min(1.0f, s.trauma + 0.3f * scale);
         });
     }
@@ -578,6 +581,7 @@ void App::frame(double dt) {
     s.renderSettings.tod.advance((float)dt);
     if (s.lab) s.lab->update(s, (float)dt);
     if (s.game) s.game->render(s, (float)dt);
+    audio::frame(s.camera.target(), s.camera.distance() * std::sin(s.camera.pitch()), s.camera.yaw(), (float)dt);   // [SOUND HOOK]
     SDL_GPUTexture* swap = nullptr;
     uint32_t w = (uint32_t)s.opt.width, h = (uint32_t)s.opt.height;
     double ta = nowMs();   // waiting for a swapchain image: large when the GPU is the bottleneck
@@ -956,6 +960,7 @@ int App::run(const AppOptions& opt) {
 }
 
 void App::shutdown() {
+    audio::shutdown();   // [SOUND HOOK] logs the audio event counters
     if (s_.gpu.device()) SDL_WaitForGPUIdle(s_.gpu.device());
     if (s_.window && ImGui::GetCurrentContext()) {
         ImGui_ImplSDLGPU3_Shutdown();

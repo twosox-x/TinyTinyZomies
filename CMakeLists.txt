@@ -130,6 +130,8 @@ add_executable(ttz
   src/lab/MilitaryRenderer.cpp
   ${TTZ_GAME_CORE}
   src/game/GameWorld.cpp
+  src/audio/Audio.cpp
+  src/audio/GameAudioBridge.cpp
   src/game/HordeBridge.cpp
   src/game/HordeBridgeTest.cpp
   src/game/HordeVertical.cpp

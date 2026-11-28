@@ -1,5 +1,6 @@
 // GameWorld: integration of the gameplay modules (WS-D owns this file). Tick order: see GameWorld.h.
 #include "game/GameWorld.h"
+#include "audio/GameAudioBridge.h"   // [SOUND HOOK]
 
 #include "app/App.h"
 #include "game/BuildingGame.h"
@@ -326,6 +327,7 @@ void GameWorld::tick(AppState& app) {
     }
     economy_.tick(ctx_);                                       // h
     if (script_.loaded() && !script_.tick(*this, ctx_.time)) finished_ = true;   // i
+    audio::bridgeTick(app, events_);                           // [SOUND HOOK] TickEvents -> audio (consumes cues)
     ctx_.time += kTickDt;
     ++ctx_.tick;
     tickMs_ = nowMs() - t0;

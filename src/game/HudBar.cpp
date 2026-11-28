@@ -3,6 +3,7 @@
 // actions, placement banner, world hover menus, voxel-style icons. Everything scales with the UI scale (DPI /
 // --ui-scale) and is laid out from the window size every frame, so nothing clips or overlaps.
 #include "game/GameUI.h"
+#include "audio/Audio.h"   // [SOUND HOOK]
 
 #include "app/App.h"
 #include "game/Config.h"
@@ -400,6 +401,7 @@ bool GameUI::actionHotkey(AppState& app, const GameContext& ctx, const SDL_Event
         const int nCat = (int)UiCategory::Count;
         const bool back = ((e.key.mod | SDL_GetModState()) & SDL_KMOD_SHIFT) != 0;
         tab_ = (UiCategory)(((int)tab_ + (back ? nCat - 1 : 1)) % nCat);
+        audio::ui("ui_tab");   // [SOUND HOOK]
         tabAnim_ = 0.f; barScroll_ = barScrollGoal_ = 0.f;
         return true;
     }
@@ -409,9 +411,10 @@ bool GameUI::actionHotkey(AppState& app, const GameContext& ctx, const SDL_Event
         const UiAction& a = *p;
         if (!a.onSelect) return true;
         std::string why;
-        if (a.enabled && !a.enabled(u, &why)) { notify(a.label + ": " + (why.empty() ? std::string("unavailable") : why), true, now_); return true; }
+        if (a.enabled && !a.enabled(u, &why)) { notify(a.label + ": " + (why.empty() ? std::string("unavailable") : why), true, now_); audio::uiAction(a.id, false); return true; }   // [SOUND HOOK]
         if (tab_ != a.category) { tab_ = a.category; tabAnim_ = 0.f; barScroll_ = barScrollGoal_ = 0.f; }
         revealId_ = a.id;
+        audio::uiAction(a.id, true);   // [SOUND HOOK]
         a.onSelect(u);
     }
     return true;   // an empty slot does nothing (never the sandbox tools)
@@ -850,7 +853,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             const ImVec2 ta(tx, a.y), tb(tx + w - 2 * S, a.y + tabH);
             char id[16]; std::snprintf(id, sizeof(id), "##tab%d", k);
             bool hov = false;
-            if (hit(id, ta, tb, &hov) && tab_ != cat) { tab_ = cat; tabAnim_ = 0.f; barScrollGoal_ = barScroll_ = 0.f; }
+            if (hit(id, ta, tb, &hov) && tab_ != cat) { tab_ = cat; tabAnim_ = 0.f; barScrollGoal_ = barScroll_ = 0.f; audio::ui("ui_tab"); }   // [SOUND HOOK]
             const bool sel = tab_ == cat;
             const bool later = counts[k] > 0 && std::all_of(actions_.begin(), actions_.end(), [&](const UiAction& x) { return x.category != cat || x.comingLater; });
             if (sel || hov) dl->AddRectFilled(ta, ImVec2(tb.x, tb.y + 1), sel ? kBg : withA(kBg, 0.6f), 4 * S, ImDrawFlags_RoundCornersTop);
@@ -902,7 +905,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             const ImVec2 ka(std::max(x, viewX0), cy0 + lift), kb(std::min(x + cardW, viewX1), cy0 + cardH + lift);
             char id[64]; std::snprintf(id, sizeof(id), "##card_%s", A.id.c_str());
             bool hov = false;
-            if (hit(id, ka, kb, &hov) && en && A.onSelect) A.onSelect(u);
+            if (hit(id, ka, kb, &hov) && A.onSelect) { audio::uiAction(A.id, en); if (en) A.onSelect(u); }   // [SOUND HOOK]
             const bool tipForced = !forceTip.empty() && forceTip == A.id;
             const float up = (hov && en) ? 2 * S : 0.f;
             const ImVec2 p0(x, cy0 + lift - up), p1(x + cardW, cy0 + cardH + lift - up);
@@ -1149,6 +1152,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             char id[64]; std::snprintf(id, sizeof(id), "##sa_%s", A.id.c_str());
             bool hov = false;
             if (hit(id, ba, bb, &hov)) {
+                audio::uiAction(A.id, en);   // [SOUND HOOK]
                 if (en && A.onSelect) A.onSelect(u);
                 else if (!en) notify(A.label + ": " + (why.empty() ? std::string("unavailable") : why), true, now_);
             }
