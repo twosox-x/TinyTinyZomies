@@ -70,13 +70,38 @@ bool EngineerAI::anyEngineers(const GameContext& ctx) const {
     return !z.empty();
 }
 
+bool EngineerAI::roofReachable(const GameContext& ctx, float x, float z, const Squad& s) const {
+    if (!ctx.nav || !ctx.nav->ready() || !ctx.soldiers) return true;
+    const NavGrid& nav = *ctx.nav;
+    const uint32_t isl = nav.island(x, z);
+    if (!isl || !nav.roofIsland(isl)) return true;   // not a roof
+    const SoldierPool& P = *ctx.soldiers;
+    const V3 p{x, nav.surface(x, z), z};
+    for (const SoldierId& m : s.members) {
+        if (!P.valid(m) || !P.alive(m.index)) continue;
+        const uint32_t mi = nav.island(P.pos[m.index].x, P.pos[m.index].z);
+        if (mi == isl || SoldierAI::roofAccess(ctx, p, mi)) return true;
+    }
+    return false;
+}
+
 bool EngineerAI::inRange(const GameContext& ctx, float x, float z) const {
-    if (instantBuild) return true;
+    return !*rangeWhy(ctx, x, z);
+}
+
+const char* EngineerAI::rangeWhy(const GameContext& ctx, float x, float z) const {
+    if (instantBuild) return "";
     std::vector<Zone> zs;
     zones(ctx, zs);
-    for (const Zone& q : zs)
-        if (std::hypot(x - q.c.x, z - q.c.z) <= q.r) return true;
-    return false;
+    if (zs.empty()) return "no engineers";
+    bool near = false;
+    for (const Zone& q : zs) {
+        if (std::hypot(x - q.c.x, z - q.c.z) > q.r) continue;
+        near = true;
+        const Squad* s = ctx.squads ? ctx.squads->get(q.squad) : nullptr;
+        if (!s || roofReachable(ctx, x, z, *s)) return "";
+    }
+    return near ? "no access to this roof" : "outside engineer range";
 }
 
 bool EngineerAI::carOrdered(uint32_t vehicle) const {
@@ -184,6 +209,14 @@ bool EngineerAI::workSpot(const GameContext& ctx, const Obb& b, float side, int 
     if (!ctx.nav || !ctx.nav->ready()) return false;
     const NavGrid& nav = *ctx.nav;
     const float spread = std::min(1.4f, b.hx * 0.6f);
+    uint32_t roofIsl = 0;   // the job stands on a roof: the roof island under (a corner of) its footprint
+    for (int c = 0; c < 5 && !roofIsl; ++c) {
+        float x, z;
+        b.at(c == 0 ? 0.f : (c & 1 ? 1.f : -1.f) * b.hx * 0.8f, c == 0 ? 0.f : (c & 2 ? 1.f : -1.f) * b.hz * 0.8f, x, z);
+        const uint32_t is = nav.island(x, z);
+        if (is && nav.roofIsland(is)) roofIsl = is;
+    }
+    if (roofIsl) island = 0;   // the engineer's own (street) island never applies
     const float alongs[5] = {(float)(k - 1) * spread, 0.f, -spread, spread, (float)(k - 1) * spread * 0.5f};
     auto offPieces = [&](float x, float z) {
         if (!ctx.walls) return true;
@@ -204,6 +237,7 @@ bool EngineerAI::workSpot(const GameContext& ctx, const Obb& b, float side, int 
                 V3 q;
                 b.at(std::clamp(al, -b.hx, b.hx), side * (b.hz + d), q.x, q.z);
                 if (!nav.walkable(q.x, q.z) || (island && nav.island(q.x, q.z) != island) || !offPieces(q.x, q.z)) continue;
+                if (roofIsl && nav.island(q.x, q.z) != roofIsl) continue;   // WS D: a roof job is worked from that roof
                 if (pass == 0 && nav.reserved(q.x, q.z)) continue;
                 q.y = nav.surface(q.x, q.z);
                 out = q;
@@ -548,6 +582,7 @@ bool EngineerAI::work(GameContext& ctx, uint32_t i) {
     const Assign& a = assign_[i];
     const float far = dist2(P.pos[i], a.spot);
     if (far > ctx.cfg->engineer.workRange) return false;   // still walking (the leash takes him there)
+    if (std::fabs(P.pos[i].y - a.spot.y) > 1.5f) return false;   // WS D: below a roof job (on his way up the stairs)
     Job& j = jobs_[(size_t)a.job];
     if (j.progress >= 1.f) return false;
     if (far > 0.6f) {   // the last metres onto the spot (inside the leash): never work standing on the footprint

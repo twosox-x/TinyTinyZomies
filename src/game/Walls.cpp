@@ -353,7 +353,11 @@ WallPlan Walls::plan(const std::vector<V3>& ptsIn, WallType type, bool gate, con
         if (!q.ok) continue;
         auto fail = [&](const char* why) { if (q.ok) { q.ok = false; q.why = why; } };
         if (q.nodeA >= 0 && q.nodeA == q.nodeB) { fail("segment too short (min 0.5 m)"); continue; }
-        if (env.buildable && (!env.buildable(q.ax, q.az) || !env.buildable(q.bx, q.bz))) { fail("outside engineer range"); continue; }
+        if (env.buildable && (!env.buildable(q.ax, q.az) || !env.buildable(q.bx, q.bz))) {
+            const bool aOk = env.buildable(q.ax, q.az);
+            fail(env.buildableWhy ? env.buildableWhy(aOk ? q.bx : q.ax, aOk ? q.bz : q.az) : "outside engineer range");
+            continue;
+        }
         // footprint samples
         float gmin = 1e9f, gmax = -1e9f, gall = 1e9f;
         std::vector<float> gs;
@@ -477,7 +481,10 @@ WallPlan Walls::planGate(V3 c, float yaw, WallType type, const WallEnv& env) con
         }
         q.y = std::min(a.y, b.y);
         q.price = piecePrice(p.type, true);
-        if (env.buildable && !env.buildable(0.5f * (q.ax + q.bx), 0.5f * (q.az + q.bz))) { q.ok = false; q.why = "outside engineer range"; }
+        if (env.buildable && !env.buildable(0.5f * (q.ax + q.bx), 0.5f * (q.az + q.bz))) {
+            q.ok = false;
+            q.why = env.buildableWhy ? env.buildableWhy(0.5f * (q.ax + q.bx), 0.5f * (q.az + q.bz)) : "outside engineer range";
+        }
         P.price = q.price;
         P.length = std::hypot(q.bx - q.ax, q.bz - q.az);
         P.pieces.push_back(q);

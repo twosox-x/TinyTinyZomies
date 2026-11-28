@@ -106,6 +106,7 @@ void Combat::reload(GameContext& ctx, uint32_t i) {
     const int n = std::max(0, std::min(cap - P.mag[i], P.reserve[i]));
     P.mag[i] += n; P.reserve[i] -= n;
     P.phase[i] |= PH_RELOADED;
+    if (ctx.events && n > 0) ctx.events->cues.push_back({AudioCueKind::Reload, P.pos[i], 1.f});   // [SOUND HOOK]
     ++reloads_;
 }
 
@@ -141,6 +142,58 @@ void Combat::grab(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     collected_ += (uint64_t)n;
 }
 
+// [SOUND HOOK] soldier cues (GameEvents.h AudioCueKind, consumed by the audio bridge): empty click (engaging, mag and
+// reserve empty, every 1.2 s), callouts per squad (at most one per 4 s per squad): contact (a member starts engaging
+// after none did), ammo (squad total below its low-ammo line, once until refilled), kill (a member's kill), panic (a
+// member under attack below 30 % health). Positions: the soldier.
+void Combat::cues(GameContext& ctx) {
+    if (!ctx.events || !ctx.squads) return;
+    SoldierPool& P = *ctx.soldiers;
+    const BalanceConfig& cfg = *ctx.cfg;
+    if (cueT_.size() < P.capacity()) cueT_.resize(P.capacity(), -1e9);
+    const size_t ns = ctx.squads->squads.size();
+    if (calloutT_.size() < ns) { calloutT_.resize(ns, -1e9); lowAmmo_.resize(ns, 0); wasEngaging_.resize(ns, 0); }
+    auto& cues = ctx.events->cues;
+    auto callout = [&](size_t s, AudioCueKind k, V3 pos) {
+        if (ctx.time - calloutT_[s] < 4.0) return;
+        calloutT_[s] = ctx.time;
+        cues.push_back({k, pos, 1.f});
+    };
+    for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)   // empty click
+        if (P.used[i] && P.alive(i) && P.state[i] == SoldierState::Engaging && P.target[i].active && P.mag[i] <= 0 && P.reserve[i] <= 0 &&
+            P.cls[i] != SoldierClass::Flamethrower && ctx.time - cueT_[i] > 1.2) {
+            cueT_[i] = ctx.time;
+            cues.push_back({AudioCueKind::EmptyClick, P.pos[i], 1.f});
+        }
+    for (const KillEvent& k : ctx.events->kills) {   // kill callout
+        if (k.cause != KillCause::Soldier) continue;
+        const uint32_t i = k.shooterPacked & 0xFFFFu;
+        if (i < P.capacity() && P.used[i] && P.alive(i) && (P.gen[i] & 0xFFFFu) == (k.shooterPacked >> 16) && P.squad[i].index < ns)
+            callout(P.squad[i].index, AudioCueKind::CalloutKill, P.pos[i]);
+    }
+    for (size_t s = 0; s < ns; ++s) {
+        const Squad& q = ctx.squads->squads[s];
+        int ammo = 0, full = 0, eng = 0;
+        V3 at{}, panicAt{};
+        bool any = false, panic = false;
+        for (const SoldierId& m : q.members) {
+            if (!P.valid(m) || !P.alive(m.index)) continue;
+            const uint32_t i = m.index;
+            if (!any) { at = P.pos[i]; any = true; }
+            ammo += P.mag[i] + P.reserve[i];
+            full += (int)std::ceil(cfg.soldier[(size_t)P.cls[i]].lowAmmoFraction * (float)P.fullLoad(i, cfg));
+            if (P.state[i] == SoldierState::Engaging) { if (!eng) at = P.pos[i]; ++eng; }
+            if (P.contactAge[i] < 0.5f && P.health[i] < 0.3f * cfg.soldier[(size_t)P.cls[i]].health) { panic = true; panicAt = P.pos[i]; }
+        }
+        if (!any) continue;
+        if (eng && !wasEngaging_[s]) callout(s, AudioCueKind::CalloutContact, at);
+        wasEngaging_[s] = eng ? 1 : 0;
+        if (ammo < full && !lowAmmo_[s]) { lowAmmo_[s] = 1; calloutT_[s] = -1e9; callout(s, AudioCueKind::CalloutAmmo, at); }
+        else if (ammo >= full) lowAmmo_[s] = 0;
+        if (panic) callout(s, AudioCueKind::CalloutPanic, panicAt);
+    }
+}
+
 void Combat::tick(GameContext& ctx) {
     if (!ctx.soldiers || !ctx.cfg) return;
     SoldierPool& P = *ctx.soldiers;
@@ -174,6 +227,7 @@ void Combat::tick(GameContext& ctx) {
                 P.vel[i] = {};
                 P.setState(i, SoldierState::Hit);
                 P.hitCooldown[i] = hitCooldown;
+                if (ctx.events) ctx.events->cues.push_back({AudioCueKind::SoldierHurt, P.pos[i], std::clamp((float)c.attackers / 3.f, 0.3f, 1.f)});   // [SOUND HOOK]
             }
         }
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
@@ -183,6 +237,7 @@ void Combat::tick(GameContext& ctx) {
             P.setState(i, SoldierState::Dying);
         }
 
+    cues(ctx);
     auto canFire = [&](uint32_t i) {
         return P.alive(i) && P.state[i] == SoldierState::Engaging && (P.phase[i] & PH_ACQUIRED) && P.target[i].active && P.mag[i] > 0;
     };

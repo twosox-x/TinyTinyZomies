@@ -1,0 +1,27 @@
+# Owner order 2026-11-28 (WS D, follows b6_roof_place): engineers reach roof jobs WITHOUT `cheat build`. An engineer
+# squad on the street (-14 129) is ordered a generator and a cheap wall run on the 76 m parapet roof (-48 116); the
+# members route up through the building's stair core (SoldierAI::levelMove, roof hatch) and build them there. A roof
+# without stair access to the squad is refused at placement ("no access to this roof"). Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_roof_engineers.txt
+at 0.0  camera -48 116 0.6 1.0 70
+at 0.3  buy engineer -14 129
+at 14   expect squad 1 alive == 3
+at 14   expect in_engineer_range -46 118 == 1          # roof with a hatch + door onto the squad's street
+at 14.2 structure generator -46 118
+at 14.4 wall cheap -49 121 -45 121
+at 14.6 structure generator -38 104                  # 62 m roof next door: no stair access -> refused "no access to this roof"
+at 15   expect in_engineer_range -38 104 == 0          # 35 m away (inside the 40 m radius) but no access
+at 15   expect generator -38 104 alive == 0
+at 15   expect generator -46 118 alive == 1
+at 15   expect walls >= 1
+at 15   expect walls_built == 0                        # blueprints: no cheat
+at 60   log
+at 60   jobs
+at 120  log
+at 120  jobs
+at 120  expect stair_trips >= 1                        # up through the stair core
+at 120  expect generator -46 118 built == 1
+at 120  expect walls_built >= 1
+at 120  camera -48 116 0.6 1.1 45
+at 120.5 shot docs/review/ws-d/roof_engineers.png
+at 121  end

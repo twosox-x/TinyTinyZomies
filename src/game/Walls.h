@@ -110,6 +110,7 @@ struct WallEnv {
     std::vector<Obb> containers;                   // supply containers (landed or on their way down)
     std::vector<Obb> clearing;                     // vehicles engineers are ordered to remove: not obstacles for planning
     std::function<bool(float, float)> buildable;   // inside an engineer squad's construction radius (null: anywhere)
+    std::function<const char*(float, float)> buildableWhy;   // why not buildable there (WS D: "no access to this roof"), null: generic
     float streetY = 0.f;                           // street level of the window (walls stand on the street, not on roofs)
     // Exact facade (owner 2026-11-28, GAME_DESIGN 14e: walls meet facades with no gap): distance along the unit ray
     // (ox, oz) + t (dx, dz) at which it enters the footprint of the building record holding (hx, hz) (within 0.6 m),
