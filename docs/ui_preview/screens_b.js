@@ -49,11 +49,11 @@
         ${show(3) ? `<line x1="27.5" y1="47" x2="32.5" y2="42.5" class="wb-queued"/>` : ""}
         <ellipse cx="70.5" cy="77" rx="3.2" ry="2.6" class="wb-breachring"/>
       </svg>`;
-      if (show(1)) w += `<div class="wl wb-ringlbl" style="${at(43.5, 61.8)}">${g2("hammer", 9)}BUILD RADIUS <b>35 m</b></div>`;
+      if (show(1)) w += `<div class="wl wb-ringlbl" style="${at(31.5, 58.5)}">${g2("hammer", 9)}BUILD RADIUS <b>35 m</b></div>`;
       /* placed props (towers, container) — voxel icons standing in for world objects */
       w += `<div class="wb-prop" style="${at(61, 54)}">${TTZ.icon("tower", 40)}</div>`;
       w += `<div class="wb-prop" style="${at(58.5, 72.5)}">${TTZ.icon("tower", 40)}</div>`;
-      w += `<div class="wb-prop" style="${at(31, 67)}">${TTZ.icon("container", 36)}</div>`;
+      w += `<div class="wb-prop" style="${at(27.5, 70)}">${TTZ.icon("container", 36)}</div>`;
       /* T0 */
       w += `<div class="wb-alert" style="${at(70.5, 73)}">${TTZ.glyph("alert", 12, { color: "#fff", accent: "var(--bad)" })}BREACH<small>east wall</small></div>`;
       w += `<div class="wb-cap" style="${at(76, 37)}"><span class="tag brass">CAPTURING</span><span>Office · 9 fl</span><b>62%</b>${TTZ.bar(0.62, "var(--brass)", 118)}</div>`;
@@ -61,7 +61,7 @@
       const flag = (x, y, n, o = {}) => `<div class="wb-flag${o.sel ? " sel" : ""}${o.st ? " st-" + o.st : ""}" style="${at(x, y)}"><span class="pn">${n}</span>${o.sel && max >= 1 ? `<span class="nm">Rifle squad 2</span>` : ""}${o.note ? `<span class="nt">${o.note}</span>` : ""}</div>`;
       w += flag(50, 45.4, 2, { sel: 1 });
       w += flag(55.5, 57.5, 1, { st: "atk", note: s.mode === "far" ? "" : "under attack" });
-      w += flag(45, 64, 3, { st: "gas", note: s.mode === "far" ? "" : "corpse gas" });
+      w += flag(33, 76.5, 3, { st: "gas", note: s.mode === "far" ? "" : "corpse gas" });
       w += flag(39.5, 46.5, "E", {});
       /* T2 occupancy */
       if (show(2)) {
@@ -74,7 +74,7 @@
       if (show(3)) {
         w += `<div class="wb-chip work" style="${at(41.5, 42.6)}">${g2("cog", 9)}WORKING</div>`;
         w += `<div class="wb-chip" style="${at(28.6, 42.4)}">QUEUED · 2</div>`;
-        w += `<div class="wl wb-stock" style="${at(31, 62.5)}">${TTZ.icon("ammo", 14)}Ammo <b>640</b></div>`;
+        w += `<div class="wl wb-stock" style="${at(27.5, 65.5)}">${TTZ.icon("ammo", 14)}Ammo <b>640</b></div>`;
       }
       /* "no rule" clutter: what it looks like without tiers */
       if (s.mode === "raw") {
@@ -135,7 +135,7 @@
     render(ctx) {
       const s = ctx.state, wall = s.st === "wall", bad = s.st === "invalid", r = REASONS[s.reason];
       const funds = bad && r.id === "funds" ? 150 : 3800;
-      const mx = s.mx ?? ctx.W * 0.47, my = s.my ?? ctx.H * 0.52;
+      const far = bad && r.id === "radius", mx = s.mx ?? ctx.W * (far ? 0.62 : 0.47), my = s.my ?? ctx.H * (far ? 0.6 : 0.52);
       const cmd = cmdState("structures", wall ? "struct.wall" : "struct.tower");
       if (funds < 200) cmd.funds = funds;
       let w = `<svg class="wb-ground" viewBox="0 0 100 100" preserveAspectRatio="none"><ellipse cx="44" cy="52" rx="13" ry="15" class="wb-ring"/></svg>`;
