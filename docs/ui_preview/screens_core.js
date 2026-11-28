@@ -96,7 +96,7 @@
         { sev: "info", ic: "airdrop", text: "Ammo drop inbound" },
       ]);
       if (TTZ.marker) {
-        h += TTZ.marker({ kind: "squad", ic: "rifle", n: 2, x: ctx.W * 0.5, y: ctx.H * 0.43, selected: true, attacked: true });
+        h += TTZ.marker({ kind: "squad", ic: "rifle", n: 2, x: ctx.W * 0.5, y: ctx.H * 0.49, selected: true, attacked: true });
         h += TTZ.marker({ kind: "squad", ic: "sniper", n: 1, x: ctx.W * 0.36, y: ctx.H * 0.35 });
         h += TTZ.marker({ kind: "count", ic: "garrison", text: "5/12", x: ctx.W * 0.38, y: ctx.H * 0.2 });
       }
