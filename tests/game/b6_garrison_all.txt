@@ -3,7 +3,8 @@
 # the ground and first floor (never a firing window), door barricades in the real door leaf, defence levels L1-L3 with
 # visible props. Buildings: a 9-floor mid-rise, a 39-floor downtown tower, a 34-floor tower, a 2-storey house.
 # City seed1 (BLDG section). Run headless:
-#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_garrison_all.txt
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --time 12 --tod-paused --game-script tests/game/b6_garrison_all.txt
+# (--time 12 --tod-paused only for daylight screenshots; the checks do not depend on it)
 at 0.1  camera 20 90 0.6 0.9 80
 at 0.1  expect buildings_prepared > 20
 at 0.1  expect buildings_supported == buildings_prepared   # nothing refused
@@ -45,7 +46,7 @@ at 60   expect posted_min_y > 2
 # ---- defence levels on the mid-rise (screenshots before / after per level)
 at 61   bselect 24 93.2
 at 61   bcapture
-at 61   camera 26 100 0.7 0.85 95                # RTS camera: the mid-rise's street door, lower floors and roof
+at 61   camera 25 97 0.7 0.6 55                  # mid-rise centred, street door, lower floors and roof edge
 at 63   shot docs/review/ws-c/midrise_L0.png
 at 64   bfortify
 at 65   expect building defence == 1
@@ -65,7 +66,7 @@ at 71   camera 28 109 0.25 0.35 45
 at 73   shot docs/review/ws-c/midrise_L3_door.png
 # ---- tower levels
 at 74   bselect 8.2 95.1
-at 74   camera 4 80 -2.6 0.8 90                   # the tower's door side and podium roof
+at 74   camera 6 82 -2.6 0.6 60                   # the tower's door side and podium roof
 at 76   shot docs/review/ws-c/tower_L0.png
 at 77   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 78   expect building defence == 1
@@ -83,7 +84,7 @@ at 87   expect building doorart >= 1
 at 87   expect building covers >= 4
 at 87   expect building cover_on_firing == 0
 at 87   bcapture
-at 87   camera -251 452.5 1.4 0.8 55              # the house's front door
+at 87   camera -252 452.8 1.4 0.6 45              # the house centred, front door
 at 89   shot docs/review/ws-c/house_L0.png
 at 90   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 91   expect building covered == building covers
