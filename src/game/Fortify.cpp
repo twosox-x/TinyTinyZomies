@@ -2,6 +2,7 @@
 #include "game/Fortify.h"
 
 #include "app/App.h"
+#include "game/Buildings.h"
 #include "game/Config.h"
 #include "game/Economy.h"
 #include "game/EngineerAI.h"
@@ -33,8 +34,32 @@ Obb containerBox(const SupplyPoint& sp) {
     return o;
 }
 
+namespace {
+const BuildingRegistry* g_wallBuildings = nullptr;
+}
+void setWallEnvBuildings(const BuildingRegistry* reg) { g_wallBuildings = reg; }
+
 WallEnv makeWallEnv(const AppState& app, const GameContext& ctx) {
     WallEnv e;
+    if (const BuildingRegistry* R = g_wallBuildings)   // exact facade: ray entry into the record footprint holding (hx, hz)
+        e.facadeRay = [R](float ox, float oz, float dx, float dz, float hx, float hz) {
+            const BuildingId id = R->at(hx, hz, 0.6f);
+            const Building* b = R->get(id);
+            if (!b) return -1.f;
+            float u0, v0;
+            b->toLocal(ox, oz, u0, v0);
+            const float du = dx * b->e1x + dz * b->e1z, dv = dx * b->e2x + dz * b->e2z;
+            float t0 = 0.f, t1 = 1e9f;
+            const float lo[2] = {0.f, 0.f}, hi[2] = {b->w, b->d}, p0[2] = {u0, v0}, dd[2] = {du, dv};
+            for (int k = 0; k < 2; ++k) {
+                if (std::fabs(dd[k]) < 1e-6f) { if (p0[k] < lo[k] || p0[k] > hi[k]) return -1.f; continue; }
+                float a = (lo[k] - p0[k]) / dd[k], c = (hi[k] - p0[k]) / dd[k];
+                if (a > c) std::swap(a, c);
+                t0 = std::max(t0, a); t1 = std::min(t1, c);
+                if (t0 > t1) return -1.f;
+            }
+            return t0;
+        };
     const CityVehicles* v = &app.vehicles;
     const HordeInterface* h = ctx.horde;
     e.ground = [v](float x, float z) { return v->groundAt(x, z); };
@@ -215,36 +240,93 @@ void Fortifications::windowMoved(AppState& app) {
     rebuildMasks(app);
 }
 
+// Soldier walk heights + mask of rows [z0, z1) (GAME_DESIGN 14e / owner 2026-11-28 car gaps):
+//   gate passage cells     -> ground (soldiers pass, zombies do not)
+//   gameplay obstacles     -> their stamped height, mask bit 0 (walls, posts, containers, moving vehicles: never walked on)
+//   parked vehicle cells   -> the vehicle's height + bit 0 only when the cell centre lies inside the vehicle's real
+//                             oriented box (+ kCarMargin); cells the zombies' grid covers only because the footprint was
+//                             rounded out to whole cells are ground: soldiers use the real gaps between parked cars
+//   blueprint footprints   -> bit 1 (reserved: A* cost, corridors stay open)
+void Fortifications::navRows(const AppState& app, int z0, int z1) {
+    constexpr float kCarMargin = 0.12f;   // m around a parked car's real box (soldier radius ~0.3 m with the cell slack)
+    const CityVehicles& V = app.vehicles;
+    const std::vector<float>& h = V.simHeights();
+    const Sandbox& sb = app.sandbox;
+    const int gw = sb.gridW;
+    if (navH_.size() != h.size()) { navH_ = h; navMask_.assign(h.size(), 0); }
+    if (navMask_.size() != h.size()) navMask_.assign(h.size(), 0);
+    struct Car { Obb b; int x0, z0, x1, z1; };
+    std::vector<Car> cars;
+    for (uint32_t i = 0; i < V.count(); ++i) {
+        const Vehicle& v = V.vehicle(i);
+        if (!v.inWindow || v.removed || v.active || v.sx1 < v.sx0 || v.sz1 < z0 || v.sz0 >= z1) continue;
+        Car c;
+        V.groundBox(i, c.b.cx, c.b.cz, c.b.hx, c.b.hz, c.b.yaw);
+        c.x0 = v.sx0; c.z0 = v.sz0; c.x1 = v.sx1; c.z1 = v.sz1;
+        cars.push_back(c);
+    }
+    for (int z = std::max(0, z0); z < std::min(sb.gridH, z1); ++z)
+        for (int x = 0; x < gw; ++x) {
+            const size_t c = (size_t)z * gw + x;
+            const float wx = sb.originX + (x + 0.5f) * sb.cellSize, wz = sb.originZ + (z + 0.5f) * sb.cellSize;
+            const float base = V.groundAt(wx, wz), solid = V.solidAt(wx, wz), sim = h[c];
+            uint8_t m = navMask_[c] & 2u;
+            float y = sim;
+            if (gateMask_.size() == h.size() && gateMask_[c]) y = base;
+            else if (sim - solid > 0.3f) m |= 1u;                       // wall / post / container / moving vehicle
+            else if (solid - base > 0.3f) {                             // parked vehicle (rounded-out footprint)
+                bool inside = false;
+                for (const Car& k : cars)
+                    if (x >= k.x0 && x <= k.x1 && z >= k.z0 && z <= k.z1 && k.b.contains(wx, wz, -kCarMargin)) { inside = true; break; }
+                if (inside) m |= 1u;
+                else y = base + (sim - solid);                          // the real gap between cars: ground
+            }
+            navH_[c] = y;
+            navMask_[c] = m;
+        }
+}
+
+void Fortifications::reserveBlueprints(const AppState& app) {
+    reserveDirty_ = false;
+    const Sandbox& sb = app.sandbox;
+    if (navMask_.size() != (size_t)sb.gridW * sb.gridH) return;
+    for (uint8_t& m : navMask_) m &= 1u;
+    const auto& P = walls_.pieces();
+    for (uint32_t i = 0; i < P.size(); ++i) {
+        if (!P[i].alive || P[i].solid()) continue;
+        Obb b = walls_.pieceBox(i);
+        b.hx += 0.3f; b.hz += 0.3f;
+        forEachObbCell(b, sb.originX, sb.originZ, sb.cellSize, sb.gridW, sb.gridH, [&](int x, int z) { navMask_[(size_t)z * sb.gridW + x] |= 2u; });
+    }
+}
+
 const std::vector<float>& Fortifications::navHeights(const AppState& app) {
     const std::vector<float>& h = app.vehicles.simHeights();
     navH_ = h;
-    const Sandbox& sb = app.sandbox;
-    if (gateMask_.size() == navH_.size())
-        for (size_t c = 0; c < navH_.size(); ++c)
-            if (gateMask_[c]) navH_[c] = app.vehicles.groundAt(sb.originX + ((int)(c % sb.gridW) + 0.5f) * sb.cellSize, sb.originZ + ((int)(c / sb.gridW) + 0.5f) * sb.cellSize);
+    navMask_.assign(h.size(), 0);
+    reserveBlueprints(app);
+    navRows(app, 0, app.sandbox.gridH);
     navSerial_ = app.vehicles.updateSerial();
     return navH_;
 }
 
 void Fortifications::patchNav(AppState& app, NavGrid& nav) {
     const CityVehicles& V = app.vehicles;
+    if (reserveDirty_ && nav.ready() && navMask_.size() == nav.mask().size()) { reserveBlueprints(app); nav.setMask(navMask_); }
     if (V.updateSerial() == navSerial_) return;
     navSerial_ = V.updateSerial();
     const auto& runs = V.uploadedRuns();
     if (runs.empty() || !nav.ready()) return;
     const std::vector<float>& h = V.simHeights();
     const Sandbox& sb = app.sandbox;
-    if (navH_.size() != h.size()) { navHeights(app); nav.build(navH_, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize); nav.setShotHeights(h); return; }
+    if (navH_.size() != h.size()) { navHeights(app); nav.setMask(navMask_); nav.build(navH_, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize); nav.setShotHeights(h); return; }
     uint32_t z0 = ~0u, z1 = 0;
     for (const auto& r : runs) {
         z0 = std::min(z0, r.first); z1 = std::max(z1, r.first + r.second);
-        for (uint32_t z = r.first; z < r.first + r.second && z < (uint32_t)sb.gridH; ++z)
-            for (int x = 0; x < sb.gridW; ++x) {
-                const size_t c = (size_t)z * sb.gridW + x;
-                navH_[c] = (gateMask_.size() == h.size() && gateMask_[c]) ? V.groundAt(sb.originX + (x + 0.5f) * sb.cellSize, sb.originZ + (z + 0.5f) * sb.cellSize) : h[c];
-            }
+        navRows(app, (int)r.first, (int)(r.first + r.second));
         navRows_ += r.second;
     }
+    nav.setMask(navMask_);
     nav.updateRows(navH_, (int)z0, (int)(z1 - z0));   // one local patch (walkability of these rows, islands)
     nav.updateShotRows(h, (int)z0, (int)(z1 - z0));   // rounds: the zombies' grid (gates block them)
     ++navPatches_;
@@ -281,7 +363,7 @@ void Fortifications::tick(AppState& app, GameContext& ctx) {
         SDL_Log("game: wall piece %u destroyed at (%.1f %.1f)", d.piece, d.x, d.z);
     }
     syncObstacles(app, ctx);
-    if (walls_.takeChanged()) { territory_.markDirty(); masksDirty_ = true; }
+    if (walls_.takeChanged()) { territory_.markDirty(); masksDirty_ = true; reserveDirty_ = true; }   // + nav blueprint reservation
     if (territory_.dirty()) {
         TerritoryInput in;
         in.walls = &walls_;
@@ -381,11 +463,15 @@ void Fortifications::draw(MilitaryRenderer& mil, const GameContext& ctx, float f
     // pieces, split T junctions) as a row of 1 m gabion baskets (the approved joint post asset), never a squashed piece
     auto piece = [&](int t, bool gate, float cx, float cz, float y, float yaw, float len, float rise, float dissolve, float open) {
         if (!gate && len < 3.5f) {
-            const int n = std::max(1, (int)std::lround(len));
-            const float s = len / (float)n, c = std::cos(yaw), sn = std::sin(yaw);
+            // baskets stay (nearly) full size (0.5 m granularity, GAME_DESIGN 14e): a filler shorter than one basket
+            // overlaps its neighbours instead of being squashed; alternate baskets are inset a little (no z-fighting)
+            const int n = std::max(1, (int)std::floor(len + 0.25f));
+            const float sp = len / (float)n, c = std::cos(yaw), sn = std::sin(yaw);
+            const float s = std::clamp(sp, 0.86f, 1.12f);
             for (int k = 0; k < n; ++k) {
-                const float u = -0.5f * len + ((float)k + 0.5f) * s;
-                putProp(mil, props_.corner[t], {cx + u * c, y, cz - u * sn}, yaw, s, rise * 0.9f, dissolve);
+                const float u = -0.5f * len + ((float)k + 0.5f) * sp;
+                const float sk = s * ((k & 1) ? 0.985f : 1.f);
+                putProp(mil, props_.corner[t], {cx + u * c, y, cz - u * sn}, yaw, sk, rise * 0.9f * ((k & 1) ? 0.99f : 1.f), dissolve);
             }
             return;
         }

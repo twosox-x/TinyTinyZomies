@@ -242,7 +242,7 @@ void GameRender::shotFx(AppState& app, const GameContext& ctx, const std::vector
         float dist = range;
         if (P->target[i].active) {   // the round is aimed at the target: estimate its stop there (a hit) until resolved
             const float along = dot(P->target[i].pos - e.pos, e.dir);
-            if (along > 1.f && along < range) dist = along + 0.3f;
+            if (along > 1.f && along < range + 30.f) dist = along + 0.3f;   // 3D: roof / window shots reach a bit past the 2D range
         }
         const uint32_t n = i < P->rounds.size() ? P->rounds[i] : 0u;
         const bool tracer = tracerEvery[cls] > 0 && n % (uint32_t)tracerEvery[cls] == 0;

@@ -1,0 +1,18 @@
+# Owner feedback 2026-11-28: "if a zombie is far enough the units shoot it but don't register the kill, or the aim is
+# terrible (10 shots before I moved him closer)". A rifle squad on the long east-west street (z ~117) against single
+# zombies 45-60 m away: beyond the 24 m exact list the lock is a coarse field sample; the horde answers it with the exact
+# zombie (lock query, metric lock_tracked) and the rounds cluster toward the cone axis (Combat::spreadDir).
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_long_range.txt
+at 0.0  camera 15 117 0.7 0.95 70
+at 0.1  buy rifle -11 117
+at 24   expect landed == 5
+at 24.5 spawn 1 44 117 1                # ~55 m
+at 24.8 spawn 1 40 119 1                # ~51 m
+at 25.1 spawn 1 47 115 1                # ~58 m
+at 25.4 spawn 1 37 117 1                # ~48 m
+at 33   log
+at 33   expect lock_tracked > 0
+at 40   log
+at 40   expect kills >= 4
+at 40   expect hit_pct >= 45
+at 41   end

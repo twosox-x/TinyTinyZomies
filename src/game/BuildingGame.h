@@ -24,8 +24,10 @@ struct ScriptLine;
 void syncBuildings(AppState& app, BuildingPlay& bp, const std::vector<float>& heights, const BalanceConfig& cfg);
 // GameUI hooks (click selection, G = garrison the selected squads, Esc deselects, panel + markers).
 void installBuildingUI(GameUI& ui, BuildingPlay& bp);
-// 3D props (GameRender::extraDraw).
-void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const BuildingPlay& bp);
+// 3D props (GameRender::extraDraw). With app: garrison window posts (opened windows: facade cutouts + rooms + interior
+// lights, GAME_DESIGN 14e); shutdownBuildingRender releases them.
+void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const BuildingPlay& bp, AppState* app = nullptr);
+void shutdownBuildingRender(AppState& app);
 
 // Script verbs (true = handled; err on a usage error):
 //   bselect X Z                      select the building at (X, Z) (prints it)

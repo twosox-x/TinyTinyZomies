@@ -244,7 +244,7 @@ void MilitaryRenderer::beginFrame(const Camera& camera, float aspect) {
     }
     eye_ = camera.eye();
     focus_ = camera.target();
-    pxAngle_ = camera.fovY / 1080.f;   // rad per pixel at 1080p (tracer minimum width)
+    pxAngle_ = camera.settings.fovY / 1080.f;   // rad per pixel at 1080p (tracer minimum width)
     charsU_.clear();
     for (auto& b : attBuckets_) b.clear();
     for (auto& b : instBuckets_) b.clear();

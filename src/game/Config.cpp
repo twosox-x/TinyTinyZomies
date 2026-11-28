@@ -145,6 +145,22 @@ bool BalanceConfig::load(const std::string& path, std::string* error) {
     num(en, "radius", engineer.radius); num(en, "pieceTime", engineer.pieceTime); num(en, "gateTime", engineer.gateTime);
     num(en, "carTime", engineer.carTime); num(en, "carPrice", engineer.carPrice); num(en, "workRange", engineer.workRange);
     num(en, "carSearch", engineer.carSearch);
+    const json::Value& st = root["structures"];
+    StructureConfig& S = structures;
+    num(st, "towerPrice", S.towerPrice); num(st, "generatorPrice", S.generatorPrice); num(st, "lightPrice", S.lightPrice); num(st, "fuelStorePrice", S.fuelStorePrice);
+    num(st, "towerTime", S.towerTime); num(st, "generatorTime", S.generatorTime); num(st, "lightTime", S.lightTime); num(st, "fuelStoreTime", S.fuelStoreTime);
+    num(st, "towerHealth", S.towerHealth); num(st, "towerDamagePerZombie", S.towerDamagePerZombie); num(st, "towerPressureThreshold", S.towerPressureThreshold);
+    num(st, "towerHalf", S.towerHalf); num(st, "towerObstacleTop", S.towerObstacleTop); num(st, "deckHeight", S.deckHeight); num(st, "towerCapacity", S.towerCapacity);
+    num(st, "climbTime", S.climbTime); num(st, "fallDamage", S.fallDamage);
+    num(st, "generatorTank", S.generatorTank); num(st, "generatorBurn", S.generatorBurn); num(st, "burnPerLight", S.burnPerLight);
+    num(st, "generatorMaxLights", S.generatorMaxLights); num(st, "cableRange", S.cableRange); num(st, "fuelLinkRange", S.fuelLinkRange);
+    if (st["lightsOnlyAtNight"].type == json::Value::Bool) S.lightsOnlyAtNight = st["lightsOnlyAtNight"].b;
+    num(st, "lightRadius", S.lightRadius); num(st, "lightIntensity", S.lightIntensity); num(st, "lightHeight", S.lightHeight); num(st, "lightReach", S.lightReach);
+    num(st, "noiseIntensity", S.noiseIntensity); num(st, "noiseRadius", S.noiseRadius); num(st, "noiseStackRadius", S.noiseStackRadius);
+    num(st, "noiseCap", S.noiseCap); num(st, "noiseRadiusCap", S.noiseRadiusCap); num(st, "noiseInterval", S.noiseInterval);
+    num(st, "fuelStoreCapacity", S.fuelStoreCapacity); num(st, "fuelStoreStart", S.fuelStoreStart);
+    num(st, "carFuel", S.carFuel); num(st, "siphonTime", S.siphonTime); num(st, "siphonPrice", S.siphonPrice);
+    num(st, "jerrycanLitres", S.jerrycanLitres); num(st, "deliverRange", S.deliverRange);
     return true;
 }
 

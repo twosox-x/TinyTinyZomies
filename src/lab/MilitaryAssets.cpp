@@ -721,6 +721,9 @@ bool MilitaryLibrary::load(const std::string& dir, float bodyVoxel) {
     if (!a && !b) return false;
     // 14d specialists (APPROVED): engineer / flamethrower infantry, their tools (props) and clips
     const bool sp = loadTtzm(dir + "/specialists.json", dir + "/specialists.ttzm", true, bodyVoxel);
+    // 14e structures (PENDING REVIEW): towers, generator, floodlight, fuel; own file, props only
+    loadTtzm(dir + "/structures.json", dir + "/structures.ttzm", false, bodyVoxel);
+    addStructurePlaceholders();
     premeshed.resize(models.size());
     loadAnims(dir);
     if (sp) loadAnims(dir, "specialist_anims");
@@ -782,6 +785,38 @@ void MilitaryLibrary::loadHoses(const std::string& jsonPath) {
         premeshed.push_back(std::move(cm));
         hoseModel = (int)models.size() - 1;
     }
+}
+
+void MilitaryLibrary::addStructurePlaceholders() {
+    for (const MilProp& p : props) if (p.name == "ph_tower") return;
+    auto prop = [&](Builder& b) {
+        models.push_back(b.m);
+        MilProp p;
+        p.name = b.m.name; p.category = "placeholder"; p.model = (int)models.size() - 1;
+        p.footprint[0] = b.m.nx * b.m.voxel; p.footprint[1] = b.m.nz * b.m.voxel;
+        props.push_back(p);
+    };
+    const float v = 0.25f;
+    { Builder b("ph_tower", 14, 30, 14, v);   // 3.5 m square: four legs, deck at 5 m, parapet, roof, ladder (-Z)
+      for (int x : {0, 12}) for (int z : {0, 12}) b.box(x, 0, z, x + 2, 29, z + 2, P_WOOD_DARK);
+      b.box(1, 7, 1, 13, 8, 13, P_WOOD_DARK); b.box(1, 14, 1, 13, 15, 13, P_WOOD_DARK);
+      b.box(0, 20, 0, 14, 21, 14, P_WOOD); b.box(0, 21, 12, 14, 25, 14, P_SANDBAG); b.box(0, 21, 0, 2, 25, 12, P_SANDBAG);
+      b.box(12, 21, 0, 14, 25, 12, P_SANDBAG); b.box(0, 21, 0, 5, 25, 2, P_SANDBAG); b.box(9, 21, 0, 14, 25, 2, P_SANDBAG);
+      b.box(0, 29, 0, 14, 30, 14, P_STEEL); b.box(5, 0, 0, 6, 24, 1, P_WOOD); b.box(8, 0, 0, 9, 24, 1, P_WOOD);
+      b.m.pivot[1] = 0; prop(b); }
+    { Builder b("ph_generator", 8, 5, 4, v);   // 2 x 1 m olive box, exhaust stack, yellow fuel cap
+      b.box(0, 0, 0, 8, 1, 4, P_GUNMETAL); b.box(0, 1, 0, 8, 4, 4, P_OLIVE); b.box(6, 4, 1, 7, 5, 2, P_BLACK); b.box(1, 4, 3, 2, 5, 4, P_KHAKI);
+      prop(b); }
+    { Builder b("ph_floodlight", 6, 19, 3, v);   // mast 4.6 m on a base, crossbar, two dark lamp boxes
+      b.box(1, 0, 0, 5, 1, 3, P_GUNMETAL); b.box(2, 1, 1, 4, 18, 2, P_STEEL); b.box(0, 17, 1, 6, 18, 2, P_GUNMETAL);
+      b.box(0, 18, 0, 2, 19, 2, P_BLACK); b.box(4, 18, 0, 6, 19, 2, P_BLACK); prop(b); }
+    { Builder b("ph_floodlight_lamp", 6, 19, 3, v);   // emissive lens faces (powered)
+      b.box(0, 18, 2, 2, 19, 3, P_FLASH); b.box(4, 18, 2, 6, 19, 3, P_FLASH); prop(b); }
+    { Builder b("ph_fuel_store", 8, 4, 6, v);   // bund tray with four drums (red caps)
+      b.box(0, 0, 0, 8, 1, 6, P_STEEL);
+      for (int x : {0, 3}) for (int z : {0, 3}) { b.box(x + 1, 1, z + 1, x + 3, 4, z + 3, P_OLIVE_DARK); b.box(x + 1, 3, z + 1, x + 2, 4, z + 2, P_RED); }
+      prop(b); }
+    { Builder b("ph_jerrycan", 2, 3, 1, v); b.box(0, 0, 0, 2, 3, 1, P_OLIVE); prop(b); }
 }
 
 void MilitaryLibrary::addEngineerPlaceholder() {

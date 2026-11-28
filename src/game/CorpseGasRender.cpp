@@ -96,14 +96,28 @@ void CorpseGasRender::noteFlames(const std::vector<FxEvent>& fx, double time, fl
 
 float CorpseGasRender::visualReach(const Stream& s, double time) { return 0.85f * s.range * (float)std::clamp((time - s.start) / 0.2, 0.25, 1.0); }
 
+// Ground height without vehicles (owner 14e: "fire puddles render on top of cars": the pools used the city's coarse
+// 4 m max height, which includes parked cars) and the obstacle test (a parked car / wall above that ground).
+float CorpseGasRender::groundY(float x, float z) const {
+    if (!app_) return 0.f;
+    const float g = app_->vehicles.groundAt(x, z);
+    return g > -50.f && g < 60.f ? g : 0.f;
+}
+bool CorpseGasRender::onObstacle(float x, float z, float ground) const {
+    if (!app_) return false;
+    const float top = app_->vehicles.solidAt(x, z);
+    return top > ground + 0.35f && top < 60.f;
+}
+
 // where the jet's centreline (fx_volume.glsl flameCentre: droop 0.0128 s^2) reaches the ground (~1.25 m below the nozzle)
 bool CorpseGasRender::impact(const Stream& s, float reach, V3& out) const {
     float ground = s.o.y - 1.25f;
-    if (app_) { const float h = app_->cityRenderer.heightAt(s.o.x + s.d.x * reach, s.o.z + s.d.z * reach); if (h > ground - 3.f && h < ground + 1.f) ground = h; }
+    if (app_) { const float h = groundY(s.o.x + s.d.x * reach, s.o.z + s.d.z * reach); if (h > ground - 3.f && h < ground + 1.f) ground = h; }
     for (float d = 0.5f; d <= reach + 0.01f; d += 0.25f) {
         const float y = s.o.y + s.d.y * d - 0.0128f * d * d;
         if (y <= ground + 0.15f || d + 0.25f > reach) {
             out = {s.o.x + s.d.x * d, ground, s.o.z + s.d.z * d};
+            if (onObstacle(out.x, out.z, ground)) return false;   // owner 14e: never a puddle on a car roof
             return y <= ground + 0.6f;   // a jet ending in the air makes no pool
         }
     }
@@ -119,6 +133,13 @@ void CorpseGasRender::flameLights(double time, std::vector<PointLight>& out) con
         out.push_back({m.x, m.y + 0.2f, m.z, 7.5f, 1.0f, 0.62f, 0.24f, 2.4f * fl});
         V3 hit;
         if (impact(s, reach, hit)) out.push_back({hit.x, hit.y + 0.4f, hit.z, 5.f, 1.0f, 0.55f, 0.18f, 1.6f * fl});
+    }
+    // ground-fire puddles keep lighting (and flickering) for as long as they burn (owner 14e: at night the light used
+    // to stop with the jet while the puddle still burned): one warm light per pool drawn (flameVolumes' pool cache)
+    for (const Pool& p : pools_) {
+        const float ph = (float)(p.seed % 997u);
+        const float fl = 0.72f + 0.16f * std::sin((float)time * 17.f + ph) + 0.12f * std::sin((float)time * 29.f + ph * 0.37f);
+        out.push_back({p.x, p.y + 0.5f, p.z, 4.f + 2.f * p.r, 1.0f, 0.55f, 0.18f, (0.9f + 0.9f * p.k) * fl});
     }
 }
 
@@ -139,13 +160,34 @@ void CorpseGasRender::flameVolumes(float camX, float camZ, double time, std::vec
         V3 hit;
         if (impact(s, reach, hit)) out.push_back({hit.x, hit.y, hit.z, 0.5f, 0.f, 0.f, str, s.id * 747796405u, 3});   // pool where it lands
     }
+    pools_.clear();
     if (!gas_) return;
     std::vector<std::array<float, 4>> spots;
     gas_->fireSpots(camX, camZ, maxPools, spots);
     for (const auto& p : spots) {
-        float y = app_ ? app_->cityRenderer.heightAt(p[0], p[2]) : 0.f;
-        if (!(y > -50.f && y < 3.f)) y = 0.f;
-        out.push_back({p[0], y + 0.05f, p[2], p[1], 0.f, 0.f, p[3], (uint32_t)(p[0] * 31.f + p[2] * 17.f), 3});
+        // on the ground / road, never on a car: the centre moves off a parked car / wall to the nearest free spot
+        // (rings of 0.375 m), the radius stops short of the nearest obstacle (8 directions)
+        float x = p[0], z = p[2];
+        float y = groundY(x, z);
+        if (onObstacle(x, z, y)) {
+            bool found = false;
+            for (float r = 0.375f; r <= 1.5f && !found; r += 0.375f)
+                for (int a = 0; a < 8 && !found; ++a) {
+                    const float qx = p[0] + std::cos(a * 0.785398f) * r, qz = p[2] + std::sin(a * 0.785398f) * r;
+                    const float qy = groundY(qx, qz);
+                    if (!onObstacle(qx, qz, qy)) { x = qx; z = qz; y = qy; found = true; }
+                }
+            if (!found) continue;
+        }
+        float R = p[1];
+        for (int a = 0; a < 8; ++a)
+            for (float r = 0.375f; r < R; r += 0.25f)
+                if (onObstacle(x + std::cos(a * 0.785398f) * r, z + std::sin(a * 0.785398f) * r, y)) { R = std::max(0.45f, std::min(R, r + 0.05f)); break; }
+        // burning down: the remaining fire (strength) shrinks the puddle; a slow breathing of the outline on top
+        const uint32_t seed = (uint32_t)(p[0] * 31.f + p[2] * 17.f);
+        R *= (0.6f + 0.4f * std::min(p[3], 1.f)) * (1.f + 0.06f * std::sin((float)time * 0.9f + (float)(seed % 97u)));
+        out.push_back({x, y + 0.05f, z, R, 0.f, 0.f, p[3], seed, 3});
+        pools_.push_back({x, y, z, R, p[3], seed});
     }
 }
 

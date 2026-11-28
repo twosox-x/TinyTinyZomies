@@ -137,9 +137,11 @@ add_executable(ttz
   src/game/GameRender.cpp
   src/game/Fortify.cpp
   src/game/FortUI.cpp
+  src/game/HudBar.cpp
   src/game/FortScript.cpp
   src/game/BuildingGame.cpp
   src/game/VerticalScript.cpp
+  src/game/RoofScript.cpp
   src/game/CorpseGasRender.cpp
   src/game/TerritoryGpu.cpp)
 target_include_directories(ttz PRIVATE src ${cgltf_SOURCE_DIR} ${stb_SOURCE_DIR})

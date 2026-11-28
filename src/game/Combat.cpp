@@ -222,8 +222,11 @@ void Combat::tick(GameContext& ctx) {
         if (P.post[i] == POST_INSIDE) continue;   // B3a: hospital patients are inside (PROPOSED: not a zombie target)
         HordeSoldier h;
         h.pos = P.pos[i]; h.packedId = P.idOf(i).packed(); h.attraction = cfg.threat.soldierAttraction;
+        // long-range locks (coarse field samples): the horde returns the exact zombie there (SoldierAI follows it)
+        if (P.target[i].active && !P.target[i].exact) { h.hasLock = true; h.lockPos = P.target[i].pos; }
         upload_.push_back(h);
     }
+    for (const HordeSoldier& h : extraCapsules) if (upload_.size() < kMaxGpuSoldiers) upload_.push_back(h);   // 14e tower bases
     ctx.horde->uploadSoldiers(upload_);
     ctx.horde->queueHits(hits_);
     attractors_.clear();

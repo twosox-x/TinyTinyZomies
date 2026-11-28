@@ -126,9 +126,15 @@ bool App::init() {
         ImGui::CreateContext();
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::StyleColorsDark();
-        float scale = SDL_GetWindowDisplayScale(s_.window);
+        // UI scale = the display's content scale (Windows / Linux 125 %, 150 % ...). SDL's window display scale also
+        // contains the pixel density (2 on a Retina Mac, where window coordinates are points): divided out, or the
+        // whole interface doubled in size on the Mac and the build bar ran off screen. --ui-scale overrides.
+        const float density = std::max(1.f, SDL_GetWindowPixelDensity(s_.window));
+        float scale = o.uiScale > 0.f ? o.uiScale : std::max(1.f, SDL_GetWindowDisplayScale(s_.window) / density);
         ImGui::GetStyle().ScaleAllSizes(scale);
-        ImGui::GetIO().FontGlobalScale = scale;
+        ImGui::GetStyle().FontScaleMain = scale;
+        ImGui::GetIO().Fonts->AddFontDefaultBitmap();   // [0] debug panels (pixel font)
+        ImGui::GetIO().Fonts->AddFontDefaultVector();   // [1] game HUD (scalable, crisp at any UI scale / density)
         ImGui_ImplSDL3_InitForSDLGPU(s_.window);
         ImGui_ImplSDLGPU3_InitInfo ii{};
         ii.Device = s_.gpu.device();
@@ -141,6 +147,9 @@ bool App::init() {
         ImGui::GetIO().IniFilename = nullptr;
         ImGui::GetIO().DisplaySize = ImVec2((float)o.width, (float)o.height);
         ImGui::StyleColorsDark();
+        if (o.uiScale > 0.f) { ImGui::GetStyle().ScaleAllSizes(o.uiScale); ImGui::GetStyle().FontScaleMain = o.uiScale; }
+        ImGui::GetIO().Fonts->AddFontDefaultBitmap();   // [0] debug panels
+        ImGui::GetIO().Fonts->AddFontDefaultVector();   // [1] game HUD (HudBar.cpp)
         ImGui_ImplSDLGPU3_InitInfo ii{};
         ii.Device = s_.gpu.device();
         ii.ColorTargetFormat = swapFmt;   // == the renderer's final colour target (R8G8B8A8)
@@ -587,8 +596,10 @@ void App::frame(double dt) {
         // lights are left to burning vehicles (+ lab lights); explosions have their own flash / fire lights
         std::vector<PointLight> lamps;
         V3 p = s.camera.target();
+        // GAME_DESIGN 14d / 14e: flamethrower jets and burning puddles light the street, first in the fire-light budget
+        // (maxFireLights): burning cars no longer crowd out a puddle's light while it still burns
+        if (s.game) s.game->flameLights(s.sim.simTime(), lamps);
         s.vehicles.fireLights(p.x, p.z, s.renderTime, 16, lamps);
-        if (s.game) s.game->flameLights(s.sim.simTime(), lamps);   // GAME_DESIGN 14d: flamethrower jets light the street
         if (s.lab) s.lab->injectLights(lamps);
         s.renderer.setLights(lamps);
         std::vector<FireVolume> fireVols;   // burning wrecks: voxel flames + smoke columns

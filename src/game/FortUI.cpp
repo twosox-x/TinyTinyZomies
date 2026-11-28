@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace ttz::game {
 
@@ -64,7 +65,7 @@ void GameUI::confirmWall(const AppState& app, const GameContext& ctx, CommandQue
 
 // Direction snapping of a leg from -> to: Shift forces 15 deg steps; otherwise 0 / 45 / 90 deg snap magnetically within
 // 4 deg. Angles are relative to the previous leg, else to the wall piece the leg starts on, else to the world axes.
-// The length is kept (whole metres once snapped).
+// The length is kept (0.5 m steps once snapped).
 V3 GameUI::angleSnap(const GameContext& ctx, V3 from, V3 to, bool force) const {
     const float dx = to.x - from.x, dz = to.z - from.z, L = std::hypot(dx, dz);
     if (L < 0.5f) return to;
@@ -81,7 +82,7 @@ V3 GameUI::angleSnap(const GameContext& ctx, V3 from, V3 to, bool force) const {
     const float step = force ? kPi / 12.f : kPi / 4.f;
     const float snapped = std::round(ang / step) * step;
     if (!force && std::fabs(snapped - ang) > 4.f * kPi / 180.f) return to;
-    const float a = ref + snapped, l = std::max(1.f, std::round(L));
+    const float a = ref + snapped, l = std::max(Walls::kGrid, std::round(L / Walls::kGrid) * Walls::kGrid);
     return {from.x + std::cos(a) * l, to.y, from.z + std::sin(a) * l};
 }
 
@@ -92,7 +93,7 @@ bool GameUI::wallEvent(AppState& app, const GameContext& ctx, const SDL_Event& e
         V3 g;
         if (!pickGround(app, ctx, sx, sy, g)) return false;
         int node, piece;
-        p = W.snap(g, nullptr, true, node, &piece);   // a click: existing joint, a point on a wall (T), or the 1 m grid
+        p = W.snap(g, nullptr, true, node, &piece);   // a click: existing joint, a point on a wall (T), or the 0.5 m grid
         if (node < 0 && piece < 0 && !wallPts_.empty()) p = angleSnap(ctx, wallPts_.back(), p, shiftHeld());
         p.y = groundY(ctx, p.x, p.z);
         return true;
@@ -163,13 +164,7 @@ bool GameUI::constructionKey(AppState& app, const GameContext& ctx, const SDL_Ev
     if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
         const SDL_Keycode k = e.key.key;
         if (k == SDLK_Z && ctrlHeld()) { Command c; c.type = CommandType::UndoBuild; out.push(c); return true; }
-        if (k == SDLK_U) { tool_ = tool_ == Tool::BuyEngineer ? Tool::Select : Tool::BuyEngineer; forced_ = false; return true; }
-        if (k == SDLK_K) { tool_ = tool_ == Tool::ClearCar ? Tool::Select : Tool::ClearCar; forced_ = false; return true; }
-        if (k == SDLK_J) {
-            if (tool_ == Tool::BuildWall && wallGate_) { tool_ = Tool::Select; wallPts_.clear(); }
-            else setWallMode(0, true);
-            return true;
-        }
+        // U / K / J (and N / M) are registered command-bar actions (registerFortActions, GameUI::actionHotkey)
         if (gateMode && (k == SDLK_Q || k == SDLK_E)) { gateYaw_ = std::fmod(gateYaw_ + (k == SDLK_E ? 1.f : -1.f) * kPi / 12.f + 2.f * kPi, 2.f * kPi); return true; }
         if (gateMode && k == SDLK_T) { gateYaw_ = std::fmod(gateYaw_ + kPi / 2.f, 2.f * kPi); return true; }
         return false;
@@ -214,11 +209,11 @@ void obbOutline(ImDrawList* dl, const AppState& app, const Obb& b, float y, ImU3
     if (fillA > 0.f) dl->AddQuadFilled(c[0], c[1], c[2], c[3], alpha(col, fillA));
     dl->AddQuad(c[0], c[1], c[2], c[3], alpha(col, 0.9f), thick);
 }
-void label2(ImDrawList* dl, ImVec2 sp, const char* top, ImU32 topCol, const char* bottom, ImU32 botCol) {
-    dl->AddText(ImVec2(sp.x + 15, sp.y - 21), kShadow, top);
-    dl->AddText(ImVec2(sp.x + 14, sp.y - 22), topCol, top);
-    dl->AddText(ImVec2(sp.x + 15, sp.y - 5), kShadow, bottom);
-    dl->AddText(ImVec2(sp.x + 14, sp.y - 6), botCol, bottom);
+// cursor label (decluttered world labels): the name / price line, and the status line unless it is a control hint
+// (hints live in the placement banner, HudBar.cpp)
+void label2(GameUI& ui, ImVec2 sp, const char* top, ImU32 topCol, const char* bottom, ImU32 botCol) {
+    ui.worldLabel(sp.x + 14, sp.y - 24, top, topCol, GameUI::kLabelCursor);
+    if (bottom && *bottom && !std::strchr(bottom, '|')) ui.worldLabel(sp.x + 14, sp.y - 6, bottom, botCol, GameUI::kLabelCursor);
 }
 } // namespace
 
@@ -227,22 +222,55 @@ void GameUI::drawEngineerZones(AppState& app, const GameContext& ctx) {
     std::vector<EngineerAI::Zone> zs;
     ctx.engineers->zones(ctx, zs);
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    // GAME_DESIGN 14e ("the engineer radius ring is all messed up"): the old ring was 72 dashes at the walk surface, so
+    // it jumped onto car roofs, walls and building tops. Now: a smooth anti-aliased circle (192 segments, fixed pixel
+    // width at every zoom) draped over the street (base ground, kerbs smoothed, never vehicles / walls); where it passes
+    // through a building it is drawn faint at street level (hidden-line style) instead of climbing the facade.
+    // Several engineer squads: the union outline (arcs inside another squad's zone are left out) and ONE label.
+    const float street = windowStreetLevel(app);
+    bool labelled = false;
     for (const EngineerAI::Zone& z : zs) {
-        const int n = 72;
-        ImVec2 prev;
-        bool havePrev = false;
-        for (int k = 0; k <= n; ++k) {
+        constexpr int n = 192;
+        float hy[n];
+        bool inside[n], covered[n];
+        for (int k = 0; k < n; ++k) {
             const float a = (float)k * 2.f * kPi / (float)n;
             const float x = z.c.x + std::cos(a) * z.r, zz = z.c.z + std::sin(a) * z.r;
-            ImVec2 s;
-            const bool ok = proj(app, {x, groundY(ctx, x, zz) + 0.1f, zz}, s);
-            if (ok && havePrev && (k % 2 == 0)) dl->AddLine(prev, s, alpha(kAmber, 0.75f), 2.f);   // dashed ring
-            prev = s; havePrev = ok;
+            const float g = app.vehicles.groundAt(x, zz);
+            inside[k] = g > street + 0.9f;
+            covered[k] = false;
+            for (const EngineerAI::Zone& o : zs)
+                if (&o != &z && std::hypot(x - o.c.x, zz - o.c.z) < o.r - 0.05f) covered[k] = true;
+            hy[k] = inside[k] ? street : std::clamp(g, street - 3.f, street + 0.9f);
+        }
+        float sm[n];
+        for (int k = 0; k < n; ++k) {   // smooth kerbs / grid steps (5 taps)
+            float acc = 0.f;
+            for (int d = -2; d <= 2; ++d) acc += hy[(k + d + n) % n];
+            sm[k] = acc / 5.f + 0.12f;
+        }
+        for (int pass = 0; pass < 3; ++pass) {   // 0: dark underlay, 1: visible ring, 2: faint through buildings
+            const float th = pass == 0 ? 4.f : pass == 1 ? 2.f : 1.2f;
+            const ImU32 col = pass == 0 ? IM_COL32(0, 0, 0, 90) : pass == 1 ? alpha(kAmber, 0.85f) : alpha(kAmber, 0.3f);
+            std::vector<ImVec2> run;
+            auto flush = [&]() { if (run.size() >= 2) dl->AddPolyline(run.data(), (int)run.size(), col, 0, th); run.clear(); };
+            for (int k = 0; k <= n; ++k) {
+                const int kk = k % n;
+                const float a = (float)kk * 2.f * kPi / (float)n;
+                ImVec2 sp;
+                const bool want = pass == 2 ? (inside[kk] || inside[(kk + 1) % n] || inside[(kk + n - 1) % n]) : !inside[kk];
+                if (want && !covered[kk] && proj(app, {z.c.x + std::cos(a) * z.r, sm[kk], z.c.z + std::sin(a) * z.r}, sp)) run.push_back(sp);
+                else flush();
+            }
+            flush();
         }
         ImVec2 s;
         if (proj(app, {z.c.x, z.c.y + 0.2f, z.c.z}, s)) {
-            dl->AddCircle(s, 5.f, alpha(kAmber, 0.8f), 12, 1.5f);
-            dl->AddText(ImVec2(s.x + 8, s.y + 2), alpha(kAmber, 0.8f), "engineers: build radius");
+            dl->AddCircle(s, 4.f, alpha(kAmber, 0.7f), 16, 1.5f);   // each squad's post
+            if (!labelled) {
+                labelled = true;
+                worldLabel(s.x + 7, s.y + 1, "build radius", alpha(kAmber, 0.8f), kLabelInfo);
+            }
         }
     }
 }
@@ -266,7 +294,7 @@ void GameUI::drawConstruction(AppState& app, const GameContext& ctx) {
                       : j.kind == EngineerAI::JobKind::Car ? "car: waiting" : "queued";
         if (j.kind == EngineerAI::JobKind::Car && j.workers > 0) t = "clearing car";
         if (j.kind == EngineerAI::JobKind::GateConvert && j.workers > 0) t = "fitting gate";
-        if (t) dl->AddText(ImVec2(s.x + bw * 0.5f + 4, s.y - 7), alpha(col, 0.85f), t);
+        if (t) worldLabel(s.x + bw * 0.5f + 4, s.y - 8, t, alpha(col, 0.9f), kLabelStatus);
     }
 }
 
@@ -293,7 +321,7 @@ void GameUI::drawClearPreview(AppState& app, const GameContext& ctx) {
     if (!proj(app, p, sp)) return;
     char top[96];
     std::snprintf(top, sizeof(top), "Clear vehicle  $%d  (engineers tow it away)", price);
-    label2(dl, sp, top, kSand, !ok ? why : !afford ? "not enough funding" : "click: order  |  Shift: keep the tool", ok && afford ? kOk : kBad);
+    label2(*this, sp, top, kSand, !ok ? why : !afford ? "not enough funding" : "click: order  |  Shift: keep the tool", ok && afford ? kOk : kBad);
 }
 
 void GameUI::drawWallPreview(AppState& app, const GameContext& ctx) {
@@ -336,20 +364,22 @@ void GameUI::drawWallPreview(AppState& app, const GameContext& ctx) {
         std::snprintf(top, sizeof(top), "%s  $%d%s", plan.type == WallType::Reinforced ? "Reinforced gate" : "Gate", plan.price,
                       plan.replacePiece >= 0 ? "  (replaces this wall part)" : "");
         const bool afford = ctx.economy->canAfford(plan.price);
-        label2(dl, sp, top, kSand, !plan.valid ? plan.reason : !afford ? "not enough funding" : "click: place  |  Q / E / wheel: rotate 15 deg, T: 90  |  Ctrl+Z: undo",
+        label2(*this, sp, top, kSand, !plan.valid ? plan.reason : !afford ? "not enough funding" : "click: place  |  Q / E / wheel: rotate 15 deg, T: 90  |  Ctrl+Z: undo",
                plan.valid && afford ? kOk : kBad);
         return;
     }
     std::vector<V3> pts = wallPts_;
     if (haveCursor && (pts.empty() || std::hypot(cur.x - pts.back().x, cur.z - pts.back().z) > 0.3f)) pts.push_back(cur);
-    // ---- guides: 1 m grid around the cursor, the leg's direction extended, the previous leg's axis
+    // ---- guides: 0.5 m grid around the cursor, the leg's direction extended, the previous leg's axis
     if (haveCursor) {
+        // 0.5 m grid (GAME_DESIGN 14e: finer); whole metres a little brighter
         const float gx = std::round(cur.x), gz = std::round(cur.z), y = cur.y + 0.04f;
-        for (int k = -5; k <= 5; ++k) {
+        for (int k = -8; k <= 8; ++k) {
             ImVec2 a, b;
-            const float fa = 0.18f * (1.f - std::fabs((float)k) / 6.f);
-            if (proj(app, {gx + k, y, gz - 5.f}, a) && proj(app, {gx + k, y, gz + 5.f}, b)) dl->AddLine(a, b, alpha(kSand, fa), 1.f);
-            if (proj(app, {gx - 5.f, y, gz + k}, a) && proj(app, {gx + 5.f, y, gz + k}, b)) dl->AddLine(a, b, alpha(kSand, fa), 1.f);
+            const float o = 0.5f * (float)k;
+            const float fa = (k % 2 == 0 ? 0.2f : 0.1f) * (1.f - std::fabs(o) / 4.6f);
+            if (proj(app, {gx + o, y, gz - 4.f}, a) && proj(app, {gx + o, y, gz + 4.f}, b)) dl->AddLine(a, b, alpha(kSand, fa), 1.f);
+            if (proj(app, {gx - 4.f, y, gz + o}, a) && proj(app, {gx + 4.f, y, gz + o}, b)) dl->AddLine(a, b, alpha(kSand, fa), 1.f);
         }
         if (!wallPts_.empty()) {
             const V3 a = wallPts_.back();
@@ -366,8 +396,7 @@ void GameUI::drawWallPreview(AppState& app, const GameContext& ctx) {
                 if (proj(app, {a.x + dx * 0.5f, y, a.z + dz * 0.5f}, m)) {
                     char t[48];
                     std::snprintf(t, sizeof(t), "%.1f m  %.0f deg", L, ang < 0 ? ang + 360.f : ang);
-                    dl->AddText(ImVec2(m.x + 1, m.y + 9), kShadow, t);
-                    dl->AddText(ImVec2(m.x, m.y + 8), alpha(kSand, 0.9f), t);
+                    worldLabel(m.x, m.y + 8, t, alpha(kSand, 0.95f), kLabelCursor - 5, true);
                 }
             }
         }
@@ -397,8 +426,8 @@ void GameUI::drawWallPreview(AppState& app, const GameContext& ctx) {
         if (q.closesLoop && q.ok) loopShown = true;
         if (t) {
             const ImVec2 ts = ImGui::CalcTextSize(t);
-            dl->AddText(ImVec2(m.x - ts.x * 0.5f + 1, m.y + 1), kShadow, t);
-            dl->AddText(ImVec2(m.x - ts.x * 0.5f, m.y), !q.ok ? kBad : q.closesLoop ? IM_COL32(150, 215, 240, 255) : alpha(kSand, 0.85f), t);
+            (void)ts;
+            worldLabel(m.x, m.y, t, !q.ok ? kBad : q.closesLoop ? IM_COL32(150, 215, 240, 255) : alpha(kSand, 0.9f), q.ok ? kLabelStatus + 5 : kLabelCursor - 10, true);
         }
     }
     for (size_t k = 0; k < pts.size(); ++k) {   // points; snapped joints ringed, T junctions on a wall marked
@@ -424,7 +453,7 @@ void GameUI::drawWallPreview(AppState& app, const GameContext& ctx) {
     const bool afford = ctx.economy->canAfford(plan.price);
     const char* reason = pts.size() < 2 ? "click: start  |  drag: straight run (Ctrl: 1 m)  |  Shift: 15 deg" : !plan.valid ? plan.reason : !afford ? "not enough funding"
                        : "click: add point  |  Enter / double-click: build  |  Backspace: point  |  Ctrl+Z: undo placement";
-    label2(dl, sp, label, kSand, reason, pts.size() < 2 ? kSand : plan.valid && afford ? kOk : kBad);
+    label2(*this, sp, label, kSand, reason, pts.size() < 2 ? kSand : plan.valid && afford ? kOk : kBad);
 }
 
 void GameUI::drawTerritory(AppState& app, const GameContext& ctx) {
@@ -466,8 +495,8 @@ void GameUI::drawTerritory(AppState& app, const GameContext& ctx) {
             else std::snprintf(t, sizeof(t), "enclosed, securing...");
             const ImVec2 ts = ImGui::CalcTextSize(t);
             const ImU32 col = stateColor(r.state);
-            dl->AddText(ImVec2(s.x - ts.x * 0.5f + 1, s.y + 1), alpha(kShadow, 0.5f), t);
-            dl->AddText(ImVec2(s.x - ts.x * 0.5f, s.y), alpha(col, 0.75f), t);
+            (void)ts;
+            worldLabel(s.x, s.y, t, alpha(col, 0.85f), r.state == RegionState::Threatened ? kLabelAlert - 5 : kLabelInfo, true);
         }
     drawConstruction(app, ctx);   // 14d: blueprints / car orders: progress bars, waiting reasons
     // breaches: pulsing marker over fresh rubble
@@ -477,7 +506,7 @@ void GameUI::drawTerritory(AppState& app, const GameContext& ctx) {
         if (!proj(app, {rb.box.cx, rb.y + 2.2f, rb.box.cz}, s)) continue;
         const float a = std::clamp(1.f - (rb.t - 7.f) / 3.f, 0.f, 1.f);
         dl->AddCircle(s, 7.f + 3.f * pulse, alpha(kBad, a * (0.5f + 0.5f * pulse)), 16, 2.f);
-        dl->AddText(ImVec2(s.x + 11, s.y - 7), alpha(kBad, a), "BREACH");
+        worldLabel(s.x + 11, s.y - 7, "BREACH", alpha(kBad, a), kLabelAlert);
     }
     // damaged walls: small health bars (close range only)
     if (dist < 180.f)
@@ -494,87 +523,65 @@ void GameUI::drawTerritory(AppState& app, const GameContext& ctx) {
         }
 }
 
-void GameUI::drawTerritoryHud(const GameContext& ctx) {
-    if (!ctx.territory) { ImGui::TextDisabled("-"); return; }
-    const Territory& T = *ctx.territory;
-    const float ctrl = T.controlledArea();
-    int threatened = 0, uncleared = 0;
-    for (const Region& r : T.regions()) { threatened += r.state == RegionState::Threatened ? 1 : 0; uncleared += r.state == RegionState::Uncleared ? 1 : 0; }
-    if (ctrl >= 10000.f) ImGui::Text("%.2f ha", ctrl / 10000.f);
-    else ImGui::Text("%.0f m2", ctrl);
-    if (ctx.economy && ctx.economy->territoryPerMinute() > 0) {
-        ImGui::SameLine(0, 4);
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kOk), "+%.0f/min", ctx.economy->territoryPerMinute());
-    }
-    if (threatened) { ImGui::SameLine(0, 6); ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kBad), "%d threatened", threatened); }
-    if (uncleared) { ImGui::SameLine(0, 6); ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kAmber), "%d to clear", uncleared); }
-    if (ImGui::IsItemHovered() || (!threatened && !uncleared && ImGui::IsItemHovered()))
-        ImGui::SetTooltip("Controlled territory: fully enclosed by walls / containers / buildings and cleared of zombies.\n"
-                          "Income per controlled area (UNAPPROVED). Zombies inside pause it; after %.0f s the area is lost (PROPOSED).",
-                          ctx.cfg ? ctx.cfg->fort.lossTime : 20.f);
-}
-
-void GameUI::drawWallButtons(const GameContext& ctx) {
-    if (!ctx.walls || !ctx.economy) return;
-    const Walls& W = *ctx.walls;
-    struct B { uint8_t type; bool gate; const char* name; const char* key; const char* tip; };
-    const B items[3] = {
-        {0, false, "Wall 1.6 m", "N", "Cheap gabion wall (1.6 m). Zombies can climb over corpse piles against it.\nClick points (snap to joints / onto walls / 1 m grid) or drag a straight run (Ctrl: 1 m);\nShift: 15 deg steps; Enter builds. Engineers build it within their radius. Price per 4 m piece."},
-        {1, false, "Wall 2.4 m", "M", "Reinforced gabion wall (2.4 m, more health). Stops most climbing.\nSame controls as the 1.6 m wall. Engineers build it within their radius. Price per 4 m piece."},
-        {0, true, "Gate", "J", "Gate (PROPOSED): soldiers pass, zombies do not; counts as closed for territory.\nClick to place one 4 m gate (Q / E / wheel rotate, T 90 deg). Over a wall it replaces that part;\nnext to a wall end it continues the wall. Engineers fit it."},
+void GameUI::registerFortActions() {
+    auto has = [&](const char* id) { for (const UiAction& a : actions_) if (a.id == id) return true; return false; };
+    // ---- Structures: walls and gate (wall tool, FortUI wallEvent / constructionKey)
+    struct Wd { const char* id; const char* label; uint8_t type; bool gate; int key; UiIcon icon; int order; const char* tip; };
+    const Wd walls[3] = {
+        {"struct.wall", "Wall 1.6 m", 0, false, SDLK_N, UiIcon::Wall, 10,
+         "Cheap gabion wall (1.6 m). Zombies can climb over corpse piles against it.\nClick points (snap to joints / onto walls / 1 m grid) or drag a straight run;\n"
+         "Engineers build it within their radius. Price per 4 m piece."},
+        {"struct.wall2", "Wall 2.4 m", 1, false, SDLK_M, UiIcon::WallTall, 20,
+         "Reinforced gabion wall (2.4 m, more health). Stops most climbing.\nSame controls as the 1.6 m wall. Price per 4 m piece."},
+        {"struct.gate", "Gate", 0, true, SDLK_J, UiIcon::Gate, 30,
+         "Gate (PROPOSED): soldiers pass, zombies do not; counts as closed for territory.\nOne 4 m gate per click. Over a wall it replaces that part;\n"
+         "next to a wall end it continues the wall. Engineers fit it."},
     };
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    for (int k = 0; k < 3; ++k) {
-        const B& b = items[k];
-        const int price = W.piecePrice((WallType)b.type, b.gate);
-        ImGui::SameLine();
-        const bool afford = ctx.economy->canAfford(price), active = tool_ == Tool::BuildWall && wallType_ == b.type && wallGate_ == b.gate;
-        ImGui::PushID(100 + k);
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.46f, 0.24f, 1.f));
-        if (!afford) ImGui::BeginDisabled();
-        char label[64];
-        std::snprintf(label, sizeof(label), "     %s\n     $%d/4m [%s]", b.name, price, b.key);
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        if (ImGui::Button(label, ImVec2(0, 0))) { if (active) { tool_ = Tool::Select; wallPts_.clear(); } else setWallMode(b.type, b.gate); }
-        if (!afford) ImGui::EndDisabled();
-        if (active) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s%s", b.tip, afford ? "" : "\nNot enough funding.");
-        const ImVec2 sz = ImGui::GetItemRectSize();
-        const ImVec2 ic(p0.x + 14.f, p0.y + sz.y * 0.5f);
-        const ImU32 fc = afford ? IM_COL32(150, 156, 98, 255) : IM_COL32(90, 90, 80, 255);
-        const float h = b.type ? 6.f : 4.f;
-        if (!b.gate) { dl->AddRectFilled(ImVec2(ic.x - 8, ic.y + 4 - 2 * h), ImVec2(ic.x + 8, ic.y + 4), fc, 1.f); dl->AddLine(ImVec2(ic.x, ic.y + 4 - 2 * h), ImVec2(ic.x, ic.y + 4), IM_COL32(20, 22, 14, 255), 1.f); }
-        else { dl->AddRectFilled(ImVec2(ic.x - 8, ic.y - 6), ImVec2(ic.x - 5, ic.y + 4), fc); dl->AddRectFilled(ImVec2(ic.x + 5, ic.y - 6), ImVec2(ic.x + 8, ic.y + 4), fc); dl->AddLine(ImVec2(ic.x - 5, ic.y - 3), ImVec2(ic.x + 5, ic.y - 3), fc, 1.5f); }
-        ImGui::PopID();
+    for (const Wd& w : walls) {
+        if (has(w.id)) continue;
+        UiAction a;
+        a.id = w.id; a.category = UiCategory::Structures; a.label = w.label; a.icon = w.icon; a.hotkey = w.key; a.order = w.order;
+        a.costSuffix = "/4m";
+        const uint8_t type = w.type;
+        const bool gate = w.gate;
+        a.cost = [type, gate](const UiCtx& u) { return u.ctx.walls ? u.ctx.walls->piecePrice((WallType)type, gate) : -1; };
+        a.onSelect = [type, gate](const UiCtx& u) {
+            GameUI& ui = u.ui;
+            if (ui.tool() == Tool::BuildWall && ui.wallType_ == type && ui.wallGate_ == gate) { ui.tool_ = Tool::Select; ui.wallPts_.clear(); }
+            else ui.setWallMode(type, gate);
+        };
+        a.active = [type, gate](const UiCtx& u) { return u.ui.tool() == Tool::BuildWall && u.ui.wallType_ == type && u.ui.wallGate_ == gate; };
+        const std::string tip = w.tip;
+        a.tooltip = [tip](const UiCtx&) { return tip; };
+        a.placementHint = [gate](const UiCtx& u) {
+            if (gate && u.ui.wallPts_.empty()) return std::string("LMB: place  |  Q / E / wheel: rotate 15 deg, T: 90  |  Ctrl+Z: undo  |  Esc: cancel");
+            return std::string("LMB: add point  |  drag: straight run (Ctrl: 1 m)  |  Shift: 15 deg  |  Enter: build  |  Backspace: point  |  Esc: cancel");
+        };
+        a.enabled = [](const UiCtx& u, std::string* why) {
+            if (u.ctx.engineers && !u.ctx.engineers->instantBuild && !u.ctx.engineers->anyEngineers(u.ctx)) { if (why) *why = "Needs engineers: buy engineers first [U]"; }
+            return true;   // the tool still opens (the preview shows the engineer radius / refusal)
+        };
+        registerAction(std::move(a));
     }
-    // 14d: engineers (purchase) and car clearing
-    const BalanceConfig& cfg = *ctx.cfg;
-    struct E { Tool t; const char* name; const char* key; int price; const char* tip; };
-    const E more[2] = {
-        {Tool::BuyEngineer, "Engineers", "U", cfg.squad[(size_t)SquadType::Engineer].price,
-         "3 engineers (riflemen). They build walls, gates and fortifications and clear cars.\nConstruction is only possible within their radius (ring shown while placing).\nPlaceholder model (rifleman, hi-vis vest) until the approved engineer assets."},
-        {Tool::ClearCar, "Clear car", "K", cfg.engineer.carPrice, "Engineers tow / dismantle a parked vehicle (click it). Within their radius; takes time.\nWalls may be planned through a car being cleared: they are built once it is gone."},
-    };
-    for (int k = 0; k < 2; ++k) {
-        const E& b = more[k];
-        ImGui::SameLine();
-        const bool afford = ctx.economy->canAfford(b.price), active = tool_ == b.t;
-        ImGui::PushID(200 + k);
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.46f, 0.24f, 1.f));
-        if (!afford) ImGui::BeginDisabled();
-        char label[64];
-        std::snprintf(label, sizeof(label), "     %s\n     $%d [%s]", b.name, b.price, b.key);
-        const ImVec2 p0 = ImGui::GetCursorScreenPos();
-        if (ImGui::Button(label, ImVec2(0, 0))) { tool_ = active ? Tool::Select : b.t; forced_ = false; }
-        if (!afford) ImGui::EndDisabled();
-        if (active) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s%s", b.tip, afford ? "" : "\nNot enough funding.");
-        const ImVec2 sz = ImGui::GetItemRectSize();
-        const ImVec2 ic(p0.x + 14.f, p0.y + sz.y * 0.5f);
-        const ImU32 fc = afford ? IM_COL32(150, 156, 98, 255) : IM_COL32(90, 90, 80, 255);
-        if (k == 0) { dl->AddNgonFilled(ic, 7.f, fc, 6); dl->AddCircle(ic, 2.8f, IM_COL32(20, 22, 14, 255), 8, 1.5f); }
-        else { dl->AddRectFilled(ImVec2(ic.x - 8, ic.y - 3), ImVec2(ic.x + 8, ic.y + 3), fc, 2.f); dl->AddLine(ImVec2(ic.x - 9, ic.y + 6), ImVec2(ic.x + 9, ic.y - 6), kBad, 2.f); }
-        ImGui::PopID();
+    // ---- Engineering: clear car, undo
+    if (!has("eng.clearcar")) {
+        UiAction a;
+        a.id = "eng.clearcar"; a.category = UiCategory::Engineering; a.label = "Clear car"; a.icon = UiIcon::ClearCar; a.hotkey = SDLK_K; a.order = 10;
+        a.cost = [](const UiCtx& u) { return u.ctx.cfg->engineer.carPrice; };
+        a.onSelect = [](const UiCtx& u) { u.ui.setTool(u.ui.tool() == Tool::ClearCar ? Tool::Select : Tool::ClearCar); u.ui.clearForcedFlag(); };
+        a.active = [](const UiCtx& u) { return u.ui.tool() == Tool::ClearCar; };
+        a.tooltip = [](const UiCtx&) { return std::string("Engineers tow / dismantle a parked vehicle (click it). Within their radius; takes time.\n"
+                                                          "Walls may be planned through a car being cleared: they are built once it is gone.\n"
+                                                          "Tip: with engineers selected, hover a car for its menu."); };
+        a.placementHint = [](const UiCtx&) { return std::string("LMB: a parked vehicle  |  Shift: keep the tool  |  RMB / Esc: cancel"); };
+        registerAction(std::move(a));
+    }
+    if (!has("eng.undo")) {
+        UiAction a;
+        a.id = "eng.undo"; a.category = UiCategory::Engineering; a.label = "Undo build"; a.icon = UiIcon::Undo; a.hotkeyLabel = "Ctrl+Z"; a.order = 90;
+        a.onSelect = [](const UiCtx& u) { Command c; c.type = CommandType::UndoBuild; u.out.push(c); };
+        a.tooltip = [](const UiCtx&) { return std::string("Removes the unfinished pieces of the newest placement (refunded)."); };
+        registerAction(std::move(a));
     }
 }
 

@@ -191,6 +191,44 @@ struct FlameConfig {
     float friendlyClearance = 1.2f;  // m: never spray while a squad mate / soldier is inside the cone + this margin
 };
 
+// GAME_DESIGN 14e structures and fuel (mechanics APPROVED; every value UNAPPROVED / PROPOSED; balance.json "structures").
+// Towers (snipers / riflemen occupy the deck), generators (burn fuel from the base fuel stock), floodlights (lit while a
+// running generator within cableRange powers them), fuel stores (base stock), fuel from cars (siphon / disassemble).
+struct StructureConfig {
+    int towerPrice = 200, generatorPrice = 150, lightPrice = 40, fuelStorePrice = 60;
+    float towerTime = 60.f, generatorTime = 24.f, lightTime = 9.f, fuelStoreTime = 15.f;   // engineer-seconds to build
+    float towerHealth = 2500.f;          // hp
+    float towerDamagePerZombie = 2.0f;   // hp / s per zombie pressing on the base beyond the threshold
+    int towerPressureThreshold = 4;      // zombies the base shrugs off
+    float towerHalf = 1.75f;             // m: half side of the base footprint (obstacle; zombies heap up against it)
+    float towerObstacleTop = 5.1f;       // m above the ground: obstacle height (the deck; zombie piles never reach it)
+    float deckHeight = 5.1f;             // m: posts on the deck (soldier feet)
+    int towerCapacity = 2;               // soldiers on the deck
+    float climbTime = 3.0f;              // s up / down the ladder
+    float fallDamage = 40.f;             // hp lost by an occupant when his tower collapses
+    float generatorTank = 20.f;          // l in the generator's own tank (refilled from a fuel store within fuelLinkRange)
+    float generatorBurn = 0.02f;         // l / s while running (base load)
+    float burnPerLight = 0.006f;         // l / s per powered floodlight
+    int generatorMaxLights = 4;          // floodlights one generator powers
+    float cableRange = 25.f;             // m: floodlight placement / power range around a generator
+    float fuelLinkRange = 30.f;          // m: a generator refills its tank from a fuel store within this
+    bool lightsOnlyAtNight = true;       // PROPOSED: generators run (and burn fuel) only at night unless forced on
+    float lightRadius = 24.f, lightIntensity = 3.0f, lightHeight = 4.5f, lightReach = 9.f;   // point light per floodlight
+    float noiseIntensity = 0.5f;         // horde attractor strength of one running generator
+    float noiseRadius = 40.f;            // m reach of one running generator
+    float noiseStackRadius = 30.f;       // m: generators within this form one area; their noise adds up
+    float noiseCap = 1.5f;               // max summed strength per area
+    float noiseRadiusCap = 80.f;         // max reach per area (reach = noiseRadius x sqrt(sum / noiseIntensity))
+    float noiseInterval = 1.0f;          // s between noise pulses
+    float fuelStoreCapacity = 200.f;     // l per fuel store
+    float fuelStoreStart = 40.f;         // l in a new fuel store
+    float carFuel = 30.f;                // l in a parked car (intact / damaged); wrecks have none
+    float siphonTime = 18.f;             // engineer-seconds to siphon one car
+    int siphonPrice = 0;                 // per car siphoned
+    float jerrycanLitres = 20.f;         // l one engineer carries per trip
+    float deliverRange = 2.5f;           // m from the fuel store's delivery point
+};
+
 struct BalanceConfig {
     std::string status = "UNAPPROVED";   // anything else must come from an owner decision
     std::array<WeaponStats, kSoldierClasses> weapon;   // per SoldierClass
@@ -207,6 +245,7 @@ struct BalanceConfig {
     EngineerConfig engineer;             // GAME_DESIGN 14d engineers (EngineerAI)
     RotConfig rot;                       // GAME_DESIGN 14d corpse rot gas (CorpseGas)
     FlameConfig flame;                   // GAME_DESIGN 14d flamethrower squad (FlameAI / CorpseGas)
+    StructureConfig structures;          // GAME_DESIGN 14e towers, generators, lights, fuel (Structures / FuelLogistics)
     bool load(const std::string& path, std::string* error = nullptr);   // missing keys keep the defaults above
     bool approved() const { return status == "APPROVED"; }
 };

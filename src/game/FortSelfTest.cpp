@@ -77,8 +77,29 @@ int runFortSelfTest(const BalanceConfig& cfg) {
         V3 g = W.snap({5.3f, 0, 7.6f}, nullptr, false, node);
         V3 from{0, 0, 20};
         V3 l = W.snap({9.3f, 0, 20.4f}, &from, false, node);
-        check(std::fabs(s.x - 12) < 1e-4f && std::fabs(s.z) < 1e-4f && g.x == 5 && g.z == 8 && std::fabs(std::hypot(l.x, l.z - 20) - 8.f) < 0.01f,
-              "snapping: existing joint, 1 m grid, drag length in whole 4 m pieces", fmt("joint (%.1f %.1f), drag length %.2f", s.x, s.z, std::hypot(l.x, l.z - 20)));
+        check(std::fabs(s.x - 12) < 1e-4f && std::fabs(s.z) < 1e-4f && g.x == 5.5f && g.z == 7.5f && std::fabs(std::hypot(l.x, l.z - 20) - 8.f) < 0.01f,
+              "snapping: existing joint, 0.5 m grid, drag length in whole 4 m pieces", fmt("joint (%.1f %.1f), drag length %.2f", s.x, s.z, std::hypot(l.x, l.z - 20)));
+        // GAME_DESIGN 14e: 0.5 m granularity (filler pieces) and ends sealed onto facades / containers / walls
+        {
+            Walls Wf;
+            Wf.configure(F);
+            const WallPlan f1 = Wf.plan(path({{0, -30}, {8.5f, -30}}), WallType::Cheap, false, testEnv());
+            const bool fillOk = f1.valid && f1.pieces.size() == 3 && std::fabs(std::hypot(f1.pieces[2].bx - f1.pieces[2].ax, f1.pieces[2].bz - f1.pieces[2].az) - 0.5f) < 0.01f;
+            check(fillOk, "0.5 m granularity: 8.5 m = two 4 m pieces + a 0.5 m filler", fmt("valid %.0f pieces %.0f", f1.valid, (double)f1.pieces.size()));
+            const WallPlan s1 = Wf.plan(path({{30, 44}, {38.9f, 44}}), WallType::Cheap, false, testEnv());   // 1.1 m short of the facade x = 40
+            const float endX = s1.pieces.empty() ? 0.f : s1.pieces.back().bx;
+            check(s1.valid && s1.sealBack == 1 && endX > 40.f && endX < 41.5f, "an end 1.1 m in front of a facade is sealed into it (no gap)", fmt("end x %.2f, seal %.0f", endX, s1.sealBack));
+            Obb cont{20.f, -50.f, 3.05f, 1.25f, 0.f, 2.6f};
+            WallEnv ce = testEnv();
+            ce.containers.push_back(cont);
+            const WallPlan s2 = Wf.plan(path({{20, -40}, {20, -47.5f}}), WallType::Cheap, false, ce);   // 1.25 m short of the container
+            const float endZ = s2.pieces.empty() ? 0.f : s2.pieces.back().bz;
+            check(s2.valid && s2.sealBack == 2 && endZ < -48.8f && endZ > -49.3f, "an end in front of a container is sealed onto it", fmt("end z %.2f, %s", endZ, s2.reason));
+            build(Wf, path({{50, -60}, {50, -40}}));
+            const WallPlan s3 = Wf.plan(path({{40, -50}, {48.8f, -50}}), WallType::Cheap, false, testEnv());   // 1.2 m short of a wall
+            check(s3.valid && s3.sealBack == 3 && std::fabs(s3.pieces.back().bx - 50.f) < 0.01f && s3.pieces.back().splitB >= 0, "an end in front of a wall becomes a T junction on it",
+                  fmt("end x %.2f, %s", s3.pieces.empty() ? 0.0 : s3.pieces.back().bx, s3.reason));
+        }
         const WallPlan c1 = W.plan(path({{12, 0}, {12, 12}}), WallType::Cheap, false, testEnv());
         const bool b1 = c1.valid && !W.commit(c1).empty();
         const WallPlan c2 = W.plan(path({{4, 0}, {4, -8}}), WallType::Cheap, false, testEnv());

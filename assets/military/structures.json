@@ -1,0 +1,1358 @@
+{
+ "format": "TTZM",
+ "version": 1,
+ "source": "tools/military_lab/military_lab_v1.html",
+ "labVersion": 1,
+ "note": "positions in metres, model space, rest pose; Y up, front +Z, left +X. See docs/MILITARY_ASSETS.md",
+ "palette": [
+  {
+   "name": "olive",
+   "rgb": "#5b5f3a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "oliveDark",
+   "rgb": "#3f4229",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "oliveLight",
+   "rgb": "#767a4d",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyote",
+   "rgb": "#8a7352",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyoteDark",
+   "rgb": "#675539",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "coyoteLight",
+   "rgb": "#a48b66",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "rangerGreen",
+   "rgb": "#4c5440",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "rangerDark",
+   "rgb": "#363c2e",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcTan",
+   "rgb": "#a08c68",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcGreen",
+   "rgb": "#6b6f4a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcBrown",
+   "rgb": "#6e5a40",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "mcLight",
+   "rgb": "#bba886",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "webbing",
+   "rgb": "#55513a",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "tan",
+   "rgb": "#b59f78",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "khaki",
+   "rgb": "#9c8a62",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "black",
+   "rgb": "#1f2021",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "blackSoft",
+   "rgb": "#2d2e2c",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "bootBrown",
+   "rgb": "#5a4630",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "gunBlack",
+   "rgb": "#1a1b1d",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gunMetal",
+   "rgb": "#3b3d40",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "metal",
+   "rgb": "#7d8186",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "brass",
+   "rgb": "#b8913a",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "lens",
+   "rgb": "#2c4a5e",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "lensGlint",
+   "rgb": "#6fa0bd",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "suppressor",
+   "rgb": "#4a4b47",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "fde",
+   "rgb": "#a58f6b",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "eyeDark",
+   "rgb": "#17140f",
+   "flags": 0,
+   "noise": 0
+  },
+  {
+   "name": "lip",
+   "rgb": "#6e4a3a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "scarfTan",
+   "rgb": "#b8a887",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "scarfOlive",
+   "rgb": "#6d6b4c",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "scarfBlack",
+   "rgb": "#2b2b2b",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieA",
+   "rgb": "#6f6a45",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieB",
+   "rgb": "#8c7c55",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "ghillieC",
+   "rgb": "#4d5233",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "stencil",
+   "rgb": "#d9cf9e",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "stencilYellow",
+   "rgb": "#c9a930",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "skin0",
+   "rgb": "#e0b294",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin1",
+   "rgb": "#c99a76",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin2",
+   "rgb": "#a5764f",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin3",
+   "rgb": "#7f5538",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin4",
+   "rgb": "#5e3d29",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skin5",
+   "rgb": "#d6a47c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark0",
+   "rgb": "#af8b73",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark1",
+   "rgb": "#9d785c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark2",
+   "rgb": "#815c3e",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark3",
+   "rgb": "#63422c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark4",
+   "rgb": "#493020",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "skinDark5",
+   "rgb": "#a78061",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair0",
+   "rgb": "#2b241e",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair1",
+   "rgb": "#5a4630",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair2",
+   "rgb": "#1e1e22",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "hair3",
+   "rgb": "#8c7a5c",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "sand",
+   "rgb": "#b9a57a",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "sandDark",
+   "rgb": "#9c8961",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "hescoWire",
+   "rgb": "#6e6c62",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "hescoFabric",
+   "rgb": "#c2b48c",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "sandbag",
+   "rgb": "#a99a70",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "sandbagDark",
+   "rgb": "#8a7c56",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "sandbagOlive",
+   "rgb": "#7b7650",
+   "flags": 0,
+   "noise": 0.09
+  },
+  {
+   "name": "wood",
+   "rgb": "#8a6a44",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "woodDark",
+   "rgb": "#6a4f31",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "woodLight",
+   "rgb": "#a88a5e",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "rope",
+   "rgb": "#b9a77f",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "steel",
+   "rgb": "#5d6166",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "steelDark",
+   "rgb": "#43474b",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "rust",
+   "rgb": "#6e4a33",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "containerOlive",
+   "rgb": "#55593a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "containerDark",
+   "rgb": "#3d402b",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyOlive",
+   "rgb": "#6a6d48",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyDark",
+   "rgb": "#53563a",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyTan",
+   "rgb": "#a6956d",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canopyWhite",
+   "rgb": "#d2d0c2",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "line",
+   "rgb": "#cfc8ae",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "strap",
+   "rgb": "#4b4a36",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "canvas",
+   "rgb": "#857a58",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "canvasLight",
+   "rgb": "#a79b77",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "white",
+   "rgb": "#e6e4da",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "medGreen",
+   "rgb": "#2f8a4a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "flagOlive",
+   "rgb": "#5d6440",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "flagWhite",
+   "rgb": "#e2e0d6",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "pole",
+   "rgb": "#6a6c6e",
+   "flags": 2,
+   "noise": 0.03
+  },
+  {
+   "name": "concrete",
+   "rgb": "#9a978d",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "radioGreen",
+   "rgb": "#3f4630",
+   "flags": 0,
+   "noise": 0.04
+  },
+  {
+   "name": "cotGreen",
+   "rgb": "#5f6646",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "mattress",
+   "rgb": "#7a7d62",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "blanket",
+   "rgb": "#6b5a40",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "hiVis",
+   "rgb": "#e8701e",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "hiVisDark",
+   "rgb": "#b9561a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "reflect",
+   "rgb": "#d9dbd2",
+   "flags": 0,
+   "noise": 0.02
+  },
+  {
+   "name": "leather",
+   "rgb": "#7a5636",
+   "flags": 0,
+   "noise": 0.06
+  },
+  {
+   "name": "toolSteel",
+   "rgb": "#71757a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "toolHead",
+   "rgb": "#35383b",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "handle",
+   "rgb": "#9a7a4e",
+   "flags": 0,
+   "noise": 0.07
+  },
+  {
+   "name": "hoodSilver",
+   "rgb": "#b4b6ae",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "hoodSilverDark",
+   "rgb": "#8c8e87",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "visorGold",
+   "rgb": "#b8902e",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "nomex",
+   "rgb": "#6e6a52",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "nomexDark",
+   "rgb": "#55523f",
+   "flags": 0,
+   "noise": 0.05
+  },
+  {
+   "name": "rubber",
+   "rgb": "#242424",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "tankOlive",
+   "rgb": "#4f5536",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "hazardRed",
+   "rgb": "#9a2a20",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "hazardYellow",
+   "rgb": "#c9a62a",
+   "flags": 0,
+   "noise": 0.03
+  },
+  {
+   "name": "pilotFlame",
+   "rgb": "#ffb040",
+   "flags": 1,
+   "noise": 0
+  },
+  {
+   "name": "copper",
+   "rgb": "#a8643a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gasRed",
+   "rgb": "#8e2a22",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "gasBlack",
+   "rgb": "#2a2c2e",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "lampWarm",
+   "rgb": "#fff0c4",
+   "flags": 1,
+   "noise": 0
+  },
+  {
+   "name": "lampGlassOff",
+   "rgb": "#4f5654",
+   "flags": 4,
+   "noise": 0.02
+  },
+  {
+   "name": "corrugated",
+   "rgb": "#7a7f80",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "corrugatedDark",
+   "rgb": "#5d6264",
+   "flags": 2,
+   "noise": 0.05
+  },
+  {
+   "name": "timber",
+   "rgb": "#7b5d3b",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "timberDark",
+   "rgb": "#5a432a",
+   "flags": 0,
+   "noise": 0.08
+  },
+  {
+   "name": "drumOlive",
+   "rgb": "#56603a",
+   "flags": 2,
+   "noise": 0.04
+  },
+  {
+   "name": "drumBand",
+   "rgb": "#c3a43a",
+   "flags": 0,
+   "noise": 0.03
+  }
+ ],
+ "vertexCount": 278664,
+ "models": [
+  {
+   "name": "tower_wood",
+   "label": "Defense tower (timber, sandbag parapet)",
+   "class": "structure",
+   "bounds": {
+    "min": [
+     -1.9,
+     0,
+     -1.9
+    ],
+    "max": [
+     1.9,
+     7.7,
+     1.9
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 0,
+     "count": 132444,
+     "rigid": true,
+     "voxels": 55763
+    }
+   ],
+   "sockets": [
+    {
+     "name": "post_a",
+     "part": 0,
+     "pos": [
+      -0.55,
+      5.1,
+      0.55
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "post_b",
+     "part": 0,
+     "pos": [
+      0.55,
+      5.1,
+      0.55
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "ladder_foot",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      -2.3
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "ladder_top",
+     "part": 0,
+     "pos": [
+      0,
+      5.1,
+      -1.15
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 44148,
+   "footprint": [
+    3.8,
+    3.8
+   ],
+   "height": 7.7,
+   "anchor": "ground",
+   "deckHeight": 5.1,
+   "parapetHeight": 0.9,
+   "eyeHeight": 6.55,
+   "capacity": 2
+  },
+  {
+   "name": "tower_steel",
+   "label": "Defense tower (steel, plate parapet)",
+   "class": "structure",
+   "bounds": {
+    "min": [
+     -1.6,
+     0,
+     -2.35
+    ],
+    "max": [
+     1.6,
+     6.35,
+     1.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 132444,
+     "count": 81246,
+     "rigid": true,
+     "voxels": 23316
+    }
+   ],
+   "sockets": [
+    {
+     "name": "post_a",
+     "part": 0,
+     "pos": [
+      -0.55,
+      5.1,
+      0.55
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "post_b",
+     "part": 0,
+     "pos": [
+      0.55,
+      5.1,
+      0.55
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "ladder_foot",
+     "part": 0,
+     "pos": [
+      0,
+      0,
+      -2.5
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "ladder_top",
+     "part": 0,
+     "pos": [
+      0,
+      5.1,
+      -1.15
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 27082,
+   "footprint": [
+    3.2,
+    3.95
+   ],
+   "height": 6.35,
+   "anchor": "ground",
+   "deckHeight": 5.1,
+   "parapetHeight": 1.15,
+   "eyeHeight": 6.55,
+   "capacity": 2
+  },
+  {
+   "name": "generator",
+   "label": "Diesel generator (genset, cable reel)",
+   "class": "structure",
+   "bounds": {
+    "min": [
+     -1.85,
+     0,
+     -0.5
+    ],
+    "max": [
+     0.95,
+     1.75,
+     0.6
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 213690,
+     "count": 18036,
+     "rigid": true,
+     "voxels": 15093
+    }
+   ],
+   "sockets": [
+    {
+     "name": "exhaust",
+     "part": 0,
+     "pos": [
+      0.65,
+      1.75,
+      -0.175
+     ],
+     "dir": [
+      0,
+      1,
+      0
+     ]
+    },
+    {
+     "name": "fuel_cap",
+     "part": 0,
+     "pos": [
+      -0.65,
+      1.05,
+      0.55
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    },
+    {
+     "name": "cable_out",
+     "part": 0,
+     "pos": [
+      -1.5,
+      0.5,
+      0
+     ],
+     "dir": [
+      -1,
+      0,
+      0
+     ]
+    },
+    {
+     "name": "service",
+     "part": 0,
+     "pos": [
+      -0.6,
+      0,
+      1
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    }
+   ],
+   "triangles": 6012,
+   "footprint": [
+    2.8,
+    1.1
+   ],
+   "height": 1.75,
+   "anchor": "ground"
+  },
+  {
+   "name": "floodlight",
+   "label": "Floodlight mast (4 heads, tripod)",
+   "class": "structure",
+   "bounds": {
+    "min": [
+     -1,
+     0,
+     -0.6
+    ],
+    "max": [
+     1.1,
+     5.05,
+     1.75
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 231726,
+     "count": 12354,
+     "rigid": true,
+     "voxels": 2897
+    },
+    {
+     "name": "lamps",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 244080,
+     "count": 144,
+     "rigid": true,
+     "voxels": 48,
+     "note": "emissive lens faces: draw only while the generator powers the light"
+    }
+   ],
+   "sockets": [
+    {
+     "name": "light",
+     "part": 0,
+     "pos": [
+      0,
+      4.55,
+      0.1
+     ],
+     "dir": [
+      0,
+      -0.34,
+      0.94
+     ]
+    },
+    {
+     "name": "cable_in",
+     "part": 0,
+     "pos": [
+      0.6,
+      0,
+      1.5
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 4166,
+   "footprint": [
+    2.1,
+    2.35
+   ],
+   "height": 5.05,
+   "anchor": "ground",
+   "lightHeight": 4.55,
+   "lightTilt": -0.35
+  },
+  {
+   "name": "jerrycan",
+   "label": "Fuel jerrycan (20 l)",
+   "class": "fuel",
+   "bounds": {
+    "min": [
+     -0.2,
+     0,
+     -0.15
+    ],
+    "max": [
+     0.15,
+     0.55,
+     0.15
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 244224,
+     "count": 1404,
+     "rigid": true,
+     "voxels": 306
+    }
+   ],
+   "sockets": [
+    {
+     "name": "grip",
+     "part": 0,
+     "pos": [
+      -0.025,
+      0.525,
+      0
+     ],
+     "dir": [
+      1,
+      0,
+      0
+     ]
+    }
+   ],
+   "triangles": 468,
+   "footprint": [
+    0.35,
+    0.3
+   ],
+   "height": 0.55,
+   "anchor": "ground",
+   "litres": 20
+  },
+  {
+   "name": "fuel_drum",
+   "label": "Fuel drum (200 l)",
+   "class": "fuel",
+   "bounds": {
+    "min": [
+     -0.3,
+     0,
+     -0.3
+    ],
+    "max": [
+     0.3,
+     0.95,
+     0.3
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 245628,
+     "count": 3468,
+     "rigid": true,
+     "voxels": 1637
+    }
+   ],
+   "sockets": [],
+   "triangles": 1156,
+   "footprint": [
+    0.6,
+    0.6
+   ],
+   "height": 0.95,
+   "anchor": "ground",
+   "litres": 200
+  },
+  {
+   "name": "fuel_store",
+   "label": "Base fuel store (bunded drums, jerrycans)",
+   "class": "fuel",
+   "bounds": {
+    "min": [
+     -1.2,
+     0,
+     -0.8
+    ],
+    "max": [
+     1.3,
+     2.05,
+     0.8
+    ]
+   },
+   "parts": [
+    {
+     "name": "body",
+     "parent": -1,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 249096,
+     "count": 21120,
+     "rigid": true,
+     "voxels": 11660
+    },
+    {
+     "name": "can0",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 270216,
+     "count": 1410,
+     "rigid": true,
+     "voxels": 307,
+     "note": "fill level: drawn while stock >= (1/6) x capacity"
+    },
+    {
+     "name": "can1",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 271626,
+     "count": 1410,
+     "rigid": true,
+     "voxels": 307,
+     "note": "fill level: drawn while stock >= (2/6) x capacity"
+    },
+    {
+     "name": "can2",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 273036,
+     "count": 1410,
+     "rigid": true,
+     "voxels": 307,
+     "note": "fill level: drawn while stock >= (3/6) x capacity"
+    },
+    {
+     "name": "can3",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 274446,
+     "count": 1404,
+     "rigid": true,
+     "voxels": 306,
+     "note": "fill level: drawn while stock >= (4/6) x capacity"
+    },
+    {
+     "name": "can4",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 275850,
+     "count": 1410,
+     "rigid": true,
+     "voxels": 307,
+     "note": "fill level: drawn while stock >= (5/6) x capacity"
+    },
+    {
+     "name": "can5",
+     "parent": 0,
+     "slot": null,
+     "pivot": [
+      0,
+      0,
+      0
+     ],
+     "unit": 0.05,
+     "first": 277260,
+     "count": 1404,
+     "rigid": true,
+     "voxels": 306,
+     "note": "fill level: drawn while stock >= (6/6) x capacity"
+    }
+   ],
+   "sockets": [
+    {
+     "name": "deliver",
+     "part": 0,
+     "pos": [
+      0.8,
+      0,
+      1.2
+     ],
+     "dir": [
+      0,
+      0,
+      -1
+     ]
+    },
+    {
+     "name": "pump",
+     "part": 0,
+     "pos": [
+      -0.55,
+      1,
+      0.6
+     ],
+     "dir": [
+      0,
+      0,
+      1
+     ]
+    }
+   ],
+   "triangles": 9856,
+   "footprint": [
+    2.5,
+    1.6
+   ],
+   "height": 2.05,
+   "anchor": "ground"
+  }
+ ]
+}

@@ -154,7 +154,7 @@ float bodyHeight(thread const float& prone, constant SimUniforms& _49)
     return mix(_49.agentP.y, _49.agentP.z, fast::clamp(prone, 0.0, 1.0));
 }
 
-kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96 [[buffer(1)]], device Agents& _312 [[buffer(2)]], device CellStart& _273 [[buffer(3)]], device CellCount& _282 [[buffer(4)]], device Counters& _157 [[buffer(5)]], device Field& _519 [[buffer(6)]], device Contacts& _975 [[buffer(7)]], device Near& _948 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
+kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96 [[buffer(1)]], device Agents& _312 [[buffer(2)]], device CellStart& _273 [[buffer(3)]], device CellCount& _282 [[buffer(4)]], device Counters& _157 [[buffer(5)]], device Field& _519 [[buffer(6)]], device Contacts& _1181 [[buffer(7)]], device Near& _1142 [[buffer(8)]], uint3 gl_GlobalInvocationID [[thread_position_in_grid]])
 {
     uint s = gl_GlobalInvocationID.x;
     if (s >= _49.misc.z)
@@ -552,14 +552,120 @@ kernel void main0(constant SimUniforms& _49 [[buffer(0)]], device GameSolid& _96
             }
         }
     }
-    for (uint q_1 = 0u; q_1 < 4u; q_1++)
+    float4 lp = float4(0.0, 0.0, 0.0, 1000000000.0);
+    float4 lv = float4(0.0);
+    uint lk = _96.gameSolid[(8u * s) + 7u];
+    if (inside && (lk != 0u))
     {
-        _948.nearOut[(8u * s) + q_1] = bp[q_1];
-        _948.nearOut[((8u * s) + 4u) + q_1] = float4(bv[q_1], 0.0);
+        float2 q_1 = sp.xz + ((float2(float(lk & 65535u), float(lk >> uint(16))) - float2(32768.0)) / float2(128.0));
+        int2 c_1 = int2(floor((q_1 - _49.world.xy) * _49.world.w));
+        Agent a_2;
+        for (int dy_3 = -3; dy_3 <= 3; dy_3++)
+        {
+            for (int dx_3 = -3; dx_3 <= 3; dx_3++)
+            {
+                int2 cc_2 = c_1 + int2(dx_3, dy_3);
+                bool _1006 = cc_2.x < 0;
+                bool _1013;
+                if (!_1006)
+                {
+                    _1013 = cc_2.y < 0;
+                }
+                else
+                {
+                    _1013 = _1006;
+                }
+                bool _1023;
+                if (!_1013)
+                {
+                    _1023 = cc_2.x >= int(_49.grid.x);
+                }
+                else
+                {
+                    _1023 = _1013;
+                }
+                bool _1033;
+                if (!_1023)
+                {
+                    _1033 = cc_2.y >= int(_49.grid.y);
+                }
+                else
+                {
+                    _1033 = _1023;
+                }
+                if (_1033)
+                {
+                    continue;
+                }
+                int2 param_5 = cc_2;
+                uint cid_2 = cellIndex(param_5, _49);
+                uint b_3 = _273.cellStart[cid_2];
+                uint e_2 = min((b_3 + _282.cellCount[cid_2]), live);
+                uint k_2 = b_3;
+                for (;;)
+                {
+                    bool _1062 = k_2 < e_2;
+                    bool _1069;
+                    if (_1062)
+                    {
+                        _1069 = k_2 < (b_3 + 32u);
+                    }
+                    else
+                    {
+                        _1069 = _1062;
+                    }
+                    if (_1069)
+                    {
+                        a_2.pos = _312.agents[k_2].pos;
+                        a_2.vel = _312.agents[k_2].vel;
+                        a_2.prev = _312.agents[k_2].prev;
+                        a_2.dirs = _312.agents[k_2].dirs;
+                        a_2.info = _312.agents[k_2].info;
+                        Agent param_6 = a_2;
+                        if (agentState(param_6) >= 3u)
+                        {
+                            uint _1125 = k_2;
+                            k_2 = _1125 + uint(1);
+                            continue;
+                        }
+                        float dist_2 = distance(a_2.pos.xz, q_1);
+                        bool _1099 = dist_2 <= 2.0;
+                        bool _1106;
+                        if (_1099)
+                        {
+                            _1106 = dist_2 < lp.w;
+                        }
+                        else
+                        {
+                            _1106 = _1099;
+                        }
+                        if (_1106)
+                        {
+                            lp = float4(a_2.pos.xyz, dist_2);
+                            lv = float4(a_2.vel.xz, a_2.pos.w, 0.0);
+                        }
+                        uint _1125 = k_2;
+                        k_2 = _1125 + uint(1);
+                        continue;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+        }
     }
-    _975.contacts[4u * s] = attackers;
-    _975.contacts[(4u * s) + 1u] = nearby;
-    _975.contacts[(4u * s) + 2u] = as_type<uint>(nearest);
-    _975.contacts[(4u * s) + 3u] = as_type<uint>(soI.z);
+    for (uint q_2 = 0u; q_2 < 4u; q_2++)
+    {
+        _1142.nearOut[(10u * s) + q_2] = bp[q_2];
+        _1142.nearOut[((10u * s) + 4u) + q_2] = float4(bv[q_2], 0.0);
+    }
+    _1142.nearOut[(10u * s) + 8u] = lp;
+    _1142.nearOut[(10u * s) + 9u] = lv;
+    _1181.contacts[4u * s] = attackers;
+    _1181.contacts[(4u * s) + 1u] = nearby;
+    _1181.contacts[(4u * s) + 2u] = as_type<uint>(nearest);
+    _1181.contacts[(4u * s) + 3u] = as_type<uint>(soI.z);
 }
 

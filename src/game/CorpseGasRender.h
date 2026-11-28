@@ -1,7 +1,7 @@
 #pragma once
 // Corpse gas / ground fire rendering (GAME_DESIGN 14d), game binary only (needs the Renderer). One indirect instanced
-// draw (shaders/gas.vert / gas.frag) of the cells game_gas_field listed: a low translucent voxel haze slab per gassed
-// cell (0.25 m height steps: blocky, low patches that never hide the battlefield), sparse rising puffs where it is thick,
+// draw (shaders/gas.vert / gas.frag) of the cells game_gas_field listed, per
+// cell: drifting voxel puffs (no cell-aligned haze slab: owner 14e "no grid overlay"),
 // flies over rotting bodies, a few glowing embers on ground fire. Registered as a Renderer extension (scene pass, after
 // the characters). The fire itself (flame streams, ground-fire pools) is drawn as voxel volumes in the explosions' style
 // (Renderer::setFlameVolumes -> fx_volume kinds 2 / 3, half-res fx path and budget).
@@ -39,6 +39,10 @@ private:
     int ext_ = 0;
     struct Stream { uint32_t id = 0; V3 o, d; double start = 0, last = -1e9; float range = 9.f; };
     std::vector<Stream> streams_;
+    struct Pool { float x, y, z, r, k; uint32_t seed; };
+    mutable std::vector<Pool> pools_;   // ground-fire pools drawn last frame (flameLights: one light each while burning)
+    float groundY(float x, float z) const;                       // ground without vehicles
+    bool onObstacle(float x, float z, float ground) const;       // a parked car / obstacle above that ground
     static float visualReach(const Stream& s, double time);
     bool impact(const Stream& s, float reach, V3& out) const;
 };

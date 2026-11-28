@@ -42,6 +42,8 @@
 #include "game/Economy.h"
 #include "game/EngineerAI.h"
 #include "game/Fortify.h"
+#include "game/FuelLogistics.h"
+#include "game/Structures.h"
 #include "game/GameEvents.h"
 #include "game/GameRender.h"
 #include "game/GameScript.h"
@@ -106,6 +108,11 @@ public:
     const Reanimation& reanimation() const { return reanim_; }
     const HordeVertical& vertical() const { return vertical_; }   // B3b
     HordeVertical& vertical() { return vertical_; }
+    Structures& structures() { return structures_; }            // 14e towers, generators, floodlights, fuel stores
+    const Structures& structures() const { return structures_; }
+    FuelLogistics& fuel() { return fuel_; }                      // 14e fuel from cars (siphon / disassemble)
+    const FuelLogistics& fuel() const { return fuel_; }
+    void structureLights(const AppState& app, std::vector<PointLight>& out) const;   // 14e lit floodlights (App)
     BuildingPlay& buildings() { return buildings_; }            // B3a
     const BuildingPlay& buildings() const { return buildings_; }
     struct SquadStart { int ammo = 0; };          // per squad (purchase order): total rounds when the squad was bought
@@ -147,6 +154,9 @@ private:
     CorpseGas gas_;                  // 14d: corpse rot gas, ground fire, flame damage (GPU)
     CorpseGasRender gasRender_;      // 14d: haze / flies / ground fire draw (Renderer extension)
     FlameAI flame_;                  // 14d: flamethrower squads (corpse burning, flame rounds)
+    Structures structures_;          // 14e: towers, generators, floodlights, fuel stores (StructuresGame.cpp: App side)
+    FuelLogistics fuel_;             // 14e: siphon / disassemble -> jerrycans carried to the fuel store
+    bool structUi_ = false;          // 14e hover menus installed after GameUI's built-ins
     uint64_t gasWarned_ = 0;         // squads (bit per squad index < 64) already warned about gas
     CommandQueue commands_;
     std::vector<Command> applying_;

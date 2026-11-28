@@ -6,7 +6,7 @@
 //               [--bench-configs placeholder,naive,culled,greedy,classes,final,final-posevs] [--bench-csv file]
 //   ttz --selftest               (same as the ttz_selftest executable)
 //   ttz --save-config path       write all simulation parameters with their defaults
-//   ttz --map city --game [--game-script FILE --game-sync --balance FILE]   gameplay mode (docs/GAMEPLAY_ARCHITECTURE.md)
+//   ttz --map city --game [--game-script FILE --game-sync --balance FILE --ui-scale F]   gameplay mode (docs/GAMEPLAY_ARCHITECTURE.md)
 //   ttz --lab military [--headless --shots F1,F2 --lab-views closeup,rts110,.. --shot-dir DIR]   Military Asset Lab
 //   ttz --lab military --headless --lab-stress 10,50,100,250,500,1000 [--bench-frames 600] [--lab-zombies 2000]   lab stress bench
 //   ttz --map city --perf-hud [--perf-off fx,particles,gibs,lights,shadows,dof] [--fx-full-res] [--render-scale 0.75]
@@ -103,6 +103,7 @@ int main(int argc, char** argv) {
         else if (!std::strcmp(a, "--shot-dir")) o.shotDir = next();
         else if (!std::strcmp(a, "--lab")) o.lab = next();
         else if (!std::strcmp(a, "--game")) o.game = true;
+        else if (!std::strcmp(a, "--ui-scale")) o.uiScale = (float)std::atof(next());
         else if (!std::strcmp(a, "--game-script")) { o.game = true; o.gameScript = next(); }
         else if (!std::strcmp(a, "--game-sync")) o.gameSync = true;
         else if (!std::strcmp(a, "--game-demo-render")) { o.game = true; o.gameDemoRender = true; }

@@ -73,11 +73,19 @@ public:
     // A context action that needs a ground point: the next LMB on the ground calls fn (RMB / Esc cancel).
     void beginTargeting(const std::string& label, const std::string& hint, std::function<void(const UiCtx&, V3)> fn);
     const HudLayout& layout() const { return layout_; }
+    // ---- World labels (decluttered): text over the 3D view is collected per frame and placed by priority; a label
+    // that would overlap a higher-priority one tries a nudge, else is dropped; identical text close by is merged; labels
+    // fade with zoom (minor ones first) and never cover the HUD panels. Priorities: kLabelCursor 100 (placement /
+    // cursor), kLabelAlert 80 (breach, contested), kLabelSelected 60, kLabelStatus 40 (jobs, roles), kLabelInfo 20
+    // (regions, radius hints), kLabelMinor 10 (squad numbers, stock counts).
+    enum : int { kLabelMinor = 10, kLabelInfo = 20, kLabelStatus = 40, kLabelSelected = 60, kLabelAlert = 80, kLabelCursor = 100 };
+    void worldLabel(float sx, float sy, const std::string& text, uint32_t col, int priority, bool centred = false, bool plate = true);
     // Sticky move pace for RMB orders chosen in the selection panel (0 auto, 1 run, 2 walk); Shift / Ctrl still override.
     int movePace = 0;
     // Scripted previews / captures: show the placement preview of `t` at a world point (no mouse needed).
     void forcePreview(Tool t, V3 pos) { tool_ = t; forced_ = true; forcedPos_ = pos; }
     void clearForcedPreview() { forced_ = false; tool_ = Tool::Select; }
+    void clearForcedFlag() { forced_ = false; }
     // Height-grid pick (street, roof) under a screen point; false when the ray leaves the grid.
     static bool pickGround(const AppState& app, const GameContext& ctx, float sx, float sy, V3& out);
     static bool worldToScreen(const AppState& app, V3 p, float& sx, float& sy);   // scripts: synthetic mouse input
@@ -116,6 +124,10 @@ private:
     void drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& out);
     void watchEvents(const GameContext& ctx);
     void registerFortActions();   // FortUI.cpp: walls / gate / engineers / clear car cards
+    struct WorldLabel { float x, y; std::string text; uint32_t col; int prio; bool centred, plate; };
+    std::vector<WorldLabel> labels_;
+    std::vector<float> hudRects_;   // x0 y0 x1 y1 of this frame's HUD panels (labels never cover them)
+    void flushWorldLabels(AppState& app);
     std::vector<UiAction> actions_;
     std::vector<UiSelectionAction> selActions_;
     std::vector<std::pair<std::string, UiHoverProvider>> hover_;
@@ -146,8 +158,6 @@ private:
     void confirmWall(const AppState& app, const GameContext& ctx, CommandQueue& out);
     void drawWallPreview(AppState& app, const GameContext& ctx);
     void drawTerritory(AppState& app, const GameContext& ctx);
-    void drawTerritoryHud(const GameContext& ctx);
-    void drawWallButtons(const GameContext& ctx);
     bool constructionKey(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out);   // 14d (FortUI.cpp)
     bool clearCarCheck(const AppState& app, const GameContext& ctx, V3 p, const char** why) const;
     void drawClearPreview(AppState& app, const GameContext& ctx);

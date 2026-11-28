@@ -22,6 +22,21 @@ layout(std430, set = 2, binding = 2) readonly buffer Decals  { uint decals[]; };
 layout(std430, set = 2, binding = 3) readonly buffer ShadowH { float shadowH[]; };
 layout(std430, set = 2, binding = 4) readonly buffer CorpseH { int corpseH[]; };
 #include "shadow.glsl"
+// Facade cutouts (CityRenderer::setCutouts, GAME_DESIGN 14e garrison window posts): oriented boxes around opened
+// windows; tile fragments inside are discarded so the room drawn behind the opening shows. a: centre of the opening on
+// the glass plane, w half width; b: xy outward normal (xz), z half height, w depth behind the plane. Count 0 for
+// instanced draws.
+layout(std140, set = 3, binding = 1) uniform Cutouts { uvec4 cutCount; vec4 cutBox[128]; };
+bool facadeCut(vec3 P) {
+    for (uint i = 0u; i < cutCount.x; ++i) {
+        vec4 a = cutBox[2u * i], b = cutBox[2u * i + 1u];
+        vec3 d = P - a.xyz;
+        float o = dot(d.xz, b.xy);
+        if (o > 0.14 || o < -b.w || abs(d.y) > b.z || abs(dot(d.xz, vec2(-b.y, b.x))) > a.w) continue;
+        return true;
+    }
+    return false;
+}
 #define M_GLASS 1u
 #define M_EMISSIVE 2u
 #define M_WATER 4u
@@ -79,8 +94,95 @@ float wallBlood(vec3 P, vec3 N, float u) {
 }
 float sq(float t, float hz) { return step(0.5, fract(t * hz)); }
 
+// ---- Day-time glass (mirror-like windows, curtain walls, vehicle glass) ----
+// From the RTS camera a vertical pane physically reflects the street below (R.y < 0), so the sun would almost never
+// show up in a facade. Stylised instead: the reflection is mirrored into the upper hemisphere (Rs, |R.y| slightly
+// flattened), the environment is a procedural sky (gradient, warm aureole, cloud streaks) above a hint of the opposite
+// city (a dark skyline band, lower floors reflect it), and the sun is an anisotropic GGX-like lobe in that mirrored
+// frame: tight across the facade (glints move window to window as the camera pans), loose vertically (panes bow), so
+// whenever the sun is behind the camera on a facade's side a band of its windows catches it, with a broad warm sheen
+// over the whole sun-facing side (blazing orange at golden hour). Per-room pane tilt + a slow facade warp make it
+// shimmer; both fade into a wider lobe once a room is only a few pixels (no sub-pixel sparkle).
+vec3 glassSky(vec3 Rs, vec3 P) {
+    vec3 L = sunDir.xyz;
+    float e = Rs.y;
+    vec3 hor = fogColor.rgb * 1.15, zen = skyColor.rgb * 2.6;
+    vec3 sky = mix(hor, zen, smoothstep(0.02, 0.9, e));
+    float mu = max(dot(Rs, L), 0.0);
+    float low = 1.0 - smoothstep(0.1, 0.6, L.y);                     // a low sun warms a wider part of the sky
+    sky += sunColor.rgb * (pow(mu, 5.0) * (0.10 + 0.25 * low) + pow(mu, 48.0) * 0.5);
+    // cloud streaks on a plane above (world-anchored; the reflection pans across them)
+    vec2 cp = Rs.xz / (e + 0.15) * 2.2 + P.xz * 0.002;
+    float cl = vnoise(cp * vec2(0.7, 2.4)) * 0.65 + vnoise(cp * vec2(1.9, 5.3) + 7.3) * 0.35;
+    cl = smoothstep(0.52, 0.85, cl) * smoothstep(0.0, 0.25, e);
+    vec3 cloudCol = hor * 1.25 + sunColor.rgb * (0.25 + 0.35 * mu);
+    return mix(sky, cloudCol, cl * 0.55);
+}
+// opposite city: buildings ~24 m across the street, roofline hashed per ~16 m; Rs climbs above it on higher floors
+vec3 glassEnv(vec3 Rs, vec3 P, vec3 N) {
+    vec3 sky = glassSky(Rs, P);
+    float hl = max(length(Rs.xz), 0.05);
+    vec2 t = vec2(-N.z, N.x);
+    float D = 24.0;
+    float hitAlong = dot(P.xz, t) + dot(Rs.xz, t) / hl * D;
+    float cell = floor(hitAlong / 16.0);
+    float Hopp = 8.0 + 34.0 * hash12(vec2(cell, floor(dot(P.xz, N.xz) / 40.0)));
+    float hH = P.y + Rs.y / hl * D;                                   // height where the mirrored ray meets it
+    float city = 1.0 - smoothstep(Hopp - 2.0, Hopp + 2.0, hH);
+    if (city <= 0.0) return sky;
+    float rowsLit = step(0.55, fract(hH / 3.0)) * step(0.3, fract(hitAlong / 3.2));
+    vec3 cityCol = mix(groundColor.rgb * 2.2 + skyColor.rgb * 0.5, fogColor.rgb * 0.75, 0.35) * (0.75 + 0.35 * rowsLit);
+    return mix(sky, cityCol, city * 0.85);
+}
+// base: the diffuse-lit glass body; room / rh: the window room cell and its hash (main); rough: material roughness
+// (0.15 building glass, 0.66 vehicle glass); vis: sun visibility (shadow map)
+vec3 glassDay(vec3 base, vec3 N, vec3 V, vec3 P, vec2 room, float rh, float rough, float gloss, float vis) {
+    vec3 L = sunDir.xyz;
+    bool wall = abs(N.y) < 0.3;
+    // pixel footprint in metres: pane jitter fades and the lobe widens once rooms are a few pixels (temporal stability)
+    float px = length(fwidth(P));
+    float fine = 1.0 - smoothstep(0.25, 0.9, px);
+    vec3 T = wall ? normalize(vec3(-N.z, 0.0, N.x)) : vec3(1.0, 0.0, 0.0);
+    vec3 B = cross(N, T);
+    vec3 Ng = N;
+    if (wall) {
+        float along = dot(P.xz, T.xz);
+        float warpU = (vnoise(vec2(along, P.y) * 0.09) - 0.5) * 0.10;    // slow facade warp (oil-canning)
+        float warpV = (vnoise(vec2(along, P.y) * 0.07 + 31.7) - 0.5) * 0.08;
+        float ju = (rh - 0.5) * 0.16 * fine, jv = (hash12(room * 1.37 + 5.1) - 0.5) * 0.10 * fine;   // per-room pane tilt
+        Ng = normalize(N + T * (warpU + ju) + vec3(0.0, warpV + jv, 0.0));
+    } else {
+        Ng = normalize(N + (T * (rh - 0.5) + B * (hash12(room * 1.37 + 5.1) - 0.5)) * 0.08 * fine);
+    }
+    vec3 R = reflect(-V, Ng);
+    vec3 Rs = normalize(vec3(R.x, abs(R.y) * 0.75, R.z));                          // mirrored into the sky (see above)
+    float NoV = max(dot(Ng, V), 1e-3);
+    float F = 0.04 + 0.96 * pow(1.0 - NoV, 5.0);
+    float mirror = max(gloss, 0.6);
+    float refl = mix(0.26, 1.0, F) * mirror;                                       // coated glass: mirror-like
+    vec3 env = glassEnv(Rs, P, N);
+    vec3 col = base * (1.0 - refl) * 0.7 + env * refl;
+    // sun: anisotropic lobe around the mirrored reflection (tight across the facade, loose vertically)
+    float a = mix(0.07, 0.16, clamp(rough, 0.0, 1.0));
+    float jit = wall ? 0.11 : 0.08;
+    float ax = sqrt(a * a + jit * jit * (1.0 - fine)) * 2.0;                      // reflection angles = 2x normal
+    float ay = ax * (wall ? 3.2 : 1.0);
+    vec3 d = L - Rs;
+    float dh = dot(d, T), dv = wall ? d.y : dot(d, B);
+    float q = dh * dh / (ax * ax) + dv * dv / (ay * ay);
+    float core = 1.0 / ((1.0 + q) * (1.0 + q));
+    float qb = q * 0.09;                                                           // broad sheen: 3.3x wider
+    float sheen = 1.0 / ((1.0 + qb) * (1.0 + qb));
+    float facing = smoothstep(0.0, 0.2, dot(N, L)) * step(0.0, dot(Rs, L));
+    float sunUp = smoothstep(-0.02, 0.05, L.y) * (1.0 - todP.z);                  // sun, not moon
+    float glint = (core * 7.0 * (1.0 - 0.5 * (1.0 - fine)) + sheen * 0.55) * refl;
+    col += sunColor.rgb * min(glint, 6.0) * facing * vis * sunUp;
+    return col;
+}
+
 void main() {
     if (voxelDissolved(vCell, vDissolve)) discard;   // lab canopies after landing (docs/MILITARY_ANIMS.md 2.3.3)
+    if (cutCount.x > 0u && facadeCut(vWorld)) discard;   // opened garrison windows
     Mat m = mats[vMat];
     vec3 N = normalize(vNormal);
     vec3 albedo = m.albedo.rgb;
@@ -143,12 +245,15 @@ void main() {
         vec3 sky = mix(fogColor.rgb * 1.2, skyColor.rgb * 1.6, clamp(R.y * 1.5, 0.0, 1.0));
         float f = 0.04 + 0.96 * pow(1.0 - max(dot(Ng, V), 0.0), 5.0);
         float k = (flags & M_WATER) != 0u ? 1.0 : glass ? max(gloss, 0.5) : wet * 0.6;
+        vec3 base = col;
         col = mix(col, sky, clamp(f * k, 0.0, 1.0)) + sky * 0.15 * k * (glass ? 1.0 : 0.0);
         if (glass) {   // the sun (or moon) in the glass: a sharp specular glint, Fresnel-weighted, shadowed with the facade
             float sp = max(dot(R, sunDir.xyz), 0.0);
             float glint = pow(sp, 900.0) * 60.0 + pow(sp, 60.0) * 0.6;
             col += sunColor.rgb * glint * (0.25 + 0.75 * f) * vis * k;
         }
+        float day = glass ? clamp(1.0 - todP.x * 1.25, 0.0, 1.0) : 0.0;   // night: the shading above, unchanged
+        if (day > 0.0) col = mix(col, glassDay(base, N, V, vWorld, room, rh, m.emis.z, gloss, vis), day);
     }
     // emission (FORMAT.md section 6, City Lab's uNight = todP.x: 0 day .. 1 night)
     if ((flags & M_EMISSIVE) != 0u) {

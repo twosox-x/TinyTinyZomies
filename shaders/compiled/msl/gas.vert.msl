@@ -44,6 +44,13 @@ struct spvUnsafeArray
     }
 };
 
+// Implementation of the GLSL mod() function, which is slightly different than Metal fmod()
+template<typename Tx, typename Ty>
+inline Tx mod(Tx x, Ty y)
+{
+    return x - y * floor(x / y);
+}
+
 // Implementation of signed integer mod accurate to SPIR-V specification
 template<typename Tx, typename Ty>
 inline Tx spvSMod(Tx x, Ty y)
@@ -135,7 +142,8 @@ struct SimUniforms
 
 constant spvUnsafeArray<int3, 24> _223 = spvUnsafeArray<int3, 24>({ int3(1, 0, 0), int3(1, 1, 0), int3(1), int3(1, 0, 1), int3(0, 0, 1), int3(0, 1, 1), int3(0, 1, 0), int3(0), int3(0, 1, 0), int3(0, 1, 1), int3(1), int3(1, 1, 0), int3(0, 0, 1), int3(0), int3(1, 0, 0), int3(1, 0, 1), int3(1, 0, 1), int3(1), int3(0, 1, 1), int3(0, 0, 1), int3(0), int3(0, 1, 0), int3(1, 1, 0), int3(1, 0, 0) });
 constant spvUnsafeArray<int, 6> _231 = spvUnsafeArray<int, 6>({ 0, 1, 2, 0, 2, 3 });
-constant spvUnsafeArray<float3, 6> _606 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+constant spvUnsafeArray<float, 5> _301 = spvUnsafeArray<float, 5>({ 0.02999999932944774627685546875, 0.100000001490116119384765625, 0.2199999988079071044921875, 0.4000000059604644775390625, 0.64999997615814208984375 });
+constant spvUnsafeArray<float3, 6> _689 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
 
 struct main0_out
 {
@@ -169,7 +177,7 @@ float simTop(thread const float2& xz, constant GasDraw& _67, const device Static
     return fast::max(_112.staticH[id], 0.0) + (float(_121.corpseH[id]) * 0.001000000047497451305389404296875);
 }
 
-vertex main0_out main0(constant Frame& _623 [[buffer(0)]], constant GasDraw& _67 [[buffer(1)]], const device List& _136 [[buffer(2)]], const device Field& _149 [[buffer(3)]], const device StaticH& _112 [[buffer(4)]], const device CorpseH& _121 [[buffer(5)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
+vertex main0_out main0(constant Frame& _706 [[buffer(0)]], constant GasDraw& _67 [[buffer(1)]], const device List& _136 [[buffer(2)]], const device Field& _149 [[buffer(3)]], const device StaticH& _112 [[buffer(4)]], const device CorpseH& _121 [[buffer(5)]], uint gl_InstanceIndex [[instance_id]], uint gl_VertexIndex [[vertex_id]])
 {
     main0_out out = {};
     uint cell = _136.list[4u + uint(int(gl_InstanceIndex))];
@@ -199,60 +207,54 @@ vertex main0_out main0(constant Frame& _623 [[buffer(0)]], constant GasDraw& _67
     bool on = false;
     float2 param_3 = cc;
     float ground = simTop(param_3, _67, _112, _121);
-    if ((box == 0) && (gas > 0.02999999932944774627685546875))
+    if (box <= 4)
     {
-        float hgt = 0.25 * fast::clamp(1.0 + floor(gas * 2.0), 1.0, _67.gStyle.w / 0.25);
-        lo = float3(c0.x, ground - 0.0500000007450580596923828125, c0.y);
-        size = float3(_67.gOrigin.z, hgt + 0.0500000007450580596923828125, _67.gOrigin.z);
-        col = float4(0.4000000059604644775390625, 0.519999980926513671875, 0.100000001490116119384765625, fast::clamp((0.119999997317790985107421875 + (0.20000000298023223876953125 * gas)) * _67.gStyle.x, 0.0, 0.449999988079071044921875));
-        on = true;
+        float th = _301[box];
+        if (gas > th)
+        {
+            float lvl = fast::clamp((gas - th) / 0.60000002384185791015625, 0.0, 1.0);
+            float ph = fract((t * (0.04500000178813934326171875 + (0.0350000001490116119384765625 * h3))) + h1);
+            float sw = ((t * (0.119999997317790985107421875 + (0.100000001490116119384765625 * h2))) * ((h3 > 0.5) ? 1.0 : (-1.0))) + (h1 * 6.283185482025146484375);
+            float rad = (0.3499999940395355224609375 + (0.550000011920928955078125 * h2)) * _67.gOrigin.z;
+            float2 ctr = (cc + (((float2(h1, h2) - float2(0.5)) * _67.gOrigin.z) * 0.89999997615814208984375)) + (float2(cos(sw), sin(sw * 0.800000011920928955078125)) * rad);
+            ctr += (((float2(0.60000002384185791015625, 0.25) * t) * 0.039999999105930328369140625) * (0.5 + h3));
+            ctr = (cc + mod((ctr - cc) + float2(0.89999997615814208984375 * _67.gOrigin.z), float2(1.7999999523162841796875 * _67.gOrigin.z))) - float2(0.89999997615814208984375 * _67.gOrigin.z);
+            float s = 0.125 * floor((0.375 + (((0.3499999940395355224609375 + (0.550000011920928955078125 * lvl)) * (0.60000002384185791015625 + (0.800000011920928955078125 * ph))) * fast::min(1.0 + (0.300000011920928955078125 * gas), 1.60000002384185791015625))) / 0.125);
+            s = fast::clamp(s, 0.375, 1.25);
+            float2 param_4 = ctr;
+            float y = (simTop(param_4, _67, _112, _121) + 0.0500000007450580596923828125) + (ph * (0.5 + (0.550000011920928955078125 * fast::min(gas, 2.0))));
+            lo = float3(ctr.x - (0.5 * s), y, ctr.y - (0.5 * s));
+            size = float3(s);
+            float env = smoothstep(0.0, 0.180000007152557373046875, ph) * (1.0 - smoothstep(0.60000002384185791015625, 1.0, ph));
+            float3 green = mix(float3(0.36000001430511474609375, 0.560000002384185791015625, 0.07999999821186065673828125), float3(0.579999983310699462890625, 0.699999988079071044921875, 0.1599999964237213134765625), float3(h3));
+            col = float4(green, fast::clamp(((0.0900000035762786865234375 + (0.1500000059604644775390625 * fast::min(gas, 1.5))) * env) * _67.gStyle.x, 0.0, 0.23999999463558197021484375));
+            on = col.w > 0.00999999977648258209228515625;
+        }
     }
     else
     {
-        bool _345 = (box == 1) || (box == 2);
-        bool _352;
-        if (_345)
+        if (((box >= 5) && (box <= 7)) && (rotting > 0u))
         {
-            _352 = gas > _67.gStyle.z;
+            float a = ((t * (2.2000000476837158203125 + (1.2999999523162841796875 * h1))) * ((h2 > 0.5) ? 1.0 : (-1.0))) + (h3 * 6.283100128173828125);
+            float r = 0.300000011920928955078125 + (0.449999988079071044921875 * h2);
+            float s_1 = 0.0900000035762786865234375;
+            lo = float3(cc.x + (cos(a) * r), ((ground + 0.449999988079071044921875) + (0.4000000059604644775390625 * h1)) + (0.119999997317790985107421875 * sin((t * 7.0) + (h3 * 10.0))), cc.y + (sin(a * 1.2999999523162841796875) * r)) - float3(0.5 * s_1);
+            size = float3(s_1);
+            col = float4(0.014999999664723873138427734375, 0.014999999664723873138427734375, 0.01200000010430812835693359375, 1.0);
+            on = true;
         }
         else
         {
-            _352 = _345;
-        }
-        if (_352)
-        {
-            float ph = fract((t * (0.100000001490116119384765625 + (0.0500000007450580596923828125 * h3))) + h1);
-            float s = 0.5;
-            lo = float3(c0.x + (h1 * (_67.gOrigin.z - s)), (ground + 0.25) + (ph * (0.800000011920928955078125 + (0.5 * fast::min(gas, 2.0)))), c0.y + (h2 * (_67.gOrigin.z - s)));
-            size = float3(s);
-            col = float4(0.4600000083446502685546875, 0.579999983310699462890625, 0.14000000059604644775390625, fast::clamp(((0.100000001490116119384765625 + (0.2199999988079071044921875 * fast::min(gas, 1.5))) * _67.gStyle.x) * sin(ph * 3.141590118408203125), 0.0, 0.37999999523162841796875));
-            on = col.w > 0.00999999977648258209228515625;
-        }
-        else
-        {
-            if (((box >= 3) && (box <= 5)) && (rotting > 0u))
+            if (((box == 8) && (fire > 0.0)) && (h3 < 0.5))
             {
-                float a = ((t * (2.2000000476837158203125 + (1.2999999523162841796875 * h1))) * ((h2 > 0.5) ? 1.0 : (-1.0))) + (h3 * 6.283100128173828125);
-                float r = 0.300000011920928955078125 + (0.449999988079071044921875 * h2);
-                float s_1 = 0.0900000035762786865234375;
-                lo = float3(cc.x + (cos(a) * r), ((ground + 0.449999988079071044921875) + (0.4000000059604644775390625 * h1)) + (0.119999997317790985107421875 * sin((t * 7.0) + (h3 * 10.0))), cc.y + (sin(a * 1.2999999523162841796875) * r)) - float3(0.5 * s_1);
-                size = float3(s_1);
-                col = float4(0.014999999664723873138427734375, 0.014999999664723873138427734375, 0.01200000010430812835693359375, 1.0);
+                float ph_1 = fract((t * (0.60000002384185791015625 + (0.5 * h3))) + h1);
+                float s_2 = 0.070000000298023223876953125;
+                lo = float3((c0.x + 0.1500000059604644775390625) + (h1 * ((_67.gOrigin.z - 0.300000011920928955078125) - s_2)), (ground + 0.4000000059604644775390625) + (ph_1 * 2.5), (c0.y + 0.1500000059604644775390625) + (h2 * ((_67.gOrigin.z - 0.300000011920928955078125) - s_2)));
+                size = float3(s_2);
+                float3 hot = mix(float3(9.0, 6.5, 2.400000095367431640625), float3(5.5, 1.60000002384185791015625, 0.25), float3(smoothstep(0.0, 0.5, ph_1)));
+                col = float4(mix(hot, float3(1.60000002384185791015625, 0.25, 0.039999999105930328369140625), float3(smoothstep(0.5, 1.0, ph_1))), 0.949999988079071044921875);
+                em = 1.0;
                 on = true;
-            }
-            else
-            {
-                if (((box == 6) && (fire > 0.0)) && (h3 < 0.5))
-                {
-                    float ph_1 = fract((t * (0.60000002384185791015625 + (0.5 * h3))) + h1);
-                    float s_2 = 0.070000000298023223876953125;
-                    lo = float3((c0.x + 0.1500000059604644775390625) + (h1 * ((_67.gOrigin.z - 0.300000011920928955078125) - s_2)), (ground + 0.4000000059604644775390625) + (ph_1 * 2.5), (c0.y + 0.1500000059604644775390625) + (h2 * ((_67.gOrigin.z - 0.300000011920928955078125) - s_2)));
-                    size = float3(s_2);
-                    float3 hot = mix(float3(9.0, 6.5, 2.400000095367431640625), float3(5.5, 1.60000002384185791015625, 0.25), float3(smoothstep(0.0, 0.5, ph_1)));
-                    col = float4(mix(hot, float3(1.60000002384185791015625, 0.25, 0.039999999105930328369140625), float3(smoothstep(0.5, 1.0, ph_1))), 0.949999988079071044921875);
-                    em = 1.0;
-                    on = true;
-                }
             }
         }
     }
@@ -266,10 +268,10 @@ vertex main0_out main0(constant Frame& _623 [[buffer(0)]], constant GasDraw& _67
         return out;
     }
     out.vWorld = lo + (corner * size);
-    out.vNormal = _606[face];
+    out.vNormal = _689[face];
     out.vColor = col;
     out.vEmissive = em;
-    out.gl_Position = _623.viewProj * float4(out.vWorld, 1.0);
+    out.gl_Position = _706.viewProj * float4(out.vWorld, 1.0);
     return out;
 }
 

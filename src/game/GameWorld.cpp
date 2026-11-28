@@ -59,6 +59,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
         vertical_.setZombieCounts = [&reg](BuildingId b, int in, int roof, const int16_t* pf, int n) { reg.setZombieCounts(b, in, roof, pf, n); };
     } else SDL_Log("game: vertical horde unavailable (game_vertical pipeline)");
     fort_.init(app, cfg_);                                     // B2: walls, territory, containers as obstacles
+    setWallEnvBuildings(&buildings_.registry());              // 14e: exact facades for wall sealing
     if (gas_.init(app.gpu, app.sim)) {                         // 14d: corpse rot gas + flame fire
         gas_.configure(cfg_.rot, cfg_.flame);
         gas_.setSync(opt.syncReadback);
@@ -90,7 +91,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     }
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
     if (ctx_.gas && !gasRender_.init(app, gas_)) SDL_Log("game: gas renderer unavailable");
-    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); drawBuildingProps(mil, ctx_, buildings_); };
+    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); drawBuildingProps(mil, ctx_, buildings_, app_); };
     // B3a buildings: BLDG records of the tiles under the window, UI hooks, hospital seeking (SoldierAI hook)
     syncBuildings(app, buildings_, fort_.navHeights(app), cfg_);
     installBuildingUI(ui_, buildings_);
@@ -124,6 +125,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
 }
 
 void GameWorld::shutdown(AppState& app) {
+    shutdownBuildingRender(app);   // B3a / 14e garrison window rooms
     gasRender_.shutdown(app);
     gas_.shutdown();
     render_.shutdown(app);
@@ -136,6 +138,7 @@ void GameWorld::rebuildNav(AppState& app) {
     const Sandbox& sb = app.sandbox;
     const std::vector<float>& h = fort_.navHeights(app);   // sim heights, gate passages lowered (B2)
     if (h.size() != (size_t)sb.gridW * (size_t)sb.gridH) return;
+    nav_.setMask(fort_.navMask());                     // 14e: car roofs / wall tops never walkable, blueprints reserved
     nav_.build(h, sb.gridW, sb.gridH, sb.originX, sb.originZ, sb.cellSize);
     nav_.setShotHeights(app.vehicles.simHeights());   // rounds stop at the zombies' grid (gates included)
     navOx_ = sb.originX; navOz_ = sb.originZ;

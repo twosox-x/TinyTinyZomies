@@ -99,6 +99,17 @@ public:
     // the roof-surface picker of drops / crates searches these.
     void islandCells(V3 p, float maxR, int maxCells, std::vector<V3>& out) const;
 
+    // Obstacle / reservation mask (GAME_DESIGN 14e, Fortifications::navHeights): per cell, bit 0 = standing on a
+    // gameplay obstacle (parked vehicle, wall, container; never walkable: no soldier paths onto a car roof or a wall top,
+    // even where cars and walls form a connected flat), bit 1 = reserved for a wall blueprint (walkable, but A* pays
+    // kReserveCost per metre: paths and work spots keep off future pieces, corridors stay open). Set it before
+    // build() / updateRows() (same layout as the heights; empty = no mask).
+    static constexpr float kReserveCost = 3.f;
+    void setMask(const std::vector<uint8_t>& m) { mask_ = m; }
+    std::vector<uint8_t>& mask() { return mask_; }
+    bool onObstacle(float x, float z) const;         // the cell at (x, z) is a gameplay obstacle (bit 0)
+    bool reserved(float x, float z) const;           // the cell at (x, z) is reserved for a blueprint (bit 1)
+
     // Asynchronous-style queries served in budgeted slices from tick(): returns a request id (> 0).
     uint32_t requestPath(V3 from, V3 to);
     bool poll(uint32_t request, std::vector<V3>& out, bool& failed);   // true when finished (out valid unless failed)
@@ -121,6 +132,7 @@ private:
     std::vector<float> h_;
     std::vector<float> shotH_;       // zombies' static grid (rounds), same layout as h_
     std::vector<uint8_t> walk_;
+    std::vector<uint8_t> mask_;      // setMask (bit 0 obstacle, bit 1 reserved)
     const std::vector<uint8_t>* costL_ = nullptr;   // setCostLayer
     int costW_ = 0, costH_ = 0;
     float costOx_ = 0, costOz_ = 0, costCell_ = 1.f, costScale_ = 0.f;

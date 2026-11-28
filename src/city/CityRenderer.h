@@ -127,6 +127,15 @@ public:
     // The same instances into the shadow pass (depth only).
     void drawExternalShadow(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_GPUBuffer* insts, const std::vector<ExtDraw>& draws);
 
+    // Facade cutouts (GAME_DESIGN 14e garrison window posts): tile fragments inside these oriented boxes are discarded
+    // (city.frag), so an opened window shows the room drawn behind it. 8 floats per box: centre of the opening on the
+    // glass plane (x, y, z), half width; outward normal (x, z), half height, depth behind the plane. Instances
+    // (drawExternal) are never cut. At most kMaxCutouts; set every frame (empty = none).
+    static constexpr int kMaxCutouts = 64;
+    void setCutouts(const float* boxes, uint32_t n);
+    // Palette ids of the garrison room interior materials (CityRenderer.cpp; free ids above the baked palette).
+    static constexpr int kInteriorMat = 240, kInteriorMats = 12;
+
     CitySettings settings;
     CityWater water;          // smooth water surfaces (WATR)
     CityFoliage foliage;      // instanced crops / grass / reeds (FOLI)
@@ -180,6 +189,8 @@ private:
     uint64_t lampSig_ = 0;
     void rebuildLampGrid(SDL_GPUCommandBuffer* cmd);
     void bindShadowMap(SDL_GPURenderPass* pass) const;
+    void pushCutouts(SDL_GPUCommandBuffer* cmd, bool tiles) const;
+    std::vector<float> cutouts_;
     SDL_GPUBuffer *materials_ = nullptr, *instances_ = nullptr, *dummy_ = nullptr;
     SDL_GPUBuffer* quadIB_ = nullptr;            // shared u32 index buffer of the implicit quad pattern
     uint32_t quadIBQuads_ = 0;

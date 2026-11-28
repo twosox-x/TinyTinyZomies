@@ -191,25 +191,41 @@ bool streamRayInterval(vec3 o, vec3 d, float L, vec3 ro, vec3 rd, out float ta, 
     tb = tube ? (smoke ? max(y, sy) : y) : sy;
     return true;
 }
-// Ground-fire pool (kind 3), v4: flames on the 5 cm grid where the jet reaches the ground / bodies burn: disc of radius
-// R, flame height 0.55 m x (1 - d) x flicker noise (re-rolled by the scrolling noise), yellow base -> orange tips
-// (v4 ramp capped at 0.78, no red), the burning bed always filled; no smoke column.
+// Ground-fire pool (kind 3), v5 (owner 2026-11-28 / GAME_DESIGN 14e: "puddles behave like fire"): flames on the
+// 5-10 cm grid in separate licking tongues (one per ~0.45 m patch, each with its own flicker rate and height, scrolling
+// noise along the tongue), a wobbling edge (the puddle spreads / shrinks), the burning bed always filled; strength k
+// (fxB.w: the cell's remaining fire) lowers the tongues as it burns down, the bed turns to glowing embers and thin grey
+// smoke wisps rise above it (more when dying). Colour: v4 ramp (yellow base -> orange tips, capped at 0.78).
 float poolDensity(vec3 q, vec3 c, float R, float t, float k, float seed, out vec3 mat) {
     mat = vec3(0.0);
     float y = q.y - (c.y - 0.03);
     if (y < 0.0) return -1.0;
-    float dd = length(q.xz - c.xz) / R;
-    if (dd > 1.15 || y > 0.9 * max(R, 0.5) + 0.3) return -1.0;
-    float n = vnoise(vec3(q.x * 7.0, q.y * 3.0 - t * 6.0, q.z * 7.0) + vec3(seed, 0.0, seed * 0.5));
-    float n2 = vnoise(vec3(q.x * 2.5 + seed, t * 2.0, q.z * 2.5));
-    float hMax = 0.55 * clamp(R / 0.45, 1.0, 1.6) * 0.75 * (1.0 - dd) * (0.55 + 0.9 * n2) * (0.5 + 0.5 * k);
-    float bed = (1.0 - dd) > 0.0 && y < 0.06 ? 1.0 : 0.0;
-    float dens = max(bed, (hMax * (0.6 + 0.8 * n) - y) / max(hMax, 0.05));
-    if (dd > 1.0) dens = -1.0;
-    if (dens <= 0.0) return dens;
-    float h = clamp(y / max(hMax * 1.3, 0.05), 0.0, 1.0);
-    mat = vec3(min(0.78, 0.25 + 0.55 * h + 0.15 * dd), 2.0, 0.0);
-    return dens;
+    vec2 rel = q.xz - c.xz;
+    float edge = 0.86 + 0.28 * vnoise(vec3(rel * 1.4 + seed, t * 0.35));   // spreading / shrinking outline
+    float dd = length(rel) / (R * edge);
+    if (dd > 1.0 || y > 2.3) return -1.0;
+    ivec2 gi = ivec2(floor(q.xz * 2.2 + seed * 0.37));
+    float tid = fxH01(ivec3(gi, int(seed)));
+    float flick = 0.62 + 0.38 * sin(t * (8.0 + 6.0 * tid) + tid * 40.0) * sin(t * (3.1 + 2.0 * tid) + tid * 13.0);
+    float hMax = (0.3 + 0.8 * k) * (1.0 - dd * dd) * flick * (0.45 + 0.9 * vnoise(vec3(vec2(gi) * 0.9, t * 1.6 + tid * 7.0)))
+                 * clamp(R / 0.6, 0.8, 1.5);
+    float lick = vnoise(vec3(q.x * 4.5, q.y * 2.6 - t * 7.5, q.z * 4.5) + vec3(seed, 0.0, seed * 0.5));
+    float bed = y < 0.06 && dd < 0.97 ? 1.0 : 0.0;
+    float dens = max(bed, (hMax * (0.5 + 0.95 * lick) - y) / max(hMax, 0.05));
+    if (dens > 0.0) {
+        float h = clamp(y / max(hMax * 1.3, 0.05), 0.0, 1.0);
+        float ember = bed > 0.5 && k < 0.5 ? step(0.55 + 0.35 * k, vnoise(vec3(q.xz * 9.0, t * 0.8))) : 0.0;   // dying bed
+        mat = vec3(min(0.78, 0.25 + 0.55 * h + 0.15 * dd + 0.5 * ember), 2.0, 0.0);
+        return dens;
+    }
+    // thin smoke wisps above the tongues (rising, drifting with the wind; thicker while it burns down)
+    vec3 sq = q - FX_WIND * min(y, 2.0) * 0.5;
+    float sy = y - (0.35 + 0.6 * k);
+    if (sy > 0.0 && length(sq.xz - c.xz) < R * 0.55) {
+        float n = vnoise(vec3(sq.x * 2.2, sq.y * 1.6 - t * 1.3, sq.z * 2.2) + seed);
+        if (n > 0.74 - 0.12 * (1.0 - k) + 0.05 * sy) { mat = vec3(0.0, 0.0, clamp(sy * 0.5, 0.0, 1.0)); return 0.5; }
+    }
+    return -1.0;
 }
 // Ray interval [ta, tb] (hull) where a blast's parts, inflated by m (boxes: their own >= 0.5 m margins), can be: the ellipsoid of the ball, the stem's
 // box, the ring's cylinder slab. Voxels whose centre has density > 0 lie wholly inside the parts inflated by the

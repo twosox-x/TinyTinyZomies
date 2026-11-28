@@ -8,6 +8,7 @@
 #include "game/HordeInterface.h"
 
 #include <SDL3/SDL.h>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -19,6 +20,10 @@ namespace ttz::game {
 // B3b (VerticalScript.cpp)
 bool verticalVerb(GameWorld& w, const ScriptLine& L, std::string& err);
 bool verticalMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
+// GAME_DESIGN 14e rooftops (RoofScript.cpp)
+bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err);
+bool roofMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
+void roofWatchTick(GameWorld& w);
 
 
 namespace {
@@ -86,6 +91,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     }
     if (m == "ledger_sum") { out = 0; for (const LedgerEntry& e : eco.ledger()) out += e.amount; return true; }
     if (m == "shots") { out = (double)w.combat().roundsFired(); return true; }
+    if (m == "lock_tracked") { out = (double)w.ai().lockTracked(); return true; }   // long-range locks on the exact zombie (owner 2026-11-28)
     if (m == "hits") { out = (double)w.horde().stats().hitsOnZombies; return true; }          // rounds that hit a zombie (GPU)
     if (m == "hit_pct") { const double sh = (double)w.combat().roundsFired(); out = sh > 0 ? 100.0 * (double)w.horde().stats().hitsOnZombies / sh : 0; return true; }
     if (m == "hits_static") { out = (double)w.horde().stats().hitsOnStatic; return true; }
@@ -109,6 +115,9 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "time") { out = ctx.time; return true; }
     if (m == "selected") { out = (double)w.ui().selection().squads.size(); return true; }
     if (m == "tool") { out = (double)w.ui().tool(); return true; }
+    if (m == "ui_tab") { out = (double)w.ui().category(); return true; }        // HUD 2: 0 units 1 structures 2 supplies 3 engineering 4 vehicles
+    if (m == "ui_actions") { out = (double)w.ui().actions().size(); return true; }
+    if (m == "ui_pace") { out = (double)w.ui().movePace; return true; }
     // GAME_DESIGN 14d corpse gas / flamethrowers
     if (m == "gas_max") { out = w.gas().stats().maxGas; return true; }
     if (m == "gas_cells") { out = w.gas().stats().gasCells; return true; }
@@ -213,6 +222,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (fortMetric(w, m, a, k, out, err)) return err.empty();   // B2 metrics (FortScript.cpp)
     if (buildingMetric(w, m, a, k, out, err)) return err.empty();   // B3a metrics (BuildingGame.cpp)
     if (verticalMetric(w, m, a, k, out, err)) return err.empty();   // B3b metrics (VerticalScript.cpp)
+    if (roofMetric(w, m, a, k, out, err)) return err.empty();       // 14e rooftop metrics (RoofScript.cpp)
     err = "unknown metric " + m;
     return false;
 }
@@ -286,6 +296,7 @@ void GameScript::expect(GameWorld& w, const ScriptLine& L) {
 }
 
 bool GameScript::tick(GameWorld& world, double time) {
+    roofWatchTick(world);   // 14e: idle rooftop soldiers vs the roof edge (after `roofwatch`)
     while (!ended_ && next_ < lines_.size() && lines_[next_].at <= time + 1e-9) {
         const ScriptLine& L = lines_[next_++];
         const std::vector<std::string>& a = L.args;
@@ -340,6 +351,29 @@ bool GameScript::tick(GameWorld& world, double time) {
             V3 p{f(a, 1), 0, f(a, 2)};
             if (world.context().nav && world.context().nav->ready()) p.y = world.context().nav->surface(p.x, p.z);
             world.ui().forcePreview(t, p);
+        } else if (L.verb == "ui") {   // HUD 2 verbs (no UI pixel coordinates in scripts)
+            //   ui action ID | ui tab units|structures|supplies|engineering|vehicles | ui tip ID|off | ui hover X Z|off
+            if (!app || a.empty()) { bad("ui action ID | ui tab NAME | ui tip ID|off | ui hover X Z|off"); continue; }
+            GameUI& ui = world.ui();
+            if (a[0] == "action" && a.size() >= 2) {
+                if (!ui.invokeAction(*app, world.context(), q, a[1])) bad("ui action: unknown id");
+            } else if (a[0] == "tab" && a.size() >= 2) {
+                int c = -1;
+                for (int k = 0; k < (int)UiCategory::Count; ++k) {
+                    std::string n = uiCategoryName((UiCategory)k);
+                    for (char& ch : n) ch = (char)std::tolower((unsigned char)ch);
+                    if (n == a[1]) c = k;
+                }
+                if (c < 0) { bad("ui tab: unknown category"); continue; }
+                ui.setCategory((UiCategory)c);
+            } else if (a[0] == "tip" && a.size() >= 2) ui.forceTip = a[1] == "off" ? std::string() : a[1];
+            else if (a[0] == "hover" && a.size() >= 2) {
+                if (a[1] == "off") { ui.forceHover = false; ui.clearForcedPreview(); continue; }
+                V3 p{f(a, 1), 0, f(a, 2)};
+                if (world.context().nav && world.context().nav->ready()) p.y = world.context().nav->surface(p.x, p.z);
+                ui.forcePreview(Tool::Select, p);
+                ui.forceHover = true;
+            } else bad("ui: unknown sub-verb");
         } else if (L.verb == "camera") {
             if (!app || a.size() < 2) { bad("camera X Z [YAW PITCH DIST]"); continue; }
             app->camera.setImmediate({f(a, 0), 0.f, f(a, 1)}, f(a, 2, app->camera.yaw()), f(a, 3, app->camera.pitch()), f(a, 4, app->camera.distance()));
@@ -512,6 +546,8 @@ bool GameScript::tick(GameWorld& world, double time) {
             if (!berr.empty()) bad(berr.c_str());
         } else if (std::string verr; verticalVerb(world, L, verr)) {   // B3b verbs (VerticalScript.cpp)
             if (!verr.empty()) bad(verr.c_str());
+        } else if (std::string rerr; roofVerb(world, L, rerr)) {      // 14e rooftop verbs (RoofScript.cpp)
+            if (!rerr.empty()) bad(rerr.c_str());
         } else bad(("unknown verb " + L.verb).c_str());
     }
     return !ended_;

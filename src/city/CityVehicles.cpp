@@ -508,6 +508,7 @@ void CityVehicles::blast(uint32_t i, float cx, float cy, float cz, float scale) 
             v.state = VehState::Damaged;
             setVariant(v, (uint16_t)M.damaged);
         }
+        if (v.drained) v.health = std::max(v.health, 1.f);   // GAME_DESIGN 14e: no fuel, no fire (dented, stays put)
         if (v.health <= 0.f && v.state != VehState::Burning) {
             v.state = VehState::Burning;
             v.fuse = 0.5f + 2.5f * rand01();

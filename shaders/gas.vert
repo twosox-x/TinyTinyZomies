@@ -2,10 +2,12 @@
 #extension GL_GOOGLE_include_directive : require
 // Corpse gas haze, flies and ground fire (GAME_DESIGN 14d; src/game/CorpseGas.cpp). One instance per listed gas cell
 // (game_gas_field appends cells with gas, fire or rotting corpses), 9 voxel boxes per instance (vertex pulling):
-//   0     low haze slab over the cell, height in 0.25 m voxel steps with the gas level (blocky patches; translucent)
-//   1, 2  sparse rising gas puffs (0.5 m voxels) where the gas is thick
-//   3..5  flies: tiny dark voxels circling over rotting bodies
-//   6     ground fire: a sparse rising ember (the flames are fx_volume pools, Renderer::setFlameVolumes); 7, 8 unused
+//   0..4  drifting gas puffs (owner 2026-11-28 / GAME_DESIGN 14e: "no grid overlay, the gas particles more noticeable"):
+//         voxel cubes of 0.375-1.25 m (0.125 m steps) swirling slowly round the cell and rising, more and bigger with
+//         the gas level; spread over +-0.9 cell so neighbouring cells overlap (no cell-aligned slab / grid look);
+//         sickly yellow-green with a faint glow (reads at dusk / night), alpha <= 0.24 each (units stay readable)
+//   5..7  flies: tiny dark voxels circling over rotting bodies
+//   8     ground fire: a sparse rising ember (the flames are fx_volume pools, Renderer::setFlameVolumes)
 // Unused boxes collapse to a point (no fragments).
 #define FRAME_SET 1
 #include "common.glsl"
@@ -17,7 +19,7 @@ layout(std430, set = 0, binding = 3) readonly buffer CorpseH { int corpseH[]; };
 layout(std140, set = 1, binding = 1) uniform GasDraw {
     vec4 gOrigin;   // x originX, y originZ, z gas cell (m), w sim cell (m)
     uvec4 gDim;     // x gasW, y gasH, z simW, w simH
-    vec4 gStyle;    // x haze alpha scale, y time (s), z puff threshold, w haze max height
+    vec4 gStyle;    // x puff alpha scale, y time (s), z, w unused
 };
 layout(location = 0) out vec3 vWorld;
 layout(location = 1) out vec3 vNormal;
@@ -54,20 +56,28 @@ void main() {
     float em = 0.0;
     bool on = false;
     float ground = simTop(cc);
-    if (box == 0 && gas > 0.03) {   // haze slab: 0.25 m voxel steps, faint where thin
-        float hgt = 0.25 * clamp(1.0 + floor(gas * 2.0), 1.0, gStyle.w / 0.25);
-        lo = vec3(c0.x, ground - 0.05, c0.y);
-        size = vec3(gOrigin.z, hgt + 0.05, gOrigin.z);
-        col = vec4(0.40, 0.52, 0.10, clamp((0.12 + 0.20 * gas) * gStyle.x, 0.0, 0.45));
-        on = true;
-    } else if ((box == 1 || box == 2) && gas > gStyle.z) {   // rising puffs
-        float ph = fract(t * (0.10 + 0.05 * h3) + h1);
-        float s = 0.5;
-        lo = vec3(c0.x + h1 * (gOrigin.z - s), ground + 0.25 + ph * (0.8 + 0.5 * min(gas, 2.0)), c0.y + h2 * (gOrigin.z - s));
-        size = vec3(s);
-        col = vec4(0.46, 0.58, 0.14, clamp((0.10 + 0.22 * min(gas, 1.5)) * gStyle.x * sin(ph * 3.14159), 0.0, 0.38));
-        on = col.a > 0.01;
-    } else if (box >= 3 && box <= 5 && rotting > 0u) {   // flies over rotting bodies
+    if (box <= 4) {   // drifting puffs: puff k appears above its own gas threshold
+        const float TH[5] = float[5](0.03, 0.10, 0.22, 0.40, 0.65);
+        float th = TH[box];
+        if (gas > th) {
+            float lvl = clamp((gas - th) / 0.6, 0.0, 1.0);              // how far past its threshold
+            float ph = fract(t * (0.045 + 0.035 * h3) + h1);              // rise / fade cycle (14-40 s)
+            float sw = t * (0.12 + 0.10 * h2) * (h3 > 0.5 ? 1.0 : -1.0) + h1 * 6.2831853;   // slow swirl
+            float rad = (0.35 + 0.55 * h2) * gOrigin.z;
+            vec2 ctr = cc + (vec2(h1, h2) - 0.5) * gOrigin.z * 0.9 + vec2(cos(sw), sin(sw * 0.8)) * rad;
+            ctr += vec2(0.6, 0.25) * t * 0.04 * (0.5 + h3);              // a faint drift with the wind
+            ctr = cc + mod(ctr - cc + 0.9 * gOrigin.z, 1.8 * gOrigin.z) - 0.9 * gOrigin.z;   // stays over its cell
+            float s = 0.125 * floor((0.375 + (0.35 + 0.55 * lvl) * (0.6 + 0.8 * ph) * min(1.0 + 0.3 * gas, 1.6)) / 0.125);
+            s = clamp(s, 0.375, 1.25);
+            float y = simTop(ctr) + 0.05 + ph * (0.5 + 0.55 * min(gas, 2.0));
+            lo = vec3(ctr.x - 0.5 * s, y, ctr.y - 0.5 * s);
+            size = vec3(s);
+            float env = smoothstep(0.0, 0.18, ph) * (1.0 - smoothstep(0.6, 1.0, ph));
+            vec3 green = mix(vec3(0.36, 0.56, 0.08), vec3(0.58, 0.70, 0.16), h3);
+            col = vec4(green, clamp((0.09 + 0.15 * min(gas, 1.5)) * env * gStyle.x, 0.0, 0.24));
+            on = col.a > 0.01;
+        }
+    } else if (box >= 5 && box <= 7 && rotting > 0u) {   // flies over rotting bodies
         float a = t * (2.2 + 1.3 * h1) * (h2 > 0.5 ? 1.0 : -1.0) + h3 * 6.2831;
         float r = 0.3 + 0.45 * h2;
         float s = 0.09;
@@ -75,7 +85,7 @@ void main() {
         size = vec3(s);
         col = vec4(0.015, 0.015, 0.012, 1.0);
         on = true;
-    } else if (box == 6 && fire > 0.0 && h3 < 0.5) {   // ground fire: a sparse rising ember (the fire is an fx volume)
+    } else if (box == 8 && fire > 0.0 && h3 < 0.5) {   // ground fire: a sparse rising ember (the fire is an fx volume)
         float ph = fract(t * (0.6 + 0.5 * h3) + h1);
         float s = 0.07;
         lo = vec3(c0.x + 0.15 + h1 * (gOrigin.z - 0.3 - s), ground + 0.4 + ph * 2.5, c0.y + 0.15 + h2 * (gOrigin.z - 0.3 - s));

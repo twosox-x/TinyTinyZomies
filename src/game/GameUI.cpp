@@ -61,28 +61,6 @@ void groundCircle(ImDrawList* dl, const AppState& app, V3 c, float r, ImU32 col,
 
 ImU32 withAlpha(ImU32 c, float a) { return (c & 0x00FFFFFFu) | ((ImU32)(std::clamp(a, 0.f, 1.f) * ((c >> 24) & 0xFF)) << 24); }
 
-// class glyph: rifle = disc, machine gun = square, sniper = diamond (readable at 100-150 m without text)
-void classGlyph(ImDrawList* dl, ImVec2 c, float r, SquadType t, ImU32 fill, ImU32 edge) {
-    if (t == SquadType::Rifle) { dl->AddCircleFilled(c, r, fill, 16); dl->AddCircle(c, r, edge, 16, 1.5f); }
-    else if (t == SquadType::MachineGun) {
-        dl->AddRectFilled(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), fill, 1.5f);
-        dl->AddRect(ImVec2(c.x - r, c.y - r), ImVec2(c.x + r, c.y + r), edge, 1.5f, 0, 1.5f);
-        dl->AddLine(ImVec2(c.x - r * 0.55f, c.y), ImVec2(c.x + r * 0.55f, c.y), edge, 1.5f);   // "MG" bar
-    } else if (t == SquadType::Engineer) {   // engineers: hexagon (nut)
-        dl->AddNgonFilled(c, r * 1.15f, fill, 6);
-        dl->AddNgon(c, r * 1.15f, edge, 6, 1.5f);
-        dl->AddCircle(c, r * 0.4f, edge, 8, 1.5f);
-    } else if (t == SquadType::Flamethrower) {   // flamethrower: upward triangle (flame)
-        const float q = r * 1.25f;
-        dl->AddTriangleFilled(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y + q * 0.8f), ImVec2(c.x - q, c.y + q * 0.8f), fill);
-        dl->AddTriangle(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y + q * 0.8f), ImVec2(c.x - q, c.y + q * 0.8f), edge, 1.5f);
-    } else {
-        const float q = r * 1.2f;
-        dl->AddQuadFilled(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y), ImVec2(c.x, c.y + q), ImVec2(c.x - q, c.y), fill);
-        dl->AddQuad(ImVec2(c.x, c.y - q), ImVec2(c.x + q, c.y), ImVec2(c.x, c.y + q), ImVec2(c.x - q, c.y), edge, 1.5f);
-    }
-}
-
 const char* squadName(SquadType t) {
     return t == SquadType::Rifle ? "Rifle squad" : t == SquadType::MachineGun ? "MG squad" : t == SquadType::Flamethrower ? "Flamethrower squad"
          : t == SquadType::Engineer ? "Engineers" : "Sniper";
@@ -145,8 +123,15 @@ bool GameUI::worldToScreen(const AppState& app, V3 p, float& sx, float& sy) {
 
 void GameUI::notify(const std::string& text, bool bad, double time) {
     if (bad) SDL_Log("game: %s", text.c_str());
-    notices_.push_back({text, time, bad});
-    if (notices_.size() > 4) notices_.erase(notices_.begin());
+    if (!notices_.empty() && notices_.back().text == text && time - notices_.back().time < 4.0) {   // repeated: one row, "x2"
+        notices_.back().time = time;
+        ++notices_.back().repeat;
+        return;
+    }
+    UiNotice n;
+    n.text = text; n.time = time; n.bad = bad;
+    notices_.push_back(n);
+    if (notices_.size() > 12) notices_.erase(notices_.begin());
 }
 
 void GameUI::selectAt(AppState& app, const GameContext& ctx, float x, float y, bool additive, CommandQueue& out) {
@@ -232,6 +217,10 @@ void GameUI::placeAt(AppState& app, const GameContext& ctx, V3 p, CommandQueue& 
         c.type = CommandType::BuyAirdrop;
         ok = ctx.logistics->canAirdrop(ctx, p, &why); price = cfg.economy.airdropPrice;
         break;
+    case Tool::Target:   // a selection / hover action's ground point (beginTargeting)
+        if (targetFn_) { const UiCtx u{app, ctx, *this, out}; targetFn_(u, p); }
+        if (!shiftHeld()) tool_ = Tool::Select;
+        return;
     default: return;
     }
     if (!ok) { notify(std::string("Refused: ") + why, true, now_); return; }
@@ -242,6 +231,7 @@ void GameUI::placeAt(AppState& app, const GameContext& ctx, V3 p, CommandQueue& 
 
 bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event& e, CommandQueue& out) {
     if (!ctx.soldiers || !ctx.squads) return false;
+    registerBuiltinActions();
     if (constructionKey(app, ctx, e, out)) return true;   // 14d engineers / gate / car clearing / Ctrl+Z (FortUI.cpp)
     if (tool_ == Tool::BuildWall && wallEvent(app, ctx, e, out)) return true;   // B2 wall tool (FortUI.cpp)
     if (tool_ == Tool::PlaceContainer && e.type == SDL_EVENT_MOUSE_WHEEL && e.wheel.y != 0.f) {   // B2: rotate 15 deg
@@ -249,28 +239,17 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
         return true;
     }
     if (buildingKey && e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && buildingKey(app, ctx, e)) return true;   // B3a
+    if (actionHotkey(app, ctx, e, out)) return true;   // registered command-bar actions (HudBar.cpp): Z X C Y U V B N M J K ...
     switch (e.type) {
     case SDL_EVENT_KEY_DOWN: {
         if (e.key.repeat) return false;
         const SDL_Keycode k = e.key.key;
         auto toggle = [&](Tool t) { tool_ = tool_ == t ? Tool::Select : t; forced_ = false; return true; };
-        if (k == SDLK_N || k == SDLK_M || k == SDLK_J) {   // B2: cheap wall / reinforced wall / gate (PROPOSED)
-            const uint8_t t = k == SDLK_M ? 1 : 0;
-            const bool g = k == SDLK_J;
-            if (tool_ == Tool::BuildWall && wallType_ == t && wallGate_ == g) { tool_ = Tool::Select; wallPts_.clear(); }
-            else setWallMode(t, g);
-            return true;
-        }
         if ((k == SDLK_Q || k == SDLK_E) && tool_ == Tool::PlaceContainer) {   // B2: 15 deg steps (T: 90)
             containerYaw_ = std::fmod(containerYaw_ + (k == SDLK_E ? 1.f : -1.f) * kPi / 12.f + 2.f * kPi, 2.f * kPi);
             return true;
         }
-        if (k == SDLK_Z) return toggle(Tool::BuyRifle);
-        if (k == SDLK_X) return toggle(Tool::BuyMG);
-        if (k == SDLK_C) return toggle(Tool::BuySniper);
-        if (k == SDLK_Y) return toggle(Tool::BuyFlame);   // 14d
-        if (k == SDLK_V) return toggle(Tool::PlaceContainer);
-        if (k == SDLK_B) return toggle(Tool::Airdrop);
+        (void)toggle;   // purchase / build hotkeys are registered actions (actionHotkey)
         if (k == SDLK_T && tool_ == Tool::PlaceContainer) { containerYaw_ = std::fmod(containerYaw_ + kPi / 2.f, 2.f * kPi); return true; }
         if (k == SDLK_H && !sel_.squads.empty()) {
             Command c; c.type = CommandType::Stop; c.squads = sel_.squads; out.push(c);
@@ -358,8 +337,9 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
                             c.pos = p + side * off;
                             if (ctx.nav && ctx.nav->ready()) c.pos.y = ctx.nav->surface(c.pos.x, c.pos.z);
                             c.facing = facing;
-                            c.run = shiftHeld();
-                            c.walk = (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_ALT)) != 0;
+                            const bool walkMod = (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_ALT)) != 0;
+                            c.run = shiftHeld() || (movePace == 1 && !walkMod);   // sticky pace from the selection panel
+                            c.walk = walkMod || (movePace == 2 && !shiftHeld());
                             out.push(c);
                         }
                         orderMarker_ = p;
@@ -374,9 +354,16 @@ bool GameUI::handleEvent(AppState& app, const GameContext& ctx, const SDL_Event&
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+void hudFrameBegin(const AppState& app);   // HudBar.cpp
+float hudScale();
+
 void GameUI::draw(AppState& app, const GameContext& ctx, CommandQueue& out) {
     if (!ctx.cfg || !ctx.economy) return;
     now_ = ctx.time;
+    registerBuiltinActions();
+    hudFrameBegin(app);
+    layout_.scale = hudScale();
+    watchEvents(ctx);
     // forget selected squads that no longer have anyone alive
     if (ctx.squads && ctx.soldiers)
         sel_.squads.erase(std::remove_if(sel_.squads.begin(), sel_.squads.end(), [&](const SquadId& id) {
@@ -399,10 +386,13 @@ void GameUI::draw(AppState& app, const GameContext& ctx, CommandQueue& out) {
     drawMarkers(app, ctx);
     drawPreview(app, ctx);
     drawTopBar(app, ctx);
-    drawBuildBar(app, ctx, out);
+    drawBuildBar(app, ctx, out);         // before the selection panel: it places itself against the bar
     drawSelection(app, ctx, out);
     drawNotices(app, ctx);
+    drawPlacementBanner(app, ctx, out);
+    drawHoverMenu(app, ctx, out);
     if (buildingDraw) buildingDraw(app, ctx);   // B3a: building markers / panel (BuildingGame.cpp)
+    flushWorldLabels(app);   // after every world label of the frame (markers, previews, buildings)
     if (aiDebug) drawAiDebug(app, ctx);
     if (boxing_) {
         ImDrawList* dl = ImGui::GetForegroundDrawList();
@@ -412,153 +402,6 @@ void GameUI::draw(AppState& app, const GameContext& ctx, CommandQueue& out) {
                     IM_COL32(232, 224, 190, 180), 0.f, 0, 1.f);
     }
     st = saved;
-}
-
-void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
-    const Economy& eco = *ctx.economy;
-    const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, 6.f), ImGuiCond_Always, ImVec2(0.5f, 0.f));
-    ImGui::Begin("##gamebar", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
-                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    const int t = (int)ctx.time;
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kDim), "FUNDING");
-    ImGui::SameLine();
-    ImGui::Text("$%.0f", std::floor(eco.funding()));
-    ImGui::SameLine(0, 4);
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kOk), "+%.0f/min", eco.incomePerMinute());
-    ImGui::SameLine(0, 18);
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kDim), "KILLS");
-    ImGui::SameLine();
-    ImGui::Text("%llu", (unsigned long long)eco.kills());
-    ImGui::SameLine(0, 18);
-    int alive = 0, total = 0;
-    if (ctx.soldiers) for (uint32_t i = 0; i < (uint32_t)ctx.soldiers->capacity(); ++i) if (ctx.soldiers->used[i]) { ++total; alive += ctx.soldiers->alive(i) ? 1 : 0; }
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kDim), "TROOPS");
-    ImGui::SameLine();
-    ImGui::Text("%d", alive);
-    if (total > alive) { ImGui::SameLine(0, 3); ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kBad), "(-%d)", total - alive); }
-    ImGui::SameLine(0, 18);
-    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kDim), "TERRITORY");
-    ImGui::SameLine();
-    drawTerritoryHud(ctx);   // B2 (FortUI.cpp)
-    ImGui::SameLine(0, 18);
-    ImGui::Text("%02d:%02d", t / 60, t % 60);
-    if (!ctx.cfg->approved()) {
-        ImGui::SameLine(0, 18);
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(kAmber), "UNAPPROVED BALANCE");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("All prices, rates and weapon stats are provisional playtest values\n(config/balance.json status: %s)", ctx.cfg->status.c_str());
-    }
-    ImGui::End();
-}
-
-void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& out) {
-    const BalanceConfig& cfg = *ctx.cfg;
-    const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x - 10.f, io.DisplaySize.y - 8.f), ImGuiCond_Always, ImVec2(1.f, 1.f));   // bottom right (selection: bottom left)
-    ImGui::Begin("##build", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
-                                       ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    struct B { Tool t; const char* name; const char* key; int price; const char* tip; };
-    const B items[6] = {
-        {Tool::BuyRifle, "Rifle squad", "Z", cfg.squad[0].price, "5 riflemen. General purpose: clearing and defence."},
-        {Tool::BuyMG, "MG squad", "X", cfg.squad[1].price, "3 machine gunners. Sustained fire against dense hordes. Loud, high ammo use."},
-        {Tool::BuySniper, "Sniper", "C", cfg.squad[2].price, "1 suppressed sniper. Quiet removal of isolated zombies; rooftops."},
-        {Tool::PlaceContainer, "Ammo container", "V", cfg.economy.containerPrice, "Central ammunition container (finite stock). Soldiers walk to it to refill.\nArrives by parachute, never disappears and blocks zombies like a wall piece.\nQ / E / mouse wheel rotate 15 deg, T 90 deg."},
-        {Tool::Airdrop, "Ammo drop", "B", cfg.economy.airdropPrice, "Airdrop crate by parachute near your units (finite stock)."},
-        {Tool::BuyFlame, "Flamethrowers", "Y", cfg.squad[(size_t)SquadType::Flamethrower].price,
-         "2 flamethrowers (size PROPOSED). Burn corpse piles: burnt bodies are gone and stop giving off poison gas.\nSeek rotting piles near their post on their own (or order them onto a pile); short-range flame cone\nalso burns zombies. Fuel from containers / crates. Very loud. Placeholder model (rifleman) until approved."},
-    };
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    for (int k = 0; k < 6; ++k) {
-        const B& b = items[k];
-        if (k) ImGui::SameLine();
-        const bool afford = ctx.economy->canAfford(b.price), active = tool_ == b.t;
-        ImGui::PushID(k);
-        if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.50f, 0.46f, 0.24f, 1.f));
-        if (!afford) ImGui::BeginDisabled();
-        char label[64];
-        std::snprintf(label, sizeof(label), "     %s\n     $%d  [%s]", b.name, b.price, b.key);
-        ImVec2 p0 = ImGui::GetCursorScreenPos();
-        if (ImGui::Button(label, ImVec2(0, 0))) { tool_ = active ? Tool::Select : b.t; forced_ = false; }
-        if (!afford) ImGui::EndDisabled();
-        if (active) ImGui::PopStyleColor();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s%s", b.tip, afford ? "" : "\nNot enough funding.");
-        const ImVec2 sz = ImGui::GetItemRectSize();
-        const ImVec2 ic(p0.x + 14.f, p0.y + sz.y * 0.5f);
-        const ImU32 fc = afford ? IM_COL32(150, 156, 98, 255) : IM_COL32(90, 90, 80, 255);
-        if (k < 3) classGlyph(dl, ic, 6.f, (SquadType)k, fc, IM_COL32(20, 22, 14, 255));
-        else if (b.t == Tool::BuyFlame) classGlyph(dl, ic, 6.f, SquadType::Flamethrower, fc, IM_COL32(20, 22, 14, 255));
-        else if (k == 3) { dl->AddRectFilled(ImVec2(ic.x - 8, ic.y - 5), ImVec2(ic.x + 8, ic.y + 5), fc, 1.f); dl->AddLine(ImVec2(ic.x - 3, ic.y - 5), ImVec2(ic.x - 3, ic.y + 5), IM_COL32(20, 22, 14, 255), 1.f); }
-        else { dl->AddRectFilled(ImVec2(ic.x - 5, ic.y - 1), ImVec2(ic.x + 5, ic.y + 7), fc, 1.f); dl->AddCircle(ImVec2(ic.x, ic.y - 4), 6.f, fc, 12, 1.5f); }
-        ImGui::PopID();
-    }
-    drawWallButtons(ctx);   // B2 (FortUI.cpp)
-    ImGui::End();
-}
-
-void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& out) {
-    if (sel_.squads.empty() || !ctx.squads || !ctx.soldiers) return;
-    const SoldierPool& P = *ctx.soldiers;
-    const BalanceConfig& cfg = *ctx.cfg;
-    const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(10.f, io.DisplaySize.y - 8.f), ImGuiCond_Always, ImVec2(0.f, 1.f));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(380, 0), ImVec2(420, io.DisplaySize.y * 0.6f));
-    ImGui::Begin("##selection", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove |
-                                           ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
-    ImDrawList* dl = ImGui::GetWindowDrawList();
-    int shown = 0;
-    for (const SquadId& id : sel_.squads) {
-        const Squad* s = ctx.squads->get(id);
-        if (!s) continue;
-        if (shown++ >= 3) { ImGui::TextDisabled("+ %d more squads", (int)sel_.squads.size() - 3); break; }
-        const int alive = ctx.squads->aliveMembers(*s, P);
-        const char* status = s->deploying ? "deploying" : (s->flags & SQ_UNDER_ATTACK) ? "under attack" : (s->flags & SQ_ENGAGED) ? "engaging"
-                           : (s->flags & SQ_RESUPPLYING) ? "resupplying" : (s->flags & SQ_MOVING) ? "moving" : "holding";
-        ImVec2 p0 = ImGui::GetCursorScreenPos();
-        ImGui::Dummy(ImVec2(16, 14));
-        classGlyph(dl, ImVec2(p0.x + 7, p0.y + 7), 5.f, s->type, IM_COL32(150, 156, 98, 255), IM_COL32(20, 22, 14, 255));
-        ImGui::SameLine();
-        ImGui::Text("%s %u", squadName(s->type), s->number);
-        ImGui::SameLine();
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(alive < (int)s->members.size() ? kBad : kDim), "%d/%d", alive, (int)s->members.size());
-        ImGui::SameLine();
-        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4((s->flags & SQ_UNDER_ATTACK) ? kBad : (s->flags & SQ_OUT_OF_AMMO) ? kBad
-                                                          : (s->flags & SQ_LOW_AMMO) ? kAmber : kDim), "%s%s", status,
-                           (s->flags & SQ_OUT_OF_AMMO) ? ", no ammo" : (s->flags & SQ_LOW_AMMO) ? ", low ammo" : "");
-        if (s->flags & SQ_GAS) { ImGui::SameLine(); ImGui::TextColored(ImVec4(0.6f, 0.78f, 0.16f, 1.f), "in gas"); }   // 14d
-        for (const SoldierId& m : s->members) {
-            if (!P.valid(m)) continue;
-            const uint32_t i = m.index;
-            const size_t c = (size_t)P.cls[i];
-            const bool dead = !P.alive(i);
-            const float hp = dead ? 0.f : std::clamp(P.health[i] / std::max(1.f, cfg.soldier[c].health), 0.f, 1.f);
-            const int full = cfg.weapon[c].magazine + cfg.weapon[c].reserve;
-            const float am = std::clamp((float)(P.mag[i] + P.reserve[i]) / (float)std::max(1, full), 0.f, 1.f);
-            ImVec2 q = ImGui::GetCursorScreenPos();
-            const float bw = 70.f, bh = 5.f, y = q.y + 5.f;
-            ImGui::Dummy(ImVec2(360, 14));
-            ImGui::SameLine(0, 0);
-            dl->AddText(ImVec2(q.x + 2, q.y), dead ? kBad : kDim, className(P.cls[i]));
-            const float x0 = q.x + 64.f;
-            dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + bw, y + bh), IM_COL32(10, 10, 8, 220));
-            dl->AddRectFilled(ImVec2(x0, y), ImVec2(x0 + bw * hp, y + bh), hp > 0.5f ? kOk : hp > 0.25f ? kAmber : kBad);
-            const float x1 = x0 + bw + 8.f;
-            dl->AddRectFilled(ImVec2(x1, y), ImVec2(x1 + bw, y + bh), IM_COL32(10, 10, 8, 220));
-            dl->AddRectFilled(ImVec2(x1, y), ImVec2(x1 + bw * am, y + bh), am > cfg.soldier[c].lowAmmoFraction ? kBlue : am > 0 ? kAmber : kBad);
-            if (!dead) {   // stamina: a thin line under the health bar (subtle; amber while exhausted)
-                const float stf = std::clamp(P.stamina[i] / std::max(1.f, cfg.stamina.max), 0.f, 1.f);
-                dl->AddRectFilled(ImVec2(x0, y + bh + 1.f), ImVec2(x0 + bw * stf, y + bh + 2.5f), P.tired[i] ? kAmber : IM_COL32(200, 200, 170, 150));
-            }
-            char txt[80];
-            if (dead) std::snprintf(txt, sizeof(txt), "KIA");
-            else std::snprintf(txt, sizeof(txt), "%d|%d %s%s%s", P.mag[i], P.reserve[i], stateName(P.state[i]), P.runner[i] ? " (ammo runner)" : "",
-                               P.wounded[i] ? " (wounded)" : "");
-            dl->AddText(ImVec2(x1 + bw + 6.f, q.y), dead ? kBad : kDim, txt);
-            ImGui::NewLine();
-        }
-        ImGui::Spacing();
-    }
-    ImGui::TextDisabled("RMB: move  Shift+RMB: run  H: halt");
-    ImGui::End();
 }
 
 void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
@@ -584,7 +427,7 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
             if (p.kind == SupplyKind::Container && dist < 160.f) {
                 char t[32];
                 std::snprintf(t, sizeof(t), "%d", p.total());
-                dl->AddText(ImVec2(sp.x + w + 4, sp.y - 7), kSand, t);
+                worldLabel(sp.x + w + 4, sp.y - 7, t, kSand, kLabelMinor, false, false);
             }
         }
     // selection rings and the class icon are drawn in the world by GameRender (WS-B); here: number + status pips
@@ -607,8 +450,7 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
         std::snprintf(num, sizeof(num), "%u", s.number);
         const ImVec2 ts = ImGui::CalcTextSize(num);
         const float nx = sp.x - r - 6.f - ts.x;
-        dl->AddText(ImVec2(nx + 1, sp.y - ts.y * 0.5f + 1), kShadow, num);
-        dl->AddText(ImVec2(nx, sp.y - ts.y * 0.5f), sel ? IM_COL32(255, 255, 255, 255) : kSand, num);
+        worldLabel(nx, sp.y - ts.y * 0.5f, num, sel ? IM_COL32(255, 255, 255, 255) : kSand, sel ? kLabelSelected : kLabelMinor + 5, false, false);
         // status pips to the right: deploying / under attack / out / low ammo / casualties / resupplying / moving
         float x = sp.x + r + 5.f;
         auto pip = [&](ImU32 col) { dl->AddCircleFilled(ImVec2(x, sp.y), 3.f, col, 8); dl->AddCircle(ImVec2(x, sp.y), 3.f, kShadow, 8, 1.f); x += 8.f; };
@@ -634,8 +476,7 @@ void GameUI::drawMarkers(AppState& app, const GameContext& ctx) {
             char lab[40];
             std::snprintf(lab, sizeof(lab), "%s %u", squadName(s.type), s.number);
             const ImVec2 ls = ImGui::CalcTextSize(lab);
-            dl->AddText(ImVec2(sp.x - ls.x * 0.5f + 1, sp.y - r - ls.y - 1), kShadow, lab);
-            dl->AddText(ImVec2(sp.x - ls.x * 0.5f, sp.y - r - ls.y - 2), kSand, lab);
+            worldLabel(sp.x, sp.y - r - ls.y - 4, lab, kSand, kLabelSelected, true);
         }
     }
 }
@@ -645,6 +486,16 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
     if (tool_ == Tool::BuildWall) { drawWallPreview(app, ctx); return; }   // B2 (FortUI.cpp)
     if (tool_ == Tool::ClearCar) { drawClearPreview(app, ctx); return; }   // 14d (FortUI.cpp)
     if (tool_ == Tool::Select || !ctx.deploy || !ctx.logistics) return;
+    if (tool_ == Tool::Target) {   // beginTargeting: a ring under the cursor (the banner explains the action)
+        V3 q;
+        const ImVec2 mp = ImGui::GetIO().MousePos;
+        if (forced_) q = forcedPos_;
+        else if (ImGui::GetIO().WantCaptureMouse || !pickGround(app, ctx, mp.x, mp.y, q)) return;
+        ImDrawList* d = ImGui::GetBackgroundDrawList();
+        groundCircle(d, app, q, 2.5f, kAmber, 2.f);
+        groundCircle(d, app, q, 0.5f, kAmber, 2.f, 12);
+        return;
+    }
     V3 p;
     if (forced_) p = forcedPos_;
     else {
@@ -661,8 +512,12 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
         DropPlan plan = ctx.deploy->plan(ctx, t, p);
         ok = plan.valid; why = plan.reason; price = plan.price;
         const ImU32 col = ok ? kOk : kBad;
-        if (ok)
-            for (const V3& l : plan.landing) { groundCircle(dl, app, l, 0.7f, col, 2.f, 16); groundCircle(dl, app, l, 3.0f, withAlpha(col, 0.35f), 1.f, 24); }
+        if (ok) {
+            for (const V3& l : plan.landing) { groundCircle(dl, app, l, 0.7f, col, 2.f, 16); groundCircle(dl, app, l, plan.rooftop ? 1.2f : 3.0f, withAlpha(col, 0.35f), 1.f, 24); }
+            ImVec2 a0, a1;   // 14e: the click snapped to a clear spot on the roof: show where the first soldier lands
+            if (!plan.landing.empty() && std::fabs(plan.landing[0].x - p.x) + std::fabs(plan.landing[0].z - p.z) > 0.5f && project(app, p, a0) && project(app, plan.landing[0], a1))
+                dl->AddLine(a0, a1, withAlpha(col, 0.6f), 1.f);
+        }
         else groundCircle(dl, app, p, 2.0f, col, 2.f);
         std::snprintf(label, sizeof(label), "%s  $%d%s", squadName(t), price, ok && plan.rooftop ? "  (rooftop)" : "");
     } else if (tool_ == Tool::PlaceContainer) {
@@ -676,12 +531,16 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
         if (vis) { dl->AddQuadFilled(q[0], q[1], q[2], q[3], withAlpha(ok ? kOk : kBad, 0.18f)); dl->AddQuad(q[0], q[1], q[2], q[3], ok ? kOk : kBad, 2.f); }
         ImVec2 door;
         if (project(app, {p.x + 4.3f * cs, p.y + 0.08f, p.z - 4.3f * sn}, door)) dl->AddCircleFilled(door, 3.f, ok ? kOk : kBad, 8);
-        std::snprintf(label, sizeof(label), "Ammo container  $%d  [Q/E/wheel rotate]", price);
+        std::snprintf(label, sizeof(label), "Ammo container  $%d", price);
     } else {
-        ok = ctx.logistics->canAirdrop(ctx, p, &why);
+        V3 spot = p;   // 14e: the snapped landing spot (roof crates land exactly there, inset from the edge)
+        ok = ctx.logistics->airdropSpot(ctx, p, spot, &why);
         price = ctx.cfg->economy.airdropPrice;
-        groundCircle(dl, app, p, std::max(1.f, ctx.cfg->logistics.airdropScatter), ok ? kOk : kBad, 2.f);
-        groundCircle(dl, app, p, 0.6f, ok ? kOk : kBad, 2.f, 12);
+        const bool roof = ok && ctx.nav && ctx.nav->onRoof(spot.x, spot.z);
+        if (!roof) groundCircle(dl, app, ok ? spot : p, std::max(1.f, ctx.cfg->logistics.airdropScatter), ok ? kOk : kBad, 2.f);
+        groundCircle(dl, app, ok ? spot : p, 0.6f, ok ? kOk : kBad, 2.f, 12);
+        ImVec2 a0, a1;
+        if (ok && (std::fabs(spot.x - p.x) + std::fabs(spot.z - p.z) > 0.5f) && project(app, p, a0) && project(app, spot, a1)) dl->AddLine(a0, a1, withAlpha(kOk, 0.6f), 1.f);
         std::snprintf(label, sizeof(label), "Ammo drop  $%d", price);
     }
     const bool afford = ctx.economy->canAfford(price);
@@ -689,43 +548,8 @@ void GameUI::drawPreview(AppState& app, const GameContext& ctx) {
     if (!project(app, p, sp)) return;
     const ImU32 col = ok && afford ? kOk : kBad;
     const char* reason = !ok ? why : !afford ? "not enough funding" : "click to confirm";
-    dl->AddText(ImVec2(sp.x + 15, sp.y - 21), kShadow, label);
-    dl->AddText(ImVec2(sp.x + 14, sp.y - 22), kSand, label);
-    dl->AddText(ImVec2(sp.x + 15, sp.y - 5), kShadow, reason);
-    dl->AddText(ImVec2(sp.x + 14, sp.y - 6), col, reason);
-}
-
-void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
-    const ImGuiIO& io = ImGui::GetIO();
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
-    float y = 44.f;
-    for (const UiNotice& n : notices_) {
-        const float age = (float)(now_ - n.time);
-        if (age > 4.f || age < -1.f) continue;
-        const float a = std::clamp(4.f - age, 0.f, 1.f);
-        const ImVec2 ts = ImGui::CalcTextSize(n.text.c_str());
-        const float x = io.DisplaySize.x * 0.5f - ts.x * 0.5f;
-        dl->AddRectFilled(ImVec2(x - 8, y - 3), ImVec2(x + ts.x + 8, y + ts.y + 3), withAlpha(kPanel, a), 3.f);
-        dl->AddText(ImVec2(x, y), withAlpha(n.bad ? kBad : kSand, a), n.text.c_str());
-        y += ts.y + 10.f;
-    }
-    // squads outside the simulated window (B1 limitation, GAMEPLAY_ARCHITECTURE 3.6): they hold and do not fire
-    if (ctx.horde && ctx.squads && ctx.soldiers) {
-        int out = 0;
-        for (const Squad& s : ctx.squads->squads) {
-            int a = 0;
-            V3 c = squadCentre(s, *ctx.soldiers, &a);
-            if (a && !ctx.horde->simulated(c.x, c.z)) ++out;
-        }
-        if (out) {
-            char t[96];
-            std::snprintf(t, sizeof(t), "%d squad%s outside the simulated area (holding)", out, out > 1 ? "s" : "");
-            const ImVec2 ts = ImGui::CalcTextSize(t);
-            const float x = io.DisplaySize.x * 0.5f - ts.x * 0.5f;
-            dl->AddRectFilled(ImVec2(x - 8, y - 3), ImVec2(x + ts.x + 8, y + ts.y + 3), kPanel, 3.f);
-            dl->AddText(ImVec2(x, y), kAmber, t);
-        }
-    }
+    worldLabel(sp.x + 14, sp.y - 24, label, kSand, kLabelCursor);   // decluttered (HudBar.cpp); hints: placement banner
+    worldLabel(sp.x + 14, sp.y - 6, reason, col, kLabelCursor);
 }
 
 void GameUI::drawAiDebug(AppState& app, const GameContext& ctx) {

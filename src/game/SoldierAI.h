@@ -94,6 +94,12 @@ struct AiTuning {                     // behaviour constants (not balance): kept
     float blockedFactor = 0.3f;      // score factor of a zombie that cannot reach any soldier (gate, wall, wedged by cars)
     float sidestepRadius = 2.6f;     // m: a soldier with only unshootable threats steps this far for a clear line
     float sidestepInterval = 2.5f;   // s between sidestep attempts
+    // --- rooftops (GAME_DESIGN 14e): standing / idle spots inset from the roof edge (NavGrid::roofEdgeInset); a soldier
+    //     steps up to the edge only to fire over it (firing posture) and steps back once nothing is shootable from there
+    float roofObstacleMargin = 0.5f; // m: idle spots keep this far from roof objects
+    float edgeStepRadius = 3.5f;     // m around the home spot searched for an edge spot with a clear firing line
+    float edgeStepInterval = 1.5f;   // s between edge-spot searches of one soldier
+    float edgeLinger = 1.5f;         // s at the edge with nothing shootable before stepping back to the inset spot
 };
 
 class SoldierAI {
@@ -122,6 +128,7 @@ public:
     };
     SquadStatus status(const GameContext& ctx, SquadId id) const;
     uint64_t hunts() const { return hunts_; }   // trips toward zombies left inside an enclosed uncleared region
+    uint64_t lockTracked() const { return lockTracked_; }   // ticks a long-range lock followed the exact zombie (GPU lock query)
     uint8_t threats(uint32_t i) const { return i < threats_.size() ? threats_[i] : 0; }   // visible zombies within threatRadius (debug overlay)
 
 private:
@@ -137,7 +144,8 @@ private:
     static bool shotClear(const NavGrid& nav, V3 feet, V3 to, float margin = 0.f);
     // Rooftop vantage cells: roof-edge cells of one roof island, scored by how much street they can shoot into
     // (sampled rays, 0..range). Cached per roof (island id + height + nav window origin).
-    struct Vantage { V3 pos; float score = 0.f; float sector[24] = {}; };
+    // pos = the inset standing spot (home), fire = the roof-edge cell he steps up to for a shot (firing posture)
+    struct Vantage { V3 pos, fire; float score = 0.f; float sector[24] = {}; };
     struct RoofVantages { uint32_t island = 0; float y = 0.f, ox = 0.f, oz = 0.f; std::vector<Vantage> v; };
     std::vector<RoofVantages> roofs_;
     const RoofVantages* roofVantages(const GameContext& ctx, V3 p, float range);
@@ -158,8 +166,18 @@ public:
     // head over a car roof; crawlers low), or < 0 when no line is clear (rounds would stop at static geometry).
     float aimFor(const NavGrid& nav, V3 feet, V3 z, float prone, float margin) const;
     uint64_t sidesteps() const { return sidesteps_; }
+    uint64_t recoveries() const { return recoveries_; }   // ticks a soldier spent stepping off an obstacle (14e)
+    uint64_t edgeSteps() const { return edgeSteps_; }      // rooftop soldiers stepping up to the edge to fire
+    uint64_t edgeReturns() const { return edgeReturns_; }  // ... and back to their inset spot
+    // Roof island a soldier stands on (his cell, or the walkable cell of his level beside a rim cell); 0 = not a roof.
+    static uint32_t roofOf(const GameContext& ctx, V3 p);
 private:
-    uint64_t sidesteps_ = 0;
+    uint64_t sidesteps_ = 0, edgeSteps_ = 0, edgeReturns_ = 0;
+    uint64_t recoveries_ = 0;                // 14e getDown steps
+    std::vector<float> edgeT_, edgeStepT_;   // per soldier: s away from home with nothing shootable / until the next search
+    bool roofEdgeStep(GameContext& ctx, uint32_t i, const Cand* cands, int n, float range);
+    V3 roofInset(const GameContext& ctx, V3 p, uint32_t isl, float maxR) const;   // nearest inset idle spot on that roof
+    uint64_t lockTracked_ = 0;
     // Candidates of soldier i: its exact nearest list (every tick) + (withField) the nearest coarse-field samples out to
     // fieldRadius (snipers: their own isolated-target search); scored, best first in [0]. Returns the count.
     int gatherTargets(const GameContext& ctx, uint32_t i, float range, bool withField, Cand* out, int maxOut) const;
@@ -174,6 +192,7 @@ private:
     // Pace of a move: run speed x (sprint when threatened and fresh), walk when tired / wounded / ordered to walk.
     float paceFor(GameContext& ctx, uint32_t i, bool forceRun, bool forceWalk, bool highStakes, bool& running) const;
     bool nearestSample(const GameContext& ctx, V3 p, float r, V3& out) const;
+    void getDown(GameContext& ctx, uint32_t i);   // 14e: off a car roof / wall top in small steps (see SoldierAI.cpp)
     void startPath(GameContext& ctx, uint32_t i, V3 goal);
     int followPath(GameContext& ctx, uint32_t i, float speed);   // 0 moving, 1 arrived, 2 failed / gave up
     void steer(GameContext& ctx, uint32_t i, V3 desiredVel);

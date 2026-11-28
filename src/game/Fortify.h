@@ -40,6 +40,9 @@ class Economy;
 Obb containerBox(const SupplyPoint& sp);
 // Placement environment from the live window (CityVehicles heights, horde window, supply containers).
 WallEnv makeWallEnv(const AppState& app, const GameContext& ctx);
+class BuildingRegistry;
+// Building records used by makeWallEnv for exact facades (GAME_DESIGN 14e wall sealing); GameWorld sets it once.
+void setWallEnvBuildings(const BuildingRegistry* reg);
 float windowStreetLevel(const AppState& app);   // 20th percentile of the window's ground
 
 class Fortifications {
@@ -62,6 +65,7 @@ public:
     void tick(AppState& app, GameContext& ctx);
     const std::vector<float>& navHeights(const AppState& app);   // sim heights with gate cells lowered
     void patchNav(AppState& app, NavGrid& nav);                   // rows uploaded this frame -> NavGrid::updateRows
+    const std::vector<uint8_t>& navMask() const { return navMask_; }   // NavGrid::setMask before a full build (navHeights)
     void windowMoved(AppState& app);
     void postSim(SDL_GPUCommandBuffer* cmd) { if (gpuOk_) gpu_.postSim(cmd); }
     void afterSubmit(bool sync);
@@ -81,6 +85,8 @@ private:
     void syncObstacles(AppState& app, GameContext& ctx);
     void rebuildMasks(const AppState& app);      // gate mask + GPU id grid (window cells)
     void computeStreetLevel(const AppState& app);
+    void navRows(const AppState& app, int z0, int z1);   // walk heights + mask of rows (exact car boxes, obstacles)
+    void reserveBlueprints(const AppState& app);         // mask bit 1 under unfinished pieces
 
     const BalanceConfig* cfg_ = nullptr;
     Walls walls_;
@@ -89,6 +95,8 @@ private:
     bool gpuOk_ = false;
     std::vector<uint8_t> gateMask_;               // window cells: 1 = gate passage (walkable for soldiers)
     std::vector<float> navH_;
+    std::vector<uint8_t> navMask_;                // NavGrid::setMask (bit 0 obstacle, bit 1 blueprint reserved)
+    bool reserveDirty_ = true;
     uint64_t navSerial_ = 0, navPatches_ = 0, navRows_ = 0;
     bool masksDirty_ = true;
     uint64_t idsSerial_ = 0, idsTerritory_ = 0;

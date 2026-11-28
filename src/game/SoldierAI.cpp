@@ -52,8 +52,27 @@ V3 SoldierAI::formationSlot(const GameContext& ctx, SquadId squad, int slot, V3 
     V3 d = dest, out;
     if (!ctx.nav->walkable(d.x, d.z) && !ctx.nav->nearestWalkable(dest, 6.f, d)) d = dest;
     const uint32_t isl = ctx.nav->island(d.x, d.z);
+    if (ctx.nav->roofIsland(isl)) return roofInset(ctx, ctx.nav->nearestWalkable(p, 4.f, out, isl) ? out : d, isl, 5.f);   // 14e
     if (ctx.nav->nearestWalkable(p, 4.f, out, isl)) return out;
     return isl ? d : p;
+}
+
+uint32_t SoldierAI::roofOf(const GameContext& ctx, V3 p) {
+    if (!ctx.nav || !ctx.nav->ready()) return 0;
+    const NavGrid& nav = *ctx.nav;
+    uint32_t isl = nav.island(p.x, p.z);
+    if (!isl) { V3 w; if (nav.nearestWalkableLevel(p, 1.6f, p.y, 0.6f, w)) isl = nav.island(w.x, w.z); }
+    return nav.roofIsland(isl) ? isl : 0u;
+}
+
+V3 SoldierAI::roofInset(const GameContext& ctx, V3 p, uint32_t isl, float maxR) const {
+    const NavGrid& nav = *ctx.nav;
+    V3 o;
+    if (nav.cellEdge(p.x, p.z) >= nav.roofEdgeInset && nav.cellObstacle(p.x, p.z) >= tuning.roofObstacleMargin && nav.island(p.x, p.z) == isl) return p;
+    for (float e : {nav.roofEdgeInset, 1.0f})
+        for (float r : {maxR * 0.5f, maxR, maxR * 2.f})
+            if (nav.insetSpot(p, r, e, tuning.roofObstacleMargin, isl, o)) return o;
+    return p;   // a roof without any inset cell (a narrow ledge): stay where planned
 }
 
 SquadId SoldierAI::spawnLanded(GameContext& ctx, SquadType type, V3 dest, float facing, uint32_t seed) {
@@ -85,7 +104,11 @@ void SoldierAI::assignSlots(GameContext& ctx, Squad& s, V3 dest, float facing) {
         for (int ring = 1; ring <= 3 && clash(p); ++ring)
             for (int a = 0; a < 8; ++a) {
                 V3 q = p + V3{std::cos(a * kPi / 4), 0, std::sin(a * kPi / 4)} * (float)ring, o;
-                if (ctx.nav && ctx.nav->ready()) { if (!ctx.nav->nearestWalkable(q, 0.8f, o, isl)) continue; q = o; }
+                if (ctx.nav && ctx.nav->ready()) {
+                    if (ctx.nav->roofIsland(isl)) { if (!ctx.nav->insetSpot(q, 0.8f, ctx.nav->roofEdgeInset, tuning.roofObstacleMargin, isl, o)) continue; }
+                    else if (!ctx.nav->nearestWalkable(q, 0.8f, o, isl)) continue;
+                    q = o;
+                }
                 if (!clash(q)) { p = q; break; }
             }
         taken.push_back(p);
@@ -120,6 +143,18 @@ void SoldierAI::squadOrders(GameContext& ctx, SupplyAccess& sup) {
             }
         } else if (!s.hasAnchor && n) {
             assignSlots(ctx, s, c, std::atan2(fx, fz));
+            // a squad that landed on a roof keeps its (inset, spread) landing spots as homes: a formation laid around
+            // the centre of a small roof would crowd its members against the parapet
+            bool roof = ctx.nav && ctx.nav->ready();
+            uint32_t isl0 = 0;
+            for (const SoldierId& m : s.members) {
+                if (!P.valid(m) || !P.alive(m.index)) continue;
+                const uint32_t r = roofOf(ctx, P.pos[m.index]);
+                if (!isl0) isl0 = r;
+                roof = roof && r && r == isl0;
+            }
+            if (roof)
+                for (const SoldierId& m : s.members) P.home[m.index] = roofInset(ctx, P.pos[m.index], roofOf(ctx, P.pos[m.index]), 3.f);
         }
     }
     (void)sup;
@@ -373,6 +408,7 @@ bool SoldierAI::sidestep(GameContext& ctx, uint32_t i, const Cand* cands, int n)
     SoldierPool& P = *ctx.soldiers;
     if (!ctx.nav || !ctx.nav->ready() || P.post[i] != POST_NONE || P.cls[i] == SoldierClass::Sniper) return false;
     if (i >= sidestepT_.size() || sidestepT_[i] > 0.f) return false;
+    if (roofOf(ctx, P.pos[i])) return false;   // rooftops: roofEdgeStep (firing posture at the edge, then back)
     const Cand* t = nullptr;   // the most urgent zombie in sight (stuck behind cars / around a corner) within 20 m
     for (int k = 0; k < n && !t; ++k)
         if (cands[k].exact && cands[k].visible && cands[k].dist <= 20.f) t = &cands[k];
@@ -401,6 +437,52 @@ bool SoldierAI::sidestep(GameContext& ctx, uint32_t i, const Cand* cands, int n)
     P.phase[i] |= PH_RETURNING;   // not a player order: threats interrupt it, the leash keeps him near his slot
     startPath(ctx, i, bestQ);
     ++sidesteps_;
+    return true;
+}
+
+bool SoldierAI::roofEdgeStep(GameContext& ctx, uint32_t i, const Cand* cands, int n, float range) {
+    SoldierPool& P = *ctx.soldiers;
+    if (P.post[i] != POST_NONE || i >= edgeStepT_.size() || edgeStepT_[i] > 0.f) return false;
+    const uint32_t isl = roofOf(ctx, P.pos[i]);
+    if (!isl) return false;
+    // the targets worth a step: known zombies in range that no line from here can hit (the roof edge hides the street)
+    const Cand* t[4];
+    int nt = 0;
+    for (int k = 0; k < n && nt < 4; ++k)
+        if (!cands[k].hittable && cands[k].dist <= range && (cands[k].visible || !cands[k].exact || P.cls[i] == SoldierClass::Sniper)) t[nt++] = &cands[k];
+    if (!nt) return false;
+    edgeStepT_[i] = tuning.edgeStepInterval;
+    const NavGrid& nav = *ctx.nav;
+    const V3 p = P.pos[i], home = P.home[i];
+    const float c = nav.cell(), R = tuning.edgeStepRadius;
+    const float margin = P.cls[i] == SoldierClass::Sniper ? tuning.sniperMargin : 0.f;
+    float bestS = -1e9f;
+    V3 bestQ;
+    for (float dz = -R; dz <= R + 1e-3f; dz += c)
+        for (float dx = -R; dx <= R + 1e-3f; dx += c) {
+            if (dx * dx + dz * dz > R * R) continue;
+            V3 q{home.x + dx, 0, home.z + dz};
+            if (!nav.walkable(q.x, q.z) || nav.island(q.x, q.z) != isl) continue;
+            if (nav.cellEdge(q.x, q.z) > 2.0f || nav.cellObstacle(q.x, q.z) < 0.3f) continue;   // a firing spot at the rim
+            const int qi = (int)std::floor((q.x - nav.originX()) / c), qj = (int)std::floor((q.z - nav.originZ()) / c);
+            q = {nav.originX() + (qi + 0.5f) * c, 0, nav.originZ() + (qj + 0.5f) * c};
+            q.y = nav.surface(q.x, q.z);
+            bool crowded = false;
+            for (const Cell& h : hash_) if (h.idx != i && dist2D(P.pos[h.idx], q) < 0.9f) { crowded = true; break; }
+            if (crowded) continue;
+            float hits = 0.f;
+            for (int k = 0; k < nt; ++k)
+                if (aimFor(nav, q, t[k]->pos, t[k]->prone, margin) >= 0.f) hits += k == 0 ? 3.f : 1.f;
+            if (hits <= 0.f) continue;
+            const float sc = hits * 10.f - dist2D(q, p) - 0.5f * dist2D(q, home);
+            if (sc > bestS) { bestS = sc; bestQ = q; }
+        }
+    if (bestS < -1e8f || dist2D(bestQ, p) < 0.5f) return false;
+    P.setState(i, SoldierState::Moving);
+    P.phase[i] |= PH_RETURNING;   // not a player order: threats interrupt it, home stays the inset spot
+    startPath(ctx, i, bestQ);
+    edgeT_[i] = 0.f;
+    ++edgeSteps_;
     return true;
 }
 
@@ -460,11 +542,52 @@ void SoldierAI::steer(GameContext& ctx, uint32_t i, V3 desired) {
             V3 a{np.x, p.y, p.z}, b{p.x, p.y, np.z};
             np = ok(a) ? a : ok(b) ? b : p;
         }
+        // rooftops: a standing soldier (separation push only) is never shoved toward the roof edge
+        if (!moving && nav.onRoof(p.x, p.z) && nav.cellEdge(np.x, np.z) < nav.roofEdgeInset && nav.cellEdge(np.x, np.z) < nav.cellEdge(p.x, p.z)) np = p;
         np.y = nav.surface(np.x, np.z);
     }
     P.vel[i] = V3{(np.x - p.x) / ctx.dt, 0, (np.z - p.z) / ctx.dt};
     P.pos[i] = np;
     if (moving) face(ctx, i, p + desired);
+}
+
+// Stuck recovery (GAME_DESIGN 14e): a soldier standing on a gameplay obstacle (car roof, wall top, container: pushed
+// there, dropped there, or a piece finished under him) steps off it towards the nearest walkable cell of the street
+// he can reach without climbing (no cell on the way higher than his feet + 0.6 m), in small walking steps: never a
+// teleport. The home island (his post / work spot) is preferred. Off-grid soldiers on a NON-obstacle cell (roof rims,
+// pockets) keep the same-level recovery of steer().
+void SoldierAI::getDown(GameContext& ctx, uint32_t i) {
+    if (!ctx.nav || !ctx.nav->ready()) return;
+    SoldierPool& P = *ctx.soldiers;
+    const SoldierState st = P.state[i];
+    if (!P.alive(i) || st == SoldierState::Descending || st == SoldierState::Landing || st == SoldierState::Dying || st == SoldierState::Dead ||
+        P.post[i] >= POST_FIRING)
+        return;
+    NavGrid& nav = *ctx.nav;
+    const V3 p = P.pos[i];
+    if (!nav.onObstacle(p.x, p.z)) return;
+    const uint32_t home = nav.island(P.home[i].x, P.home[i].z);
+    V3 best{};
+    float bestD = 1e9f;
+    for (int pass = 0; pass < 2 && bestD > 1e8f; ++pass)
+        for (float r = 0.5f; r <= 5.f && bestD > 1e8f; r += 0.375f)
+            for (int k = 0; k < 24; ++k) {
+                const float a = (float)k * kPi / 12.f;
+                const V3 q{p.x + std::cos(a) * r, 0, p.z + std::sin(a) * r};
+                if (!nav.walkable(q.x, q.z) || (pass == 0 && home && nav.island(q.x, q.z) != home)) continue;
+                bool clear = true;   // no climbing on the way (walls stop him; stepping down off the car is fine)
+                for (float t = 0.2f; t < r && clear; t += 0.2f) clear = nav.surface(p.x + (q.x - p.x) * t / r, p.z + (q.z - p.z) * t / r) <= p.y + 0.6f;
+                if (!clear) continue;
+                if (r < bestD) { bestD = r; best = q; }
+            }
+    if (bestD > 1e8f) return;   // nowhere to step down to (enclosed): stays (prevention in EngineerAI)
+    const float d = dist2D(p, best), v = std::min(ctx.cfg->soldier[(size_t)P.cls[i]].walkSpeed, d / std::max(ctx.dt, 1e-3f)) * ctx.dt;
+    V3 n{p.x + (best.x - p.x) * v / d, p.y, p.z + (best.z - p.z) * v / d};
+    n.y = nav.surface(n.x, n.z);
+    P.vel[i] = V3{(n.x - p.x) / ctx.dt, 0, (n.z - p.z) / ctx.dt};
+    P.pos[i] = n;
+    face(ctx, i, best);
+    ++recoveries_;
 }
 
 void SoldierAI::startPath(GameContext& ctx, uint32_t i, V3 goal) {
@@ -638,7 +761,10 @@ const SoldierAI::RoofVantages* SoldierAI::roofVantages(const GameContext& ctx, V
     const float step = c;
     for (const V3& q : cand) {
         Vantage v;
-        v.pos = q;
+        v.fire = q;
+        // 14e: he stands inset from the edge (roofEdgeInset) and steps up to `fire` only to shoot
+        v.pos = nav.roofIsland(isl) ? roofInset(ctx, q, isl, 3.f) : q;
+        if (dist2D(v.pos, q) > 4.f) v.pos = q;
         for (int k = 0; k < nr; ++k) {
             const float a = (float)k * 2.f * kPi / (float)nr;
             const V3 d{std::sin(a), 0, std::cos(a)};
@@ -693,8 +819,18 @@ bool SoldierAI::sniperReposition(GameContext& ctx, uint32_t i, float range) {
             if (dist2D(at, t.pos) <= range && shotClear(nav, at, t.pos + V3{0, 1.1f, 0}, tuning.sniperMargin)) ++n;
         return n;
     };
+    // from here, or from the firing spot of the vantage he holds (he steps up to it to shoot)
     const int here = tg.empty() ? 0 : shootable(p);
     if (here > 0) return false;   // something shootable from here: perception locks it
+    for (const Vantage& v : R->v)   // the firing spot of the vantage he holds: step up to the edge to shoot (14e)
+        if (!tg.empty() && dist2D(v.pos, P.home[i]) < 0.5f && dist2D(p, P.home[i]) < 1.5f && shootable(v.fire) > 0) {
+            P.setState(i, SoldierState::Moving);
+            P.phase[i] |= PH_RETURNING;
+            startPath(ctx, i, v.fire);
+            if (i < edgeT_.size()) edgeT_[i] = 0.f;
+            ++edgeSteps_;
+            return true;
+        }
     const Vantage* best = nullptr;
     float bestScore = -1.f;
     if (!tg.empty()) {
@@ -712,11 +848,12 @@ bool SoldierAI::sniperReposition(GameContext& ctx, uint32_t i, float range) {
         }
         std::sort(pre.begin(), pre.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
         for (size_t k = 0; k < pre.size() && k < 64; ++k) {
-            const int n = shootable(pre[k].second->pos);
+            const int n = shootable(pre[k].second->fire);
             const float sc = (float)n * 100.f - dist2D(pre[k].second->pos, p);
             if (n > 0 && sc > bestScore) { bestScore = sc; best = pre[k].second; }
         }
     }
+    const bool withTargets = best != nullptr;
     if (!best) {   // nothing shootable known: the vantage overlooking the most street (prefer near ones)
         for (const Vantage& v : R->v) {
             const float sc = v.score - dist2D(v.pos, p) * 2.f;
@@ -731,10 +868,13 @@ bool SoldierAI::sniperReposition(GameContext& ctx, uint32_t i, float range) {
     P.home[i] = best->pos;
     P.homeYaw[i] = (float)bk * 2.f * kPi / (float)std::clamp(tuning.vantageRays, 4, 24);
     ++vantageMoves_;
-    if (dist2D(best->pos, p) > 0.6f) {
+    // targets known from the new vantage: straight to its firing spot at the edge (home stays the inset spot behind it)
+    const V3 go = withTargets ? best->fire : best->pos;
+    if (dist2D(go, p) > 0.6f) {
         P.setState(i, SoldierState::Moving);
         P.phase[i] |= PH_RETURNING;
-        startPath(ctx, i, best->pos);
+        startPath(ctx, i, go);
+        if (i < edgeT_.size()) edgeT_[i] = 0.f;
         return true;
     }
     return false;
@@ -836,6 +976,13 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
             for (uint32_t k = 0; k < C->nNear; ++k) { const float d = dist2D(pred, C->nearPos[k]); if (d < bd) { bd = d; bk = (int)k; } }
             if (bk >= 0) { L.pos = C->nearPos[bk]; L.vel = C->nearVel[bk]; L.prone = C->nearProne[bk]; L.age = 0.f; }
             else L.age += dt * (tuning.targetLostTime / tuning.lockLostExact);   // dead or gone: dropped within ~0.2 s
+        } else if (C && C->lockFound && dist2D(C->lockPos, L.pos) < SoldierContact::kLockReach) {
+            // long range (owner feedback 2026-11-28: "far zombies take 10 shots"): the horde answered the uploaded lock
+            // point with the exact zombie there -> aim at it and lead it by its velocity, not at a coarse tile sample
+            // (4 arbitrary walkers per 6 m tile, re-associated every refresh: the rounds spread over a group, vel 0)
+            L.exact = false;
+            L.pos = C->lockPos; L.vel = C->lockVel; L.prone = C->lockProne; L.age = 0.f;
+            ++lockTracked_;
         } else {
             V3 smp;
             L.exact = false; L.vel = {};
@@ -1034,9 +1181,15 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     }
     case SoldierState::Idle:
     default: {
-        // a marksman settles exactly on his vantage cell (a roof-edge shot clears the edge only from right there)
+        // rooftops (14e): the home of a roof soldier is an inset spot (>= roofEdgeInset from the edge, clear of roof
+        // objects); he steps up to the edge only to fire over it (roofEdgeStep) and back here once nothing is shootable
+        const uint32_t roofIsl = P.post[i] == POST_NONE ? roofOf(ctx, P.pos[i]) : 0u;
+        if (roofIsl && (ctx.nav->island(P.home[i].x, P.home[i].z) != roofIsl || ctx.nav->cellEdge(P.home[i].x, P.home[i].z) < ctx.nav->roofEdgeInset ||
+                        ctx.nav->cellObstacle(P.home[i].x, P.home[i].z) < tuning.roofObstacleMargin) && dist2D(P.home[i], P.pos[i]) < 12.f)
+            P.home[i] = roofInset(ctx, ctx.nav->island(P.home[i].x, P.home[i].z) == roofIsl ? P.home[i] : P.pos[i], roofIsl, 3.f);
+        // a marksman settles exactly on his vantage spot
         const float dh = dist2D(P.pos[i], P.home[i]);
-        if (P.cls[i] == SoldierClass::Sniper && dh > 0.05f && dh < tuning.leash) {
+        if (P.cls[i] == SoldierClass::Sniper && dh > 0.05f && dh < (roofIsl ? 0.7f : tuning.leash)) {
             const V3 to{P.home[i].x - P.pos[i].x, 0, P.home[i].z - P.pos[i].z};
             const float v = std::min(ss.walkSpeed, dh * 3.f);
             steer(ctx, i, to * (v / dh));
@@ -1046,7 +1199,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         if (std::fabs(off) > 0.05f) P.yaw[i] = wrapPi(P.yaw[i] + std::clamp(off, -tuning.turnRate * 0.5f * dt, tuning.turnRate * 0.5f * dt));
         const int total = P.mag[i] + P.reserve[i];
         const bool low = total < (int)std::ceil(ss.lowAmmoFraction * (float)P.fullLoad(i, cfg));
-        if (P.mag[i] > 0 && (L.active || lockNew(false))) { P.setState(i, SoldierState::Engaging); break; }
+        if (P.mag[i] > 0 && (L.active || lockNew(false))) { P.setState(i, SoldierState::Engaging); if (i < edgeT_.size()) edgeT_[i] = 0.f; break; }
         if (P.post[i] == POST_FIRING) {   // B3a garrison: holds the window / roof edge (BuildingPlay refills ammo)
             if (P.mag[i] < (int)(w.magazine * tuning.tacticalReloadFraction) && P.reserve[i] > 0) P.setState(i, SoldierState::Reloading);
             break;
@@ -1054,6 +1207,21 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         // zombies in sight but none shootable (wedged between parked cars, around a car): a step or two aside for a
         // clear line (within the leash of the slot), not more often than sidestepInterval
         if (P.mag[i] > 0 && sidestep(ctx, i, cands, nc)) break;
+        if (roofIsl) {
+            // nothing shootable from here: step up to an edge spot with a clear firing line (firing posture); at the edge
+            // with nothing shootable for edgeLinger s: step back to the inset home
+            if (P.mag[i] > 0 && roofEdgeStep(ctx, i, cands, nc, std::min(w.range, w.acquireRange))) break;
+            if (dh > 0.7f) {
+                if ((edgeT_[i] += dt) > tuning.edgeLinger && !hasClose) {
+                    edgeT_[i] = 0.f;
+                    ++edgeReturns_;
+                    P.setState(i, SoldierState::Moving);
+                    P.phase[i] |= PH_RETURNING;
+                    startPath(ctx, i, P.home[i]);
+                    break;
+                }
+            } else edgeT_[i] = 0.f;
+        }
         // rooftop marksman: from the middle of a roof the roof itself hides the street. With nothing shootable in
         // sight he moves to the roof-edge vantage that can shoot the most zombies the field knows within range (or,
         // with none known, to the vantage overlooking the most street), re-picked every vantageScan s.
@@ -1216,6 +1384,9 @@ void SoldierAI::tick(GameContext& ctx) {
     threats_.resize(P.capacity(), 0);   // last tick's counts until soldier() refreshes them (runner choice)
     sidestepT_.resize(P.capacity(), 0.f);
     for (float& t : sidestepT_) t -= ctx.dt;
+    edgeT_.resize(P.capacity(), 0.f);
+    edgeStepT_.resize(P.capacity(), 0.f);
+    for (float& t : edgeStepT_) t -= ctx.dt;
     if (ctx.horde) {
         const std::vector<SoldierContact>& cs = ctx.horde->contacts();
         for (size_t k = 0; k < cs.size(); ++k) {
@@ -1226,7 +1397,7 @@ void SoldierAI::tick(GameContext& ctx) {
     squadOrders(ctx, sup);
     ammoRunners(ctx, sup);
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
-        if (P.used[i]) soldier(ctx, sup, i);
+        if (P.used[i]) { soldier(ctx, sup, i); getDown(ctx, i); }
     // Squad status flags (UI markers, GAME_DESIGN 14b).
     for (Squad& s : ctx.squads->squads) {
         uint32_t f = 0;

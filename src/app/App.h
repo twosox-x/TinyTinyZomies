@@ -81,6 +81,7 @@ struct AppOptions {
     std::string perfCsv;
     // --game: gameplay mode on the baked city (src/game/GameWorld.h; docs/GAMEPLAY_ARCHITECTURE.md)
     bool game = false;
+    float uiScale = 0.f;           // --ui-scale F: HUD scale (0 = the display's content scale; headless 1)
     std::string gameScript;        // --game-script FILE: headless scenario (exit code = failed expectations)
     bool gameSync = false;         // --game-sync: wait for each horde readback (deterministic tests)
     bool gameDemoRender = false;   // --game-demo-render: static soldiers playing clips through GameRender (screenshots)

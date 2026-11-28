@@ -21,7 +21,10 @@ enum class CommandType : uint8_t { Select, Move, Stop, BuySquad, BuyContainer, B
                                    BuildWall /* B2: path of snapped points, wallType, gate */,
                                    BuildGate /* 14d: one gate at pos, yaw = facing (into a wall / at a wall end / alone) */,
                                    ClearCar /* 14d: engineers remove the parked vehicle at pos */,
-                                   UndoBuild /* Ctrl+Z: unfinished pieces of the newest placement removed, refunded */ };
+                                   UndoBuild /* Ctrl+Z: unfinished pieces of the newest placement removed, refunded */,
+                                   BuildStructure /* 14e: structure (tower / generator / light / fuel store) at pos, facing = yaw */,
+                                   OccupyTower /* 14e: the squads man the defense tower at pos */,
+                                   SiphonCar /* 14e: engineers siphon the parked vehicle at pos (fuel to the base) */ };
 
 struct Command {
     CommandType type = CommandType::Stop;
@@ -35,6 +38,7 @@ struct Command {
     std::vector<V3> path;            // BuildWall: polyline (snapped points)
     uint8_t wallType = 0;            // BuildWall: WallType (0 cheap 1.6 m, 1 reinforced 2.4 m)
     bool gate = false;               // BuildWall: gate pieces (PROPOSED)
+    uint8_t structure = 0;           // BuildStructure: StructureKind (14e)
 };
 
 struct Selection {

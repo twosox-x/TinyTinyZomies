@@ -34,6 +34,9 @@ public:
     uint64_t roundsOverCover() const { return overCover_; }           // s: lead along an exact lock's velocity (SoldierAI exact locks)
     float noiseMergeRadius = 8.f;
     uint32_t maxAttractors = kMaxAttractors;
+    // GAME_DESIGN 14e: extra capsules uploaded after the soldiers (Structures: tower base proxies; ids with index 0xFFFF,
+    // never a soldier): zombies collide with them and the horde reports their attackers (tower pressure damage).
+    std::vector<HordeSoldier> extraCapsules;
 
     void tick(GameContext& ctx);               // after SoldierAI and SoldierAnimator::tick (events of this tick)
     // An external noise source (scripts / tests; later: explosions, vehicles): joins the aged noise list -> attractors.

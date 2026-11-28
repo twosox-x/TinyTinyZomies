@@ -870,6 +870,37 @@ channels (dropped tools follow the death clip's weapon track); the carbine goes 
 mid-piece T split), `tests/game/b4_gate_car.txt` (gate into a wall, gates onto joints, territory closed by gates, soldiers
 pass, car clearing, a wall planned through the car built after it). B2 scripts run with `cheat build 1`.
 
+**12b. Owner feedback 2026-11-28 (GAME_DESIGN 14e): sealed walls, finer grid, engineer awareness, car gaps, ring.**
+- *Sealing* (`Walls::plan`): a free end of a run inside a building, or within `kSealReach` 1.6 m in front of a facade
+  / supply container / wall piece along the run, is moved onto it: `kSealDepth` 0.35 m into the facade (the exact BLDG
+  record footprint via `WallEnv::facadeRay` when one is within 1.2 m of the height grid's facade, else 0.3 m behind the
+  grid edge, which over-covers buildings) or container; onto the wall's axis (T split, or its joint within 1 m); a wall
+  joint within 1 m of a free end is snapped to. The sealed end may overlap what it was sealed onto (`allowFront /
+  allowBack`), the filler piece goes to the free end. No zombie-passable / territory cell stays between them.
+- *Finer grid*: 0.5 m snapping (`Walls::kGrid`; Ctrl drag 0.5 m steps, angle snap lengths 0.5 m); a leg is whole 4 m
+  pieces + one filler of the remainder (>= 0.5 m; less stretches the 4 m pieces). Fillers render as full-size gabion
+  baskets (0.86 .. 1.12 scale, overlapping neighbours, alternate baskets inset 1.5 % against z-fighting).
+- *Soldier walk grid* (`Fortifications::navRows`, `NavGrid::setMask`): bit 0 = gameplay obstacle (walls, posts,
+  containers, moving vehicles, parked-vehicle cells whose centre is inside the car's real oriented box + 0.12 m):
+  never walkable, so cars + walls never form a walkable roof network. Parked-vehicle cells outside the real box (the
+  zombies' footprint rounded out to whole 0.75 m cells) are ground for soldiers: they use the real gaps between cars
+  (a gap of ~0.9 m and more is reliably passable; 0.7 .. 0.9 m depends on how the cell centres fall: 0.75 m nav cells).
+  Bit 1 = blueprint footprint + 0.3 m (A* +`kReserveCost` per cell: paths and work spots keep off future pieces,
+  corridors stay open). Zombies keep the conservative grid.
+- *Get down* (`SoldierAI::getDown`, every tick after the state machine): a soldier standing on an obstacle cell walks
+  (walk speed, small steps, never a teleport) to the nearest walkable cell within 5 m he can reach without climbing
+  (home island first).
+- *Engineers* (`EngineerAI`): a 1 m "future" raster (all alive pieces incl. blueprints, gates open, unwalkable cells)
+  flooded from outside; a piece whose one side is enclosed by the final plan is worked from the outside, otherwise from
+  the side the squad stands on. Work spots: walkable, on the engineer's island, >= 0.55 m off every piece / blueprint,
+  >= 1.1 m from joints, unreserved first, the other side as fallback. Before a piece turns solid, `wouldTrap` floods the
+  walk cells around every soldier within 8 m with the piece solid: someone in the footprint or sealed into a pocket
+  (cannot get 14 m away) holds it at 98 % ("trap"); an engineer of that job caught on the wrong side flips the work side.
+- *Radius ring* (`GameUI::drawEngineerZones`): 192-segment anti-aliased polyline at fixed pixel width, draped over the
+  base ground (kerbs smoothed, never car roofs / walls), dark underlay; inside buildings it stays at street level, faint.
+- Tests: `tests/game/b5_wall_seal.txt`, `b5_engineer_cars.txt`, `b5_car_gaps.txt`; self-test *walls / territory*
+  (fillers, facade / container / wall seals).
+
 ## 13. UI: HUD 2 and the registration API (GAME_DESIGN 11 / 14e; layout PROPOSED)
 
 Owner feedback (14e): thin and unobtrusive but more dynamic, visual and tactical; categories; no clipped buttons; the unit

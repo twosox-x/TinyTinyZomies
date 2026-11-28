@@ -49,7 +49,7 @@ body { background: var(--bg); color: var(--fg); font: 14px var(--ui); overflow: 
 <aside class="panel" aria-label="Military asset controls">
   <div class="brand"><h1>Tiny Tiny <b>Military</b> Lab</h1><span>v1 · models + anims</span></div>
   <div class="sec"><div class="label">Mode</div>
-    <div class="seg" data-group="mode"><button data-v="single" aria-pressed="true">Asset</button><button data-v="lineup" aria-pressed="false">Lineup</button><button data-v="props" aria-pressed="false">Props</button><button data-v="rts" aria-pressed="false">RTS</button><button data-v="speclineup" aria-pressed="false">7b</button><button data-v="anim" aria-pressed="false">Anim</button></div></div>
+    <div class="seg" data-group="mode"><button data-v="single" aria-pressed="true">Asset</button><button data-v="lineup" aria-pressed="false">Lineup</button><button data-v="props" aria-pressed="false">Props</button><button data-v="rts" aria-pressed="false">RTS</button><button data-v="speclineup" aria-pressed="false">7b</button><button data-v="structures" aria-pressed="false">Struct</button><button data-v="anim" aria-pressed="false">Anim</button></div></div>
   <div class="sec" id="animSec" hidden><div class="label">Animation <em id="animClip"></em></div>
     <div class="seg" id="animScene"><button data-s="classes" aria-pressed="true">Classes</button><button data-s="para" aria-pressed="false">Parachute</button><button data-s="crate" aria-pressed="false">Crate</button><button data-s="rts" aria-pressed="false">RTS crowd</button><button data-s="specrts" aria-pressed="false">RTS 7b</button></div>
     <div class="seg" id="animCls"><button data-c="all" aria-pressed="true">All 3</button><button data-c="rifleman" aria-pressed="false">Rifle</button><button data-c="mg" aria-pressed="false">MG</button><button data-c="sniper" aria-pressed="false">Sniper</button><button data-c="new" aria-pressed="false">Eng+Flame</button><button data-c="engineer" aria-pressed="false">Eng</button><button data-c="flamer" aria-pressed="false">Flame</button></div>
@@ -2458,6 +2458,272 @@ const FX_SPEC2 = {
   hose: { from: "torso socket hose_tank", to: "weapon hose fitting", voxel: 0.045, color: "#242424", sag: 0.18, note: "catenary-like sag; drawn as a chain of voxels every 0.045 m; while the gun is dropped the hose follows it (max length 1.25 m, else hidden)" },
 };
 
+
+/* =====================================================================================
+   STRUCTURES (Phase 7b, GAME_DESIGN 14e): defense towers, generator, floodlight, fuel (jerrycan, drum, base fuel store).
+   PENDING OWNER REVIEW. Exported to their own files (assets/military/structures.ttzm + structures.json): the palette
+   entries below are appended AFTER the specialists palette (PAL_SPEC_COUNT), which is all the specialists file carries,
+   so every approved file stays byte-identical. Prop voxels (5 cm), integer cell ranges (B), pivot = footprint centre
+   at ground level, front = +Z. Format: docs/MILITARY_ASSETS.md §Structures.
+   ===================================================================================== */
+const PAL_SPEC_COUNT = PALETTE.length;
+pal("lampWarm", "#fff0c4", 0, 1); pal("lampGlassOff", "#4f5654", 0.02, 4); pal("corrugated", "#7a7f80", 0.05, 2); pal("corrugatedDark", "#5d6264", 0.05, 2);
+pal("timber", "#7b5d3b", 0.08); pal("timberDark", "#5a432a", 0.08); pal("drumOlive", "#56603a", 0.04, 2); pal("drumBand", "#c3a43a", 0.03);
+
+// timber / steel post that may lean: a w x w cell column from (xa, za) at y0 to (xb, zb) at y1 (stepped, voxel look)
+function postLean(g, xa, za, xb, zb, y0, y1, w, mat) {
+  for (let y = y0; y <= y1; y++) {
+    const t = (y - y0) / Math.max(1, y1 - y0), x = Math.round(xa + (xb - xa) * t), z = Math.round(za + (zb - za) * t);
+    B(g, x, x + w - 1, y, y, z, z + w - 1, typeof mat === "function" ? mat(x, y, z) : mat);
+  }
+}
+// thick brace between two points (cells), t x t cross-section
+function brace(g, a, b, t, mat) {
+  for (let i = 0; i < t; i++) for (let j = 0; j < t; j++) {
+    const o = [i, 0, j];
+    cellLine(g, [a[0] + o[0], a[1], a[2] + o[2]], [b[0] + o[0], b[1], b[2] + o[2]], mat);
+  }
+}
+const timberMat = (x, y, z) => pv(911, x, Math.floor(y / 7), z) < 0.25 ? "timberDark" : "timber";
+
+// ---- defense tower (wooden watchtower): 3.0 x 3.0 m platform at 5.0 m, battered timber legs, X braces, sandbag
+// parapet (3 courses, 0.9 m) with a gap at the ladder, corrugated roof on four posts, vertical ladder on the rear (-Z)
+function towerWood() {
+  const g = propSet(1), PY = 100, H = 30;   // platform top face at y = PY + 2 cells (5.10 m); platform -30..29
+  // legs: 20 cm timbers, battered from +-34 at the ground to +-27 at the platform, continuing to the roof
+  const legs = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+  for (const [sx, sz] of legs) {
+    const xa = sx < 0 ? -36 : 32, xb = sx < 0 ? -30 : 26, za = sz < 0 ? -36 : 32, zb = sz < 0 ? -30 : 26;
+    postLean(g, xa, za, xb, zb, 0, PY + 1, 4, timberMat);
+    B(g, xa - 1, xa + 4, 0, 1, za - 1, za + 4, "concrete");   // footing pad
+  }
+  // girts + X braces on the four sides (two bays: 0..48, 48..96)
+  const at = (s, y) => { const t = y / (PY + 1); return Math.round(s < 0 ? -36 + 6 * t : 32 - 6 * t); };   // leg x/z at height y
+  for (const [y0, y1] of [[6, 50], [50, 96]]) {
+    for (const zSide of [-1, 1]) {   // front / back faces (z = const)
+      const z0 = zSide < 0 ? at(-1, y0) - 2 : at(1, y0) + 4, z1 = zSide < 0 ? at(-1, y1) - 2 : at(1, y1) + 4;
+      brace(g, [at(-1, y0) + 2, y0, z0], [at(1, y1) + 1, y1, z1], 2, "timberDark");
+      brace(g, [at(1, y0) + 1, y0, z0], [at(-1, y1) + 2, y1, z1], 2, "timberDark");
+    }
+    for (const xSide of [-1, 1]) {   // left / right faces (x = const)
+      const x0 = xSide < 0 ? at(-1, y0) - 2 : at(1, y0) + 4, x1 = xSide < 0 ? at(-1, y1) - 2 : at(1, y1) + 4;
+      brace(g, [x0, y0, at(-1, y0) + 2], [x1, y1, at(1, y1) + 1], 2, "timberDark");
+      brace(g, [x0, y0, at(1, y0) + 1], [x1, y1, at(-1, y1) + 2], 2, "timberDark");
+    }
+    const yg = y1 - 2, a = at(-1, yg), b = at(1, yg) + 3;   // girt ring under each bay top
+    B(g, a, b, yg, yg + 2, a - 2, a - 1, "timber"); B(g, a, b, yg, yg + 2, b + 1, b + 2, "timber");
+    B(g, a - 2, a - 1, yg, yg + 2, a, b, "timber"); B(g, b + 1, b + 2, yg, yg + 2, a, b, "timber");
+  }
+  // joists + plank deck (planks along X, 1 cell seams of the darker timber)
+  for (let z = -30; z <= 26; z += 8) B(g, -31, 30, PY - 2, PY - 1, z, z + 2, "timberDark");
+  B(g, -31, 30, PY, PY + 1, -31, 30, (x, y, z) => ((z + 31) % 5 === 0 ? "woodDark" : pv(913, Math.floor(x / 15), 0, z) < 0.3 ? "woodLight" : "wood"));
+  // sandbag parapet, 3 courses, 30 cm thick, on the deck edge; gap of 0.8 m at the ladder (rear, x -8..7)
+  const y0 = PY + 2;
+  for (let c = 0; c < 3; c++) {
+    const y = y0 + c * 6, st = c % 2 === 1;
+    sandbagRun(g, -31, 30, y, 25, 30, "sandbag", 1101 + c, st);                         // front (+Z)
+    sandbagRun(g, -31, -9, y, -31, -26, "sandbag", 1111 + c, st);                       // rear left of the gap
+    sandbagRun(g, 8, 30, y, -31, -26, "sandbag", 1121 + c, st);                         // rear right
+    sandbagRunZ(g, -25, 24, y, -31, -26, "sandbag", 1131 + c, !st);                     // left (-X)
+    sandbagRunZ(g, -25, 24, y, 25, 30, "sandbag", 1141 + c, !st);                       // right (+X)
+  }
+  // roof posts (15 cm) from the deck corners to the roof, roof frame and corrugated sheet (ridges along Z)
+  const RY = y0 + 46;   // 2.3 m headroom over the deck
+  const lift = z => Math.floor((36 - z) / 18);   // roof falls slightly to the front (stepped)
+  for (const [x, z] of [[-30, -30], [27, -30], [-30, 27], [27, 27]]) B(g, x, x + 2, y0, RY - 1 + lift(z + 2), z, z + 2, "timber");
+  B(g, -31, 30, RY - 2 + lift(-30), RY - 1 + lift(-30), -31, -30, "timberDark"); B(g, -31, 30, RY - 2 + lift(30), RY - 1 + lift(30), 29, 30, "timberDark");
+  for (let x = -36; x <= 35; x++) for (let z = -37; z <= 36; z++) {
+    const ridge = ((x + 36) % 4) === 0;
+    g.set(x + 0.5, RY + lift(z) + 0.5, z + 0.5, ridge ? "corrugatedDark" : "corrugated");
+    if (ridge) g.set(x + 0.5, RY + lift(z) + 1.5, z + 0.5, "corrugated");
+  }
+  // ladder: two rails (5 x 10 cm) from the ground to above the deck, rungs every 30 cm, on the rear face
+  const LZ = -38;
+  for (const x of [-8, 6]) B(g, x, x + 1, 0, y0 + 20, LZ, LZ + 1, "woodDark");
+  for (let y = 6; y <= y0 + 14; y += 6) B(g, -6, 5, y, y, LZ, LZ, "wood");
+  B(g, -8, 7, PY - 2, PY - 1, LZ + 2, -31, "timberDark");   // ladder head tied into the deck edge
+  // small details: ammo can + rangefinder box on the deck, an olive tarp on the left parapet
+  B(g, -24, -19, y0, y0 + 3, 14, 16, "containerOlive"); B(g, -23, -20, y0 + 4, y0 + 4, 15, 15, "black");
+  B(g, 18, 22, y0, y0 + 2, -22, -18, "radioGreen");
+  B(g, -31, -26, y0 + 18, y0 + 18, -20, 6, "canvas");
+  const s = PROP_M;
+  return { name: "tower_wood", label: "Defense tower (timber, sandbag parapet)", cat: "structure", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }],
+    sockets: [
+      { name: "post_a", pos: [-0.55, (y0) * s, 0.55], dir: [0, 0, 1] },   // standing spots on the deck (shooters fire over the front parapet)
+      { name: "post_b", pos: [0.55, (y0) * s, 0.55], dir: [0, 0, 1] },
+      { name: "ladder_foot", pos: [0, 0, (LZ - 8) * s], dir: [0, 0, 1] },
+      { name: "ladder_top", pos: [0, (y0) * s, -1.15], dir: [0, 0, 1] },
+    ],
+    extra: { deckHeight: +(y0 * s).toFixed(4), parapetHeight: 0.9, eyeHeight: +((y0 * s) + 1.45).toFixed(4), capacity: 2 } };
+}
+
+// ---- defense tower (steel): scaffold-tube legs, steel grating deck, plate parapet with two firing slits per side
+// (1.15 m), sandbag course at the foot of the parapet, caged ladder; no roof
+function towerSteel() {
+  const g = propSet(1), PY = 100;
+  for (const [x, z] of [[-30, -30], [27, -30], [-30, 27], [27, 27]]) {
+    B(g, x, x + 2, 0, PY + 1, z, z + 2, (xx, y) => y % 40 < 2 ? "steelDark" : "steel");
+    B(g, x - 2, x + 4, 0, 0, z - 2, z + 4, "steelDark");   // base plate
+  }
+  for (const yb of [[4, 34], [34, 66], [66, 98]]) {
+    const [y0, y1] = yb;
+    for (const z of [-31, 30]) { cellLine(g, [-29, y0, z], [28, y1, z], "steelDark"); cellLine(g, [28, y0, z], [-29, y1, z], "steelDark"); }
+    for (const x of [-31, 30]) { cellLine(g, [x, y0, -29], [x, y1, 28], "steelDark"); cellLine(g, [x, y0, 28], [x, y1, -29], "steelDark"); }
+    B(g, -30, 29, y1, y1, -31, -31, "steel"); B(g, -30, 29, y1, y1, 30, 30, "steel"); B(g, -31, -31, y1, y1, -30, 29, "steel"); B(g, 30, 30, y1, y1, -30, 29, "steel");
+  }
+  B(g, -31, 30, PY, PY + 1, -31, 30, (x, y, z) => ((x + z) % 3 === 0 ? "steelDark" : "steel"));   // grating
+  const y0 = PY + 2, HP = 23;   // 1.15 m plates
+  B(g, -31, 30, y0, y0 + HP - 1, 30, 30, "steel"); B(g, -31, -9, y0, y0 + HP - 1, -31, -31, "steel"); B(g, 8, 30, y0, y0 + HP - 1, -31, -31, "steel");
+  B(g, -31, -31, y0, y0 + HP - 1, -30, 29, "steel"); B(g, 30, 30, y0, y0 + HP - 1, -30, 29, "steel");
+  B(g, -31, 30, y0 + HP, y0 + HP, 29, 30, "steelDark"); B(g, -31, -30, y0 + HP, y0 + HP, -30, 29, "steelDark"); B(g, 29, 30, y0 + HP, y0 + HP, -30, 29, "steelDark");
+  for (const x of [-16, 9]) Bdel(g, x, x + 6, y0 + 15, y0 + 17, 30, 30);           // front slits
+  for (const z of [-16, 9]) { Bdel(g, -31, -31, y0 + 15, y0 + 17, z, z + 6); Bdel(g, 30, 30, y0 + 15, y0 + 17, z, z + 6); }
+  for (let y = y0; y < y0 + HP; y += 9) for (const x of [-31, 30]) B(g, x, x, y, y, -30, 29, "rust");
+  sandbagRun(g, -30, 29, y0, 24, 29, "sandbagOlive", 1201, false);                 // inner sandbag course on the front
+  // caged ladder (rear)
+  const LZ = -38;
+  for (const x of [-8, 6]) B(g, x, x + 1, 0, y0 + 24, LZ, LZ + 1, "steelDark");
+  for (let y = 6; y <= y0 + 18; y += 6) B(g, -6, 5, y, y, LZ, LZ, "steel");
+  for (let y = 40; y <= y0 + 20; y += 16) { B(g, -9, 8, y, y, LZ - 9, LZ - 9, "steel"); B(g, -9, -9, y, y, LZ - 8, LZ - 1, "steel"); B(g, 8, 8, y, y, LZ - 8, LZ - 1, "steel"); }
+  for (const x of [-9, 8]) B(g, x, x, 40, y0 + 20, LZ - 9, LZ - 9, "steelDark");
+  B(g, -8, 7, PY - 2, PY - 1, LZ + 2, -31, "steelDark");
+  B(g, 18, 22, y0, y0 + 3, 14, 16, "containerOlive");
+  const s = PROP_M;
+  return { name: "tower_steel", label: "Defense tower (steel, plate parapet)", cat: "structure", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }],
+    sockets: [
+      { name: "post_a", pos: [-0.55, y0 * s, 0.55], dir: [0, 0, 1] }, { name: "post_b", pos: [0.55, y0 * s, 0.55], dir: [0, 0, 1] },
+      { name: "ladder_foot", pos: [0, 0, (LZ - 12) * s], dir: [0, 0, 1] }, { name: "ladder_top", pos: [0, y0 * s, -1.15], dir: [0, 0, 1] },
+    ],
+    extra: { deckHeight: +(y0 * s).toFixed(4), parapetHeight: 1.15, eyeHeight: +((y0 * s) + 1.45).toFixed(4), capacity: 2 } };
+}
+
+// ---- diesel generator (military genset on a skid), exhaust stack with rain cap, fuel filler cap, control panel,
+// cable reel on its own stand at the panel end
+function generatorProp() {
+  const g = propSet(1);
+  B(g, -19, 18, 0, 1, -10, -8, "steelDark"); B(g, -19, 18, 0, 1, 7, 9, "steelDark");             // skid rails
+  for (const x of [-15, -2, 11]) B(g, x, x + 2, 2, 2, -10, 9, "steelDark");                        // cross members
+  B(g, -18, 17, 3, 20, -9, 8, "containerOlive");                                                   // enclosure
+  B(g, -18, 17, 21, 21, -8, 7, "containerDark");                                                   // roof lip
+  for (const z of [-10, 9]) {                                                                      // side detail
+    for (let y = 6; y <= 17; y += 2) B(g, 6, 15, y, y, z, z, "containerDark");                     // louvres (radiator end)
+    for (let x = -16; x <= 3; x++) for (let y = 4; y <= 19; y++) if (x === -16 || x === 3 || y === 4 || y === 19) g.set(x + 0.5, y + 0.5, z + 0.5, "containerDark");   // door seam
+    B(g, -2, -1, 11, 12, z, z, "metal");                                                           // door latch
+    B(g, -14, -6, 15, 16, z, z, "stencilYellow");                                                  // marking band
+  }
+  // control panel (-X end): recessed panel, gauges, breakers, warning plate
+  B(g, -19, -19, 6, 18, -6, 5, "containerDark"); B(g, -20, -20, 13, 16, -5, -3, "lens"); B(g, -20, -20, 13, 16, 0, 2, "lens");
+  B(g, -20, -20, 8, 10, -5, 4, "black"); for (const z of [-4, -1, 2]) B(g, -21, -21, 9, 9, z, z, "hazardYellow");
+  B(g, -20, -20, 17, 17, 3, 4, "hazardRed");
+  // fuel filler neck + cap (+Z side, panel end, high), and a fuel gauge
+  B(g, -14, -12, 17, 19, 9, 10, "gunMetal"); B(g, -15, -11, 20, 20, 9, 11, "hazardYellow"); B(g, -14, -12, 21, 21, 10, 10, "black");
+  B(g, -9, -8, 17, 18, 9, 9, "lens");
+  // exhaust: muffler on the roof, stack with a rain cap (radiator end)
+  B(g, 4, 14, 22, 24, -6, -1, "gunMetal"); B(g, 12, 13, 25, 33, -4, -3, "gunMetal"); B(g, 11, 14, 34, 34, -5, -2, "black");
+  B(g, 12, 13, 25, 26, -4, -3, "rust");
+  B(g, -2, 1, 22, 23, -1, 0, "metal"); B(g, -1, 0, 24, 24, -1, 0, "metal");                       // lifting eye
+  // cable reel on a stand beside the panel end: drum axis along Z, two flanges (r 7), black cable windings
+  const cx = -30, cy = 10;
+  for (const z of [-6, 5]) for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) if (x * x + y * y <= 56) g.set(cx + x + 0.5, cy + y + 0.5, z + 0.5, (x * x + y * y > 36) ? "steelDark" : "hazardRed");
+  for (let z = -5; z <= 4; z++) for (let x = -6; x <= 6; x++) for (let y = -6; y <= 6; y++) { const r = x * x + y * y; if (r <= 30) g.set(cx + x + 0.5, cy + y + 0.5, z + 0.5, r <= 6 ? "steel" : ((z + Math.floor(Math.atan2(y, x) * 3)) & 1) ? "rubber" : "black"); }
+  for (const z of [-8, 7]) { cellLine(g, [cx - 6, 0, z], [cx, cy, z], "steelDark"); cellLine(g, [cx + 6, 0, z], [cx, cy, z], "steelDark"); }
+  B(g, cx, cx, cy, cy, -8, 7, "steel");                                                            // axle
+  cellLine(g, [cx + 5, cy - 3, 0], [-21, 9, 0], "rubber"); cellLine(g, [cx + 6, cy - 3, 0], [-20, 9, 0], "rubber");   // cable to the panel
+  return { name: "generator", label: "Diesel generator (genset, cable reel)", cat: "structure", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }],
+    sockets: [{ name: "exhaust", pos: [0.65, 1.75, -0.175], dir: [0, 1, 0] }, { name: "fuel_cap", pos: [-0.65, 1.05, 0.55], dir: [0, 0, 1] },
+              { name: "cable_out", pos: [-1.5, 0.5, 0], dir: [-1, 0, 0] }, { name: "service", pos: [-0.6, 0, 1.0], dir: [0, 0, -1] }] };
+}
+
+// ---- floodlight tower: tripod, two-stage mast (4.6 m), two crossbars with 2 lamp heads each (4 heads, slight
+// downward tilt by a stepped front), junction box, cable to the ground and a coil. Part "lamps" = the emissive lens
+// faces: drawn only while powered; unpowered, the dark recessed glass of the body shows.
+function floodlightProp() {
+  const g = propSet(1), L = propSet(1);
+  const apexY = 34;
+  for (const [x, z] of [[0, 22], [19, -11], [-19, -11]]) { brace(g, [x, 0, z], [0, apexY, 0], 2, "steelDark"); B(g, x - 1, x + 2, 0, 0, z - 1, z + 2, "rubber"); }
+  B(g, -2, 1, 20, 22, -2, 1, "steel");                                                             // tripod collar
+  B(g, -1, 1, 0, 70, -1, 1, "steel"); B(g, -2, 2, 70, 71, -2, 2, "steelDark"); B(g, -1, 0, 72, 92, -1, 0, "metal");   // mast
+  B(g, 2, 6, 28, 35, -2, 2, "radioGreen"); B(g, 7, 7, 30, 32, -1, 1, "black");                     // junction box
+  cellLine(g, [4, 28, 2], [8, 0, 26], "rubber");                                                   // cable down
+  for (let a = 0; a < 40; a++) { const t = a / 40 * Math.PI * 2; g.set(Math.round(8 + 4 * Math.cos(t)) + 0.5, 0.5, Math.round(30 + 4 * Math.sin(t)) + 0.5, "rubber"); }
+  B(g, 8, 13, 0, 0, 26, 26, "rubber");
+  const head = (cx, cy) => {   // 8 x 7 cells, 4 deep housing facing +Z, bottom row stepped forward (tilt)
+    B(g, cx - 4, cx + 3, cy - 3, cy + 3, -3, 0, "gunBlack");
+    B(g, cx - 4, cx + 3, cy - 3, cy - 2, 1, 1, "gunBlack");                                      // lower lip (tilted face)
+    B(g, cx - 3, cx + 2, cy - 1, cy + 2, 1, 1, "gunBlack");                                      // rim around the lens recess
+    Bdel(g, cx - 2, cx + 1, cy - 1, cy + 1, 1, 1);
+    B(g, cx - 2, cx + 1, cy - 1, cy + 1, 0, 0, "lampGlassOff");                                  // recessed dark glass (unpowered)
+    B(L, cx - 2, cx + 1, cy - 1, cy + 1, 1, 1, "lampWarm");                                      // lit lens (part "lamps")
+    for (let x = cx - 3; x <= cx + 2; x += 2) B(g, x, x, cy + 4, cy + 4, -3, -1, "gunMetal");     // cooling fins
+    B(g, cx - 1, cx, cy - 3, cy - 1, -5, -4, "steelDark");                                        // yoke to the crossbar
+  };
+  B(g, -16, 15, 82, 83, -5, -4, "steelDark"); B(g, -16, 15, 92, 93, -5, -4, "steelDark");         // crossbars
+  B(g, -1, 0, 82, 93, -3, -2, "steelDark");
+  for (const cx of [-10, 10]) { head(cx, 86); head(cx, 96); }
+  return { name: "floodlight", label: "Floodlight mast (4 heads, tripod)", cat: "structure", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true },
+            { name: "lamps", parent: "body", set: L, pivot: [0, 0, 0], unitM: PROP_M, rigid: true, note: "emissive lens faces: draw only while the generator powers the light" }],
+    sockets: [{ name: "light", pos: [0, 4.55, 0.1], dir: [0, -0.34, 0.94] }, { name: "cable_in", pos: [0.6, 0, 1.5], dir: [0, 0, 1] }],
+    extra: { lightHeight: 4.55, lightTilt: -0.35 } };
+}
+
+// ---- fuel: NATO jerrycan (20 l), 200 l drum, base fuel store (bunded pallet: 4 drums + hand pump, 6 jerrycan slots)
+function jerrycan(g, x0, y0, z0, mat, seed) {   // 7 x 10 x 4 cells (35 x 50 x 20 cm) standing, the handles on top along X
+  const m = mat || "tankOlive";
+  B(g, x0, x0 + 6, y0, y0 + 8, z0, z0 + 3, m);
+  for (const z of [z0 - 1, z0 + 4]) { cellLine(g, [x0 + 1, y0 + 1, z], [x0 + 5, y0 + 7, z], "oliveDark"); cellLine(g, [x0 + 5, y0 + 1, z], [x0 + 1, y0 + 7, z], "oliveDark"); }   // X emboss
+  B(g, x0 + 2, x0 + 4, y0 + 9, y0 + 9, z0 + 1, z0 + 2, m);                                         // handle block
+  B(g, x0 + 1, x0 + 5, y0 + 10, y0 + 10, z0 + 1, z0 + 2, "gunBlack");                              // three handles
+  for (const x of [x0 + 2, x0 + 4]) Bdel(g, x, x, y0 + 10, y0 + 10, z0 + 1, z0 + 2);
+  B(g, x0 + 6, x0 + 6, y0 + 9, y0 + 10, z0 + 1, z0 + 2, "gunMetal");                               // spout cap (corner)
+  if (seed !== undefined && pv(seed, x0, y0, z0) < 0.5) B(g, x0 + 1, x0 + 2, y0 + 5, y0 + 6, z0 + 4, z0 + 4, "stencilYellow");
+}
+function drum(g, cx, y0, cz, mat) {   // r 6 cells (0.3 m), 18 cells (0.9 m), two rolling ribs, bung caps on the lid
+  for (let y = 0; y < 18; y++) for (let x = -6; x <= 5; x++) for (let z = -6; z <= 5; z++) {
+    const dx = x + 0.5, dz = z + 0.5, r = dx * dx + dz * dz;
+    const rib = (y === 6 || y === 12);
+    if (r > (rib ? 36 : 30.25)) continue;   // the rolling ribs stand out one cell
+    g.set(cx + x + 0.5, y0 + y + 0.5, cz + z + 0.5, y === 17 ? "steelDark" : rib ? "steelDark" : (y >= 8 && y <= 10) ? "drumBand" : (mat || "drumOlive"));
+  }
+  B(g, cx + 2, cx + 3, y0 + 18, y0 + 18, cz - 4, cz - 3, "hazardRed"); B(g, cx - 4, cx - 4, y0 + 18, y0 + 18, cz + 2, cz + 2, "gunMetal");
+}
+function jerrycanProp() {
+  const g = propSet(1); jerrycan(g, -4, 0, -2, "tankOlive");
+  return { name: "jerrycan", label: "Fuel jerrycan (20 l)", cat: "fuel", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }],
+    sockets: [{ name: "grip", pos: [-0.025, 0.525, 0], dir: [1, 0, 0] }], extra: { litres: 20 } };
+}
+function drumProp() {
+  const g = propSet(1); drum(g, 0, 0, 0);
+  return { name: "fuel_drum", label: "Fuel drum (200 l)", cat: "fuel", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }], sockets: [], extra: { litres: 200 } };
+}
+function fuelStoreProp() {
+  const g = propSet(1), cans = [];
+  // bund tray (steel spill pallet) 2.4 x 1.6 m, 15 cm lip
+  B(g, -24, 23, 0, 1, -16, 15, "steelDark");
+  B(g, -24, 23, 2, 3, -16, -16, "steel"); B(g, -24, 23, 2, 3, 15, 15, "steel"); B(g, -24, -24, 2, 3, -15, 14, "steel"); B(g, 23, 23, 2, 3, -15, 14, "steel");
+  B(g, -23, 22, 2, 2, -15, 14, (x, y, z) => ((x + z) % 4 === 0 ? "steel" : "steelDark"));   // grating
+  for (const [x, z] of [[-17, -8], [-4, -8], [-17, 6], [-4, 6]]) drum(g, x, 3, z);
+  // hand pump on the front-left drum: barrel, handle, hose, nozzle hanging
+  B(g, -19, -18, 21, 33, 4, 5, "gunMetal"); B(g, -21, -16, 33, 34, 4, 5, "hazardRed"); cellLine(g, [-18, 34, 5], [-12, 38, 5], "gunBlack");
+  cellLine(g, [-17, 30, 6], [-11, 18, 12], "rubber"); B(g, -11, -10, 15, 18, 12, 13, "hazardYellow");
+  // warning post with a red "no flames" plate
+  B(g, 21, 22, 4, 40, -15, -14, "pole"); B(g, 18, 25, 32, 40, -13, -13, "white"); B(g, 20, 23, 34, 38, -12, -12, "hazardRed");
+  // 6 jerrycan slots (parts can0..can5, 2 rows of 3 on the right half): the engine shows one per sixth of the stock
+  const slots = [[4, 3, -12], [12, 3, -12], [4, 3, 2], [12, 3, 2], [4, 14, -12], [12, 14, -12]];   // jerrycans stand along X? 7 wide
+  slots.forEach(([x, y, z], i) => { const c = propSet(1); jerrycan(c, x, y, z, i % 3 === 2 ? "drumOlive" : "tankOlive", 1300 + i); cans.push({ name: "can" + i, parent: "body", set: c, pivot: [0, 0, 0], unitM: PROP_M, rigid: true, note: "fill level: drawn while stock >= (" + (i + 1) + "/6) x capacity" }); });
+  return { name: "fuel_store", label: "Base fuel store (bunded drums, jerrycans)", cat: "fuel", kind: "prop",
+    parts: [{ name: "body", parent: null, set: g, pivot: [0, 0, 0], unitM: PROP_M, rigid: true }, ...cans],
+    sockets: [{ name: "deliver", pos: [0.8, 0, 1.2], dir: [0, 0, -1] }, { name: "pump", pos: [-0.55, 1.0, 0.6], dir: [0, 0, 1] }] };
+}
+function buildStructures() {
+  return [towerWood(), towerSteel(), generatorProp(), floodlightProp(), jerrycanProp(), drumProp(), fuelStoreProp()];
+}
+
 /* === MILITARY LIBRARY END === */
 
 /* =====================================================================================
@@ -2563,6 +2829,8 @@ for (const m of LIB.infantry) ALL[m.name] = m;
 for (const m of LIB.props) ALL[m.name] = m;
 const SPEC = buildSpecialists();   // Phase 7b: engineers, flamethrowers, hand tools, site props (assets/military/specialists.*)
 for (const m of [...SPEC.soldiers, ...SPEC.tools, ...SPEC.props]) ALL[m.name] = m;
+const STRUCT = buildStructures();   // Phase 7b structures (assets/military/structures.*), PENDING REVIEW
+for (const m of STRUCT) ALL[m.name] = m;
 const buildMs = performance.now() - t0;
 
 // ---- instantiate a model as a THREE hierarchy (metres)
@@ -2667,6 +2935,22 @@ function rebuild() {
     place("zombie_walker", (names.length / 2 + 1.2) * 0.85, 0, "Zombie");
     if (state.tools !== false) SPEC.tools.forEach((t, i) => { const o = place(t.name, (i - 2.5) * 0.9 + 0.4, 1.3, null, 0); o.root.rotation.set(0, Math.PI / 2, t.name === "tool_panel" ? Math.PI / 2 : 0); o.root.position.y = t.name === "tool_panel" ? 0.03 : 0.07; });
     frame(bounds(shown), 1);
+  } else if (state.mode === "structures") {
+    // Phase 7b structures: towers (snipers on the deck posts), generator, floodlight, fuel; a rifleman for scale
+    let x = 0; const gap = 1.2;
+    const put = (n, lab) => { const r = inst(n); const b = new THREE.Box3().setFromObject(r); r.position.set(x - b.min.x, 0, 0); applyPose(r, state.pose); scene.add(r); const o = { root: r, label: lab === undefined ? ALL[n].label : lab }; shown.push(o); x += b.max.x - b.min.x + gap; return { r, o, b }; };
+    const lit = state.lit !== false;
+    for (const t of ["tower_wood", "tower_steel"]) {
+      const { r } = put(t); const M = ALL[t];
+      for (const s of M.sockets.filter(s => s.name.startsWith("post"))) { const sn = inst(s.name === "post_a" ? "sniper_a" : "sniper_b"); sn.position.set(r.position.x + s.pos[0], s.pos[1], s.pos[2]); applyPose(sn, "carry"); scene.add(sn); shown.push({ root: sn, label: null }); }
+    }
+    for (const n of ["generator", "floodlight", "fuel_store", "fuel_drum", "jerrycan"]) {
+      const { r } = put(n);
+      if (n === "floodlight") { r.userData.groups.lamps.visible = lit; if (lit && state.light === "night") { const sp = new THREE.SpotLight(0xfff0c4, 3.5, 40, 0.7, 0.5, 1.2); sp.position.set(0, 4.55, 0.3); sp.target.position.set(0, 0, 9); sp.castShadow = true; r.add(sp, sp.target); } }
+    }
+    place("rifleman_a", x + 0.2, 0.4, "Rifleman");
+    if (state.view === "rts") { const b = bounds(shown); const c = new THREE.Vector3(); b.getCenter(c); c.y = 1; const pitch = THREE.MathUtils.degToRad(50), dist = state.rtsDist || 60; camera.fov = 32; controls.target.copy(c); camera.position.set(c.x + Math.cos(pitch) * dist * 0.5, c.y + Math.sin(pitch) * dist, c.z + Math.cos(pitch) * dist * 0.866); camera.near = 1; camera.far = 1000; camera.updateProjectionMatrix(); controls.update(); }
+    else frame(bounds(shown), 0.95);
   } else if (state.mode === "lineup") {
     const names = LIB.infantry.map(x => x.name);
     names.forEach((n, i) => place(n, (i - names.length / 2) * 0.8, 0, ALL[n].label));
@@ -3332,7 +3616,7 @@ function loop() {
   const span = Math.max(4, camera.position.distanceTo(c) * 0.7); const sc = key.shadow.camera; sc.left = sc.bottom = -span; sc.right = sc.top = span; sc.near = 0.1; sc.far = 80; sc.updateProjectionMatrix();
   renderer.render(scene, camera);
   // labels
-  if (state.mode === "lineup" || state.mode === "props" || state.mode === "speclineup") {
+  if (state.mode === "lineup" || state.mode === "props" || state.mode === "speclineup" || state.mode === "structures") {
     if (labelsEl.childElementCount !== shown.filter(s => s.label).length) labelsEl.innerHTML = shown.filter(s => s.label).map(() => '<div class="tag"></div>').join("");
     let i = 0;
     for (const o of shown) if (o.label) {
@@ -3343,7 +3627,7 @@ function loop() {
   requestAnimationFrame(loop);
 }
 resize(); setLight("neutral"); rebuild(); loop();
-window.__mil = { state, rebuild, setLight, syncUI, exportJSON, LIB, SPEC, AN2, CLIP, ALL, camera, controls, scene, renderer, frame, bounds, shown: () => shown, ready: true,
+window.__mil = { state, rebuild, setLight, syncUI, exportJSON, LIB, SPEC, STRUCT, AN2, CLIP, ALL, camera, controls, scene, renderer, frame, bounds, shown: () => shown, ready: true,
   set(o) { Object.assign(state, o); if (o.light) setLight(o.light); syncUI(); rebuild(); },
   AN, anim, setAnim(o) { Object.assign(anim, o); syncAnimUI(); if (state.mode === "anim") { rebuild(); } },
   step(dt) { animUpdate(dt); controls.update(); renderer.render(scene, camera); },

@@ -69,6 +69,7 @@ void NavGrid::computeWalk(int z0, int z1) {
                 ok += std::fabs(h_[(size_t)z * gw_ + x] - h) <= stepUp_ ? 1 : 0;
             }
             walk_[(size_t)j * gw_ + i] = (uint8_t)(dilate ? (ok == total && total > 0) : ok > 0);
+            if (mask_.size() == h_.size() && (mask_[(size_t)j * gw_ + i] & 1u)) walk_[(size_t)j * gw_ + i] = 0;   // car roof / wall top
         }
 }
 
@@ -285,6 +286,16 @@ float NavGrid::surface(float x, float z) const {
     return h_[(size_t)j * gw_ + i];
 }
 
+bool NavGrid::onObstacle(float x, float z) const {
+    int i, j;
+    return ready() && mask_.size() == h_.size() && cellOf(x, z, i, j) && (mask_[(size_t)j * gw_ + i] & 1u);
+}
+
+bool NavGrid::reserved(float x, float z) const {
+    int i, j;
+    return ready() && mask_.size() == h_.size() && cellOf(x, z, i, j) && (mask_[(size_t)j * gw_ + i] & 2u);
+}
+
 uint32_t NavGrid::island(float x, float z) const {
     int i, j;
     return ready() && cellOf(x, z, i, j) ? island_[(size_t)j * gw_ + i] : 0u;
@@ -494,6 +505,7 @@ bool NavGrid::expand(Query& q, int& budget) {
                 if (closed_[n] == searchStamp_) continue;
                 float g = g_[o.c] + ((di && dj) ? kSqrt2 : 1.f);
                 if (costL_) { const V3 cn = centre(ci + di, cj + dj); g += ((di && dj) ? kSqrt2 : 1.f) * extraCost(cn.x, cn.z); }   // gas (14d)
+                if (mask_.size() == h_.size() && (mask_[n] & 2u)) g += ((di && dj) ? kSqrt2 : 1.f) * kReserveCost;   // blueprint footprint (14e)
                 g += ((di && dj) ? kSqrt2 : 1.f) * roofPenalty(n);   // roofs: keep off the rim, a margin around roof objects
                 if (stamp_[n] == searchStamp_ && g >= g_[n]) continue;
                 stamp_[n] = searchStamp_; g_[n] = g; parent_[n] = o.c;

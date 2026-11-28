@@ -101,6 +101,33 @@ bool Logistics::airdropSpot(const GameContext& ctx, V3 pos, V3& spot, const char
     if (!ctx.nav || !ctx.nav->ready()) return no("no navigation grid");
     if (!simulatedAt(ctx, pos.x, pos.z)) return no("outside the simulated area");
     const NavGrid& nav = *ctx.nav;
+    // Rooftops (GAME_DESIGN 14e): the roof-surface picker (Deploy.h roofLevels) resolves the roof level the click means
+    // and searches that whole roof island for the nearest flat crate spot inset from the edge, clear of roof objects,
+    // with a reachable access cell on the island next to it. Never refused while that roof has such a spot.
+    {
+        std::vector<V3> roofs;
+        roofLevels(ctx, pos, roofs);
+        for (const V3& start : roofs) {
+            std::vector<V3> cells;
+            nav.islandCells(start, 30.f, 5000, cells);
+            std::sort(cells.begin(), cells.end(), [&](const V3& a, const V3& b) { return dist2(a, pos) < dist2(b, pos); });
+            const uint32_t isl = nav.island(start.x, start.z);
+            struct Tier { float edge, obs; };
+            static const Tier tiers[] = {{1.8f, 1.0f}, {1.4f, 0.8f}, {1.1f, 0.7f}};
+            for (const Tier& t : tiers)
+                for (const V3& c : cells) {
+                    if (!simulatedAt(ctx, c.x, c.z) || nav.cellEdge(c.x, c.z) < t.edge || nav.cellObstacle(c.x, c.z) < t.obs) continue;
+                    float y;
+                    if (!flatFootprint(ctx, c, kCrateHalf, kCrateHalf, 0.f, 0.35f, &y)) continue;
+                    V3 w;
+                    if (!nav.insetSpot(c + V3{1.1f, 0, 0}, 1.6f, 0.8f, 0.3f, isl, w)) continue;   // an access cell beside it
+                    spot = {c.x, y, c.z};
+                    if (why) *why = "";
+                    return true;
+                }
+        }
+        if (!roofs.empty()) return no("no clear spot for a crate on this roof");
+    }
     const float clicked = nav.surface(pos.x, pos.z);
     // a spot: crate footprint flat (roof gravel / curbs within 0.35 m), on the clicked surface level (a stepped roof's
     // levels are separate surfaces), not on a vehicle / wall top, and a walkable access cell on that level next to it
@@ -145,7 +172,8 @@ SupplyId Logistics::airdrop(GameContext& ctx, V3 pos) {
     // scatter stays on the requested surface: the same level and navigation island (a crate for a rooftop sniper lands
     // on his roof, never in the street below or on the next roof level)
     const uint32_t isl = snapped && ctx.nav ? ctx.nav->island(base.x, base.z) : 0u;
-    for (int k = 0; k < 8 && snapped; ++k) {
+    const bool roof = snapped && ctx.nav && ctx.nav->roofIsland(isl);   // a roof crate lands exactly where the preview shows
+    for (int k = 0; k < 8 && snapped && !roof; ++k) {
         const float a = rand01(seed) * 2.f * kPi, r = rand01(seed) * L.airdropScatter;
         V3 c{base.x + std::cos(a) * r, base.y, base.z + std::sin(a) * r}, s2;
         if (!airdropSpot(ctx, c, s2) || std::fabs(s2.y - base.y) > 0.4f || dist2(s2, base) > (L.airdropScatter + 0.5f) * (L.airdropScatter + 0.5f)) continue;
@@ -163,11 +191,23 @@ SupplyId Logistics::airdrop(GameContext& ctx, V3 pos) {
         static const float off[8] = {0.f, kPi, kPi / 2, -kPi / 2, kPi / 4, 3 * kPi / 4, -kPi / 4, -3 * kPi / 4};
         const float a = sp.yaw + off[k];
         V3 c{land.x + std::cos(a) * 1.1f, land.y, land.z + std::sin(a) * 1.1f}, s;
-        if (ctx.nav && slotAt(ctx, c, land.y, s)) sp.slots.push_back(s);
+        if (!ctx.nav || !slotAt(ctx, c, land.y, s)) continue;
+        if (roof) {   // rooftop slot: on the crate's island, inset from the rim (no collecting with heels over the edge)
+            V3 w;
+            if (ctx.nav->island(s.x, s.z) != isl || ctx.nav->cellEdge(s.x, s.z) < 0.8f) {
+                if (!ctx.nav->insetSpot(c, 0.9f, 0.8f, 0.3f, isl, w) || dist2(w, land) > 1.9f * 1.9f || dist2(w, land) < 0.7f * 0.7f) continue;
+                s = w;
+            }
+            bool dup = false;
+            for (const V3& o : sp.slots) dup |= dist2(o, s) < 0.6f * 0.6f;
+            if (dup) continue;
+        }
+        sp.slots.push_back(s);
     }
     if (sp.slots.empty() && ctx.nav) {   // small roof: the nearest walkable cell on the crate's level
         V3 w;
-        if (ctx.nav->nearestWalkable(land, 1.6f, w) && std::fabs(ctx.nav->surface(w.x, w.z) - land.y) < 0.4f) sp.slots.push_back({w.x, ctx.nav->surface(w.x, w.z), w.z});
+        if (roof && ctx.nav->insetSpot(land, 1.8f, 0.6f, 0.2f, isl, w) && dist2(w, land) > 0.5f) sp.slots.push_back(w);
+        else if (ctx.nav->nearestWalkable(land, 1.6f, w) && std::fabs(ctx.nav->surface(w.x, w.z) - land.y) < 0.4f) sp.slots.push_back({w.x, ctx.nav->surface(w.x, w.z), w.z});
     }
     if (sp.slots.empty()) sp.slots.push_back({land.x + 1.1f, land.y, land.z});
     sp.slotUser.assign(sp.slots.size(), SoldierId{});
@@ -195,12 +235,22 @@ SupplyPoint* Logistics::getMut(SupplyId id) {
 SupplyId Logistics::findNearest(const GameContext& ctx, V3 from, AmmoType type, float maxDist) const {
     SupplyId best;
     float bestD = maxDist * maxDist;
-    const uint32_t isl = ctx.nav && ctx.nav->ready() ? ctx.nav->island(from.x, from.z) : 0;
+    // the soldier's island: a soldier on a rim cell (not walkable) belongs to the walkable cells of HIS level next to
+    // him (a rooftop sniper at the parapet never picks the crate in the street below)
+    uint32_t isl = ctx.nav && ctx.nav->ready() ? ctx.nav->island(from.x, from.z) : 0;
+    if (!isl && ctx.nav && ctx.nav->ready()) {
+        V3 w;
+        if (ctx.nav->nearestWalkableLevel(from, 2.f, from.y, 0.6f, w)) isl = ctx.nav->island(w.x, w.z);
+    }
     for (const SupplyPoint& p : points_) {
         if (!p.alive || !p.landed || p.stock[(size_t)type] <= 0) continue;
         const float d = (p.pos.x - from.x) * (p.pos.x - from.x) + (p.pos.z - from.z) * (p.pos.z - from.z);
         if (d > bestD) continue;
-        if (isl && !p.slots.empty() && ctx.nav->island(p.slots[0].x, p.slots[0].z) != isl) continue;   // other roof / street
+        if (isl) {   // reachable = an access slot on the same island (other roof / street: no)
+            bool reach = p.slots.empty();
+            for (const V3& sl : p.slots) reach |= ctx.nav->island(sl.x, sl.z) == isl;
+            if (!reach) continue;
+        } else if (std::fabs(p.pos.y - from.y) > 3.f) continue;
         bestD = d;
         best = p.id;
     }

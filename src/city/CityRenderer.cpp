@@ -77,6 +77,29 @@ bool CityRenderer::init(GpuContext& gpu, CityAsset& asset, SDL_GPUSampleCount sa
         mats[i] = {{m.r, m.g, m.b, m.gloss}, {m.emissiveNight, (float)m.emissiveMode, m.roughness, m.emissiveDay},
                    {m.flags, m.dayMaterial >= 0 && m.dayMaterial < 256 ? (uint32_t)m.dayMaterial : (uint32_t)i, 0, 0}};
     }
+    // Garrison window rooms (GAME_DESIGN 14e, game/BuildingGame.cpp): interior materials on free palette ids
+    // kInteriorMat.. (albedo, warm steady glow at night: the rooms look lit from inside, never by day)
+    if (asset.materials.size() <= (size_t)kInteriorMat) {
+        static const float inter[kInteriorMats][5] = {
+            {0.16f, 0.085f, 0.04f, 0.35f, 0.f},   // 0 floor boards
+            {0.10f, 0.055f, 0.028f, 0.25f, 0.f},  // 1 floor, back / corners (fake ambient occlusion)
+            {0.34f, 0.28f, 0.20f, 0.45f, 0.f},    // 2 plaster, near the window
+            {0.24f, 0.19f, 0.13f, 0.40f, 0.f},    // 3 plaster, back wall / corners
+            {0.26f, 0.23f, 0.19f, 0.30f, 0.f},    // 4 ceiling
+            {1.0f, 0.78f, 0.48f, 3.2f, 0.25f},    // 5 ceiling lamp
+            {0.36f, 0.29f, 0.17f, 0.10f, 0.f},    // 6 sandbag
+            {0.27f, 0.21f, 0.12f, 0.08f, 0.f},    // 7 sandbag, darker
+            {0.30f, 0.27f, 0.23f, 0.15f, 0.f},    // 8 window reveal (wall thickness)
+            {0.07f, 0.05f, 0.035f, 0.05f, 0.f},   // 9 skirting
+            {0.20f, 0.14f, 0.08f, 0.30f, 0.f},    // 10 dado (lower wall)
+            {0.10f, 0.12f, 0.06f, 0.10f, 0.f},    // 11 olive crate
+        };
+        for (int k = 0; k < kInteriorMats; ++k) {
+            const float* m = inter[k];
+            mats[(size_t)(kInteriorMat + k)] = {{m[0], m[1], m[2], 0.f}, {m[3], (float)EM_STEADY, 0.9f, m[4]},
+                                                {MAT_EMISSIVE, (uint32_t)(kInteriorMat + k), 0, 0}};
+        }
+    } else SDL_Log("city: palette uses id %d+, garrison room materials unavailable", kInteriorMat);
     materials_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, (uint32_t)(mats.size() * sizeof(GpuMat)), "cityMaterials");
     gpu.uploadNow(materials_, mats.data(), (uint32_t)(mats.size() * sizeof(GpuMat)));
     dummy_ = gpu.createBuffer(SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, 64, "cityDummy");
@@ -708,6 +731,7 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
     SDL_GPUBuffer* fb[5] = {materials_, decals ? decals : dummy_, shadowH ? shadowH : dummy_, corpseH ? corpseH : dummy_, lampGrid()};
     SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 5);
     bindShadowMap(pass);
+    pushCutouts(cmd, true);
     SDL_BindGPUVertexStorageBuffers(pass, 0, &instances_, 1);
     // front to back (early depth rejection)
     std::vector<std::pair<float, const GpuTile*>> order;
@@ -776,6 +800,7 @@ void CityRenderer::drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* c
                             lampGrid()};
     SDL_BindGPUFragmentStorageBuffers(pass, 0, fb, 5);
     bindShadowMap(pass);
+    pushCutouts(cmd, false);   // instances (props, vehicles, garrison rooms) are never cut
     SDL_BindGPUVertexStorageBuffers(pass, 0, &insts, 1);
     for (const ExtDraw& d : draws) {
         if (!d.mesh || !d.mesh->vb || !d.count) continue;
@@ -790,6 +815,20 @@ void CityRenderer::drawExternal(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* c
         SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
         SDL_DrawGPUIndexedPrimitives(pass, m.idxCount, d.count, 0, 0, 0);
     }
+}
+
+void CityRenderer::setCutouts(const float* boxes, uint32_t n) {
+    n = std::min(n, (uint32_t)kMaxCutouts);
+    cutouts_.assign(boxes, boxes + (size_t)n * 8);
+}
+
+void CityRenderer::pushCutouts(SDL_GPUCommandBuffer* cmd, bool tiles) const {
+    struct CutU { uint32_t count[4]; float box[kMaxCutouts][8]; };   // std140, shaders/city.frag Cutouts
+    static CutU u;
+    const uint32_t n = tiles ? (uint32_t)(cutouts_.size() / 8) : 0u;
+    u.count[0] = n;
+    if (n) std::memcpy(u.box, cutouts_.data(), cutouts_.size() * sizeof(float));
+    SDL_PushGPUFragmentUniformData(cmd, 1, &u, (uint32_t)sizeof(CutU));
 }
 
 void CityRenderer::bindShadowMap(SDL_GPURenderPass* pass) const {

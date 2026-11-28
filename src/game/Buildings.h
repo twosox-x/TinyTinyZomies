@@ -86,7 +86,18 @@ struct FiringPosition {
     float arcHalf = 1.0f;            // half angle of the firing arc around yaw (rad): windows ~60 deg, roof edges ~80 deg
     SoldierId occupant;              // B3a: the garrison soldier assigned to it (invalid: free)
     bool nest = false;               // a fort_window_nest / fort_roof_ring is built at it (defence bonus)
+    float outReach = 0.9f;           // m from pos out to the firing point (SoldierPool::firePos: past the facade / edge)
+    // ---- window posts (GAME_DESIGN 14e): the opened window cut into the facade art and the small room behind it
+    bool realWindow = false;         // the rect is a glass pane of the baked facade (false: derived spacing)
+    V3 win;                          // centre of the opening's bottom edge on the glass plane (world)
+    float winHalfW = 0.f, winH = 0.f;// opening half width / height (m)
+    float roomHalfW = 0.f, roomDepth = 0.f, roomFloor = 0.f, roomCeil = 0.f;   // room behind it (floor = soldier's feet)
 };
+
+// A window of the baked facade art: glass quads of the tile mesh (glass materials) merged per window, in the facade
+// frame of BuildingRegistry::prepare: side 0 front (out -e2), 1 right (+e1), 2 back (+e2), 3 left (-e1); s along the
+// facade, inset = depth of the glass plane behind the footprint edge (m).
+struct FacadeGlass { uint8_t side = 0; float s0 = 0, s1 = 0, y0 = 0, y1 = 0, inset = 0; };
 
 struct Building {
     // ---- static (from BLDG)
@@ -105,6 +116,7 @@ struct Building {
     float stairU = 0, stairV = 0;    // stair core (local frame): connects all floors and the roof hatch
     std::vector<Opening> openings;   // doors first (ground), then windows by floor, then the roof hatch (if flatRoof)
     std::vector<FiringPosition> firing;
+    std::vector<FacadeGlass> glass;  // windows of the facade art (from the tile mesh; empty: positions derived)
     // ---- support (GAME_DESIGN 14b: unsupported buildings are documented)
     bool prepared = false;           // openings / firing positions derived (BuildingRegistry::prepare)
     bool supported = false;          // garrison / hospital possible
@@ -150,6 +162,8 @@ class BuildingRegistry {
 public:
     // ---- loading (B3a, CPU). Tiles are parsed once (BLDG section); buildings are never removed during a session.
     void addTile(const TileCPU& tile);           // idempotent per tile (i, j)
+    // Glass material ids of the city palette (CityMaterial MAT_GLASS): addTile reads window rects from the tile mesh.
+    void setGlassMaterials(const std::vector<uint8_t>& isGlass) { glassMat_ = isGlass; }
     bool hasTile(int i, int j) const { for (uint32_t t : tiles_) if (t == ((uint32_t)i | ((uint32_t)j << 16))) return true; return false; }
     // Derive openings / firing positions / support for buildings not prepared yet whose footprint lies inside the
     // height grid (heightAt returns the walkable / solid top at (x, z), NaN when unknown). B3a calls it after the
@@ -191,7 +205,9 @@ private:
     std::vector<uint32_t> tiles_;                // (i | j << 16) of tiles already added
     std::unordered_map<uint64_t, std::vector<uint32_t>> grid_;   // 16 m buckets (every bucket a footprint touches)
     std::vector<BarricadeBroken> broken_;
+    std::vector<uint8_t> glassMat_;
     uint64_t version_ = 0;
+    void readGlass(const TileCPU& t);
 };
 
 // Parse the optional BLDG section of a tile (FORMAT.md 3): static records only (openings: doors; no windows yet).

@@ -131,6 +131,11 @@ struct MilitaryLibrary {
     // GAME_DESIGN 14d engineers, PLACEHOLDER until the approved engineer assets exist: a rifleman variant (class stays
     // "rifleman": its clips) with an orange helmet cover and a hi-vis vest, variant name "Engineer (placeholder)".
     // Skipped when the library already has an infantry class "engineer" (approved assets: the game uses those).
+    // GAME_DESIGN 14e structures, PLACEHOLDER until the owner approves assets/military/structures.* (PENDING REVIEW):
+    // coarse 0.25 m voxel props "ph_tower", "ph_generator", "ph_floodlight", "ph_floodlight_lamp" (emissive lens, drawn
+    // while powered), "ph_fuel_store", "ph_jerrycan". The game swaps to the authored props in one place
+    // (StructuresGame.cpp kStructureAssetsApproved).
+    void addStructurePlaceholders();
     void addEngineerPlaceholder();   // assets/military/anims.{json,bin}: per-class clips appended to the infantry
     // lab-only helper models (scale ruler, ground grid, parachute demo, tracer)
     enum { FX_FLASH_RIFLE = 0, FX_FLASH_RIFLE_HALF, FX_FLASH_MG, FX_FLASH_MG_SMALL, FX_TRACER, FX_CASING, FX_PUFF_S, FX_PUFF_M, FX_PUFF_L,

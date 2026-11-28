@@ -47,6 +47,12 @@ struct ShadowH
     float shadowH[1];
 };
 
+struct Cutouts
+{
+    uint4 cutCount;
+    float4 cutBox[128];
+};
+
 struct Decals
 {
     uint decals[1];
@@ -107,6 +113,52 @@ bool voxelDissolved(thread const float3& cell, thread const float& d)
 }
 
 static inline __attribute__((always_inline))
+bool facadeCut(thread const float3& P, constant Cutouts& _1310)
+{
+    for (uint i = 0u; i < _1310.cutCount.x; i++)
+    {
+        float4 a = _1310.cutBox[2u * i];
+        float4 b = _1310.cutBox[(2u * i) + 1u];
+        float3 d = P - a.xyz;
+        float o = dot(d.xz, b.xy);
+        bool _1338 = o > 0.14000000059604644775390625;
+        bool _1347;
+        if (!_1338)
+        {
+            _1347 = o < (-b.w);
+        }
+        else
+        {
+            _1347 = _1338;
+        }
+        bool _1357;
+        if (!_1347)
+        {
+            _1357 = abs(d.y) > b.z;
+        }
+        else
+        {
+            _1357 = _1347;
+        }
+        bool _1374;
+        if (!_1357)
+        {
+            _1374 = abs(dot(d.xz, float2(-b.y, b.x))) > a.w;
+        }
+        else
+        {
+            _1374 = _1357;
+        }
+        if (_1374)
+        {
+            continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+static inline __attribute__((always_inline))
 float hash12(thread const float2& p)
 {
     float3 p3 = fract(p.xyx * 0.103100001811981201171875);
@@ -115,48 +167,48 @@ float hash12(thread const float2& p)
 }
 
 static inline __attribute__((always_inline))
-float decalAt(thread const int2& c, thread const uint& layer, constant Frame& _128, const device Decals& _1314)
+float decalAt(thread const int2& c, thread const uint& layer, constant Frame& _154, const device Decals& _1425)
 {
-    int2 d = int2(_128.gridDim.xy) * int2(3);
-    bool _1282 = c.x < 0;
-    bool _1289;
-    if (!_1282)
+    int2 d = int2(_154.gridDim.xy) * int2(3);
+    bool _1393 = c.x < 0;
+    bool _1400;
+    if (!_1393)
     {
-        _1289 = c.y < 0;
+        _1400 = c.y < 0;
     }
     else
     {
-        _1289 = _1282;
+        _1400 = _1393;
     }
-    bool _1298;
-    if (!_1289)
+    bool _1409;
+    if (!_1400)
     {
-        _1298 = c.x >= d.x;
+        _1409 = c.x >= d.x;
     }
     else
     {
-        _1298 = _1289;
+        _1409 = _1400;
     }
-    bool _1307;
-    if (!_1298)
+    bool _1418;
+    if (!_1409)
     {
-        _1307 = c.y >= d.y;
+        _1418 = c.y >= d.y;
     }
     else
     {
-        _1307 = _1298;
+        _1418 = _1409;
     }
-    if (_1307)
+    if (_1418)
     {
         return 0.0;
     }
-    return float(_1314.decals[((layer * uint(d.x * d.y)) + (uint(c.y) * uint(d.x))) + uint(c.x)]);
+    return float(_1425.decals[((layer * uint(d.x * d.y)) + (uint(c.y) * uint(d.x))) + uint(c.x)]);
 }
 
 static inline __attribute__((always_inline))
-float decalBilinear(thread const float2& xz, thread const uint& layer, constant Frame& _128, const device Decals& _1314)
+float decalBilinear(thread const float2& xz, thread const uint& layer, constant Frame& _154, const device Decals& _1425)
 {
-    float2 g = (((xz - _128.gridP.xy) * _128.gridP.w) * 3.0) - float2(0.5);
+    float2 g = (((xz - _154.gridP.xy) * _154.gridP.w) * 3.0) - float2(0.5);
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
     int2 param = c0;
@@ -167,47 +219,47 @@ float decalBilinear(thread const float2& xz, thread const uint& layer, constant 
     uint param_5 = layer;
     int2 param_6 = c0 + int2(1);
     uint param_7 = layer;
-    return mix(mix(decalAt(param, param_1, _128, _1314), decalAt(param_2, param_3, _128, _1314), f.x), mix(decalAt(param_4, param_5, _128, _1314), decalAt(param_6, param_7, _128, _1314), f.x), f.y);
+    return mix(mix(decalAt(param, param_1, _154, _1425), decalAt(param_2, param_3, _154, _1425), f.x), mix(decalAt(param_4, param_5, _154, _1425), decalAt(param_6, param_7, _154, _1425), f.x), f.y);
 }
 
 static inline __attribute__((always_inline))
-float wallH(thread const float2& xz, constant Frame& _128, const device Decals& _1314)
+float wallH(thread const float2& xz, constant Frame& _154, const device Decals& _1425)
 {
-    int2 d = int2(_128.gridDim.xy) * int2(3);
-    int2 c = int2(floor(((xz - _128.gridP.xy) * _128.gridP.w) * 3.0));
-    bool _1460 = c.x < 0;
-    bool _1467;
-    if (!_1460)
+    int2 d = int2(_154.gridDim.xy) * int2(3);
+    int2 c = int2(floor(((xz - _154.gridP.xy) * _154.gridP.w) * 3.0));
+    bool _1571 = c.x < 0;
+    bool _1578;
+    if (!_1571)
     {
-        _1467 = c.y < 0;
+        _1578 = c.y < 0;
     }
     else
     {
-        _1467 = _1460;
+        _1578 = _1571;
     }
-    bool _1476;
-    if (!_1467)
+    bool _1587;
+    if (!_1578)
     {
-        _1476 = c.x >= d.x;
+        _1587 = c.x >= d.x;
     }
     else
     {
-        _1476 = _1467;
+        _1587 = _1578;
     }
-    bool _1485;
-    if (!_1476)
+    bool _1596;
+    if (!_1587)
     {
-        _1485 = c.y >= d.y;
+        _1596 = c.y >= d.y;
     }
     else
     {
-        _1485 = _1476;
+        _1596 = _1587;
     }
-    if (_1485)
+    if (_1596)
     {
         return 0.0;
     }
-    return float(_1314.decals[(uint(d.x * d.y) + (uint(c.y) * uint(d.x))) + uint(c.x)]) * 0.001000000047497451305389404296875;
+    return float(_1425.decals[(uint(d.x * d.y) + (uint(c.y) * uint(d.x))) + uint(c.x)]) * 0.001000000047497451305389404296875;
 }
 
 static inline __attribute__((always_inline))
@@ -224,7 +276,7 @@ float vnoise(thread const float2& p)
 }
 
 static inline __attribute__((always_inline))
-float wallBlood(thread const float3& P, thread const float3& N, thread const float& u, constant Frame& _128, const device Decals& _1314)
+float wallBlood(thread const float3& P, thread const float3& N, thread const float& u, constant Frame& _154, const device Decals& _1425)
 {
     float2 n = fast::normalize(N.xz + float2(9.9999997473787516355514526367188e-06));
     float2 t = float2(-n.y, n.x);
@@ -235,7 +287,7 @@ float wallBlood(thread const float3& P, thread const float3& N, thread const flo
         float2 param = q;
         float2 param_1 = q + (t * 0.300000011920928955078125);
         float2 param_2 = q - (t * 0.300000011920928955078125);
-        h = fast::max(h, fast::max(wallH(param, _128, _1314), 0.800000011920928955078125 * fast::max(wallH(param_1, _128, _1314), wallH(param_2, _128, _1314))));
+        h = fast::max(h, fast::max(wallH(param, _154, _1425), 0.800000011920928955078125 * fast::max(wallH(param_1, _154, _1425), wallH(param_2, _154, _1425))));
     }
     if (h <= 0.0)
     {
@@ -263,34 +315,34 @@ float wallBlood(thread const float3& P, thread const float3& N, thread const flo
 }
 
 static inline __attribute__((always_inline))
-float shadowMapLayer(thread const float3& Q, thread const float4x4& vp, thread const float& layer, constant Frame& _128, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
+float shadowMapLayer(thread const float3& Q, thread const float4x4& vp, thread const float& layer, constant Frame& _154, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
 {
     float4 c = vp * float4(Q, 1.0);
     float edge = fast::max(abs(c.x), abs(c.y));
-    bool _1070 = edge >= 1.0;
-    bool _1077;
-    if (!_1070)
+    bool _1096 = edge >= 1.0;
+    bool _1103;
+    if (!_1096)
     {
-        _1077 = c.z <= 0.0;
+        _1103 = c.z <= 0.0;
     }
     else
     {
-        _1077 = _1070;
+        _1103 = _1096;
     }
-    if (_1077)
+    if (_1103)
     {
         return 1.0;
     }
     float2 uv = float2((c.x * 0.5) + 0.5, 0.5 - (0.5 * c.y));
-    float z = fast::min(c.z - _128.shadowP.z, 1.0);
-    float d = _128.shadowP.w;
+    float z = fast::min(c.z - _154.shadowP.z, 1.0);
+    float d = _154.shadowP.w;
     float s = 0.0;
     for (int j = -1; j <= 1; j++)
     {
         for (int i = -1; i <= 1; i++)
         {
-            float4 _1138 = float4(uv + (float2(float(i), float(j)) * d), layer, z);
-            s += shadowMap.sample_compare(shadowMapSmplr, _1138.xy, uint(rint(_1138.z)), _1138.w);
+            float4 _1164 = float4(uv + (float2(float(i), float(j)) * d), layer, z);
+            s += shadowMap.sample_compare(shadowMapSmplr, _1164.xy, uint(rint(_1164.z)), _1164.w);
         }
     }
     s *= 0.111111111938953399658203125;
@@ -298,144 +350,144 @@ float shadowMapLayer(thread const float3& Q, thread const float4x4& vp, thread c
 }
 
 static inline __attribute__((always_inline))
-float shadowMapVisibility(thread const float3& P, thread const float3& N, constant Frame& _128, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
+float shadowMapVisibility(thread const float3& P, thread const float3& N, constant Frame& _154, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
 {
-    float ndl = dot(N, _128.sunDir.xyz);
-    float3 Q = (P + ((N * _128.shadowP.y) * (1.2000000476837158203125 + (1.7999999523162841796875 * (1.0 - abs(ndl)))))) + ((_128.sunDir.xyz * _128.shadowP.y) * 0.5);
-    float w = _128.shadowP2.x;
-    float _1193;
+    float ndl = dot(N, _154.sunDir.xyz);
+    float3 Q = (P + ((N * _154.shadowP.y) * (1.2000000476837158203125 + (1.7999999523162841796875 * (1.0 - abs(ndl)))))) + ((_154.sunDir.xyz * _154.shadowP.y) * 0.5);
+    float w = _154.shadowP2.x;
+    float _1219;
     if (w < 0.999000012874603271484375)
     {
         float3 param = Q;
-        float4x4 param_1 = _128.shadowVP;
-        float param_2 = _128.shadowP2.y;
-        _1193 = shadowMapLayer(param, param_1, param_2, _128, shadowMap, shadowMapSmplr);
+        float4x4 param_1 = _154.shadowVP;
+        float param_2 = _154.shadowP2.y;
+        _1219 = shadowMapLayer(param, param_1, param_2, _154, shadowMap, shadowMapSmplr);
     }
     else
     {
-        _1193 = 1.0;
+        _1219 = 1.0;
     }
-    float a = _1193;
-    float _1211;
+    float a = _1219;
+    float _1237;
     if (w > 0.001000000047497451305389404296875)
     {
         float3 param_3 = Q;
-        float4x4 param_4 = _128.shadowVP2;
-        float param_5 = _128.shadowP2.z;
-        _1211 = shadowMapLayer(param_3, param_4, param_5, _128, shadowMap, shadowMapSmplr);
+        float4x4 param_4 = _154.shadowVP2;
+        float param_5 = _154.shadowP2.z;
+        _1237 = shadowMapLayer(param_3, param_4, param_5, _154, shadowMap, shadowMapSmplr);
     }
     else
     {
-        _1211 = 1.0;
+        _1237 = 1.0;
     }
-    float b = _1211;
-    float _1228;
+    float b = _1237;
+    float _1254;
     if (w < 0.001000000047497451305389404296875)
     {
-        _1228 = a;
+        _1254 = a;
     }
     else
     {
-        float _1235;
+        float _1261;
         if (w > 0.999000012874603271484375)
         {
-            _1235 = b;
+            _1261 = b;
         }
         else
         {
-            _1235 = mix(a, b, w);
+            _1261 = mix(a, b, w);
         }
-        _1228 = _1235;
+        _1254 = _1261;
     }
-    return _1228;
+    return _1254;
 }
 
 static inline __attribute__((always_inline))
-float shadowAt(thread int2& c, constant Frame& _128, const device ShadowH& _936)
+float shadowAt(thread int2& c, constant Frame& _154, const device ShadowH& _962)
 {
-    int2 d = int2(_128.gridDim.xy) * int2(3);
+    int2 d = int2(_154.gridDim.xy) * int2(3);
     c = clamp(c, int2(0), d - int2(1));
-    return _936.shadowH[(uint(c.y) * uint(d.x)) + uint(c.x)];
+    return _962.shadowH[(uint(c.y) * uint(d.x)) + uint(c.x)];
 }
 
 static inline __attribute__((always_inline))
-float shadowFieldVisibility(thread const float3& P, thread const float3& N, constant Frame& _128, const device ShadowH& _936)
+float shadowFieldVisibility(thread const float3& P, thread const float3& N, constant Frame& _154, const device ShadowH& _962)
 {
     float3 Q = P + (N * 0.119999997317790985107421875);
-    float2 g = (((Q.xz - _128.gridP.xy) * _128.gridP.w) * 3.0) - float2(0.5);
-    bool _974 = g.x < (-1.0);
-    bool _981;
-    if (!_974)
+    float2 g = (((Q.xz - _154.gridP.xy) * _154.gridP.w) * 3.0) - float2(0.5);
+    bool _1000 = g.x < (-1.0);
+    bool _1007;
+    if (!_1000)
     {
-        _981 = g.y < (-1.0);
+        _1007 = g.y < (-1.0);
     }
     else
     {
-        _981 = _974;
+        _1007 = _1000;
     }
-    bool _992;
-    if (!_981)
+    bool _1018;
+    if (!_1007)
     {
-        _992 = g.x > float(_128.gridDim.x * 3u);
+        _1018 = g.x > float(_154.gridDim.x * 3u);
     }
     else
     {
-        _992 = _981;
+        _1018 = _1007;
     }
-    bool _1003;
-    if (!_992)
+    bool _1029;
+    if (!_1018)
     {
-        _1003 = g.y > float(_128.gridDim.y * 3u);
+        _1029 = g.y > float(_154.gridDim.y * 3u);
     }
     else
     {
-        _1003 = _992;
+        _1029 = _1018;
     }
-    if (_1003)
+    if (_1029)
     {
         return 1.0;
     }
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
     int2 param = c0;
-    float _1019 = shadowAt(param, _128, _936);
+    float _1045 = shadowAt(param, _154, _962);
     int2 param_1 = c0 + int2(1, 0);
-    float _1024 = shadowAt(param_1, _128, _936);
+    float _1050 = shadowAt(param_1, _154, _962);
     int2 param_2 = c0 + int2(0, 1);
-    float _1032 = shadowAt(param_2, _128, _936);
+    float _1058 = shadowAt(param_2, _154, _962);
     int2 param_3 = c0 + int2(1);
-    float _1037 = shadowAt(param_3, _128, _936);
-    float h = mix(mix(_1019, _1024, f.x), mix(_1032, _1037, f.x), f.y);
+    float _1063 = shadowAt(param_3, _154, _962);
+    float h = mix(mix(_1045, _1050, f.x), mix(_1058, _1063, f.x), f.y);
     return smoothstep(-0.07999999821186065673828125, 0.07999999821186065673828125, Q.y - h);
 }
 
 static inline __attribute__((always_inline))
-float moonVisibility(thread const float3& P, thread const float3& N, constant Frame& _128, const device ShadowH& _936, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
+float moonVisibility(thread const float3& P, thread const float3& N, constant Frame& _154, const device ShadowH& _962, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
 {
-    if ((_128.gridDim.w & 32u) == 0u)
+    if ((_154.gridDim.w & 32u) == 0u)
     {
         return 1.0;
     }
-    if (_128.shadowP.x > 0.5)
+    if (_154.shadowP.x > 0.5)
     {
         float3 param = P;
         float3 param_1 = N;
-        return shadowMapVisibility(param, param_1, _128, shadowMap, shadowMapSmplr);
+        return shadowMapVisibility(param, param_1, _154, shadowMap, shadowMapSmplr);
     }
     float3 param_2 = P;
     float3 param_3 = N;
-    return shadowFieldVisibility(param_2, param_3, _128, _936);
+    return shadowFieldVisibility(param_2, param_3, _154, _962);
 }
 
 static inline __attribute__((always_inline))
-float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _128)
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _154)
 {
     float3 c = float3(0.0);
-    for (uint i = 0u; i < _128.gridDim.z; i++)
+    for (uint i = 0u; i < _154.gridDim.z; i++)
     {
-        float3 L = _128.lightPos[i].xyz - P;
+        float3 L = _154.lightPos[i].xyz - P;
         float d = length(L);
-        float R = _128.lightPos[i].w;
+        float R = _154.lightPos[i].w;
         if (R < 0.0)
         {
             float x = d / (-R);
@@ -445,112 +497,112 @@ float3 pointLights(thread const float3& P, thread const float3& N, constant Fram
             }
             float win = 1.0 - (x * x);
             float att = (win * win) / (1.0 + ((d * d) * 8.0));
-            c += (((_128.lightCol[i].xyz * _128.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
+            c += (((_154.lightCol[i].xyz * _154.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
             continue;
         }
         float att_1 = fast::clamp(1.0 - (d / R), 0.0, 1.0);
         att_1 *= att_1;
-        c += (((_128.lightCol[i].xyz * _128.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        c += (((_154.lightCol[i].xyz * _154.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
-    float _305;
+    float _331;
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
-        float age = _128.blasts[i_1].w;
-        float s = fast::max(_128.blastsP[i_1].x, 0.100000001490116119384765625);
+        float age = _154.blasts[i_1].w;
+        float s = fast::max(_154.blastsP[i_1].x, 0.100000001490116119384765625);
         float ss = sqrt(s);
         float fireDur = 1.60000002384185791015625 * ss;
         if ((age < 0.0) || (age > fireDur))
         {
             continue;
         }
-        float3 L_1 = (_128.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float3 L_1 = (_154.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
         float d_1 = length(L_1);
         if (age < 0.100000001490116119384765625)
         {
-            _305 = 1.0 - (age / 0.100000001490116119384765625);
+            _331 = 1.0 - (age / 0.100000001490116119384765625);
         }
         else
         {
-            _305 = 0.0;
+            _331 = 0.0;
         }
-        float flash = _305;
+        float flash = _331;
         float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
         fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
         float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
         float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
         float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
-        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _128.todP.y);
+        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _154.todP.y);
     }
     return c;
 }
 
 static inline __attribute__((always_inline))
-float3 lampLights(thread const float3& P, thread const float3& N, constant Frame& _128, const device LampGrid& _411)
+float3 lampLights(thread const float3& P, thread const float3& N, constant Frame& _154, const device LampGrid& _437)
 {
-    uint W = _411.lampGrid[0];
-    uint H = _411.lampGrid[1];
-    bool _418 = W == 0u;
-    bool _426;
-    if (!_418)
+    uint W = _437.lampGrid[0];
+    uint H = _437.lampGrid[1];
+    bool _444 = W == 0u;
+    bool _452;
+    if (!_444)
     {
-        _426 = _128.todP.x <= 0.00200000009499490261077880859375;
+        _452 = _154.todP.x <= 0.00200000009499490261077880859375;
     }
     else
     {
-        _426 = _418;
+        _452 = _444;
     }
-    if (_426)
+    if (_452)
     {
         return float3(0.0);
     }
-    float2 o = float2(as_type<float>(_411.lampGrid[4]), as_type<float>(_411.lampGrid[5]));
-    float inv = as_type<float>(_411.lampGrid[6]);
-    float R = as_type<float>(_411.lampGrid[7]);
-    float gain = as_type<float>(_411.lampGrid[8]);
+    float2 o = float2(as_type<float>(_437.lampGrid[4]), as_type<float>(_437.lampGrid[5]));
+    float inv = as_type<float>(_437.lampGrid[6]);
+    float R = as_type<float>(_437.lampGrid[7]);
+    float gain = as_type<float>(_437.lampGrid[8]);
     int2 c = int2(floor((P.xz - o) * inv));
-    bool _465 = c.x < 0;
-    bool _472;
-    if (!_465)
+    bool _491 = c.x < 0;
+    bool _498;
+    if (!_491)
     {
-        _472 = c.y < 0;
+        _498 = c.y < 0;
     }
     else
     {
-        _472 = _465;
+        _498 = _491;
     }
-    bool _481;
-    if (!_472)
+    bool _507;
+    if (!_498)
     {
-        _481 = c.x >= int(W);
+        _507 = c.x >= int(W);
     }
     else
     {
-        _481 = _472;
+        _507 = _498;
     }
-    bool _490;
-    if (!_481)
+    bool _516;
+    if (!_507)
     {
-        _490 = c.y >= int(H);
+        _516 = c.y >= int(H);
     }
     else
     {
-        _490 = _481;
+        _516 = _507;
     }
-    if (_490)
+    if (_516)
     {
         return float3(0.0);
     }
     uint ci = 12u + (2u * ((uint(c.y) * W) + uint(c.x)));
-    uint first = _411.lampGrid[ci];
-    uint cnt = min(_411.lampGrid[ci + 1u], 32u);
-    uint lampOff = _411.lampGrid[2];
-    uint idxOff = _411.lampGrid[3];
+    uint first = _437.lampGrid[ci];
+    uint cnt = min(_437.lampGrid[ci + 1u], 32u);
+    uint lampOff = _437.lampGrid[2];
+    uint idxOff = _437.lampGrid[3];
     float3 acc = float3(0.0);
     for (uint k = 0u; k < cnt; k++)
     {
-        uint li = lampOff + (4u * _411.lampGrid[(idxOff + first) + k]);
-        float3 Lp = float3(as_type<float>(_411.lampGrid[li]), as_type<float>(_411.lampGrid[li + 1u]), as_type<float>(_411.lampGrid[li + 2u]));
-        float4 col = unpack_unorm4x8_to_float(_411.lampGrid[li + 3u]);
+        uint li = lampOff + (4u * _437.lampGrid[(idxOff + first) + k]);
+        float3 Lp = float3(as_type<float>(_437.lampGrid[li]), as_type<float>(_437.lampGrid[li + 1u]), as_type<float>(_437.lampGrid[li + 2u]));
+        float4 col = unpack_unorm4x8_to_float(_437.lampGrid[li + 3u]);
         float3 L = Lp - P;
         float d2 = dot(L, L);
         float x = d2 / (R * R);
@@ -564,19 +616,137 @@ float3 lampLights(thread const float3& P, thread const float3& N, constant Frame
         float cone = mix(0.070000000298023223876953125, 1.0, smoothstep(0.3499999940395355224609375, 0.89999997615814208984375, l.y));
         acc += (col.xyz * (((col.w * att) * cone) * (0.1500000059604644775390625 + (0.85000002384185791015625 * fast::max(dot(N, l), 0.0)))));
     }
-    return (acc * gain) * _128.todP.x;
+    return (acc * gain) * _154.todP.x;
 }
 
 static inline __attribute__((always_inline))
-float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _128, const device LampGrid& _411)
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _154, const device LampGrid& _437)
 {
-    float3 hemi = mix(_128.groundColor.xyz, _128.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
-    float3 key = (_128.sunColor.xyz * fast::max(dot(N, _128.sunDir.xyz), 0.0)) * vis;
+    float3 hemi = mix(_154.groundColor.xyz, _154.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 key = (_154.sunColor.xyz * fast::max(dot(N, _154.sunDir.xyz), 0.0)) * vis;
     float3 param = P;
     float3 param_1 = N;
     float3 param_2 = P;
     float3 param_3 = N;
-    return albedo * (((hemi + key) + pointLights(param, param_1, _128)) + lampLights(param_2, param_3, _128, _411));
+    return albedo * (((hemi + key) + pointLights(param, param_1, _154)) + lampLights(param_2, param_3, _154, _437));
+}
+
+static inline __attribute__((always_inline))
+float3 glassSky(thread const float3& Rs, thread const float3& P, constant Frame& _154)
+{
+    float3 L = _154.sunDir.xyz;
+    float e = Rs.y;
+    float3 hor = _154.fogColor.xyz * 1.14999997615814208984375;
+    float3 zen = _154.skyColor.xyz * 2.599999904632568359375;
+    float3 sky = mix(hor, zen, float3(smoothstep(0.0199999995529651641845703125, 0.89999997615814208984375, e)));
+    float mu = fast::max(dot(Rs, L), 0.0);
+    float low = 1.0 - smoothstep(0.100000001490116119384765625, 0.60000002384185791015625, L.y);
+    sky += (_154.sunColor.xyz * ((powr(mu, 5.0) * (0.100000001490116119384765625 + (0.25 * low))) + (powr(mu, 48.0) * 0.5)));
+    float2 cp = ((Rs.xz / float2(e + 0.1500000059604644775390625)) * 2.2000000476837158203125) + (P.xz * 0.00200000009499490261077880859375);
+    float2 param = cp * float2(0.699999988079071044921875, 2.400000095367431640625);
+    float2 param_1 = (cp * float2(1.89999997615814208984375, 5.30000019073486328125)) + float2(7.30000019073486328125);
+    float cl = (vnoise(param) * 0.64999997615814208984375) + (vnoise(param_1) * 0.3499999940395355224609375);
+    cl = smoothstep(0.519999980926513671875, 0.85000002384185791015625, cl) * smoothstep(0.0, 0.25, e);
+    float3 cloudCol = (hor * 1.25) + (_154.sunColor.xyz * (0.25 + (0.3499999940395355224609375 * mu)));
+    return mix(sky, cloudCol, float3(cl * 0.550000011920928955078125));
+}
+
+static inline __attribute__((always_inline))
+float3 glassEnv(thread const float3& Rs, thread const float3& P, thread const float3& N, constant Frame& _154)
+{
+    float3 param = Rs;
+    float3 param_1 = P;
+    float3 sky = glassSky(param, param_1, _154);
+    float hl = fast::max(length(Rs.xz), 0.0500000007450580596923828125);
+    float2 t = float2(-N.z, N.x);
+    float D = 24.0;
+    float hitAlong = dot(P.xz, t) + ((dot(Rs.xz, t) / hl) * D);
+    float cell = floor(hitAlong / 16.0);
+    float2 param_2 = float2(cell, floor(dot(P.xz, N.xz) / 40.0));
+    float Hopp = 8.0 + (34.0 * hash12(param_2));
+    float hH = P.y + ((Rs.y / hl) * D);
+    float city = 1.0 - smoothstep(Hopp - 2.0, Hopp + 2.0, hH);
+    if (city <= 0.0)
+    {
+        return sky;
+    }
+    float rowsLit = step(0.550000011920928955078125, fract(hH / 3.0)) * step(0.300000011920928955078125, fract(hitAlong / 3.2000000476837158203125));
+    float3 cityCol = mix((_154.groundColor.xyz * 2.2000000476837158203125) + (_154.skyColor.xyz * 0.5), _154.fogColor.xyz * 0.75, float3(0.3499999940395355224609375)) * (0.75 + (0.3499999940395355224609375 * rowsLit));
+    return mix(sky, cityCol, float3(city * 0.85000002384185791015625));
+}
+
+static inline __attribute__((always_inline))
+float3 glassDay(thread const float3& base, thread const float3& N, thread const float3& V, thread const float3& P, thread const float2& room, thread const float& rh, thread const float& rough, thread const float& gloss, thread const float& vis, constant Frame& _154)
+{
+    float3 L = _154.sunDir.xyz;
+    bool wall = abs(N.y) < 0.300000011920928955078125;
+    float px = length(fwidth(P));
+    float fine = 1.0 - smoothstep(0.25, 0.89999997615814208984375, px);
+    float3 _2078;
+    if (wall)
+    {
+        _2078 = fast::normalize(float3(-N.z, 0.0, N.x));
+    }
+    else
+    {
+        _2078 = float3(1.0, 0.0, 0.0);
+    }
+    float3 T = _2078;
+    float3 B = cross(N, T);
+    float3 Ng = N;
+    if (wall)
+    {
+        float along = dot(P.xz, T.xz);
+        float2 param = float2(along, P.y) * 0.0900000035762786865234375;
+        float warpU = (vnoise(param) - 0.5) * 0.100000001490116119384765625;
+        float2 param_1 = (float2(along, P.y) * 0.070000000298023223876953125) + float2(31.700000762939453125);
+        float warpV = (vnoise(param_1) - 0.5) * 0.07999999821186065673828125;
+        float ju = ((rh - 0.5) * 0.1599999964237213134765625) * fine;
+        float2 param_2 = (room * 1.37000000476837158203125) + float2(5.099999904632568359375);
+        float jv = ((hash12(param_2) - 0.5) * 0.100000001490116119384765625) * fine;
+        Ng = fast::normalize((N + (T * (warpU + ju))) + float3(0.0, warpV + jv, 0.0));
+    }
+    else
+    {
+        float2 param_3 = (room * 1.37000000476837158203125) + float2(5.099999904632568359375);
+        Ng = fast::normalize(N + ((((T * (rh - 0.5)) + (B * (hash12(param_3) - 0.5))) * 0.07999999821186065673828125) * fine));
+    }
+    float3 R = reflect(-V, Ng);
+    float3 Rs = fast::normalize(float3(R.x, abs(R.y) * 0.75, R.z));
+    float NoV = fast::max(dot(Ng, V), 0.001000000047497451305389404296875);
+    float F = 0.039999999105930328369140625 + (0.959999978542327880859375 * powr(1.0 - NoV, 5.0));
+    float mirror = fast::max(gloss, 0.60000002384185791015625);
+    float refl = mix(0.2599999904632568359375, 1.0, F) * mirror;
+    float3 param_4 = Rs;
+    float3 param_5 = P;
+    float3 param_6 = N;
+    float3 env = glassEnv(param_4, param_5, param_6, _154);
+    float3 col = ((base * (1.0 - refl)) * 0.699999988079071044921875) + (env * refl);
+    float a = mix(0.070000000298023223876953125, 0.1599999964237213134765625, fast::clamp(rough, 0.0, 1.0));
+    float jit = wall ? 0.10999999940395355224609375 : 0.07999999821186065673828125;
+    float ax = sqrt((a * a) + ((jit * jit) * (1.0 - fine))) * 2.0;
+    float ay = ax * (wall ? 3.2000000476837158203125 : 1.0);
+    float3 d = L - Rs;
+    float dh = dot(d, T);
+    float _2274;
+    if (wall)
+    {
+        _2274 = d.y;
+    }
+    else
+    {
+        _2274 = dot(d, B);
+    }
+    float dv = _2274;
+    float q = ((dh * dh) / (ax * ax)) + ((dv * dv) / (ay * ay));
+    float core = 1.0 / ((1.0 + q) * (1.0 + q));
+    float qb = q * 0.0900000035762786865234375;
+    float sheen = 1.0 / ((1.0 + qb) * (1.0 + qb));
+    float facing = smoothstep(0.0, 0.20000000298023223876953125, dot(N, L)) * step(0.0, dot(Rs, L));
+    float sunUp = smoothstep(-0.0199999995529651641845703125, 0.0500000007450580596923828125, L.y) * (1.0 - _154.todP.z);
+    float glint = (((core * 7.0) * (1.0 - (0.5 * (1.0 - fine)))) + (sheen * 0.550000011920928955078125)) * refl;
+    col += ((((_154.sunColor.xyz * fast::min(glint, 6.0)) * facing) * vis) * sunUp);
+    return col;
 }
 
 static inline __attribute__((always_inline))
@@ -586,57 +756,57 @@ float sq(thread const float& t, thread const float& hz)
 }
 
 static inline __attribute__((always_inline))
-float3 finish(thread float3& col, thread const float3& P, constant Frame& _128)
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _154)
 {
-    float d = length(P - _128.camPos.xyz);
-    float f = (1.0 - exp((-_128.fogColor.w) * fast::max(d - _128.groundColor.w, 0.0))) * 0.699999988079071044921875;
-    col = mix(col, _128.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _727;
-    if (_128.sunColor.w > 0.0)
+    float d = length(P - _154.camPos.xyz);
+    float f = (1.0 - exp((-_154.fogColor.w) * fast::max(d - _154.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    col = mix(col, _154.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _753;
+    if (_154.sunColor.w > 0.0)
     {
-        _727 = _128.sunColor.w;
+        _753 = _154.sunColor.w;
     }
     else
     {
-        _727 = 1.0;
+        _753 = 1.0;
     }
-    col *= _727;
+    col *= _753;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
 
 static inline __attribute__((always_inline))
-float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _128)
+float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _154)
 {
-    float d = fast::max(length(P - _128.camPos.xyz), 0.001000000047497451305389404296875);
-    float r = (d - _128.sunDir.w) / d;
-    float rb = sign(r) * fast::max(abs(r) - _128.dofP.x, 0.0);
-    float coc = _128.skyColor.w * rb;
-    bool _785 = _128.dofP.y > 0.0;
-    bool _791;
-    if (_785)
+    float d = fast::max(length(P - _154.camPos.xyz), 0.001000000047497451305389404296875);
+    float r = (d - _154.sunDir.w) / d;
+    float rb = sign(r) * fast::max(abs(r) - _154.dofP.x, 0.0);
+    float coc = _154.skyColor.w * rb;
+    bool _811 = _154.dofP.y > 0.0;
+    bool _817;
+    if (_811)
     {
-        _791 = _128.skyColor.w > 0.0;
+        _817 = _154.skyColor.w > 0.0;
     }
     else
     {
-        _791 = _785;
+        _817 = _811;
     }
-    if (_791)
+    if (_817)
     {
-        float4 cp = _128.viewProj * float4(P, 1.0);
+        float4 cp = _154.viewProj * float4(P, 1.0);
         float ny = abs(cp.y / fast::max(abs(cp.w), 9.9999997473787516355514526367188e-05));
-        float tilt = _128.dofP.y * smoothstep(_128.dofP.z, 1.0, ny);
+        float tilt = _154.dofP.y * smoothstep(_154.dofP.z, 1.0, ny);
         coc = ((r >= 0.0) ? 1.0 : (-1.0)) * fast::max(abs(coc), tilt);
     }
     coc = fast::clamp(coc, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _836 = finish(param, param_1, _128);
-    return float4(_836, 0.5 + (0.5 * coc));
+    float3 _862 = finish(param, param_1, _154);
+    return float4(_862, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _128 [[buffer(0)]], const device Mats& _1735 [[buffer(1)]], const device Decals& _1314 [[buffer(2)]], const device ShadowH& _936 [[buffer(3)]], const device CorpseH& _1901 [[buffer(4)]], const device LampGrid& _411 [[buffer(5)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _154 [[buffer(0)]], constant Cutouts& _1310 [[buffer(1)]], const device Mats& _2400 [[buffer(2)]], const device Decals& _1425 [[buffer(3)]], const device ShadowH& _962 [[buffer(4)]], const device CorpseH& _2564 [[buffer(5)]], const device LampGrid& _437 [[buffer(6)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
 {
     main0_out out = {};
     float3 param = in.vCell;
@@ -645,10 +815,25 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _128 [[buffer
     {
         discard_fragment();
     }
+    bool _2382 = _1310.cutCount.x > 0u;
+    bool _2389;
+    if (_2382)
+    {
+        float3 param_2 = in.vWorld;
+        _2389 = facadeCut(param_2, _1310);
+    }
+    else
+    {
+        _2389 = _2382;
+    }
+    if (_2389)
+    {
+        discard_fragment();
+    }
     Mat m;
-    m.albedo = _1735.mats[in.vMat].albedo;
-    m.emis = _1735.mats[in.vMat].emis;
-    m.info = _1735.mats[in.vMat].info;
+    m.albedo = _2400.mats[in.vMat].albedo;
+    m.emis = _2400.mats[in.vMat].emis;
+    m.info = _2400.mats[in.vMat].info;
     float3 N = fast::normalize(in.vNormal);
     float3 albedo = m.albedo.xyz;
     if (in.vPaint.w > 0.5)
@@ -656,106 +841,106 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _128 [[buffer
         albedo = in.vPaint.xyz;
     }
     uint flags = m.info.x;
-    bool _1771 = (flags & 2u) != 0u;
-    bool _1779;
-    if (_1771)
+    bool _2436 = (flags & 2u) != 0u;
+    bool _2444;
+    if (_2436)
     {
-        _1779 = int(m.emis.y + 0.5) == 2;
+        _2444 = int(m.emis.y + 0.5) == 2;
     }
     else
     {
-        _1779 = _1771;
+        _2444 = _2436;
     }
-    bool _1785;
-    if (_1779)
+    bool _2450;
+    if (_2444)
     {
-        _1785 = _128.todP.x < 1.0;
+        _2450 = _154.todP.x < 1.0;
     }
     else
     {
-        _1785 = _1779;
+        _2450 = _2444;
     }
-    if (_1785)
+    if (_2450)
     {
         Mat dm;
-        dm.albedo = _1735.mats[m.info.y].albedo;
-        dm.emis = _1735.mats[m.info.y].emis;
-        dm.info = _1735.mats[m.info.y].info;
-        albedo = mix(dm.albedo.xyz, albedo, float3(_128.todP.x));
-        if (_128.todP.x < 0.5)
+        dm.albedo = _2400.mats[m.info.y].albedo;
+        dm.emis = _2400.mats[m.info.y].emis;
+        dm.info = _2400.mats[m.info.y].info;
+        albedo = mix(dm.albedo.xyz, albedo, float3(_154.todP.x));
+        if (_154.todP.x < 0.5)
         {
             flags |= (dm.info.x & 1u);
             m.albedo.w = dm.albedo.w;
         }
     }
-    float t = _128.camPos.w;
+    float t = _154.camPos.w;
     if ((flags & 8u) != 0u)
     {
-        float2 param_2 = floor(in.vWorld.xz * 0.699999988079071044921875) + float2(floor(in.vWorld.y * 0.699999988079071044921875));
-        albedo *= (0.800000011920928955078125 + (0.4000000059604644775390625 * hash12(param_2)));
+        float2 param_3 = floor(in.vWorld.xz * 0.699999988079071044921875) + float2(floor(in.vWorld.y * 0.699999988079071044921875));
+        albedo *= (0.800000011920928955078125 + (0.4000000059604644775390625 * hash12(param_3)));
     }
-    float2 g = (in.vWorld.xz - _128.gridP.xy) * _128.gridP.w;
-    bool _1859 = g.x >= 0.0;
-    bool _1865;
-    if (_1859)
+    float2 g = (in.vWorld.xz - _154.gridP.xy) * _154.gridP.w;
+    bool _2522 = g.x >= 0.0;
+    bool _2528;
+    if (_2522)
     {
-        _1865 = g.y >= 0.0;
+        _2528 = g.y >= 0.0;
     }
     else
     {
-        _1865 = _1859;
+        _2528 = _2522;
     }
-    bool _1874;
-    if (_1865)
+    bool _2537;
+    if (_2528)
     {
-        _1874 = g.x < float(_128.gridDim.x);
+        _2537 = g.x < float(_154.gridDim.x);
     }
     else
     {
-        _1874 = _1865;
+        _2537 = _2528;
     }
-    bool _1883;
-    if (_1874)
+    bool _2546;
+    if (_2537)
     {
-        _1883 = g.y < float(_128.gridDim.y);
+        _2546 = g.y < float(_154.gridDim.y);
     }
     else
     {
-        _1883 = _1874;
+        _2546 = _2537;
     }
-    bool inWin = _1883;
+    bool inWin = _2546;
     float wet = 0.0;
     if (inWin)
     {
         if (N.y > 0.699999988079071044921875)
         {
             int2 c = int2(floor(g));
-            float corpse = float(_1901.corpseH[(uint(c.y) * _128.gridDim.x) + uint(c.x)]) * 0.001000000047497451305389404296875;
-            bool _1918 = corpse > 0.0;
-            bool _1925;
-            if (_1918)
+            float corpse = float(_2564.corpseH[(uint(c.y) * _154.gridDim.x) + uint(c.x)]) * 0.001000000047497451305389404296875;
+            bool _2581 = corpse > 0.0;
+            bool _2587;
+            if (_2581)
             {
-                _1925 = in.vWorld.y < 0.60000002384185791015625;
+                _2587 = in.vWorld.y < 0.60000002384185791015625;
             }
             else
             {
-                _1925 = _1918;
+                _2587 = _2581;
             }
-            if (_1925)
+            if (_2587)
             {
                 albedo = mix(albedo, float3(0.02999999932944774627685546875, 0.001000000047497451305389404296875, 0.00200000009499490261077880859375), float3(fast::clamp(corpse * 4.0, 0.0, 0.85000002384185791015625)));
             }
-            float2 param_3 = in.vWorld.xz;
-            uint param_4 = 2u;
-            float scorch = decalBilinear(param_3, param_4, _128, _1314) / 255.0;
-            float2 param_5 = floor(in.vWorld.xz * 6.0);
-            albedo *= (1.0 - (0.85000002384185791015625 * smoothstep(0.1500000059604644775390625, 0.60000002384185791015625, scorch + ((hash12(param_5) - 0.5) * 0.300000011920928955078125))));
-            float2 param_6 = in.vWorld.xz;
-            uint param_7 = 0u;
-            float bloodAmt = decalBilinear(param_6, param_7, _128, _1314);
-            float2 param_8 = floor(in.vWorld.xz * 8.0);
-            float2 param_9 = floor(in.vWorld.xz * 3.0);
-            float bn = (hash12(param_8) * 0.5) + (hash12(param_9) * 0.5);
+            float2 param_4 = in.vWorld.xz;
+            uint param_5 = 2u;
+            float scorch = decalBilinear(param_4, param_5, _154, _1425) / 255.0;
+            float2 param_6 = floor(in.vWorld.xz * 6.0);
+            albedo *= (1.0 - (0.85000002384185791015625 * smoothstep(0.1500000059604644775390625, 0.60000002384185791015625, scorch + ((hash12(param_6) - 0.5) * 0.300000011920928955078125))));
+            float2 param_7 = in.vWorld.xz;
+            uint param_8 = 0u;
+            float bloodAmt = decalBilinear(param_7, param_8, _154, _1425);
+            float2 param_9 = floor(in.vWorld.xz * 8.0);
+            float2 param_10 = floor(in.vWorld.xz * 3.0);
+            float bn = (hash12(param_9) * 0.5) + (hash12(param_10) * 0.5);
             float cov = smoothstep(0.449999988079071044921875, 0.60000002384185791015625, (bloodAmt / 160.0) + ((bn - 0.5) * 0.550000011920928955078125));
             if (cov > 0.0)
             {
@@ -769,150 +954,174 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _128 [[buffer
             if (abs(N.y) < 0.300000011920928955078125)
             {
                 float u = dot(in.vWorld.xz, float2(-N.z, N.x));
-                float3 param_10 = in.vWorld;
-                float3 param_11 = N;
-                float param_12 = u;
-                float b = wallBlood(param_10, param_11, param_12, _128, _1314);
+                float3 param_11 = in.vWorld;
+                float3 param_12 = N;
+                float param_13 = u;
+                float b = wallBlood(param_11, param_12, param_13, _154, _1425);
                 albedo = mix(albedo, float3(0.085000000894069671630859375, 0.00200000009499490261077880859375, 0.0030000000260770320892333984375), float3(b * 0.949999988079071044921875));
                 wet = b * 0.699999988079071044921875;
             }
         }
     }
-    float3 param_13 = in.vWorld;
-    float3 param_14 = N;
-    float vis = moonVisibility(param_13, param_14, _128, _936, shadowMap, shadowMapSmplr);
-    float3 param_15 = albedo * 2.0;
-    float3 param_16 = N;
-    float3 param_17 = in.vWorld;
-    float param_18 = 1.0;
-    float param_19 = vis;
-    float3 col = shadeV(param_15, param_16, param_17, param_18, param_19, _128, _411);
-    float3 V = fast::normalize(_128.camPos.xyz - in.vWorld);
+    float3 param_14 = in.vWorld;
+    float3 param_15 = N;
+    float vis = moonVisibility(param_14, param_15, _154, _962, shadowMap, shadowMapSmplr);
+    float3 param_16 = albedo * 2.0;
+    float3 param_17 = N;
+    float3 param_18 = in.vWorld;
+    float param_19 = 1.0;
+    float param_20 = vis;
+    float3 col = shadeV(param_16, param_17, param_18, param_19, param_20, _154, _437);
+    float3 V = fast::normalize(_154.camPos.xyz - in.vWorld);
     float gloss = m.albedo.w;
     float3 Pin = in.vWorld - (N * 0.100000001490116119384765625);
     float along = dot(Pin.xz, float2(-N.z, N.x));
     float2 room = float2(floor(along / 3.2000000476837158203125), floor(Pin.y / 3.0)) + (float2(17.0, 31.0) * floor(dot(Pin.xz, N.xz) * 0.25));
-    float2 param_20 = room + float2(N.x * 3.0, N.z * 7.0);
-    float rh = hash12(param_20);
+    float2 param_21 = room + float2(N.x * 3.0, N.z * 7.0);
+    float rh = hash12(param_21);
     if (((flags & 5u) != 0u) || (wet > 0.0))
     {
-        bool _2141 = (flags & 1u) != 0u;
-        bool _2147;
-        if (_2141)
+        bool _2800 = (flags & 1u) != 0u;
+        bool _2806;
+        if (_2800)
         {
-            _2147 = (flags & 4u) == 0u;
+            _2806 = (flags & 4u) == 0u;
         }
         else
         {
-            _2147 = _2141;
+            _2806 = _2800;
         }
-        bool glass = _2147;
+        bool glass = _2806;
         float3 Ng = N;
-        bool _2157;
+        bool _2816;
         if (glass)
         {
-            _2157 = abs(N.y) < 0.300000011920928955078125;
+            _2816 = abs(N.y) < 0.300000011920928955078125;
         }
         else
         {
-            _2157 = glass;
+            _2816 = glass;
         }
-        if (_2157)
+        if (_2816)
         {
             float a = (rh - 0.5) * 0.0900000035762786865234375;
-            float2 param_21 = (room * 1.37000000476837158203125) + float2(5.099999904632568359375);
-            float b_1 = (hash12(param_21) - 0.5) * 0.0599999986588954925537109375;
+            float2 param_22 = (room * 1.37000000476837158203125) + float2(5.099999904632568359375);
+            float b_1 = (hash12(param_22) - 0.5) * 0.0599999986588954925537109375;
             Ng = fast::normalize((N + (float3(-N.z, 0.0, N.x) * a)) + float3(0.0, b_1, 0.0));
         }
         float3 R = reflect(-V, Ng);
-        float3 sky = mix(_128.fogColor.xyz * 1.2000000476837158203125, _128.skyColor.xyz * 1.60000002384185791015625, float3(fast::clamp(R.y * 1.5, 0.0, 1.0)));
+        float3 sky = mix(_154.fogColor.xyz * 1.2000000476837158203125, _154.skyColor.xyz * 1.60000002384185791015625, float3(fast::clamp(R.y * 1.5, 0.0, 1.0)));
         float f = 0.039999999105930328369140625 + (0.959999978542327880859375 * powr(1.0 - fast::max(dot(Ng, V), 0.0), 5.0));
-        float _2224;
+        float _2879;
         if ((flags & 4u) != 0u)
         {
-            _2224 = 1.0;
+            _2879 = 1.0;
         }
         else
         {
-            float _2229;
+            float _2884;
             if (glass)
             {
-                _2229 = fast::max(gloss, 0.5);
+                _2884 = fast::max(gloss, 0.5);
             }
             else
             {
-                _2229 = wet * 0.60000002384185791015625;
+                _2884 = wet * 0.60000002384185791015625;
             }
-            _2224 = _2229;
+            _2879 = _2884;
         }
-        float k = _2224;
+        float k = _2879;
+        float3 base = col;
         col = mix(col, sky, float3(fast::clamp(f * k, 0.0, 1.0))) + (((sky * 0.1500000059604644775390625) * k) * float(glass));
         if (glass)
         {
-            float sp = fast::max(dot(R, _128.sunDir.xyz), 0.0);
+            float sp = fast::max(dot(R, _154.sunDir.xyz), 0.0);
             float glint = (powr(sp, 900.0) * 60.0) + (powr(sp, 60.0) * 0.60000002384185791015625);
-            col += ((((_128.sunColor.xyz * glint) * (0.25 + (0.75 * f))) * vis) * k);
+            col += ((((_154.sunColor.xyz * glint) * (0.25 + (0.75 * f))) * vis) * k);
+        }
+        float _2948;
+        if (glass)
+        {
+            _2948 = fast::clamp(1.0 - (_154.todP.x * 1.25), 0.0, 1.0);
+        }
+        else
+        {
+            _2948 = 0.0;
+        }
+        float day = _2948;
+        if (day > 0.0)
+        {
+            float3 param_23 = base;
+            float3 param_24 = N;
+            float3 param_25 = V;
+            float3 param_26 = in.vWorld;
+            float2 param_27 = room;
+            float param_28 = rh;
+            float param_29 = m.emis.z;
+            float param_30 = gloss;
+            float param_31 = vis;
+            col = mix(col, glassDay(param_23, param_24, param_25, param_26, param_27, param_28, param_29, param_30, param_31, _154), float3(day));
         }
     }
     if ((flags & 2u) != 0u)
     {
-        float night = _128.todP.x;
+        float night = _154.todP.x;
         float steady = mix(m.emis.w, m.emis.x, night);
         int mode = int(m.emis.y + 0.5);
         float e = steady;
         if (mode == 2)
         {
-            float2 param_22 = (room * 0.731000006198883056640625) + float2(11.30000019073486328125);
-            float r2 = hash12(param_22);
-            float2 param_23 = (room * 1.91299998760223388671875) + float2(3.7000000476837158203125);
-            float r3 = hash12(param_23);
-            float _2336;
+            float2 param_32 = (room * 0.731000006198883056640625) + float2(11.30000019073486328125);
+            float r2 = hash12(param_32);
+            float2 param_33 = (room * 1.91299998760223388671875) + float2(3.7000000476837158203125);
+            float r3 = hash12(param_33);
+            float _3032;
             if (rh < 0.1599999964237213134765625)
             {
-                _2336 = 0.0;
+                _3032 = 0.0;
             }
             else
             {
-                float _2343;
+                float _3039;
                 if (rh < 0.37999999523162841796875)
                 {
-                    _2343 = 0.25 + (0.300000011920928955078125 * r2);
+                    _3039 = 0.25 + (0.300000011920928955078125 * r2);
                 }
                 else
                 {
-                    float _2352;
+                    float _3048;
                     if (rh < 0.85000002384185791015625)
                     {
-                        _2352 = 0.699999988079071044921875 + (0.5 * r2);
+                        _3048 = 0.699999988079071044921875 + (0.5 * r2);
                     }
                     else
                     {
-                        _2352 = 1.2999999523162841796875 + (0.60000002384185791015625 * r2);
+                        _3048 = 1.2999999523162841796875 + (0.60000002384185791015625 * r2);
                     }
-                    _2343 = _2352;
+                    _3039 = _3048;
                 }
-                _2336 = _2343;
+                _3032 = _3039;
             }
-            float lvl = _2336;
-            float3 _2368;
+            float lvl = _3032;
+            float3 _3064;
             if (r3 < 0.550000011920928955078125)
             {
-                _2368 = float3(1.0, 0.7799999713897705078125, 0.5);
+                _3064 = float3(1.0, 0.7799999713897705078125, 0.5);
             }
             else
             {
-                float3 _2375;
+                float3 _3071;
                 if (r3 < 0.800000011920928955078125)
                 {
-                    _2375 = float3(1.0, 0.920000016689300537109375, 0.7799999713897705078125);
+                    _3071 = float3(1.0, 0.920000016689300537109375, 0.7799999713897705078125);
                 }
                 else
                 {
-                    _2375 = select(float3(0.449999988079071044921875, 0.62000000476837158203125, 1.0), float3(0.7799999713897705078125, 0.920000016689300537109375, 1.0), bool3(r3 < 0.9700000286102294921875));
+                    _3071 = select(float3(0.449999988079071044921875, 0.62000000476837158203125, 1.0), float3(0.7799999713897705078125, 0.920000016689300537109375, 1.0), bool3(r3 < 0.9700000286102294921875));
                 }
-                _2368 = _2375;
+                _3064 = _3071;
             }
-            float3 tint = _2368;
+            float3 tint = _3064;
             if (r3 >= 0.9700000286102294921875)
             {
                 lvl = 0.5 * (0.550000011920928955078125 + ((0.449999988079071044921875 * sin((t * 7.30000019073486328125) + (rh * 40.0))) * sin((t * 2.900000095367431640625) + (r2 * 13.0))));
@@ -925,17 +1134,17 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _128 [[buffer
         {
             if (mode == 3)
             {
-                float param_24 = t;
-                float param_25 = 0.5;
-                e = steady * (0.60000002384185791015625 + (0.4000000059604644775390625 * sq(param_24, param_25)));
+                float param_34 = t;
+                float param_35 = 0.5;
+                e = steady * (0.60000002384185791015625 + (0.4000000059604644775390625 * sq(param_34, param_35)));
             }
             else
             {
                 if (mode == 4)
                 {
-                    float param_26 = t + ((in.vMat == 190u) ? 0.3125 : 0.0);
-                    float param_27 = 1.60000002384185791015625;
-                    e = steady * (0.25 + (0.75 * sq(param_26, param_27)));
+                    float param_36 = t + ((in.vMat == 190u) ? 0.3125 : 0.0);
+                    float param_37 = 1.60000002384185791015625;
+                    e = steady * (0.25 + (0.75 * sq(param_36, param_37)));
                 }
                 else
                 {
@@ -944,62 +1153,62 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _128 [[buffer
                         float c_1 = mod(t + (in.vPhase * 15.0), 30.0);
                         bool green = c_1 < 12.0;
                         bool amber = (c_1 >= 12.0) && (c_1 < 15.0);
-                        bool _2497;
+                        bool _3190;
                         if (in.vMat == 60u)
                         {
-                            _2497 = !(green || amber);
+                            _3190 = !(green || amber);
                         }
                         else
                         {
-                            bool _2508;
+                            bool _3201;
                             if (in.vMat == 61u)
                             {
-                                _2508 = amber;
+                                _3201 = amber;
                             }
                             else
                             {
-                                bool _2516;
+                                bool _3209;
                                 if (in.vMat == 62u)
                                 {
-                                    _2516 = green;
+                                    _3209 = green;
                                 }
                                 else
                                 {
-                                    bool _2524;
+                                    bool _3217;
                                     if (in.vMat == 69u)
                                     {
-                                        _2524 = green;
+                                        _3217 = green;
                                     }
                                     else
                                     {
-                                        _2524 = !green;
+                                        _3217 = !green;
                                     }
-                                    _2516 = _2524;
+                                    _3209 = _3217;
                                 }
-                                _2508 = _2516;
+                                _3201 = _3209;
                             }
-                            _2497 = _2508;
+                            _3190 = _3201;
                         }
-                        bool lit = _2497;
-                        float _2536;
+                        bool lit = _3190;
+                        float _3229;
                         if (lit)
                         {
-                            _2536 = 1.39999997615814208984375 + (1.7999999523162841796875 * night);
+                            _3229 = 1.39999997615814208984375 + (1.7999999523162841796875 * night);
                         }
                         else
                         {
-                            _2536 = 0.300000011920928955078125;
+                            _3229 = 0.300000011920928955078125;
                         }
-                        e = _2536;
+                        e = _3229;
                     }
                 }
             }
         }
         col += (m.albedo.xyz * e);
     }
-    float3 param_28 = col;
-    float3 param_29 = in.vWorld;
-    out.outColor = finishA(param_28, param_29, _128);
+    float3 param_38 = col;
+    float3 param_39 = in.vWorld;
+    out.outColor = finishA(param_38, param_39, _154);
     return out;
 }
 

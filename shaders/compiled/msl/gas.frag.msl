@@ -152,24 +152,34 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _64)
 fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _64 [[buffer(0)]])
 {
     main0_out out = {};
-    float3 _474;
-    if (in.vEmissive > 0.5)
+    float _476;
+    if (in.vNormal.y > 0.5)
     {
-        _474 = in.vColor.xyz;
+        _476 = 1.0;
     }
     else
     {
-        float3 param = in.vColor.xyz * 1.60000002384185791015625;
+        _476 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
+    }
+    float face = _476;
+    float3 _491;
+    if (in.vEmissive > 0.5)
+    {
+        _491 = in.vColor.xyz;
+    }
+    else
+    {
+        float3 param = (in.vColor.xyz * 1.60000002384185791015625) * face;
         float3 param_1 = fast::normalize(in.vNormal);
         float3 param_2 = in.vWorld;
         float param_3 = 1.0;
-        _474 = shade(param, param_1, param_2, param_3, _64) + ((in.vColor.xyz * 0.119999997317790985107421875) * step(in.vColor.w, 0.9900000095367431640625));
+        _491 = shade(param, param_1, param_2, param_3, _64) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
     }
-    float3 col = _474;
+    float3 col = _491;
     float3 param_4 = col;
     float3 param_5 = in.vWorld;
-    float3 _513 = finish(param_4, param_5, _64);
-    out.outColor = float4(_513, in.vColor.w);
+    float3 _531 = finish(param_4, param_5, _64);
+    out.outColor = float4(_531, in.vColor.w);
     return out;
 }
 

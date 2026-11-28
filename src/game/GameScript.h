@@ -32,6 +32,9 @@
 // camera pivot), probe X Z [YAW], heights X Z, setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply),
 // sethealth N HP [MEMBER] (TEST HOOK: wound / kill soldiers), killrunner N (TEST HOOK), key f6 (AI debug overlay),
 // fieldsamples X Z R (debug: zombie field samples near a point).
+// HUD 2 (docs/GAMEPLAY_ARCHITECTURE.md 13): ui action ID (a registered card / selection action, as if clicked),
+// ui tab units|structures|supplies|engineering|vehicles, ui tip ID|off (show a card tooltip in captures),
+// ui hover X Z|off (the world hover menu at a point, captures); metrics ui_tab ui_actions ui_pace.
 //
 // The runner pushes Commands at their tick (deterministic with --game-sync, which waits for each readback in
 // headless runs so GPU latency cannot change outcomes), evaluates expectations, prints a summary and sets the

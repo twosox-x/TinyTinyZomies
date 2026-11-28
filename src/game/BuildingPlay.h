@@ -73,6 +73,7 @@ private:
     void walkTo(GameContext& ctx, uint32_t i, V3 goal);
     void notice(const std::string& t, bool bad) { notices_.push_back({t, bad}); }
     int firingSlotOf(const Building& B, uint32_t soldier, const SoldierPool& P) const;
+    int pickSlot(const GameContext& ctx, const Building& B) const;
 
     BuildingRegistry reg_;
     std::vector<Action> pending_;

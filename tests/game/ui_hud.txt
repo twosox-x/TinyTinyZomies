@@ -1,0 +1,59 @@
+# HUD 2 (GAME_DESIGN 14e UI, docs/GAMEPLAY_ARCHITECTURE.md 13): command-bar categories and cards through the registration
+# API, hotkeys switching the tab, selection panel (single / multi squad), context actions, placement banner, hover
+# menu, captures. Scripts use verbs, never UI pixel coordinates. Run at several sizes (captures ui2_*.png):
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/ui_hud.txt [--width W --height H --ui-scale F]
+at 0.0  camera -14 120 0.6 0.9 70
+at 0.1  expect ui_actions >= 13                # 5 units, 2 supplies, 3 structures, 2 engineering, 1 vehicles (+ features)
+at 0.1  expect ui_tab == 0
+at 0.2  key n                                  # wall hotkey: tool + the Structures tab
+at 0.2  expect tool == 6
+at 0.2  expect ui_tab == 1
+at 0.3  key esc
+at 0.3  key v                                  # container: Supplies tab
+at 0.3  expect ui_tab == 2
+at 0.3  expect tool == 4
+at 0.4  key esc
+at 0.4  key k                                  # clear car: Engineering tab
+at 0.4  expect ui_tab == 3
+at 0.5  key esc
+at 0.5  ui action unit.mg                      # a card click (verb): MG tool, Units tab
+at 0.5  expect tool == 2
+at 0.5  expect ui_tab == 0
+at 0.6  key esc
+at 0.6  expect tool == 0
+at 0.7  buy rifle -11 117
+at 0.7  buy mg -18 112
+at 0.7  buy engineer -16 126
+at 0.7  buy flamethrower -8 110
+at 1.0  ui tab units
+at 1.0  ui tip unit.rifle                      # tooltip (capture; headless shots have no mouse)
+at 1.1  shot ui2_bar_tip.png
+at 1.2  ui tip off
+at 24   select 1
+at 24.1 expect selected == 1
+at 24.2 ui action sel.pace.Run                 # sticky pace from the selection panel
+at 24.2 expect ui_pace == 1
+at 24.3 ui action sel.pace.Auto
+at 24.3 shot ui2_single.png
+at 24.5 select 1 2 3 4
+at 24.6 expect selected == 4
+at 24.6 ui tab structures
+at 24.7 shot ui2_multi.png
+at 25   select 3                               # engineers: build tools in the panel; hover menu on a parked car
+at 25.1 ui tab engineering
+at 25.1 ui hover -24 117
+at 25.2 shot ui2_engineers_hover.png
+at 25.3 ui hover off
+at 25.4 ui action sel.eng.wall                 # engineers' Wall button = the wall card
+at 25.4 expect tool == 6
+at 25.5 wallpreview cheap -16 132 -4 132
+at 25.6 shot ui2_placing_wall.png
+at 25.7 wallpreview off
+at 25.8 select 4
+at 25.9 ui action sel.burn                     # flamethrowers: targeting mode
+at 25.9 expect tool == 10
+at 26.0 key esc
+at 26.0 expect tool == 0
+at 26.1 ui tab vehicles
+at 26.2 shot ui2_vehicles.png
+at 26.3 end

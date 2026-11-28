@@ -89,8 +89,8 @@ bool BuildingPlay::garrison(GameContext& ctx, SquadId sqId, BuildingId id, std::
         if (!P.valid(m) || !P.alive(m.index) || deploying(P.state[m.index])) continue;
         const uint32_t i = m.index;
         if (P.post[i] != POST_NONE) continue;
-        int slot = -1;   // free firing position nearest the soldier's current entrance side (front first: list order)
-        for (size_t k = 0; k < B->firing.size(); ++k) if (!B->firing[k].occupant.valid()) { slot = (int)k; break; }
+        const int slot = pickSlot(ctx, *B);   // windows facing the threats first, spread over the facades
+
         if (slot < 0) break;
         B->firing[(size_t)slot].occupant = m;
         B->garrison.push_back(m);
@@ -111,6 +111,45 @@ bool BuildingPlay::garrison(GameContext& ctx, SquadId sqId, BuildingId id, std::
     std::snprintf(t, sizeof(t), "%d soldiers moving into the garrison", assigned);
     msg = t;
     return true;
+}
+
+// Free firing position for the next soldier (GAME_DESIGN 14e: more soldiers open more windows, spread across the facades
+// facing threats): list priority (front windows, a few roof posts, upper floors, side windows), minus a bonus for facades
+// with zombies in front of them (coarse field, 60 m), minus a bonus for being far from the posts already taken.
+int BuildingPlay::pickSlot(const GameContext& ctx, const Building& B) const {
+    float threat[4] = {0, 0, 0, 0}, tot = 0;
+    const V3 c = B.centre();
+    const float sx[4] = {-B.e2x, B.e1x, B.e2x, -B.e1x}, sz[4] = {-B.e2z, B.e1z, B.e2z, -B.e1z};
+    if (ctx.horde) {
+        const ZombieField& f = ctx.horde->field();
+        for (size_t t = 0; t < f.tiles.size() && f.tileSize > 0.f; ++t) {
+            const ZombieFieldTile& T = f.tiles[t];
+            for (uint32_t k = 0; k < T.samples; ++k) {
+                const float dx = T.pos[k].x - c.x, dz = T.pos[k].z - c.z, d = std::sqrt(dx * dx + dz * dz);
+                if (d > 60.f || d < 1e-3f) continue;
+                int best = 0;
+                for (int s = 1; s < 4; ++s) if (dx * sx[s] + dz * sz[s] > dx * sx[best] + dz * sz[best]) best = s;
+                threat[best] += 1.f; tot += 1.f;
+            }
+        }
+    }
+    int slot = -1;
+    float bestScore = 1e30f;
+    for (size_t k = 0; k < B.firing.size(); ++k) {
+        const FiringPosition& f = B.firing[k];
+        if (f.occupant.valid()) continue;
+        int side = 0;
+        const float ox = std::sin(f.yaw), oz = std::cos(f.yaw);
+        for (int s = 1; s < 4; ++s) if (ox * sx[s] + oz * sz[s] > ox * sx[side] + oz * sz[side]) side = s;
+        float near = 1e9f;
+        for (const FiringPosition& o : B.firing)
+            if (o.occupant.valid()) near = std::min(near, d2D(o.pos, f.pos) + std::fabs(o.pos.y - f.pos.y));
+        float score = (float)k;
+        if (tot > 0.f) score -= 8.f * threat[side] / tot;
+        if (near < 1e8f) score -= std::min(near, 12.f) * 0.25f;
+        if (score < bestScore) { bestScore = score; slot = (int)k; }
+    }
+    return slot;
 }
 
 bool BuildingPlay::barricade(GameContext& ctx, BuildingId id, int opening, BarricadeType t, std::string& msg) {
@@ -234,7 +273,7 @@ void BuildingPlay::preAi(GameContext& ctx) {
     SoldierPool& P = *ctx.soldiers;
     if (orderSerial_.size() < P.capacity()) { orderSerial_.resize(P.capacity(), 0); enterT_.resize(P.capacity(), 0.f); enterFrom_.resize(P.capacity()); hospitalTrip_.resize(P.capacity(), 0); }
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
-        if (!P.used[i] || P.post[i] == POST_NONE) continue;
+        if (!P.used[i] || P.post[i] == POST_NONE || structurePost(P.building[i])) continue;   // 14e towers: Structures
         const Squad* sq = ctx.squads ? ctx.squads->get(P.squad[i]) : nullptr;
         if (!P.alive(i)) {   // dead at a window: the body stays where it fell; the position is free again
             if (P.post[i] != POST_FIRING) release(ctx, i);
@@ -352,7 +391,7 @@ void BuildingPlay::approach(GameContext& ctx) {
     SoldierPool& P = *ctx.soldiers;
     const float dt = ctx.dt;
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
-        if (!P.used[i] || !P.alive(i) || P.post[i] == POST_NONE) continue;
+        if (!P.used[i] || !P.alive(i) || P.post[i] == POST_NONE || structurePost(P.building[i])) continue;   // 14e towers: Structures
         Building* B = reg_.get(BuildingId{P.building[i]});
         if (!B) { P.post[i] = POST_NONE; continue; }
         const BuildingId id{P.building[i]};
@@ -403,7 +442,9 @@ void BuildingPlay::approach(GameContext& ctx) {
                     P.yaw[i] = f.yaw;
                     P.home[i] = f.pos;
                     P.homeYaw[i] = f.yaw;
-                    P.postOut[i] = V3{std::sin(f.yaw), 0, std::cos(f.yaw)};
+                    // firing point (SoldierPool::firePos = pos + postOut * 0.9): outside the facade / past the roof edge,
+                    // so his own building never blocks his sight lines (window posts stand inside the room)
+                    P.postOut[i] = V3{std::sin(f.yaw), 0, std::cos(f.yaw)} * (f.outReach / 0.9f);
                     ++stats_.posted;
                 }
                 P.setState(i, SoldierState::Idle);

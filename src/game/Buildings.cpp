@@ -50,6 +50,7 @@ namespace {
 template <class T> T rd(const uint8_t* p) { T v; std::memcpy(&v, p, sizeof(T)); return v; }
 constexpr float kBucket = 16.f;
 uint64_t bucketKey(int bx, int bz) { return ((uint64_t)(uint32_t)bx << 32) | (uint32_t)bz; }
+float d2(V3 a, V3 b) { return (a.x - b.x) * (a.x - b.x) + (a.z - b.z) * (a.z - b.z); }
 } // namespace
 
 bool parseBldg(const std::vector<uint8_t>& b, std::vector<Building>& out) {
@@ -120,7 +121,80 @@ void BuildingRegistry::addTile(const TileCPU& t) {
         b_.push_back(std::move(B));
         bucketAdd((uint32_t)b_.size() - 1);
     }
+    readGlass(t);
     ++version_;
+}
+
+// Window rects of the facade art (GAME_DESIGN 14e window posts): every vertical glass quad of the tile's LOD0 mesh is
+// mapped to the facade of the building whose footprint edge it lies on, then panes of one window (mullions, transoms)
+// are merged into one rect. Buildings not prepared yet only (prepare turns the rects into window positions).
+void BuildingRegistry::readGlass(const TileCPU& t) {
+    const CityMesh& m = t.lod[0];
+    if (glassMat_.empty() || !m.idx.empty() || m.verts.size() < 4) return;
+    const size_t nq = m.verts.size() / 4;
+    std::vector<std::vector<FacadeGlass>> raw(b_.size());
+    for (size_t q = 0; q < nq; ++q) {
+        const CityVertex* v = &m.verts[q * 4];
+        if (v[0].mat >= glassMat_.size() || !glassMat_[v[0].mat]) continue;
+        const float nx = v[0].nx / 127.f, ny = v[0].ny / 127.f, nz = v[0].nz / 127.f;
+        if (std::fabs(ny) > 0.3f) continue;
+        V3 p[4], c{0, 0, 0};
+        for (int k = 0; k < 4; ++k) {
+            p[k] = {m.origin[0] + v[k].x * m.scaleXZ, m.origin[1] + v[k].y * m.scaleY, m.origin[2] + v[k].z * m.scaleXZ};
+            c = c + p[k] * 0.25f;
+        }
+        const BuildingId id = at(c.x, c.z, 1.5f);
+        if (!id.valid() || b_[id.v].prepared) continue;
+        const Building& B = b_[id.v];
+        const float dots[4] = {-(nx * B.e2x + nz * B.e2z), nx * B.e1x + nz * B.e1z, nx * B.e2x + nz * B.e2z, -(nx * B.e1x + nz * B.e1z)};
+        int side = 0;
+        for (int k = 1; k < 4; ++k) if (dots[k] > dots[side]) side = k;
+        if (dots[side] < 0.9f) continue;
+        FacadeGlass g;
+        g.side = (uint8_t)side;
+        g.s0 = g.y0 = 1e9f; g.s1 = g.y1 = -1e9f;
+        float ins = 0.f;
+        for (int k = 0; k < 4; ++k) {
+            float u, w2;
+            B.toLocal(p[k].x, p[k].z, u, w2);
+            const float s = side == 0 ? u : side == 1 ? w2 : side == 2 ? B.w - u : B.d - w2;
+            const float in = side == 0 ? w2 : side == 1 ? B.w - u : side == 2 ? B.d - w2 : u;
+            g.s0 = std::min(g.s0, s); g.s1 = std::max(g.s1, s);
+            g.y0 = std::min(g.y0, p[k].y); g.y1 = std::max(g.y1, p[k].y);
+            ins += in * 0.25f;
+        }
+        g.inset = ins;
+        const float L = (side & 1) ? B.d : B.w;
+        if (ins < -0.6f || ins > 1.6f || g.s1 - g.s0 < 0.05f || g.y1 - g.y0 < 0.2f || g.s1 < 0.f || g.s0 > L) continue;
+        raw[id.v].push_back(g);
+    }
+    for (size_t b = 0; b < raw.size(); ++b) {
+        std::vector<FacadeGlass>& r = raw[b];
+        if (r.empty()) continue;
+        // merge panes of one window: same facade and glass plane, touching side by side or stacked
+        for (bool merged = true; merged;) {
+            merged = false;
+            for (size_t i = 0; i < r.size(); ++i)
+                for (size_t j = i + 1; j < r.size(); ++j) {
+                    FacadeGlass &a = r[i], &c = r[j];
+                    if (a.side != c.side || std::fabs(a.inset - c.inset) > 0.15f) continue;
+                    const float sOv = std::min(a.s1, c.s1) - std::max(a.s0, c.s0), yOv = std::min(a.y1, c.y1) - std::max(a.y0, c.y0);
+                    const float minW = std::min(a.s1 - a.s0, c.s1 - c.s0), minH = std::min(a.y1 - a.y0, c.y1 - c.y0);
+                    const bool beside = sOv > -0.22f && yOv > 0.5f * minH, stacked = sOv > 0.5f * minW && yOv > -0.22f;
+                    if (!beside && !stacked) continue;
+                    const float wa = (a.s1 - a.s0) * (a.y1 - a.y0), wc = (c.s1 - c.s0) * (c.y1 - c.y0);
+                    a.inset = (a.inset * wa + c.inset * wc) / std::max(1e-4f, wa + wc);
+                    a.s0 = std::min(a.s0, c.s0); a.s1 = std::max(a.s1, c.s1);
+                    a.y0 = std::min(a.y0, c.y0); a.y1 = std::max(a.y1, c.y1);
+                    r[j] = r.back();
+                    r.pop_back();
+                    j = i;   // a grew: scan the others again
+                    merged = true;
+                }
+        }
+        std::vector<FacadeGlass>& dst = b_[b].glass;
+        dst.insert(dst.end(), r.begin(), r.end());
+    }
 }
 
 void BuildingRegistry::prepare(const std::function<float(float, float)>& heightAt, const BuildingConfig& cfg) {
@@ -168,40 +242,125 @@ void BuildingRegistry::prepare(const std::function<float(float, float)>& heightA
                 }
             };
             const float yawOut = std::atan2(ox, oz);
-            const int nW = std::max(1, (int)std::floor((L - 2.f) / std::max(1.f, cfg.windowSpacing)));
+            const float depthAvail = (side & 1) ? B.w : B.d;   // footprint depth behind this facade
+            // Window posts (GAME_DESIGN 14e): real windows of the facade art when the tile mesh has glass for this
+            // building (a facade without glass then has no window post: party wall / blank wall); otherwise windows
+            // every windowSpacing m (older packages). Each post is an opening the renderer cuts out of the facade with
+            // a small room behind it (floor = the soldier's feet, a sandbag sill).
+            struct Win { float s, hw, a, b, inset; bool real; };
             for (int f = f0; f <= f1; ++f) {
-                const float fy = B.y0 + f * B.floorHeight;
-                for (int k = 0; k < nW; ++k) {
-                    const float s = (L - (nW - 1) * cfg.windowSpacing) * 0.5f + k * cfg.windowSpacing;
-                    if (s < 1.f || s > L - 1.f) continue;
-                    auto [u, v] = at(s, 0.3f);
-                    const V3 p = B.toWorld(u, v, fy);
-                    const float hOut = heightAt(p.x + ox * 2.3f, p.z + oz * 2.3f);
+                const float fy = B.y0 + f * B.floorHeight, top = fy + B.floorHeight;
+                std::vector<Win> ws;
+                if (!B.glass.empty()) {
+                    for (const FacadeGlass& g : B.glass) {
+                        if (g.side != side) continue;
+                        const float a = std::max(g.y0, fy + 0.05f), b = std::min(g.y1, top - 0.12f);
+                        if (b - a < 0.6f || 0.5f * (a + b) < fy || 0.5f * (a + b) > top) continue;
+                        const float width = g.s1 - g.s0;
+                        if (width < 0.45f) continue;
+                        const int n = std::max(1, (int)std::ceil(width / 2.4f));   // curtain walls / shop glazing: panels
+                        const float seg = width / (float)n;
+                        for (int i = 0; i < n; ++i) {
+                            const float c = g.s0 + (i + 0.5f) * seg;
+                            const float hw = n > 1 ? std::min(0.8f, 0.5f * seg - 0.06f) : 0.5f * width;
+                            ws.push_back({c, hw, a, b, g.inset, true});
+                        }
+                    }
+                    std::sort(ws.begin(), ws.end(), [](const Win& x, const Win& y) { return x.s < y.s; });
+                    // spread: at most one post per ~0.75 x windowSpacing (rooms never overlap, positions spread out)
+                    std::vector<Win> keep;
+                    for (const Win& w : ws) {
+                        if (w.s - w.hw < 0.35f || w.s + w.hw > L - 0.35f) continue;
+                        if (!keep.empty() && w.s - keep.back().s < 0.75f * cfg.windowSpacing) continue;
+                        keep.push_back(w);
+                    }
+                    ws.swap(keep);
+                } else {
+                    const int nW = std::max(1, (int)std::floor((L - 2.f) / std::max(1.f, cfg.windowSpacing)));
+                    for (int k = 0; k < nW; ++k) {
+                        const float s = (L - (nW - 1) * cfg.windowSpacing) * 0.5f + k * cfg.windowSpacing;
+                        if (s < 1.f || s > L - 1.f) continue;
+                        ws.push_back({s, 0.6f, fy + 0.9f, std::min(top - 0.3f, fy + 2.3f), 0.12f, false});
+                    }
+                }
+                for (size_t k = 0; k < ws.size(); ++k) {
+                    Win w = ws[k];
+                    auto [ue, ve] = at(w.s, 0.3f);
+                    const V3 pe = B.toWorld(ue, ve, fy);
+                    const float hOut = heightAt(pe.x + ox * 2.3f, pe.z + oz * 2.3f);
                     if (std::isnan(hOut) || hOut > fy - (f == 0 ? -0.5f : 1.0f)) continue;   // party wall / neighbour
+                    const float feet = std::max(fy, w.a - 1.15f);                     // sill at chest height at most
+                    float ceil = std::min(top - 0.03f, std::max(w.b + 0.3f, feet + 2.5f));
+                    if (w.b > ceil - 0.03f) w.b = ceil - 0.03f;
+                    float rhw = std::min({w.hw + 0.9f, w.s - 0.25f, L - w.s - 0.25f});
+                    if (k > 0) rhw = std::min(rhw, 0.5f * (w.s - ws[k - 1].s) - 0.05f);
+                    if (k + 1 < ws.size()) rhw = std::min(rhw, 0.5f * (ws[k + 1].s - w.s) - 0.05f);
+                    if (rhw < w.hw + 0.1f) w.hw = std::max(0.3f, rhw - 0.1f);
+                    const float stand = w.inset + 0.55f;                              // behind the glass, inside the room
+                    auto [u, v] = at(w.s, stand);
+                    auto [u2, v2] = at(w.s, w.inset);
                     Cand c;
-                    c.fp.kind = FiringKind::Window; c.fp.floor = (uint8_t)f; c.fp.pos = p; c.fp.yaw = yawOut; c.fp.arcHalf = 1.05f;
+                    c.fp.kind = FiringKind::Window; c.fp.floor = (uint8_t)f; c.fp.pos = B.toWorld(u, v, feet); c.fp.yaw = yawOut; c.fp.arcHalf = 1.05f;
+                    c.fp.outReach = stand + 0.6f;                                     // firing point 0.6 m outside the footprint
+                    c.fp.realWindow = w.real;
+                    c.fp.win = B.toWorld(u2, v2, w.a);
+                    c.fp.winHalfW = w.hw; c.fp.winH = w.b - w.a;
+                    c.fp.roomHalfW = std::max(rhw, w.hw + 0.1f);
+                    c.fp.roomDepth = std::clamp(depthAvail - w.inset - 0.8f, 1.2f, 2.4f);
+                    c.fp.roomFloor = feet; c.fp.roomCeil = ceil;
                     c.op.type = OpeningType::Window; c.op.floor = (uint8_t)f;
-                    auto [u2, v2] = at(s, 0.f);
-                    c.op.pos = B.toWorld(u2, v2, fy + 0.9f);
-                    c.op.nx = ox; c.op.nz = oz; c.op.width = 1.2f; c.op.height = 1.4f;
-                    c.prio = (side == 0 ? 0 : 20) + f * 3 + k % 2;
+                    c.op.pos = c.fp.win;
+                    c.op.nx = ox; c.op.nz = oz; c.op.width = 2.f * w.hw; c.op.height = w.b - w.a;
+                    c.prio = (side == 0 ? 0 : 20) + f * 3 + (int)k % 2;
                     cands.push_back(c);
                 }
             }
-            // roof edges (flat roofs): 0.8 m in from the edge, on the roof, over a drop to a lower surface
+            // roof posts (flat roofs, GAME_DESIGN 14e): set back from the edge (the soldier 1.9 m in, the sandbag ring /
+            // position in front of him ~1 m in), on a flat patch of the actual roof surface (no HVAC, hatch, parapet
+            // or other prop under the ring), over a drop to a lower surface
             if (B.flatRoof) {
+                const float ring = 1.8f;                                             // fort_roof_ring radius
                 const int nR = std::max(1, (int)std::floor((L - 3.f) / std::max(1.f, cfg.roofSpacing)));
+                const V3 avoid[3] = {B.toWorld(1.0f, 1.0f, 0), B.toWorld(B.w - 1.2f, B.d - 1.2f, 0), B.toWorld(B.stairU, B.stairV, 0) + V3{B.e1x * 0.6f, 0, B.e1z * 0.6f}};
                 for (int k = 0; k < nR; ++k) {
-                    const float s = (L - (nR - 1) * cfg.roofSpacing) * 0.5f + k * cfg.roofSpacing;
-                    if (s < 1.5f || s > L - 1.5f) continue;
-                    auto [u, v] = at(s, 0.8f);
-                    const V3 p = B.toWorld(u, v, B.roofY);
-                    const float hIn = heightAt(p.x, p.z), hOut = heightAt(p.x + ox * 2.5f, p.z + oz * 2.5f);
-                    if (std::isnan(hIn) || std::isnan(hOut) || std::fabs(hIn - B.roofY) > 0.7f || hOut > B.roofY - 2.f) continue;
-                    Cand c;
-                    c.fp.kind = FiringKind::RoofEdge; c.fp.floor = kRoofFloor; c.fp.pos = {p.x, hIn, p.z}; c.fp.yaw = yawOut; c.fp.arcHalf = 1.4f;
-                    c.prio = (side == 0 ? 2 : 5) + k % 2;   // a few roof edges early: a squad gets windows and the roof
-                    cands.push_back(c);
+                    const float s0 = (L - (nR - 1) * cfg.roofSpacing) * 0.5f + k * cfg.roofSpacing;
+                    {
+                        auto [u, v] = at(s0, 0.f);
+                        const V3 e = B.toWorld(u, v, B.roofY);
+                        const float hOut = heightAt(e.x + ox * 1.7f, e.z + oz * 1.7f);
+                        if (std::isnan(hOut) || hOut > B.roofY - 2.f) continue;      // no drop: neighbour / lower roof
+                    }
+                    bool placed = false;
+                    for (int t = 0; t < 10 && !placed; ++t) {
+                        const float ins = t < 5 ? 1.9f : 2.5f;
+                        const float s = s0 + (float)((t % 5 + 1) / 2) * ((t % 5) % 2 ? 1.f : -1.f);
+                        if (s < ring + 0.5f || s > L - ring - 0.5f || ins + 0.9f + ring > depthAvail - 0.6f) continue;
+                        auto [u, v] = at(s, ins);
+                        auto [uc, vc] = at(s, ins + 0.9f);                            // ring centre (behind him)
+                        const V3 p = B.toWorld(u, v, B.roofY), cc = B.toWorld(uc, vc, B.roofY);
+                        const float hc = heightAt(p.x, p.z);
+                        if (std::isnan(hc) || std::fabs(hc - B.roofY) > 0.7f) continue;
+                        bool ok = true;
+                        for (int j = -4; j <= 4 && ok; ++j)
+                            for (int i = -4; i <= 4 && ok; ++i) {
+                                if (i * i + j * j > 16) continue;
+                                const float h = heightAt(cc.x + i * 0.45f, cc.z + j * 0.45f);
+                                ok = !std::isnan(h) && h > hc - 0.35f && h < hc + 0.3f;
+                            }
+                        for (const V3& a : avoid) ok = ok && d2(a, cc) > (ring + 0.7f) * (ring + 0.7f);
+                        for (const Cand& o : cands)
+                            if (o.fp.kind == FiringKind::RoofEdge) {
+                                const V3 oc = o.fp.pos - V3{std::sin(o.fp.yaw), 0, std::cos(o.fp.yaw)} * 0.9f;
+                                ok = ok && d2(oc, cc) > (2.f * ring + 0.3f) * (2.f * ring + 0.3f);
+                            }
+                        if (!ok) continue;
+                        Cand c;
+                        c.fp.kind = FiringKind::RoofEdge; c.fp.floor = kRoofFloor; c.fp.pos = {p.x, hc, p.z}; c.fp.yaw = yawOut; c.fp.arcHalf = 1.4f;
+                        c.fp.outReach = ins + 0.6f;
+                        c.prio = (side == 0 ? 2 : 5) + k % 2;   // a few roof edges early: a squad gets windows and the roof
+                        cands.push_back(c);
+                        placed = true;
+                    }
                 }
             }
         }

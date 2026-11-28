@@ -7,6 +7,7 @@
 #include "game/GameUI.h"
 #include "game/GameWorld.h"
 #include "lab/MilitaryRenderer.h"
+#include "render/TimeOfDay.h"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -64,6 +65,11 @@ void syncBuildings(AppState& app, BuildingPlay& bp, const std::vector<float>& h,
     const int i0 = std::max(0, (int)std::floor((x0 - 64.f - C.x0) / C.tileSize)), i1 = std::min(C.ni - 1, (int)std::floor((x1 + 64.f - C.x0) / C.tileSize));
     const int j0 = std::max(0, (int)std::floor((z0 - 64.f - C.z0) / C.tileSize)), j1 = std::min(C.nj - 1, (int)std::floor((z1 + 64.f - C.z0) / C.tileSize));
     BuildingRegistry& reg = bp.registry();
+    {   // glass materials of the palette: window posts are read from the facade art (Buildings.cpp readGlass)
+        std::vector<uint8_t> glass(256, 0);
+        for (size_t m = 0; m < C.materials.size() && m < 256; ++m) glass[m] = (C.materials[m].flags & MAT_GLASS) ? 1 : 0;
+        reg.setGlassMaterials(glass);
+    }
     const size_t before = reg.size();
     for (int j = j0; j <= j1; ++j)
         for (int i = i0; i <= i1; ++i)
@@ -110,13 +116,14 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
             const ImU32 c = B.capture == CaptureState::Contested ? IM_COL32(220, 90, 60, 230) : IM_COL32(200, 210, 120, 230);
             dl->AddRectFilled(ImVec2(s.x - 22, s.y - 3), ImVec2(s.x + 22, s.y + 3), IM_COL32(20, 20, 14, 180));
             dl->AddRectFilled(ImVec2(s.x - 22, s.y - 3), ImVec2(s.x - 22 + 44 * B.captureProgress, s.y + 3), c);
-            dl->AddText(ImVec2(s.x - 26, s.y - 18), c, B.capture == CaptureState::Contested ? "contested" : "capturing");
+            ui.worldLabel(s.x, s.y - 20, B.capture == CaptureState::Contested ? "contested" : "capturing", c,
+                          B.capture == CaptureState::Contested ? GameUI::kLabelAlert : GameUI::kLabelStatus, true);
         } else if (B.role != BuildingRole::None) {
             char t[64];
             std::snprintf(t, sizeof(t), "%s %d/%d%s", B.role == BuildingRole::Garrison ? "GARRISON" : "HOSPITAL",
                           B.role == BuildingRole::Garrison ? (int)B.garrison.size() : (int)B.patients.size(), B.capacity, B.zombiesInside > 0 ? " !" : "");
             const ImU32 c = B.role == BuildingRole::Garrison ? IM_COL32(170, 180, 110, 220) : IM_COL32(150, 220, 150, 220);
-            dl->AddText(ImVec2(s.x - 30, s.y - 8), c, t);
+            ui.worldLabel(s.x, s.y - 8, t, c, bp.selected.v == b ? GameUI::kLabelSelected : GameUI::kLabelStatus, true);
         }
     }
     if (!bp.selected.valid()) return;
@@ -136,8 +143,10 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
         dl->AddRect(ImVec2(s.x - 3, s.y - 3), ImVec2(s.x + 3, s.y + 3), f.occupant.valid() ? IM_COL32(120, 200, 90, 230) : IM_COL32(232, 224, 190, 140));
     }
     const ImGuiIO& io = ImGui::GetIO();
-    ImGui::SetNextWindowPos(ImVec2(12.f, io.DisplaySize.y - 262.f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(470.f, 0.f), ImGuiCond_Always);
+    // HUD 2 layout: stacked above the selection panel (which sits above / beside the command bar), never over them
+    const HudLayout& L = ui.layout();
+    ImGui::SetNextWindowPos(ImVec2(L.panelX, L.panelBottom), ImGuiCond_Always, ImVec2(0.f, 1.f));
+    ImGui::SetNextWindowSize(ImVec2(std::min(470.f * L.scale, io.DisplaySize.x - 2.f * L.panelX), 0.f), ImGuiCond_Always);
     ImGui::Begin("##building", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     ImGui::Text("%s, %d floor%s%s", kindName(B.kind), (int)B.floors, B.floors > 1 ? "s" : "", B.flatRoof ? ", flat roof" : "");
     if (!B.supported) { ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1), "Unsupported: %s", B.unsupportedWhy); ImGui::End(); return; }
@@ -206,10 +215,206 @@ void installBuildingUI(GameUI& ui, BuildingPlay& bp) {
         return false;
     };
     ui.buildingDraw = [b, u](AppState& app, const GameContext& ctx) { drawPanel(app, ctx, *b, *u); };
+    // HUD 2: context action of the squad selection while a garrison building is selected (same as G)
+    UiSelectionAction g;
+    g.id = "sel.garrison"; g.label = "Garrison"; g.icon = UiIcon::Garrison; g.hotkeyLabel = "G"; g.order = 50;
+    g.visible = [b](const UiCtx& c) {
+        const Building* B = b->selected.valid() ? b->registry().get(b->selected) : nullptr;
+        return B && B->role == BuildingRole::Garrison && !c.ui.selectionConst().squads.empty();
+    };
+    g.onSelect = [b](const UiCtx& c) { for (const SquadId& s : c.ui.selectionConst().squads) b->request({BuildingPlay::Act::Garrison, b->selected, s, 0}); };
+    g.tooltip = [](const UiCtx&) { return std::string("The selected squads occupy the selected garrison building\n(windows and roof positions)."); };
+    ui.registerSelectionAction(g);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const BuildingPlay& bp) {
+// Garrison window posts (GAME_DESIGN 14e): every window a posted soldier fires from is opened. The facade art keeps its
+// mesh; CityRenderer discards the tile fragments inside the opening (city.frag cutouts) and a small room is drawn behind
+// it: a reveal (wall thickness) lining the opening, floor boards, plaster walls with a dado and skirting, a ceiling with
+// a lamp, a sandbag sill (unless a window nest is built there) and an ammo crate. Interior materials glow warm at night
+// (CityRenderer interior palette) and the nearest rooms add a warm point light, so the soldier is lit from inside. The
+// room mesh is rebuilt only when the set of opened windows changes; leaving soldiers close their window again.
+namespace {
+struct OpenWin { uint32_t b; uint16_t k; };
+struct RoomState {
+    AppState* app = nullptr;
+    CityRenderer::GpuMesh mesh;
+    uint64_t sig = 0;
+    int ext = -1;
+    std::vector<PointLight> lights;       // interior lights of the opened rooms (centre of each room, under the lamp)
+};
+RoomState g_rooms;
+
+struct RoomBuilder {
+    CityMesh m;
+    V3 o;
+    void quad(V3 a, V3 b, V3 c, V3 d, V3 n, int mat) {   // a b c d around the face; wound so n is the front side
+        const V3 cr = cross(b - a, c - a);
+        const bool flip = dot(cr, n) < 0.f;
+        const uint32_t base = (uint32_t)m.verts.size();
+        const V3 pts[4] = {a, b, c, d};
+        for (const V3& p : pts) {
+            CityVertex v{};
+            const V3 q = p - o;
+            v.x = (int16_t)std::lround(q.x / m.scaleXZ); v.y = (int16_t)std::lround(q.y / m.scaleY); v.z = (int16_t)std::lround(q.z / m.scaleXZ);
+            v.nx = (int8_t)std::lround(n.x * 127.f); v.ny = (int8_t)std::lround(n.y * 127.f); v.nz = (int8_t)std::lround(n.z * 127.f);
+            v.mat = (uint8_t)(CityRenderer::kInteriorMat + mat);
+            m.verts.push_back(v);
+            for (int k = 0; k < 3; ++k) { m.bmin[k] = std::min(m.bmin[k], (&p.x)[k]); m.bmax[k] = std::max(m.bmax[k], (&p.x)[k]); }
+        }
+        const uint32_t i0[6] = {0, 1, 2, 0, 2, 3}, i1[6] = {0, 2, 1, 0, 3, 2};
+        for (int k = 0; k < 6; ++k) m.idx.push_back(base + (flip ? i1[k] : i0[k]));
+    }
+};
+
+// Room of one window post. Frame: n out of the facade, t along it, y up; s / o / y offsets from the opening's bottom centre.
+void buildRoom(RoomBuilder& R, const FiringPosition& f, uint32_t seed) {
+    const V3 n{std::sin(f.yaw), 0, std::cos(f.yaw)}, t{n.z, 0, -n.x}, up{0, 1, 0};
+    const V3 w0 = f.win;
+    auto P = [&](float s, float o, float y) { return V3{w0.x + t.x * s + n.x * o, y, w0.z + t.z * s + n.z * o}; };
+    const float hw = f.winHalfW + 0.02f, A = w0.y - 0.02f, Bt = w0.y + f.winH + 0.02f;
+    const float T = 0.25f, o0 = f.realWindow ? 0.01f : 0.14f;   // reveal depth; derived windows reach the wall plane
+    const float RW = f.roomHalfW, D = f.roomDepth, F = f.roomFloor, C = f.roomCeil, ob = -T - D;
+    // reveal
+    R.quad(P(-hw, o0, A), P(hw, o0, A), P(hw, -T, A), P(-hw, -T, A), up, 8);
+    R.quad(P(-hw, o0, Bt), P(hw, o0, Bt), P(hw, -T, Bt), P(-hw, -T, Bt), up * -1.f, 8);
+    R.quad(P(-hw, o0, A), P(-hw, -T, A), P(-hw, -T, Bt), P(-hw, o0, Bt), t, 8);
+    R.quad(P(hw, o0, A), P(hw, -T, A), P(hw, -T, Bt), P(hw, o0, Bt), t * -1.f, 8);
+    // floor (lighter near the window), ceiling + lamp
+    const float om = -T - std::min(1.0f, 0.5f * D);
+    R.quad(P(-RW, -T, F), P(RW, -T, F), P(RW, om, F), P(-RW, om, F), up, 0);
+    R.quad(P(-RW, om, F), P(RW, om, F), P(RW, ob, F), P(-RW, ob, F), up, 1);
+    R.quad(P(-RW, -T, C), P(RW, -T, C), P(RW, ob, C), P(-RW, ob, C), up * -1.f, 4);
+    const float lo = -T - 0.5f * D;
+    R.quad(P(-0.22f, lo + 0.22f, C - 0.01f), P(0.22f, lo + 0.22f, C - 0.01f), P(0.22f, lo - 0.22f, C - 0.01f), P(-0.22f, lo - 0.22f, C - 0.01f), up * -1.f, 5);
+    // walls: skirting, dado, plaster (back wall darker; side walls darker towards the back)
+    const float y1 = F + 0.1f, y2 = F + 0.95f;
+    R.quad(P(-RW, ob, F), P(RW, ob, F), P(RW, ob, y1), P(-RW, ob, y1), n, 9);
+    R.quad(P(-RW, ob, y1), P(RW, ob, y1), P(RW, ob, y2), P(-RW, ob, y2), n, 10);
+    R.quad(P(-RW, ob, y2), P(RW, ob, y2), P(RW, ob, C), P(-RW, ob, C), n, 3);
+    for (int sd = -1; sd <= 1; sd += 2) {
+        const float s = RW * (float)sd;
+        const V3 nn = t * (float)-sd;
+        R.quad(P(s, -T, F), P(s, ob, F), P(s, ob, y1), P(s, -T, y1), nn, 9);
+        R.quad(P(s, -T, y1), P(s, ob, y1), P(s, ob, y2), P(s, -T, y2), nn, 10);
+        R.quad(P(s, -T, y2), P(s, om, y2), P(s, om, C), P(s, -T, C), nn, 2);
+        R.quad(P(s, om, y2), P(s, ob, y2), P(s, ob, C), P(s, om, C), nn, 3);
+    }
+    // front wall (room side): closes the room around the reveal (seen from the room's back only, cheap)
+    R.quad(P(-RW, -T, F), P(RW, -T, F), P(RW, -T, A), P(-RW, -T, A), n * -1.f, 2);
+    R.quad(P(-RW, -T, Bt), P(RW, -T, Bt), P(RW, -T, C), P(-RW, -T, C), n * -1.f, 2);
+    // a small olive ammo crate in a back corner
+    {
+        const float cs = (seed & 1) ? -RW + 0.42f : RW - 0.42f, co = ob + 0.32f, h = 0.34f;
+        const float a = 0.3f, b = 0.2f;
+        R.quad(P(cs - a, co - b, F + h), P(cs + a, co - b, F + h), P(cs + a, co + b, F + h), P(cs - a, co + b, F + h), up, 11);
+        R.quad(P(cs - a, co + b, F), P(cs + a, co + b, F), P(cs + a, co + b, F + h), P(cs - a, co + b, F + h), n, 11);
+        R.quad(P(cs - a, co - b, F), P(cs - a, co + b, F), P(cs - a, co + b, F + h), P(cs - a, co - b, F + h), t * -1.f, 7);
+        R.quad(P(cs + a, co - b, F), P(cs + a, co + b, F), P(cs + a, co + b, F + h), P(cs + a, co - b, F + h), t, 7);
+    }
+    // sandbag sill: courses of bags on the reveal floor up to a little under the soldier's shoulder (a window nest
+    // replaces it); taller openings (shop / curtain glazing) get a low sandbag wall
+    if (f.nest) return;
+    const float top = std::clamp(F + 1.22f - A, 0.12f, 1.0f);
+    const int courses = std::max(1, (int)std::lround(top / 0.13f));
+    const float ch = top / (float)courses;
+    const float bo0 = -T + 0.03f, bo1 = f.realWindow ? -0.05f : 0.06f;
+    for (int c = 0; c < courses; ++c) {
+        const float yb = A + c * ch, yt = yb + ch;
+        const float off = (c & 1) ? 0.25f : 0.f;
+        for (float s0 = -hw + 0.01f - off; s0 < hw - 0.02f; s0 += 0.5f) {
+            const float sa = std::max(s0, -hw + 0.01f), sb = std::min(s0 + 0.49f, hw - 0.01f);
+            if (sb - sa < 0.08f) continue;
+            const int mat = ((int)std::lround((s0 + 3.f) * 2.f) + c + (int)seed) & 1 ? 6 : 7;
+            const float bulge = 0.015f;   // rounded look: the top inset a little from the faces
+            R.quad(P(sa + bulge, bo1 - bulge, yt), P(sb - bulge, bo1 - bulge, yt), P(sb - bulge, bo0 + bulge, yt), P(sa + bulge, bo0 + bulge, yt), up, mat);
+            R.quad(P(sa, bo1, yb), P(sb, bo1, yb), P(sb - bulge, bo1 - bulge, yt), P(sa + bulge, bo1 - bulge, yt), n, mat);
+            R.quad(P(sa, bo0, yb), P(sb, bo0, yb), P(sb - bulge, bo0 + bulge, yt), P(sa + bulge, bo0 + bulge, yt), n * -1.f, mat);
+            R.quad(P(sa, bo0, yb), P(sa, bo1, yb), P(sa + bulge, bo1 - bulge, yt), P(sa + bulge, bo0 + bulge, yt), t * -1.f, 7);
+            R.quad(P(sb, bo0, yb), P(sb, bo1, yb), P(sb - bulge, bo1 - bulge, yt), P(sb - bulge, bo0 + bulge, yt), t, 7);
+        }
+    }
+}
+
+void updateRooms(AppState& app, const GameContext& ctx, const BuildingPlay& bp, MilitaryRenderer& mil) {
+    RoomState& S = g_rooms;
+    S.app = &app;
+    const BuildingRegistry& reg = bp.registry();
+    std::vector<OpenWin> open;
+    if (const SoldierPool* P = ctx.soldiers)
+        for (uint32_t i = 0; i < (uint32_t)P->capacity(); ++i) {
+            if (!P->used[i] || P->post[i] != POST_FIRING) continue;
+            const Building* B = reg.get(BuildingId{P->building[i]});
+            if (!B) continue;
+            for (size_t k = 0; k < B->firing.size(); ++k) {
+                const FiringPosition& f = B->firing[k];
+                if (f.kind != FiringKind::Window || f.winHalfW <= 0.f) continue;
+                const float dx = P->pos[i].x - f.pos.x, dz = P->pos[i].z - f.pos.z;
+                if (dx * dx + dz * dz < 0.09f && std::fabs(P->pos[i].y - f.pos.y) < 0.5f) { open.push_back({P->building[i], (uint16_t)k}); break; }
+            }
+        }
+    std::sort(open.begin(), open.end(), [](const OpenWin& a, const OpenWin& b) { return a.b != b.b ? a.b < b.b : a.k < b.k; });
+    open.erase(std::unique(open.begin(), open.end(), [](const OpenWin& a, const OpenWin& b) { return a.b == b.b && a.k == b.k; }), open.end());
+    // facade cutouts (every frame: cheap) and the warm interior lights
+    std::vector<float> cut;
+    uint64_t sig = 1469598103934665603ull;
+    S.lights.clear();
+    for (const OpenWin& w : open) {
+        const FiringPosition& f = reg.get(BuildingId{w.b})->firing[w.k];
+        const float nx = std::sin(f.yaw), nz = std::cos(f.yaw);
+        const float hh = 0.5f * f.winH;
+        const float box[8] = {f.win.x, f.win.y + hh, f.win.z, f.winHalfW - 0.01f, nx, nz, hh - 0.01f, 0.25f + f.roomDepth + 0.05f};
+        if (cut.size() / 8 < (size_t)CityRenderer::kMaxCutouts) cut.insert(cut.end(), box, box + 8);
+        sig = (sig ^ ((uint64_t)w.b << 17 ^ w.k ^ (f.nest ? 1ull << 40 : 0ull))) * 1099511628211ull;
+        const float lo = 0.25f + 0.5f * f.roomDepth;
+        S.lights.push_back({f.win.x - nx * lo, f.roomCeil - 0.45f, f.win.z - nz * lo, 3.4f, 1.f, 0.72f, 0.42f, 1.5f});
+    }
+    app.cityRenderer.setCutouts(cut.data(), (uint32_t)(cut.size() / 8));
+    if (sig != S.sig) {
+        S.sig = sig;
+        app.cityRenderer.releaseMesh(S.mesh);
+        if (!open.empty()) {
+            RoomBuilder R;
+            const FiringPosition& f0 = reg.get(BuildingId{open[0].b})->firing[open[0].k];
+            R.o = {std::floor(f0.win.x), std::floor(f0.win.y), std::floor(f0.win.z)};
+            R.m.scaleXZ = 1.f / 64.f; R.m.scaleY = 1.f / 64.f;
+            R.m.origin[0] = R.o.x; R.m.origin[1] = R.o.y; R.m.origin[2] = R.o.z;
+            for (int k = 0; k < 3; ++k) { R.m.bmin[k] = 1e9f; R.m.bmax[k] = -1e9f; }
+            for (const OpenWin& w : open) buildRoom(R, reg.get(BuildingId{w.b})->firing[w.k], w.b * 7u + w.k);
+            for (int k = 0; k < 3; ++k) { R.m.bmin[k] -= (&R.o.x)[k]; R.m.bmax[k] -= (&R.o.x)[k]; }   // model space bounds
+            S.mesh = app.cityRenderer.uploadExternalMesh(R.m, "garrisonRooms");
+        }
+    }
+    if (S.mesh.vb) { const float q[4] = {0, 0, 0, 1}; mil.addCityMesh(&S.mesh, {0, 0, 0}, q); }
+    if (S.ext < 0) {   // interior lights at night, nearest to the camera first (a few: the frame's light budget is shared)
+        Renderer::Extension e;
+        e.lights = [](std::vector<PointLight>& out) {
+            RoomState& St = g_rooms;
+            if (!St.app || St.lights.empty()) return;
+            const float night = evalTimeOfDay(St.app->renderSettings.tod).night;
+            if (night < 0.05f) return;
+            const V3 eye = St.app->camera.eye();
+            std::vector<PointLight> l = St.lights;
+            std::sort(l.begin(), l.end(), [&](const PointLight& a, const PointLight& b) {
+                return (a.x - eye.x) * (a.x - eye.x) + (a.z - eye.z) * (a.z - eye.z) < (b.x - eye.x) * (b.x - eye.x) + (b.z - eye.z) * (b.z - eye.z);
+            });
+            for (size_t k = 0; k < l.size() && k < 4; ++k) { l[k].intensity *= night; out.push_back(l[k]); }
+        };
+        S.ext = app.renderer.addExtension(e);
+    }
+}
+} // namespace
+
+void shutdownBuildingRender(AppState& app) {
+    RoomState& S = g_rooms;
+    if (S.ext >= 0) app.renderer.removeExtension(S.ext);
+    app.cityRenderer.setCutouts(nullptr, 0);
+    app.cityRenderer.releaseMesh(S.mesh);
+    S = RoomState{};
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const BuildingPlay& bp, AppState* app) {
     struct Ids {
         bool init = false;
         int flag[2], banner[2], barricade[2][3], nest, ring, roofPos, ammo, antenna, awning, stretcher, crate, cot;
@@ -230,7 +435,7 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
         P.awning = mil.findProp("hospital_awning"); P.stretcher = mil.findProp("hospital_stretcher"); P.crate = mil.findProp("hospital_crate");
         P.cot = mil.findProp("hospital_cot");
     }
-    (void)ctx;
+    if (app) updateRooms(*app, ctx, bp, mil);
     const BuildingRegistry& reg = bp.registry();
     for (uint32_t b = 0; b < (uint32_t)reg.size(); ++b) {
         const Building& B = *reg.get(BuildingId{b});
@@ -241,15 +446,17 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
             const int t = (int)o.barricade - 1;
             const float yaw = std::atan2(o.nx, o.nz);
             if (o.type == OpeningType::Door) mil.addProp(P.barricade[0][t], {o.pos.x + o.nx * 0.05f, o.pos.y, o.pos.z + o.nz * 0.05f}, yaw);
-            else mil.addProp(P.barricade[1][t], {o.pos.x + o.nx * 0.05f, o.pos.y - 0.95f, o.pos.z + o.nz * 0.05f}, yaw);
+            else mil.addProp(P.barricade[1][t], {o.pos.x + o.nx * 0.05f, o.pos.y - 0.1f, o.pos.z + o.nz * 0.05f}, yaw);   // sill - frame
         }
-        // nests / roof rings at firing positions; occupied roof edges get the approved sandbag roof position
+        // nests / roof rings at firing positions; occupied roof edges get the approved sandbag roof position. Window
+        // nests stand on the room floor behind the reveal (front course against the wall, the soldier inside the U);
+        // roof posts are set back from the edge (Buildings.cpp): the ring around him / the U position in front of him
         for (const FiringPosition& f : B.firing) {
             const float c = std::sin(f.yaw), s = std::cos(f.yaw);
             if (f.kind == FiringKind::Window) {
-                if (f.nest) mil.addProp(P.nest, {f.pos.x + c * 0.35f, f.pos.y + 0.9f, f.pos.z + s * 0.35f}, f.yaw);
-            } else if (f.nest) mil.addProp(P.ring, {f.pos.x + c * 0.3f, f.pos.y, f.pos.z + s * 0.3f}, f.yaw);
-            else if (f.occupant.valid()) mil.addProp(P.roofPos, {f.pos.x + c * 0.7f, f.pos.y, f.pos.z + s * 0.7f}, f.yaw);
+                if (f.nest) mil.addProp(P.nest, {f.win.x - c * 0.6f, f.roomFloor, f.win.z - s * 0.6f}, f.yaw);
+            } else if (f.nest) mil.addProp(P.ring, {f.pos.x - c * 0.9f, f.pos.y, f.pos.z - s * 0.9f}, f.yaw);
+            else if (f.occupant.valid()) mil.addProp(P.roofPos, {f.pos.x - c * 0.3f, f.pos.y, f.pos.z - s * 0.3f}, f.yaw);
         }
         if (B.role == BuildingRole::None) continue;
         const int r = B.role == BuildingRole::Garrison ? 0 : 1;

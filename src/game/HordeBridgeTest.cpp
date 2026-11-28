@@ -2,6 +2,7 @@
 // small empty sandbox. Synchronous downloads are used to inspect agents (test only); the bridge itself runs exactly as
 // in the game (async ring), with setSync(true) so that every frame is harvested deterministically.
 #include "game/HordeBridge.h"
+#include "game/Combat.h"
 
 #include "gpu/GpuContext.h"
 #include "sim/CrowdSim.h"
@@ -288,6 +289,56 @@ int selfTestHordeBridge(GpuContext& gpu, const SimParams& base) {
           "readback ring: harvest() never waits, data arrives by frame number",
           fmt("worst harvest %.2f ms, harvested frame %.0f of %.0f, skipped slots %.0f", worst, (double)r.bridge.lastHarvestedFrame(),
               (double)r.sim.submittedFrames(), (double)r.bridge.stats().slotsSkipped));
+
+    // ---- 8. long range (owner feedback 2026-11-28: "far zombies take 10 shots / the kill does not register") ----------
+    // A rifleman's lock 50 m away is a stale coarse field sample (here 0.9 m off the zombie). The horde answers the
+    // uploaded lock point with the exact zombie (lock query, game_contacts), and rifle rounds aimed at it (spread cone
+    // 1.0 deg = rifle spreadDeg 0.8 / accuracy 0.8, Combat::spreadDir) hit it most of the time at 50 and 60 m.
+    {
+        SDL_WaitForGPUIdle(gpu.device());
+        r.bridge.harvest();
+        r.bridge.setSync(true);
+        r.restart();
+        r.bridge.setThreatRadius(24.f);   // the exact nearest list does not reach 50 m
+        const V3 feet{-35.f, 0.f, -20.f};
+        r.spawnAt(15.f, -20.f);                                         // the target, 50 m
+        for (float dz : {-4.5f, 4.5f}) r.spawnAt(17.5f, -20.f + dz);    // neighbours in the same field tile
+        r.spawnAt(25.f, -20.f);                                         // 60 m
+        r.frames(25);
+        r.read();
+        V3 tgt{}, tgt60{};
+        for (const GpuAgent& a : r.agents) {
+            if (std::fabs(a.pos.x - 15.f) < 1.f && std::fabs(a.pos.z + 20.f) < 1.f) tgt = {a.pos.x, a.pos.y, a.pos.z};
+            if (std::fabs(a.pos.x - 25.f) < 1.f) tgt60 = {a.pos.x, a.pos.y, a.pos.z};
+        }
+        HordeSoldier s8;
+        s8.pos = feet; s8.packedId = 77u | (1u << 16); s8.attraction = 0.f;
+        s8.hasLock = true; s8.lockPos = tgt + V3{0.7f, 0.f, -0.55f};   // stale sample next to it
+        r.bridge.uploadSoldiers({s8});
+        r.frames(4);
+        const auto& c8 = r.bridge.contacts();
+        const bool found = c8.size() == 1 && c8[0].lockFound;
+        const float err = found ? std::hypot(c8[0].lockPos.x - tgt.x, c8[0].lockPos.z - tgt.z) : -1.f;
+        check(found && err < 0.05f && c8[0].nNear == 0, "long range: the lock point is answered with the exact zombie (beyond the 24 m list)",
+              fmt("found %.0f, error %.3f m, exact list %.0f", found ? 1.0 : 0.0, err, c8.empty() ? -1.0 : (double)c8[0].nNear));
+        // rifle rounds at 50 / 60 m (0 damage: the zombies stay put), aimed like Combat::fire (muzzle 1.4 m, torso 1.1 m)
+        auto rate = [&](V3 aimAt, int n) {
+            uint32_t rng = 12345u, hitsZ = 0, total = 0;
+            const V3 o = feet + V3{0.5f, 1.4f, 0.f};
+            for (int b = 0; b < n / 20; ++b) {
+                std::vector<HitRequest> q;
+                for (int k = 0; k < 20; ++k) q.push_back(ray(o, Combat::spreadDir(aimAt + V3{0, 1.1f, 0} - o, 1.0f, rng), 0.f, s8.packedId, 0, 62.f));
+                r.bridge.queueHits(q);
+                r.frame(1);
+                for (const auto& h : r.bridge.hitResults()) { ++total; hitsZ += h.kind == HordeBridge::HitKind::Zombie; }
+            }
+            return total ? 100.0 * hitsZ / total : 0.0;
+        };
+        const double p50 = rate(found ? c8[0].lockPos : tgt, 200), p60 = rate(tgt60, 200);
+        check(p50 >= 55.0 && p60 >= 45.0, "long range: rifle rounds at the tracked zombie hit >= 55 % at 50 m, >= 45 % at 60 m",
+              fmt("50 m %.0f %%, 60 m %.0f %%", p50, p60));
+        r.bridge.uploadSoldiers({});
+    }
 
     r.bridge.shutdown();
     r.sim.shutdown();

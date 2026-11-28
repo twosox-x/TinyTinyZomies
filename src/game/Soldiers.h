@@ -111,6 +111,10 @@ private:
 };
 
 enum PostState : uint8_t { POST_NONE = 0, POST_APPROACH = 1, POST_FIRING = 2, POST_INSIDE = 3, POST_ENTERING = 4 };
+// GAME_DESIGN 14e: SoldierPool::building of a soldier posted on a structure (defense tower deck): this bit | tower index.
+// BuildingPlay leaves such soldiers alone (Structures owns them: ladder climb, deck post, release).
+constexpr uint32_t kStructurePost = 0x80000000u;
+inline bool structurePost(uint32_t building) { return building != ~0u && (building & kStructurePost) != 0; }
 
 enum SoldierPhase : uint8_t { PH_RELOADED = 1, PH_GRABBED = 2, PH_WAITING = 4, PH_RETURNING = 8, PH_ACQUIRED = 16 };
 

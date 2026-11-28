@@ -56,7 +56,15 @@ public:
     bool work(GameContext& ctx, uint32_t i);       // SoldierAI::workHook
     void postAi(GameContext& ctx);                 // after SoldierAI: work clip for the engineers that worked
 
-    enum class JobKind : uint8_t { Piece = 0, GateConvert = 1, Car = 2 };
+    enum class JobKind : uint8_t { Piece = 0, GateConvert = 1, Car = 2, External = 3 };
+    // GAME_DESIGN 14e: jobs owned by other modules (Structures: tower / generator / floodlight / fuel store blueprints;
+    // FuelLogistics: siphoning cars). `externalJobs` appends them each tick (after the wall jobs); an engineer at work
+    // calls `externalWork(job, engineer-seconds share)` which advances it and returns the new progress (0..1). `busy`:
+    // soldier slots another module drives right now (fuel carriers), skipped by the assignment.
+    struct ExternalJob { uint32_t owner = 0, id = 0; Obb box; float progress = 0.f, time = 1.f; uint8_t anim = 1; /* 1 build loops, 3 hammer, 4 car */ };
+    std::function<void(const GameContext&, std::vector<ExternalJob>&)> externalJobs;
+    std::function<float(GameContext&, const ExternalJob&, float add, uint32_t engineer)> externalWork;
+    std::function<bool(uint32_t)> busy;
     struct Job {
         JobKind kind = JobKind::Piece;
         uint32_t index = 0;                        // piece index / car order index
@@ -66,6 +74,7 @@ public:
         int workers = 0;                           // engineers working on it this tick
         bool inRange = false, blocked = false;     // some engineer squad can reach it / waits for a car
         int squad = -1;                            // engineer squad slot that took it (-1 none)
+        bool trap = false;                         // finishing it now would wall someone in: held at 98 %
     };
     const std::vector<Job>& jobs() const { return jobs_; }
     struct CarOrder { uint32_t vehicle = 0; Obb box; float progress = 0.f; bool done = false; };
@@ -79,6 +88,7 @@ public:
 private:
     struct Assign { int job = -1; V3 spot; bool active = false; };
     std::vector<Job> jobs_;
+    std::vector<ExternalJob> ext_;               // 14e: this tick's external jobs (JobKind::External index)
     std::vector<CarOrder> cars_;
     std::vector<Assign> assign_;                  // per soldier slot
     std::vector<uint8_t> worked_;                 // per soldier slot: worked this tick
@@ -88,6 +98,19 @@ private:
     std::vector<GateWork> gateWork_;              // wall pieces being converted into gates
     std::vector<uint32_t> squadSerial_;           // per squad slot: last player order seen (a new one drops the jobs)
     float gateProgress_(uint32_t piece) const;
+    // ---- awareness (GAME_DESIGN 14e: "how everything will look in the end")
+    // Future enclosure: a 1 m raster over every alive piece (blueprints included, gates open), posts, containers and
+    // everything the soldiers cannot walk; flood from the border = outside. Engineers work from the outside of an
+    // enclosure the plan will close (never from inside a perimeter that seals), else from the side they stand on.
+    struct Future { float ox = 0, oz = 0; int w = 0, h = 0; std::vector<uint8_t> out; uint64_t sig = ~0ull; float age = 1e9f; };
+    Future future_;
+    void updateFuture(const GameContext& ctx);
+    int futureSide(const Obb& b) const;          // +1 / -1: the local-Z side that is outside a future enclosure, 0 none
+    // Work spot of member k beside box b on `side`: walkable, on `island` (0 any), off every other piece and blueprint.
+    bool workSpot(const GameContext& ctx, const Obb& b, float side, int k, uint32_t island, V3& out) const;
+    // Would a soldier be sealed into a small pocket (or stand in the footprint) when box b becomes solid? (out: who)
+    bool wouldTrap(const GameContext& ctx, const Obb& b, std::vector<uint32_t>* who) const;
+    std::vector<uint32_t> flip_;                  // pieces whose work side is flipped (someone would be walled in)
     V3 squadCentre(const GameContext& ctx, const Squad& s, int* alive) const;
 };
 

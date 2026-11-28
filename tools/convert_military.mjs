@@ -21,6 +21,7 @@
  *   assets/military/anims.bin     + anims.json    (clips, docs/MILITARY_ANIMS.md)
  *   assets/military/specialists.ttzm      + specialists.json       (Phase 7b: engineers, flamethrowers, tools, site props)
  *   assets/military/specialist_anims.bin  + specialist_anims.json  (Phase 7b clips; same TTZA format + tool / stow flags)
+ *   assets/military/structures.ttzm       + structures.json        (Phase 7b: towers, generator, floodlight, fuel; palette = specialists + PAL_SPEC_COUNT..)
  * The v1 files (infantry, props, anims) are written exactly as before (v1 palette only: PAL_V1_COUNT entries), so they
  * stay byte-identical to the approved assets; the specialists live in their own files.
  */
@@ -43,7 +44,7 @@ const lib = vm.runInContext(html.slice(a, b) + `
 ;({ buildAll, buildAnims, PALETTE, PAL, partFaces, quadsCulled, quadsGreedy, rigidGroup, DIRS, CORN, V_M, PROP_M, SLOTS, PIVOT, HAND, MIL_VERSION,
      ANIM_VERSION, ANIM_HZ, BODY_STRIDE, CANOPY_STRIDE, CRATE_STRIDE, HAND_ITEM, ANIM_CLASSES,
      WEAPON_STRIDE, FLAG_DROPPED, posedBodyCells, posedMinY, weaponCells, fk, eulerMat, mvec, vadd, mmul,
-     PAL_V1_COUNT, buildSpecialists, buildSpecialistAnims, FLAG_STOWED, TOOL_SHIFT, TOOL_ID, SPEC_CLASSES, stowPlacement, toolCells, limbIntrusion, LIMB_TOL })`, sandbox, { filename: "military_lab_v1.html" });
+     PAL_V1_COUNT, PAL_SPEC_COUNT, buildStructures, buildSpecialists, buildSpecialistAnims, FLAG_STOWED, TOOL_SHIFT, TOOL_ID, SPEC_CLASSES, stowPlacement, toolCells, limbIntrusion, LIMB_TOL })`, sandbox, { filename: "military_lab_v1.html" });
 
 const t0 = Date.now();
 const { infantry, props } = lib.buildAll();
@@ -224,7 +225,9 @@ bake(infantry, "infantry", true, PAL_V1);
 bake(props, "props", false, PAL_V1);
 bakeAnims(infantry);
 const SPEC = lib.buildSpecialists();
-bake([...SPEC.soldiers, ...SPEC.tools, ...SPEC.props], "specialists", "auto", lib.PALETTE);
+bake([...SPEC.soldiers, ...SPEC.tools, ...SPEC.props], "specialists", "auto", lib.PALETTE.slice(0, lib.PAL_SPEC_COUNT));
+// Phase 7b structures (towers, generator, floodlight, fuel; PENDING REVIEW): own file, full palette (specialists + structures)
+bake(lib.buildStructures(), "structures", false, lib.PALETTE);
 bakeSpecialistAnims(SPEC);
 
 // ------------------------------------------------------------------ animations (docs/MILITARY_ANIMS.md)

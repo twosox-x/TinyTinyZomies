@@ -63,6 +63,7 @@ struct Vehicle {
     bool inWindow = false;
     bool contact = false;
     bool removed = false;               // cleared by engineers (GAME_DESIGN 14d): not drawn, no collision, persistent
+    bool drained = false;               // fuel siphoned by engineers (GAME_DESIGN 14e): never ignites / explodes
     int16_t sx0 = 0, sz0 = 0, sx1 = -1, sz1 = -1;   // cells it is stamped into (sim grid), empty if x1 < x0
 };
 
@@ -126,6 +127,8 @@ public:
     uint32_t parkedAt(float x, float z, float maxR) const;
     void groundBox(uint32_t i, float& cx, float& cz, float& hx, float& hz, float& yaw) const;
     bool removeVehicle(uint32_t i);
+    // GAME_DESIGN 14e: the fuel was siphoned; a blast can still damage / wreck it but it never burns or explodes.
+    void setDrained(uint32_t i) { if (i < all_.size()) all_[i].drained = true; }
     void removeObstacle(uint32_t id);
     uint32_t obstacleCount() const { uint32_t n = 0; for (const GameObstacle& o : gobst_) n += o.alive ? 1 : 0; return n; }
     // Row runs (first row, count) the last update() uploaded, and a counter bumped by every update() (consumers

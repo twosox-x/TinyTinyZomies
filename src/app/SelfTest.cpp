@@ -10,6 +10,7 @@
 #include "game/HordeVertical.h"
 #include "game/CorpseGas.h"
 #include "game/Soldiers.h"
+#include "lab/TracerMotion.h"
 
 #include "render/CharacterRenderer.h"
 #include "render/Math.h"
@@ -565,6 +566,36 @@ void testGameCore() {
     uint32_t r1 = 7, r2 = 7;
     V3 d1 = Combat::spreadDir({0, 0, 1}, 2.f, r1), d2 = Combat::spreadDir({0, 0, 1}, 2.f, r2);
     check(d1.x == d2.x && d1.y == d2.y && d1.z == d2.z && d1.z > std::cos(2.01f * 3.14159265f / 180.f), "shot spread is deterministic and inside the cone", "");
+    {   // owner 2026-11-28: rounds cluster toward the cone axis (rifle cone 1.0 deg): body hits at 50 m with perfect aim
+        uint32_t rs = 99;
+        int in50 = 0, inCone = 0;
+        for (int k = 0; k < 4000; ++k) {
+            const V3 d = Combat::spreadDir({0, 0, 1}, 1.f, rs);
+            inCone += d.z >= std::cos(1.0001f * 3.14159265f / 180.f) ? 1 : 0;
+            const float x = d.x / d.z * 50.f, y = 1.1f + d.y / d.z * 50.f;
+            in50 += std::fabs(x) < 0.26f && y > 0.f && y < 1.75f ? 1 : 0;
+        }
+        check(inCone == 4000 && in50 > 4000 * 0.6, "shot spread: inside the cone, >= 60 % body hits at 50 m (1 deg cone)", fmt("%.1f %%", in50 / 40.0));
+    }
+    {   // owner 2026-11-28 (14e): tracers start at the barrel and travel visibly (TracerMotion, MilitaryRenderer::fxTracer)
+        float head, tail;
+        TracerMotion::span(0.f, TracerMotion::kSpeedRifle, 60.f, 4.5f, head, tail);
+        const bool atMuzzle = tail == 0.f && head > 0.5f && head <= 1.5f;
+        int frames60 = 0, frames20 = 0;   // frames with the head short of the target (travelling), 60 / 20 fps
+        for (float fdt : {1.f / 60.f, 1.f / 20.f}) {
+            float age = 0.f;
+            int n = 0;
+            for (int f = 0; f < 200 && age < TracerMotion::life(TracerMotion::kSpeedRifle, 60.f, 4.5f); ++f) {
+                TracerMotion::span(age, TracerMotion::kSpeedRifle, 60.f, 4.5f, head, tail);
+                n += head < 60.f ? 1 : 0;
+                age += TracerMotion::step(fdt, TracerMotion::kSpeedRifle, 60.f);
+            }
+            (fdt < 0.02f ? frames60 : frames20) = n;
+        }
+        check(atMuzzle && frames60 >= 5 && frames20 >= 5 && TracerMotion::kSpeedRifle <= 0.81f * 750.f,
+              "tracer: head at the muzzle at t = 0, a 60 m shot travels over >= 5 frames (60 and 20 fps), 20 % slower",
+              fmt("frames %.0f / %.0f at 60 / 20 fps, muzzle start %.0f", frames60, frames20, atMuzzle ? 1.0 : 0.0));
+    }
     g_fail += runSoldierSelfTest(cfg);   // WS-C section "ai / nav" (src/game/SoldierSelfTest.cpp)
     g_fail += runSupplySelfTest(cfg);    // WS-D section "economy / logistics / deploy" (src/game/SupplySelfTest.cpp)
     g_fail += runFortSelfTest(cfg);      // B2 section "walls / territory" (src/game/FortSelfTest.cpp)

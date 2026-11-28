@@ -4,6 +4,8 @@
 #include "game/GameWorld.h"
 #include "game/NavGrid.h"
 #include "game/EngineerAI.h"
+#include "game/Fortify.h"
+#include "game/Soldiers.h"
 #include "sim/GpuTypes.h"
 
 #include <cmath>
@@ -105,6 +107,20 @@ bool fortVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
         w.commands().push(c);
         return true;
     }
+    if (L.verb == "placesoldier") {   // TEST HOOK (14e recovery): placesoldier N X Z [MEMBER]: puts a squad member there (on a car roof)
+        const GameContext& ctx = w.context();
+        const int n = a.empty() ? 0 : std::atoi(a[0].c_str());
+        if (a.size() < 3 || !ctx.squads || n < 1 || (size_t)n > ctx.squads->squads.size()) { err = "placesoldier N X Z [MEMBER]"; return true; }
+        const Squad& sq = ctx.squads->squads[(size_t)n - 1];
+        const size_t mi = a.size() > 3 ? (size_t)std::atoi(a[3].c_str()) : 0;
+        if (mi >= sq.members.size() || !ctx.soldiers->valid(sq.members[mi])) { err = "no such member"; return true; }
+        const uint32_t i = sq.members[mi].index;
+        V3 p = ground(w, fa(a, 1), fa(a, 2));
+        ctx.soldiers->pos[i] = p;
+        std::printf("  placesoldier: #%u at (%.1f %.2f %.1f), on obstacle %d\n", i, p.x, p.y, p.z, ctx.nav && ctx.nav->onObstacle(p.x, p.z) ? 1 : 0);
+        std::fflush(stdout);
+        return true;
+    }
     if (L.verb == "undo") { Command c; c.type = CommandType::UndoBuild; w.commands().push(c); return true; }
     if (L.verb == "jobs") {   // log the construction queue
         const EngineerAI& E = w.engineers();
@@ -201,6 +217,67 @@ bool fortMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
             out = n >= 0 ? (double)(int)W.joint((uint32_t)n, yaw, t) : -1.0;
         }
         else err = "wall field hp|alive|pressure|built|gate|length|joint";
+        return true;
+    }
+    // ---- 14e: squads vs walls / cars, gap cells
+    if (m == "squad_outside" || m == "squad_island" || m == "squad_onobstacle" || m == "path_len" || m == "squad_near") {
+        const GameContext& ctx = w.context();
+        const int n = k < a.size() ? std::atoi(a[k].c_str()) : 0;
+        ++k;
+        if (!ctx.squads || n < 1 || (size_t)n > ctx.squads->squads.size()) { err = m + " N ...: no such squad"; return true; }
+        const Squad& sq = ctx.squads->squads[(size_t)n - 1];
+        const SoldierPool& P = *ctx.soldiers;
+        out = 0;
+        if (m == "squad_outside") {   // members outside the rectangle X0 Z0 X1 Z1
+            if (k + 3 >= a.size()) { err = "squad_outside N X0 Z0 X1 Z1"; return true; }
+            const float x0 = std::min(fa(a, k), fa(a, k + 2)), x1 = std::max(fa(a, k), fa(a, k + 2)), z0 = std::min(fa(a, k + 1), fa(a, k + 3)), z1 = std::max(fa(a, k + 1), fa(a, k + 3));
+            k += 4;
+            for (const SoldierId& id : sq.members)
+                if (P.valid(id) && P.alive(id.index) && (P.pos[id.index].x < x0 || P.pos[id.index].x > x1 || P.pos[id.index].z < z0 || P.pos[id.index].z > z1)) out += 1;
+        } else if (m == "squad_island") {   // members standing on a walkable cell of the island at X Z (reachable)
+            if (k + 1 >= a.size()) { err = "squad_island N X Z"; return true; }
+            const uint32_t isl = nav ? nav->island(fa(a, k), fa(a, k + 1)) : 0;
+            k += 2;
+            for (const SoldierId& id : sq.members)
+                if (P.valid(id) && P.alive(id.index) && isl && nav->island(P.pos[id.index].x, P.pos[id.index].z) == isl) out += 1;
+        } else if (m == "squad_near") {   // members within R of X Z
+            if (k + 2 >= a.size()) { err = "squad_near N X Z R"; return true; }
+            const float x = fa(a, k), z = fa(a, k + 1), r = fa(a, k + 2);
+            k += 3;
+            for (const SoldierId& id : sq.members)
+                if (P.valid(id) && P.alive(id.index) && std::hypot(P.pos[id.index].x - x, P.pos[id.index].z - z) <= r) out += 1;
+        } else if (m == "squad_onobstacle") {   // members standing on a car roof / wall top / container
+            for (const SoldierId& id : sq.members)
+                if (P.valid(id) && P.alive(id.index) && nav && nav->onObstacle(P.pos[id.index].x, P.pos[id.index].z)) out += 1;
+        } else {   // path_len: longest planned path of the members (current position through the remaining waypoints)
+            for (const SoldierId& id : sq.members) {
+                if (!P.valid(id) || !P.alive(id.index)) continue;
+                const PathFollow& pf = P.path[id.index];
+                double l = 0;
+                V3 q = P.pos[id.index];
+                for (size_t j = pf.next; j < pf.points.size(); ++j) { l += std::hypot(pf.points[j].x - q.x, pf.points[j].z - q.z); q = pf.points[j]; }
+                out = std::max(out, l);
+            }
+        }
+        return true;
+    }
+    if (m == "open_cells") {   // zombie-grid cells along X0 Z0 -> X1 Z1 (0.1 m samples) a zombie can stand in (< 0.9 m above ground)
+        if (k + 3 >= a.size()) { err = "open_cells X0 Z0 X1 Z1"; return true; }
+        const float x0 = fa(a, k), z0 = fa(a, k + 1), x1 = fa(a, k + 2), z1 = fa(a, k + 3);
+        k += 4;
+        out = 0;
+        AppState* app = w.app();
+        if (!app) return true;
+        const Sandbox& sb = app->sandbox;
+        int last = -1;
+        const float L = std::hypot(x1 - x0, z1 - z0);
+        for (float t = 0.f; t <= L; t += 0.1f) {
+            const float x = x0 + (x1 - x0) * t / std::max(L, 1e-3f), z = z0 + (z1 - z0) * t / std::max(L, 1e-3f);
+            const int cx = (int)std::floor((x - sb.originX) / sb.cellSize), cz = (int)std::floor((z - sb.originZ) / sb.cellSize);
+            if (cx < 0 || cz < 0 || cx >= sb.gridW || cz >= sb.gridH || cz * sb.gridW + cx == last) continue;
+            last = cz * sb.gridW + cx;
+            if (app->vehicles.simHeights()[(size_t)last] - windowStreetLevel(*app) < 0.9f) out += 1;
+        }
         return true;
     }
     if (m == "walkable") {

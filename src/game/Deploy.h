@@ -59,6 +59,13 @@ struct DropTrack {
 // every sample of a halfX x halfZ rectangle (rotated by yaw) within `tol` of the centre's surface.
 bool flatFootprint(const GameContext& ctx, V3 c, float halfX, float halfZ, float yaw, float tol, float* surface = nullptr);
 
+// Roof-surface picker (GAME_DESIGN 14e: "placing on roofs must be effortless"). Resolves the roof level a click means:
+// the roof island under the cursor; a click on a parapet, ledge, roof object or the roof rim resolves to the roof
+// beside it (a walkable roof cell within 3.5 m, at most 0.5 m above / 4 m below the clicked surface); a click on a
+// small raised top (stair housing, water tank: < 40 cells) also offers the roof around it. Returns the candidate roof
+// islands, best first, as walkable start points (y = surface); empty when the click is not on / at a roof.
+void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts);
+
 class Deploy {
 public:
     float dropAltitude = 45.f;        // m above the landing surface (visual; not balance)
@@ -78,6 +85,9 @@ private:
     std::vector<DropTrack> drops_;
     uint64_t dropped_ = 0, landed_ = 0;
     void finishRecovery(GameContext& ctx, DropTrack& d);
+    // Rooftop plan on the roof island of `start` (roofLevels): spots inset from the edge (1.5, else 1.2, else 1.0 m),
+    // clear of roof objects, nearest to the click; members on the same island, spaced as far apart as the roof allows.
+    bool planRoof(const GameContext& ctx, SquadType type, V3 click, V3 start, DropPlan& p) const;
 };
 
 } // namespace ttz::game

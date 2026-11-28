@@ -96,6 +96,53 @@ static float enclosure(const NavGrid& nav, V3 c, float y) {
     return (float)blocked / 16.f;
 }
 
+void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
+    starts.clear();
+    if (!ctx.nav || !ctx.nav->ready()) return;
+    const NavGrid& nav = *ctx.nav;
+    const float clicked = nav.surface(click.x, click.z), c = nav.cell();
+    auto islandSize = [&](V3 s0) { std::vector<V3> cells; nav.islandCells(s0, 60.f, 40, cells); return (int)cells.size(); };
+    auto add = [&](V3 q) {
+        for (const V3& s0 : starts) if (nav.island(s0.x, s0.z) == nav.island(q.x, q.z)) return;
+        starts.push_back(q);
+    };
+    const bool onRoof = nav.walkable(click.x, click.z) && nav.onRoof(click.x, click.z);
+    if (onRoof) add({click.x, clicked, click.z});
+    if (onRoof || !nav.walkable(click.x, click.z)) {
+        // parapet / ledge / roof object / rim (or a thin raised ring the click is on): the nearest roof cell of another
+        // island beside it, on a level at or below the click
+        const uint32_t own = onRoof ? nav.island(click.x, click.z) : 0u;
+        float best = 1e9f;
+        V3 bq;
+        for (float dz = -3.5f; dz <= 3.5f + 1e-3f; dz += c * 0.5f)
+            for (float dx = -3.5f; dx <= 3.5f + 1e-3f; dx += c * 0.5f) {
+                const float x = click.x + dx, z = click.z + dz, d2 = dx * dx + dz * dz;
+                if (d2 > 3.5f * 3.5f || d2 >= best || !nav.walkable(x, z) || !nav.onRoof(x, z)) continue;
+                if (own && nav.island(x, z) == own) continue;
+                const float y = nav.surface(x, z);
+                if (y > clicked + (onRoof ? -0.4f : 0.5f) || y < clicked - 4.f) continue;
+                best = d2; bq = {x, y, z};
+            }
+        if (best < 1e8f) add(bq);
+    }
+    if (starts.empty()) return;
+    // a small raised top (stair housing, tank, kiosk roof): the roof around it is what the player means
+    if (islandSize(starts[0]) < 40) {
+        const V3 s0 = starts[0];
+        float best = 1e9f;
+        V3 bq;
+        for (float dz = -6.f; dz <= 6.f + 1e-3f; dz += c)
+            for (float dx = -6.f; dx <= 6.f + 1e-3f; dx += c) {
+                const float x = s0.x + dx, z = s0.z + dz, d2 = dx * dx + dz * dz;
+                if (d2 > 36.f || d2 >= best || !nav.walkable(x, z) || !nav.onRoof(x, z) || nav.island(x, z) == nav.island(s0.x, s0.z)) continue;
+                const float y = nav.surface(x, z);
+                if (y > s0.y - 0.5f || y < s0.y - 6.f) continue;
+                best = d2; bq = {x, y, z};
+            }
+        if (best < 1e8f) { starts.insert(starts.begin(), bq); }
+    }
+}
+
 DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
     DropPlan p;
     const SquadDef& def = ctx.cfg->squad[(size_t)type];
@@ -107,6 +154,18 @@ DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
         return p;
     }
     const bool known = walkKnown(nav);
+    // Rooftops (GAME_DESIGN 14e): the roof-surface picker resolves the roof level under the click and searches that
+    // whole roof island for the nearest walkable, clear spot inset from the edge (never refused while the roof has room).
+    {
+        std::vector<V3> roofs;
+        if (known) roofLevels(ctx, dest, roofs);
+        const char* why = nullptr;
+        for (const V3& start : roofs) {
+            if (planRoof(ctx, type, dest, start, p)) return p;
+            why = p.reason;
+        }
+        if (why) { p.reason = why; return p; }
+    }
     // The clicked surface (street, roof, parapet). Snap to the nearest landing spot on that same surface within 2.5 m:
     // a click near a roof edge, on a parapet or a roof fixture lands on the roof next to it, never below it.
     const float clicked = nav.surface(dest.x, dest.z);
@@ -174,6 +233,47 @@ DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
     // nearest-first order is already ring order; the first member lands at the (snapped) clicked point
     p.valid = true;
     return p;
+}
+
+bool Deploy::planRoof(const GameContext& ctx, SquadType type, V3 click, V3 start, DropPlan& p) const {
+    const NavGrid& nav = *ctx.nav;
+    const int n = std::max(1, ctx.cfg->squad[(size_t)type].size);
+    std::vector<V3> cells;
+    nav.islandCells(start, 45.f, 8000, cells);
+    // nearest to the click first (the island flood is sorted from the start point, a few cm away)
+    std::sort(cells.begin(), cells.end(), [&](const V3& a, const V3& b) {
+        return (a.x - click.x) * (a.x - click.x) + (a.z - click.z) * (a.z - click.z) < (b.x - click.x) * (b.x - click.x) + (b.z - click.z) * (b.z - click.z);
+    });
+    struct Tier { float edge, obs, clear; };
+    static const Tier tiers[] = {{1.5f, 0.6f, 1.5f}, {1.2f, 0.6f, 1.0f}, {1.0f, 0.4f, 0.75f}};
+    std::vector<V3> ok;
+    for (const Tier& t : tiers) {
+        ok.clear();
+        for (const V3& c : cells) {
+            if (!insideGrid(nav, c.x, c.z, 2.f) || (ctx.horde && !ctx.horde->simulated(c.x, c.z))) continue;
+            if (nav.cellEdge(c.x, c.z) < t.edge || nav.cellObstacle(c.x, c.z) < t.obs) continue;
+            float y;
+            if (!landable(ctx, c, t.clear, &y)) continue;
+            ok.push_back({c.x, y, c.z});
+        }
+        if ((int)ok.size() < n) continue;
+        const V3 first = ok[0];
+        std::sort(ok.begin() + 1, ok.end(), [&](const V3& a, const V3& b) {
+            return (a.x - first.x) * (a.x - first.x) + (a.z - first.z) * (a.z - first.z) < (b.x - first.x) * (b.x - first.x) + (b.z - first.z) * (b.z - first.z);
+        });
+        for (float spacing : {dropSpacing, 3.0f, 2.2f, 1.6f}) {
+            p.landing.assign(1, first);
+            for (size_t k = 1; k < ok.size() && (int)p.landing.size() < n; ++k) {
+                bool apart = true;
+                for (const V3& q : p.landing) apart &= (q.x - ok[k].x) * (q.x - ok[k].x) + (q.z - ok[k].z) * (q.z - ok[k].z) >= spacing * spacing;
+                if (apart) p.landing.push_back(ok[k]);
+            }
+            if ((int)p.landing.size() >= n) { p.valid = true; p.rooftop = true; p.reason = ""; return true; }
+        }
+    }
+    p.landing.clear();
+    p.reason = cells.empty() ? "blocked: no walkable roof here" : ok.empty() ? "no clear spot on this roof" : "roof too small for the squad";
+    return false;
 }
 
 SquadId Deploy::execute(GameContext& ctx, SquadType type, const DropPlan& plan) {
