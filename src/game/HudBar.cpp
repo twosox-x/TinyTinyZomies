@@ -434,32 +434,7 @@ bool GameUI::actionHotkey(AppState& app, const GameContext& ctx, const SDL_Event
 
 // ---- pause menu (Esc with nothing to cancel; Esc never quits directly) --------------------------------------------
 void GameUI::drawPauseMenu(AppState& app) {
-    if (!pauseMenu_) return;
-    if (!app.paused) { pauseMenu_ = false; return; }   // unpaused elsewhere (Space)
-    const ImGuiIO& io = ImGui::GetIO();
-    const float w = 220 * S, h = 118 * S;
-    const ImVec2 a((io.DisplaySize.x - w) * 0.5f, (io.DisplaySize.y - h) * 0.5f), c(a.x + w, a.y + h);
-    ImGui::GetBackgroundDrawList()->AddRectFilled(ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 90));
-    if (beginPane("##hud_pause", a, c)) {
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        panel(dl, a, c);
-        const ImVec2 ts = tsize(14.f, "PAUSED");
-        text(dl, a.x + (w - ts.x) * 0.5f, a.y + 10 * S, kSand, 14.f, "PAUSED");
-        const char* labels[2] = {"Resume  (Esc)", "Quit game"};
-        for (int k = 0; k < 2; ++k) {
-            const ImVec2 ba(a.x + 16 * S, a.y + 36 * S + k * 38 * S), bb(c.x - 16 * S, ba.y + 30 * S);
-            bool hov = false;
-            if (hit(k ? "##quit" : "##resume", ba, bb, &hov)) {
-                if (k) app.quit = true;
-                else { pauseMenu_ = false; app.paused = false; }
-            }
-            dl->AddRectFilled(ba, bb, hov ? kBgHi : kBg, 3 * S);
-            dl->AddRect(ba, bb, withA(kEdge, hov ? 1.f : 0.6f), 3 * S);
-            const ImVec2 ls = tsize(12.5f, labels[k]);
-            text(dl, ba.x + (bb.x - ba.x - ls.x) * 0.5f, ba.y + (30 * S - ls.y) * 0.5f, k ? kBad : kSand, 12.5f, labels[k]);
-        }
-    }
-    ImGui::End();
+    drawMenus(app);   // v2 pause / settings / key bindings / main menu (HudMenus.cpp)
 }
 
 // ---- built-in actions (the B1 purchase cards; FortUI registers walls / gate / engineering) ------------------------
@@ -759,7 +734,9 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
 void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
     const ImGuiIO& io = ImGui::GetIO();
     const float W = io.DisplaySize.x;
-    const float life = 7.f, rowH = 20 * S, w = std::min(hudsz::noticeW * S, W * 0.42f);
+    // v2 alert stack (preview screens_b): round tokens on the right edge with a severity ring; the newest (and a hovered
+    // one) shows its line to the left of the token; the fixed-size area of hudsz::noticeW x 6 rows never grows.
+    const float life = 7.f, rowH = 36 * S, tokSz = 30.f, w = std::min(hudsz::noticeW * S, W * 0.42f);
     std::vector<const UiNotice*> live;
     for (auto it = notices_.rbegin(); it != notices_.rend() && live.size() < 6; ++it) {
         const float age = (float)(now_ - it->time);
@@ -767,33 +744,57 @@ void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
     }
     float y = layout_.topBarBottom + 8 * S + (tool_ != Tool::Select ? 44 * S : 0.f);   // below the placement banner while placing
     const float x1 = W - 10 * S, x0 = x1 - w;
+    auto has = [](const std::string& lo, const char* k) { return lo.find(k) != std::string::npos; };
     if (!live.empty()) {
-        hudRects_.insert(hudRects_.end(), {x0, y, x1, y + (rowH + 3 * S) * (float)live.size()});
-        if (beginPane("##hud_feed", ImVec2(x0, y), ImVec2(x1, y + (rowH + 3 * S) * (float)live.size()))) {
+        hudRects_.insert(hudRects_.end(), {x0, y, x1, y + rowH * (float)live.size()});
+        if (beginPane("##hud_feed", ImVec2(x0, y), ImVec2(x1, y + rowH * (float)live.size()))) {
             ImDrawList* dl = ImGui::GetWindowDrawList();
             int k = 0;
             for (const UiNotice* n : live) {
                 const float age = (float)(now_ - n->time);
-                const float a = std::clamp(life - age, 0.f, 1.f) * (k == 0 ? 1.f : 0.92f);
-                const float slide = app.window ? std::clamp(1.f - age / 0.25f, 0.f, 1.f) : 0.f;
-                std::string t = n->text;
-                if (n->repeat > 1) t += "  x" + std::to_string(n->repeat);
-                const float tw = w - 26 * S;   // fixed row width: long text is cut, short text leaves the row as is
-                const float rx1 = x1 + slide * 40 * S, rx0 = rx1 - w;
-                const ImVec2 ra(rx0, y), rb(rx1, y + rowH);
+                const float a = std::clamp(life - age, 0.f, 1.f);
+                std::string lo = n->text;
+                for (char& ch : lo) ch = (char)std::tolower((unsigned char)ch);
+                const bool attack = has(lo, "attack"), ammo = has(lo, "ammo"), gas = has(lo, "gas");
+                const ImU32 sev = n->bad ? hs::kBad : gas ? hs::kToxic : (attack || ammo) ? hs::kWarn : hs::kInfo;
+                const char* ic = has(lo, "breach") ? "breach" : attack ? "alert" : ammo ? "bullets" : gas ? "gas"
+                               : (has(lo, "killed") || has(lo, "lost")) ? "kia" : has(lo, "built") ? "build"
+                               : (has(lo, "drop") || has(lo, "inbound")) ? "airdrop" : has(lo, "territory") ? "flag" : "info";
                 char id[16]; std::snprintf(id, sizeof(id), "##n%d", k);
+                const ImGuiID sid = ImHashData(&n->time, sizeof(n->time), ImGui::GetID("##nslide"));
+                const float slide = 1.f - hs::tween(sid, 1.f, 12.f);   // fresh entries slide in from the right
+                const float off = slide * 44 * S;
+                const ImVec2 tc(x1 - rowH * 0.5f + off, y + rowH * 0.5f);
+                const std::string num = n->repeat > 1 ? "x" + std::to_string(n->repeat) : std::string();
+                // hit: the token, plus the text line of the newest entry
+                const float tw = w - rowH - 8 * S;   // fixed text room: long lines are cut
+                const std::string line = fit(12.5f, n->text, tw);
+                const ImVec2 ls = tsize(12.5f, line.c_str());
+                const bool showAlways = k == 0;
+                const ImVec2 ha(showAlways ? tc.x - rowH * 0.5f - 8 * S - ls.x : tc.x - rowH * 0.5f, y), hb(x1, y + rowH);
                 bool hov = false;
-                const bool clicked = hit(id, ra, rb, &hov);
-                dl->AddRectFilled(ra, rb, withA(hov && n->hasPos ? kBgHi : kBg, a), 3 * S);
-                dl->AddRectFilled(ra, ImVec2(ra.x + 3 * S, rb.y), withA(n->bad ? kBad : kKhaki, a), 3 * S, ImDrawFlags_RoundCornersLeft);
-                text(dl, ra.x + 10 * S, y + (rowH - 12.5f * S) * 0.5f, withA(n->bad ? IM_COL32(240, 150, 130, 255) : kSand, a), 12.5f, fit(12.5f, t, tw + 1).c_str());
-                if (n->hasPos) {   // "jump" chevron
-                    const float cx = rb.x - 8 * S, cy = y + rowH * 0.5f;
-                    dl->AddTriangleFilled(ImVec2(cx - 3 * S, cy - 4 * S), ImVec2(cx + 2 * S, cy), ImVec2(cx - 3 * S, cy + 4 * S), withA(hov ? kSand : kFaint, a));
-                    if (clicked) app.camera.setGoalTarget(n->pos);
-                    if (hov) { tipBegin(); ImGui::TextUnformatted("Click: move the camera there"); tipEnd(); }
+                const bool clicked = hit(id, ha, hb, &hov);
+                const ImGuiID tid = ImGui::GetID(id);
+                hoverSound(tid, hov && n->hasPos);
+                hs::Tok t;
+                t.size = tokSz; t.round = true;
+                t.lift = hs::tween(tid, hov && n->hasPos ? 1.f : 0.f);
+                t.press = hov && n->hasPos && ImGui::IsMouseDown(0) ? 1.f : 0.f;
+                t.ring = 1.f; t.ringCol = withA(sev, a);
+                t.num = num.empty() ? nullptr : num.c_str();
+                if (a > 0.05f) hs::token(dl, tc, t, ic, S);
+                if (showAlways || hov) {
+                    const float lx = tc.x - tokSz * 0.5f * S - 10 * S - ls.x;
+                    text(dl, lx, y + (rowH - ls.y) * 0.5f, withA(n->bad ? IM_COL32(255, 160, 140, 255) : kSand, a * (1.f - slide)), 12.5f, line.c_str());
                 }
-                y += rowH + 3 * S;
+                if (n->hasPos && clicked) app.camera.setGoalTarget(n->pos);
+                if (hov) {
+                    tipBegin();
+                    if (!showAlways) ImGui::TextUnformatted(n->text.c_str());
+                    if (n->hasPos) ImGui::TextColored(v4(kDim), "Click: move the camera there");
+                    tipEnd();
+                }
+                y += rowH;
                 ++k;
             }
         }
@@ -813,8 +814,8 @@ void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
             ImDrawList* dl = ImGui::GetForegroundDrawList();
             const ImVec2 ts = tsize(12.5f, t);
             const float x = x1 - ts.x - 12 * S;
-            dl->AddRectFilled(ImVec2(x - 6 * S, y), ImVec2(x1, y + rowH), kBg, 3 * S);
-            text(dl, x, y + (rowH - ts.y) * 0.5f, kAmber, 12.5f, t);
+            hs::icon(dl, "alert", ImVec2(x - 10 * S, y + 4 * S + ts.y * 0.5f), 14 * S, kAmber, true);   // v2: frameless, shadowed
+            text(dl, x, y + 4 * S, kAmber, 12.5f, t);
         }
     }
 }
@@ -1209,6 +1210,7 @@ void GameUI::drawPlacementBanner(AppState& app, const GameContext& ctx, CommandQ
     std::string title, hint;
     int cost = -1;
     std::string suffix;
+    const char* ic = "target";
     if (tool_ == Tool::Target) { title = targetLabel_; hint = targetHint_; }
     else
         for (const UiAction& a : actions_)
@@ -1217,33 +1219,83 @@ void GameUI::drawPlacementBanner(AppState& app, const GameContext& ctx, CommandQ
                 if (a.cost) cost = a.cost(u);
                 suffix = a.costSuffix;
                 if (a.placementHint) hint = a.placementHint(u);
+                if (const char* n = hs::iconName(a.icon)) if (*n) ic = n;
                 break;
             }
     if (title.empty()) return;
     if (hint.empty()) hint = "LMB: place  |  RMB / Esc: cancel";
+    // v2 slim strip (preview screens_b "placing"): token + name + gold price, then the hints as bone key badges + dim words
+    struct Seg { std::vector<std::string> keys; std::string words; };
+    std::vector<Seg> segs;
+    for (size_t p = 0; p <= hint.size();) {
+        size_t q = hint.find('|', p);
+        if (q == std::string::npos) q = hint.size();
+        std::string part = hint.substr(p, q - p);
+        while (!part.empty() && part.front() == ' ') part.erase(part.begin());
+        while (!part.empty() && part.back() == ' ') part.pop_back();
+        if (!part.empty()) {
+            Seg sg;
+            const size_t c = part.find(": ");
+            std::string keys = c == std::string::npos ? std::string() : part.substr(0, c);
+            sg.words = c == std::string::npos ? part : part.substr(c + 2);
+            for (size_t a = 0; !keys.empty() && a <= keys.size();) {
+                size_t b = keys.find(" / ", a);
+                if (b == std::string::npos) b = keys.size();
+                sg.keys.push_back(keys.substr(a, b - a));
+                a = b + 3;
+            }
+            segs.push_back(sg);
+        }
+        p = q + 1;
+    }
     const ImGuiIO& io = ImGui::GetIO();
     const float W = io.DisplaySize.x;
-    std::string head = "PLACING  " + title;
-    if (tool_ == Tool::Target) head = title;
-    std::string cs = cost >= 0 ? money(cost) + suffix : "";
-    const float hw = tsize(13.f, head.c_str()).x + (cs.empty() ? 0 : tsize(13.f, cs.c_str()).x + 12 * S);
+    const float bpx = 10.f, wpx = 11.f, npx = 13.f, gapS = 12 * S, badgePad = 4 * S;
+    const std::string cs = cost >= 0 ? money(cost) + suffix : "";
+    auto segW = [&](const Seg& sg) {
+        float x = 0;
+        for (const std::string& k : sg.keys) x += tsize(bpx, k.c_str()).x + 2 * badgePad + 3 * S;
+        return x + tsize(wpx, sg.words.c_str()).x;
+    };
+    const float headW = 26 * S + 6 * S + tsize(npx, title.c_str()).x + (cs.empty() ? 0.f : tsize(npx, cs.c_str()).x + 8 * S);
+    float hintW = 0;
+    for (const Seg& sg : segs) hintW += segW(sg) + gapS;
     const float maxW = W - 24 * S;
-    std::string h2 = fit(11.f, hint, maxW - 20 * S);
-    const float w = std::min(maxW, std::max(hw, tsize(11.f, h2.c_str()).x) + 24 * S);
-    const float y = layout_.topBarBottom + 8 * S;
-    const ImVec2 a((W - w) * 0.5f, y), c(a.x + w, y + 38 * S);
+    const float w = std::min(maxW, headW + hintW + 24 * S);
+    const float y = layout_.topBarBottom + 8 * S, h = 32 * S;
+    const ImVec2 a((W - w) * 0.5f, y), c(a.x + w, y + h);
     hudRects_.insert(hudRects_.end(), {a.x, a.y, c.x, c.y});
     ImDrawList* dl = ImGui::GetForegroundDrawList();
-    panel(dl, a, c);
-    dl->AddRectFilled(ImVec2(a.x, a.y), ImVec2(c.x, a.y + 2 * S), kKhaki, 4 * S, ImDrawFlags_RoundCornersTop);
-    float x = a.x + (w - hw) * 0.5f;
-    text(dl, x, a.y + 5 * S, kSand, 13.f, head.c_str());
-    if (!cs.empty()) {
-        x += tsize(13.f, head.c_str()).x + 12 * S;
-        text(dl, x, a.y + 5 * S, ctx.economy->canAfford(cost) ? kKhaki : kBad, 13.f, cs.c_str());
+    panel(dl, a, c, 1.f, 6.f);
+    const float cy = a.y + h * 0.5f;
+    float x = a.x + 10 * S;
+    hs::Tok t; t.size = 24; t.on = tool_ != Tool::Target;
+    hs::token(dl, ImVec2(x + 12 * S, cy), t, ic, S);
+    x += 26 * S + 6 * S;
+    const std::string name = fit(npx, title, std::max(20 * S, c.x - x - 10 * S));
+    text(dl, x, cy - tsize(npx, name.c_str()).y * 0.5f, kSand, npx, name.c_str());
+    x += tsize(npx, name.c_str()).x + 8 * S;
+    if (!cs.empty() && x + tsize(npx, cs.c_str()).x < c.x - 10 * S) {
+        text(dl, x, cy - tsize(npx, cs.c_str()).y * 0.5f, ctx.economy->canAfford(cost) ? kKhaki : kBad, npx, cs.c_str());
+        x += tsize(npx, cs.c_str()).x;
     }
-    const ImVec2 hs = tsize(11.f, h2.c_str());
-    text(dl, a.x + (w - hs.x) * 0.5f, a.y + 21 * S, kDim, 11.f, h2.c_str());
+    x += gapS;
+    for (const Seg& sg : segs) {
+        float kw = 0;
+        for (const std::string& k : sg.keys) kw += tsize(bpx, k.c_str()).x + 2 * badgePad + 3 * S;
+        if (x + kw > c.x - 10 * S) break;   // fixed strip: hints that do not fit are dropped
+        for (const std::string& k : sg.keys) {
+            const ImVec2 ks = tsize(bpx, k.c_str());
+            const ImVec2 ka(x, cy - 8 * S), kb(x + ks.x + 2 * badgePad, cy + 8 * S);
+            dl->AddRectFilled(ImVec2(ka.x, ka.y + S), ImVec2(kb.x, kb.y + S), IM_COL32(0, 0, 0, 120), 3 * S);
+            dl->AddRectFilled(ka, kb, hs::kBone, 3 * S);
+            text(dl, ka.x + badgePad, cy - ks.y * 0.5f, hs::kInk, bpx, k.c_str(), false);
+            x = kb.x + 3 * S;
+        }
+        const std::string wd = fit(wpx, sg.words, c.x - 10 * S - x - S);
+        if (!wd.empty() && wd != "..") text(dl, x + S, cy - tsize(wpx, wd.c_str()).y * 0.5f, kDim, wpx, wd.c_str());
+        x += tsize(wpx, wd.c_str()).x + gapS;
+    }
 }
 
 // ---- world hover menu ---------------------------------------------------------------------------------------------
