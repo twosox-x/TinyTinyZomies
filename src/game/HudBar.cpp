@@ -1116,6 +1116,20 @@ void GameUI::drawPlacementBanner(AppState& app, const GameContext& ctx, CommandQ
 }
 
 // ---- world hover menu ---------------------------------------------------------------------------------------------
+std::string GameUI::clickHoverEntry(AppState& app, const GameContext& ctx, CommandQueue& out, V3 at, size_t k, std::string* why) {
+    const UiCtx u{app, ctx, *this, out};
+    float sx = 0, sy = 0;
+    worldToScreen(app, at, sx, sy);
+    UiHoverMenu m;
+    for (auto& h : hover_) h.second(u, at, sx, sy, m);
+    if (k >= m.entries.size()) return {};
+    const UiHoverEntry& e = m.entries[k];
+    const bool afford = e.cost < 0 || ctx.economy->canAfford(e.cost);
+    if (!e.enabled || !afford) { if (why) *why = !e.enabled ? e.why : "Not enough funding"; return e.label; }
+    if (e.onClick) e.onClick(u);
+    hoverOpen_ = false;
+    return e.label;
+}
 void GameUI::drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& out) {
     const UiCtx u{app, ctx, *this, out};
     const double t = ImGui::GetTime();

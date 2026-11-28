@@ -69,6 +69,9 @@ public:
     void ensureBuiltinActions() { registerBuiltinActions(); }   // normally lazy (first draw / event); scripts / tests
     // Scripts / tests: run a registered action as if its card (or selection button) was clicked. False: unknown id.
     bool invokeAction(AppState& app, const GameContext& ctx, CommandQueue& out, const std::string& id);
+    // Scripts / tests: click entry `k` of the world hover menu at a world point (the same providers / onClick as the
+    // mouse path). Returns the entry label ("" = no menu / no such entry); `why` = the refusal when it is disabled.
+    std::string clickHoverEntry(AppState& app, const GameContext& ctx, CommandQueue& out, V3 at, size_t k, std::string* why = nullptr);
     void setCategory(UiCategory c) { tab_ = c; }
     UiCategory category() const { return tab_; }
     // A context action that needs a ground point: the next LMB on the ground calls fn (RMB / Esc cancel).

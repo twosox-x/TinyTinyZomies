@@ -402,6 +402,13 @@ bool GameScript::tick(GameWorld& world, double time) {
                 if (world.context().nav && world.context().nav->ready()) p.y = world.context().nav->surface(p.x, p.z);
                 ui.forcePreview(Tool::Select, p);
                 ui.forceHover = true;
+            } else if (a[0] == "hoverclick" && a.size() >= 4) {   // ui hoverclick X Z N: click entry N of the hover menu there
+                V3 p{f(a, 1), 0, f(a, 2)};
+                if (world.context().nav && world.context().nav->ready()) p.y = world.context().nav->surface(p.x, p.z);
+                std::string why;
+                const std::string lab = ui.clickHoverEntry(*app, world.context(), q, p, (size_t)std::max(0, std::atoi(a[3].c_str())), &why);
+                std::printf("[script] hoverclick '%s'%s%s\n", lab.c_str(), why.empty() ? "" : " refused: ", why.c_str());
+                if (lab.empty()) bad("ui hoverclick: no hover menu entry there");
             } else bad("ui: unknown sub-verb");
         } else if (L.verb == "camera") {
             if (!app || a.size() < 2) { bad("camera X Z [YAW PITCH DIST]"); continue; }
