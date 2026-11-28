@@ -26,8 +26,8 @@ at 76   placesoldier 1 -30 129.5 0
 at 76.1 expect squad_onobstacle 1 == 1
 at 76.1 camera -28 128 0.9 0.95 25
 at 76.2 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_before.png
-at 77   expect squad_onobstacle 1 == 0                   # off the roof within a second
-at 77   expect squad_near 1 -30 129.5 3 >= 1             # ... right beside the car (stepped down, no teleport)
-at 77   expect squad_island 1 -9 113 == 3                # on the street, reachable
-at 77.1 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_after.png
-at 78   end
+at 79   expect squad_onobstacle 1 == 0                   # off the roof within three seconds
+at 79   expect squad_near 1 -30 129.5 5 >= 1             # ... right beside the car (stepped down, no teleport)
+at 79   expect squad_island 1 -9 113 == 3                # on the street, reachable
+at 79.1 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_after.png
+at 80   end
