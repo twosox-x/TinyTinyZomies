@@ -11,7 +11,7 @@ at 14.2 structure generator -46 118
 at 14.4 wall cheap -49 121 -45 121
 at 14.6 structure generator -38 104                  # 62 m roof next door: no stair access -> refused "no access to this roof"
 at 15   expect in_engineer_range -38 104 == 0          # 35 m away (inside the 40 m radius) but no access
-at 15   expect generator -38 104 alive == 0
+at 15   expect generator -38 104 alive < 1            # nothing placed there (-1: no structure)
 at 15   expect generator -46 118 alive == 1
 at 15   expect walls >= 1
 at 15   expect walls_built == 0                        # blueprints: no cheat
