@@ -55,6 +55,7 @@ public:
     // + soldier NavGrid patch), and "a parked vehicle within r of (x, z)". Unset: placement still checks the NavGrid.
     std::function<uint32_t(float cx, float cz, float hx, float hz, float yaw, float top)> addObstacle;
     std::function<bool(float x, float z, float r)> carNear;
+    std::function<bool(float x0, float z0, float x1, float z1)> resident;   // baked height grid streamed over the rect
     std::function<float(float x, float z)> bakedTop;   // baked HGT0 top (m): props, walls, curbs (no vehicles)
 
     // UI / script requests, applied at the start of the next tick (input never mutates game state directly)

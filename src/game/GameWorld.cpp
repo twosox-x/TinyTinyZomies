@@ -92,6 +92,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     buildings_.addObstacle = [&app](float cx, float cz, float hx, float hz, float yaw, float top) { return app.vehicles.addObstacle(cx, cz, hx, hz, yaw, top); };
     buildings_.carNear = [&app](float x, float z, float r) { return app.vehicles.parkedAt(x, z, r) != UINT32_MAX; };
     buildings_.bakedTop = [&app](float x, float z) { return app.vehicles.groundAt(x, z); };
+    buildings_.resident = [&app](float x0, float z0, float x1, float z1) { return app.vehicles.windowCovers(x0, z0, x1, z1); };
     ai_.workHook = [this](GameContext& c, uint32_t i) { return engineers_.work(c, i); };
     ai_.workFirstHook = [this](const GameContext& c, uint32_t i, V3 t, float d) { return engineers_.keepWorking(c, i, t, d); };
     installStructures(*this, app);                             // 14e: tower / generator / light / fuel jobs, car fuel, UI

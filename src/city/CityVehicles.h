@@ -111,6 +111,7 @@ public:
     // Window grids (tests): the obstacle heights uploaded to the sim, the ground used for vehicle collisions.
     const std::vector<float>& simHeights() const { return simH_; }
     float groundAt(float x, float z) const;             // base heights (no vehicles)
+    bool windowCovers(float x0, float z0, float x1, float z1) const { return gw_ > 0 && x0 >= ox_ && z0 >= oz_ && x1 < ox_ + gw_ * cell_ && z1 < oz_ + gh_ * cell_; }
     float solidAt(float x, float z) const;              // base + sleeping vehicles
     void worldCorners(const Vehicle& v, float out[8][3]) const;
     const std::vector<Vehicle>& vehicles() const { return all_; }   // read-only (Military Lab landing spots)

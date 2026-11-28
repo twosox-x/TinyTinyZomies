@@ -316,6 +316,17 @@ void BuildingRegistry::prepare(const std::function<float(float, float)>& heightA
             if (!o.art) {
                 const float h = heightAt(o.pos.x + o.nx * 1.5f, o.pos.z + o.nz * 1.5f);
                 o.pos.y = std::isnan(h) ? B.y0 : std::min(h, B.y0 + 0.6f);
+                // no door leaf (lobbies: frames / glass): put the entrance in the facade plane, i.e. the plane of the
+                // nearest street-level glass of that facade (within 4 m along it), not on the footprint edge
+                const int side = sideOf(o.nx, o.nz);
+                const float sd = sAlong(side, o.pos.x, o.pos.z);
+                float bd = 4.f, inset = -1.f;
+                for (const FacadeGlass& g : B.glass) {
+                    if (g.side != side || g.y0 > B.y0 + 1.5f || g.inset < 0.02f || g.inset > 1.5f) continue;
+                    const float dk = std::max(0.f, std::max(g.s0 - sd, sd - g.s1));
+                    if (dk < bd) { bd = dk; inset = g.inset; }
+                }
+                if (inset > 0.f) { const float y = o.pos.y; o.pos = facadeAt(side, sd, inset, y); }
             }
         }
         B.openings = doors;
@@ -522,6 +533,43 @@ void BuildingRegistry::prepare(const std::function<float(float, float)>& heightA
                     wc.c = facadeAt(g.side, 0.5f * (p0 + p1), g.inset, a);
                     wc.nx = outX[g.side]; wc.nz = outZ[g.side];
                     wc.halfW = 0.5f * seg; wc.h = b - a;
+                    B.covers.push_back(wc);
+                }
+            }
+        }
+        // storefronts (not houses): ground-floor bays of every facade with an entrance that the facade art does not
+        // bake as glass - bays of <= 1.8 m between 0.6 m from the corners, 0.4 m .. min(floor - 0.5, 2.8) m high, on the
+        // footprint plane; skipped over glass (covered above / firing windows), door leaves and door openings (+0.3 m)
+        if (B.kind != BuildingKind::House) {
+            unsigned doorSides = 0;
+            for (const Opening& o : B.openings) if (o.type == OpeningType::Door) doorSides |= 1u << sideOf(o.nx, o.nz);
+            const float a = B.y0 + 0.4f, b = B.y0 + std::min(B.floorHeight - 0.5f, 2.8f);
+            for (int side = 0; side < 4 && b - a > 0.8f; ++side) {
+                if (!(doorSides & (1u << side))) continue;
+                const float L = sideLen[side] - 1.2f;
+                if (L < 1.0f) continue;
+                const int n = std::max(1, (int)std::ceil(L / 1.8f));
+                const float seg = L / (float)n;
+                for (int i = 0; i < n; ++i) {
+                    const float p0 = 0.6f + i * seg, p1 = p0 + seg;
+                    bool skip = false;
+                    for (const FacadeGlass& g : B.glass)
+                        if (g.side == side && g.s1 > p0 - 0.1f && g.s0 < p1 + 0.1f && g.y1 > a && g.y0 < b) skip = true;
+                    for (const FacadeGlass& d : B.doorArt)
+                        if (d.side == side && d.s1 > p0 - 0.3f && d.s0 < p1 + 0.3f && d.y1 > a && d.y0 < b) skip = true;
+                    for (const Opening& o : B.openings) {
+                        if (o.type != OpeningType::Door || sideOf(o.nx, o.nz) != side) continue;
+                        const float sd = sAlong(side, o.pos.x, o.pos.z);
+                        if (sd + 0.5f * o.width + 0.3f > p0 && sd - 0.5f * o.width - 0.3f < p1) skip = true;
+                    }
+                    for (const Cand& c : cands)
+                        if (c.fp.kind == FiringKind::Window && c.side == side && c.fp.floor == 0 && c.s + c.hw > p0 - 0.05f && c.s - c.hw < p1 + 0.05f) skip = true;
+                    if (skip) continue;
+                    WindowCover wc;
+                    wc.floor = 0; wc.side = (uint8_t)side;
+                    wc.c = facadeAt(side, 0.5f * (p0 + p1), 0.f, a);
+                    wc.nx = outX[side]; wc.nz = outZ[side];
+                    wc.halfW = 0.5f * seg - 0.05f; wc.h = b - a;
                     B.covers.push_back(wc);
                 }
             }

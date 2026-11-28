@@ -217,14 +217,18 @@ int BuildingPlay::fortifyPrice(const BuildingConfig& bc, const Building& B) {
 // along the facade, rotated 90 deg, then a 0.6-scale (shorter) piece. Accepted pieces are stamped as obstacles.
 void BuildingPlay::placeFortPieces(GameContext& ctx, Building& B) {
     if (B.fortLevel >= B.defence) return;
+    if (resident) {   // the baked height grid must be streamed around the lot (+8 m), else defer (pending; tick retries)
+        float x0 = 1e9f, z0 = 1e9f, x1 = -1e9f, z1 = -1e9f;
+        for (int k = 0; k < 4; ++k) {
+            const V3 p = B.toWorld((k & 1) ? B.w + 8.f : -8.f, (k & 2) ? B.d + 8.f : -8.f, B.y0);
+            x0 = std::min(x0, p.x); z0 = std::min(z0, p.z); x1 = std::max(x1, p.x); z1 = std::max(z1, p.z);
+        }
+        if (!resident(x0, z0, x1, z1)) return;
+    }
     struct Box { float cx, cz, hx, hz, c, s; };
     auto boxOf = [](const Building::FortPiece& p) {
         const float c = std::cos(p.yaw), s = std::sin(p.yaw), oz = p.kind == 1 ? 0.25f * p.scale : 0.f;   // slit: back face at z = 0
         return Box{p.pos.x + s * oz, p.pos.z + c * oz, p.hx, p.hz, c, s};
-    };
-    auto inBox = [](const Box& b, float x, float z, float m) {
-        const float dx = x - b.cx, dz = z - b.cz;
-        return std::fabs(dx * b.c - dz * b.s) < b.hx + m && std::fabs(dx * b.s + dz * b.c) < b.hz + m;
     };
     auto ground = [&](float x, float z, float def) { return ctx.nav && ctx.nav->ready() ? ctx.nav->surface(x, z) : def; };
     std::vector<const Building*> nearB;
@@ -245,13 +249,22 @@ void BuildingPlay::placeFortPieces(GameContext& ctx, Building& B) {
                 if (ctx.nav && ctx.nav->ready() && (!ctx.nav->walkable(x, z) || std::fabs(ctx.nav->surface(x, z) - p.pos.y) > 0.35f)) return false;
                 if (B.contains(x, z)) return false;
                 for (const Building* o : nearB) if (o->contains(x, z)) return false;
-                for (const Building::FortPiece& q : B.fortPieces) if (inBox(boxOf(q), x, z, 0.1f)) return false;
                 for (const Opening& o : B.openings) {   // doorway corridor: 1.5 m out, door width + 0.3 m
                     if (o.type != OpeningType::Door) continue;
                     const float dx = x - o.pos.x, dz = z - o.pos.z, out = dx * o.nx + dz * o.nz;
                     if (out > -0.5f && out < 1.8f && std::fabs(dx * o.nz - dz * o.nx) < 0.5f * o.width + 0.3f) return false;
                 }
             }
+        for (const Building::FortPiece& q : B.fortPieces) {   // >= 0.15 m from every placed piece (separating axes)
+            const Box o = boxOf(q);
+            const float ax[4][2] = {{b.c, -b.s}, {b.s, b.c}, {o.c, -o.s}, {o.s, o.c}};
+            bool sep = false;
+            for (const auto& a : ax) {
+                auto rad = [&](const Box& k) { return k.hx * std::fabs(a[0] * k.c - a[1] * k.s) + k.hz * std::fabs(a[0] * k.s + a[1] * k.c); };
+                if (std::fabs((o.cx - b.cx) * a[0] + (o.cz - b.cz) * a[1]) > rad(b) + rad(o) + 0.15f) { sep = true; break; }
+            }
+            if (!sep) return false;
+        }
         if (carNear && carNear(b.cx, b.cz, std::max(b.hx, b.hz) + 0.3f)) return false;
         // baked street props, garden walls, bins, curbs (HGT0 'top' = prop / wall tops): the footprint + 0.15 m must
         // stay within 0.12 m of the base height, sampled every 0.25 m (the grid is 0.5 m)
@@ -500,6 +513,8 @@ void BuildingPlay::tick(GameContext& ctx) {
     const float dt = ctx.dt;
     if (ammo_.size() < reg_.size()) ammo_.resize(reg_.size(), 0);
     applyPending(ctx);
+    for (uint32_t b = 0; b < (uint32_t)reg_.size(); ++b)   // deferred fort pieces (lot not streamed when fortified)
+        if (Building* B = reg_.get(BuildingId{b}); B && B->fortLevel < B->defence) placeFortPieces(ctx, *B);
     capture(ctx, dt);
     approach(ctx);
     hospital(ctx, dt);

@@ -93,6 +93,8 @@ at 92   bfortify free                           # TEST HOOK: not charged (the mi
 at 93   shot docs/review/ws-c/house_L2.png
 at 94   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 95   expect building defence == 3
+at 95   expect building fortpending == 0
+at 95   expect building fortpieces >= 3          # b6_fortify_far.txt places the same count after deferring
 at 95   shot docs/review/ws-c/house_L3.png
 at 96   expect ledger_balanced
 at 97   end

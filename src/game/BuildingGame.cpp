@@ -863,6 +863,8 @@ bool buildingMetric(GameWorld& w, const std::string& m, const std::vector<std::s
             for (const WindowCover& c : B->covers) out += c.floor > 1 ? 1 : 0;
         }
         else if (f == "nests") { for (const FiringPosition& p : B->firing) out += p.nest ? 1 : 0; }
+        else if (f == "fortpieces") out = (double)B->fortPieces.size();
+        else if (f == "fortpending") out = B->fortLevel < B->defence ? 1 : 0;
         else if (f == "doors" || f == "windows") { for (const Opening& o : B->openings) out += o.type == (f == "doors" ? OpeningType::Door : OpeningType::Window) ? 1 : 0; }
         else if (f == "roofpos") { for (const FiringPosition& p : B->firing) out += p.kind == FiringKind::RoofEdge ? 1 : 0; }
         else { err = "unknown building field " + f; return false; }

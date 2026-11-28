@@ -1,0 +1,20 @@
+# WS-C: fort pieces (entrance sandbags, L3 perimeter) are placed only where the baked height grid is streamed. A
+# building fortified while its lot is outside the window stays pending (no pieces, no obstacles) and is resolved on
+# the first tick its lot is resident; the count must match the near-camera fortify of the same house in
+# b6_garrison_all.txt (house_L3: fortpieces). Run:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_fortify_far.txt
+at 0.1  camera -245 452 0.6 0.8 60
+at 4    bselect -252.5 453
+at 4    expect building supported == 1
+at 4    bcapture
+at 5    camera 20 90 0.6 0.9 80                    # far away: the house lot leaves the streamed window
+at 9    bfortify free                              # TEST HOOK: not charged
+at 9.5  bfortify free
+at 10   bfortify free
+at 10.5 expect building defence == 3
+at 10.5 expect building fortpending == 1           # deferred: never placed against unstreamed (0) heights
+at 10.5 expect building fortpieces == 0
+at 11   camera -252 452.8 1.4 0.6 45               # back: the lot streams in
+at 16   expect building fortpending == 0
+at 16   expect building fortpieces >= 3
+at 17   end
