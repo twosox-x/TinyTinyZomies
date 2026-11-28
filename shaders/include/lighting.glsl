@@ -95,7 +95,7 @@ float cloudShadow(vec3 P) {
     if (g <= 0.0) return 1.0;
     vec2 q = P.xz + sunDir.xz * ((cloudP.w - P.y) / max(sunDir.y, 0.03)) - cloudW.xy;   // on the deck, in the drifting frame
     vec2 c = (floor(q / cloudP.y) + 0.5) * cloudP.y;                                     // block centre (m)
-    float n = 0.65 * cloudNoise(c * (1.0 / 70.0)) + 0.35 * cloudNoise(c * (1.0 / 26.0) + vec2(17.3, 5.1));
+    float n = 0.65 * cloudNoise(c * (1.0 / 50.0)) + 0.35 * cloudNoise(c * (1.0 / 19.0) + vec2(17.3, 5.1));
     float thr = 0.766 - 0.59 * cloudP.z;            // n above thr on ~cloudP.z of the map (calibrated for this noise)
     float k = n > thr + 0.045 ? 1.0 : n > thr ? 0.6 : 0.0;
     return 1.0 - g * k;

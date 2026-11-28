@@ -391,17 +391,17 @@ bool streamRayInterval(thread const float3& o, thread const float3& d, thread co
     }
     else
     {
-        bool _2937 = s0 < (-0.300000011920928955078125);
-        bool _2945;
-        if (!_2937)
+        bool _2936 = s0 < (-0.300000011920928955078125);
+        bool _2944;
+        if (!_2936)
         {
-            _2945 = s0 > (L + 1.2000000476837158203125);
+            _2944 = s0 > (L + 1.2000000476837158203125);
         }
         else
         {
-            _2945 = _2937;
+            _2944 = _2936;
         }
-        if (_2945)
+        if (_2944)
         {
             return false;
         }
@@ -426,44 +426,44 @@ bool streamRayInterval(thread const float3& o, thread const float3& d, thread co
     {
         return false;
     }
-    float _3037;
+    float _3036;
     if (tube)
     {
-        float _3041;
+        float _3040;
         if (smoke)
         {
-            _3041 = fast::min(x, sx);
+            _3040 = fast::min(x, sx);
         }
         else
         {
-            _3041 = x;
+            _3040 = x;
         }
-        _3037 = _3041;
+        _3036 = _3040;
     }
     else
     {
-        _3037 = sx;
+        _3036 = sx;
     }
-    ta = _3037;
-    float _3054;
+    ta = _3036;
+    float _3053;
     if (tube)
     {
-        float _3058;
+        float _3057;
         if (smoke)
         {
-            _3058 = fast::max(y, sy);
+            _3057 = fast::max(y, sy);
         }
         else
         {
-            _3058 = y;
+            _3057 = y;
         }
-        _3054 = _3058;
+        _3053 = _3057;
     }
     else
     {
-        _3054 = sy;
+        _3053 = sy;
     }
-    tb = _3054;
+    tb = _3053;
     return true;
 }
 
@@ -765,17 +765,17 @@ float streamDensity(thread const float3& q, thread const float3& o, thread const
             float3 param_4 = (q * 6.0) + float3(seed, ((-t) * 1.7999999523162841796875) * 6.0, seed * 0.699999988079071044921875);
             float n = (vn01(param_4) * 2.0) - 1.0;
             float ds = (((0.1500000059604644775390625 + fs) + (0.89999997615814208984375 * n)) - 0.449999988079071044921875) - (0.3499999940395355224609375 * sm.y);
-            bool _2478 = ds > 0.0;
-            bool _2485;
-            if (_2478)
+            bool _2477 = ds > 0.0;
+            bool _2484;
+            if (_2477)
             {
-                _2485 = s > (L - 0.60000002384185791015625);
+                _2484 = s > (L - 0.60000002384185791015625);
             }
             else
             {
-                _2485 = _2478;
+                _2484 = _2477;
             }
-            if (_2485)
+            if (_2484)
             {
                 mat = float3(0.0, 0.0, 0.25 + (0.20000000298023223876953125 * smoothstep(0.0, 0.300000011920928955078125, sm.y)));
                 return ds;
@@ -806,16 +806,16 @@ float streamDensity(thread const float3& q, thread const float3& o, thread const
     n_1 = (n_1 * 2.0) - 1.0;
     float a = (0.75 * (0.3499999940395355224609375 + (0.64999997615814208984375 * smoothstep(0.3499999940395355224609375, 1.0, k)))) + (0.60000002384185791015625 * smoothstep(0.75, 1.0, k));
     float core = 0.60000002384185791015625 * (1.0 - (smoothstep(0.75, 1.0, k) * 0.800000011920928955078125));
-    float _2596;
+    float _2595;
     if (sr <= core)
     {
-        _2596 = (1.0 - sr) + 0.5;
+        _2595 = (1.0 - sr) + 0.5;
     }
     else
     {
-        _2596 = (1.0 - sr) + (a * n_1);
+        _2595 = (1.0 - sr) + (a * n_1);
     }
-    float dens = _2596;
+    float dens = _2595;
     if (s > L)
     {
         dens -= ((s - L) / 0.25);
@@ -865,33 +865,33 @@ float poolDensity(thread const float3& q, thread const float3& c, thread const f
     if (dens > 0.0)
     {
         float h = fast::clamp(y / fast::max(hMax * 1.2999999523162841796875, 0.0500000007450580596923828125), 0.0, 1.0);
-        float _3263;
+        float _3262;
         if ((bed > 0.5) && (k < 0.5))
         {
             float3 param_4 = float3(q.xz * 9.0, t * 0.800000011920928955078125);
-            _3263 = step(0.550000011920928955078125 + (0.3499999940395355224609375 * k), vnoise(param_4));
+            _3262 = step(0.550000011920928955078125 + (0.3499999940395355224609375 * k), vnoise(param_4));
         }
         else
         {
-            _3263 = 0.0;
+            _3262 = 0.0;
         }
-        float ember = _3263;
+        float ember = _3262;
         mat = float3(fast::min(0.7799999713897705078125, ((0.25 + (0.550000011920928955078125 * h)) + (0.1500000059604644775390625 * dd)) + (0.5 * ember)), 2.0, 0.0);
         return dens;
     }
     float3 sq = q - ((float3(0.550000011920928955078125, 0.0, 0.25) * fast::min(y, 2.0)) * 0.5);
     float sy = y - (0.3499999940395355224609375 + (0.60000002384185791015625 * k));
-    bool _3309 = sy > 0.0;
-    bool _3321;
-    if (_3309)
+    bool _3308 = sy > 0.0;
+    bool _3320;
+    if (_3308)
     {
-        _3321 = length(sq.xz - c.xz) < (R * 0.550000011920928955078125);
+        _3320 = length(sq.xz - c.xz) < (R * 0.550000011920928955078125);
     }
     else
     {
-        _3321 = _3309;
+        _3320 = _3308;
     }
-    if (_3321)
+    if (_3320)
     {
         float3 param_5 = float3(sq.x * 2.2000000476837158203125, (sq.y * 1.60000002384185791015625) - (t * 1.2999999523162841796875), sq.z * 2.2000000476837158203125) + float3(seed);
         float n = vnoise(param_5);
@@ -999,8 +999,8 @@ float cloudShadow(thread const float3& P, constant Frame& _269)
     }
     float2 q = (P.xz + (_269.sunDir.xz * ((_269.cloudP.w - P.y) / fast::max(_269.sunDir.y, 0.02999999932944774627685546875)))) - _269.cloudW.xy;
     float2 c = (floor(q / float2(_269.cloudP.y)) + float2(0.5)) * _269.cloudP.y;
-    float2 param = c * 0.014285714365541934967041015625;
-    float2 param_1 = (c * 0.0384615398943424224853515625) + float2(17.299999237060546875, 5.099999904632568359375);
+    float2 param = c * 0.0199999995529651641845703125;
+    float2 param_1 = (c * 0.052631579339504241943359375) + float2(17.299999237060546875, 5.099999904632568359375);
     float n = (0.64999997615814208984375 * cloudNoise(param)) + (0.3499999940395355224609375 * cloudNoise(param_1));
     float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _269.cloudP.z);
     float _717;
@@ -1208,17 +1208,17 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         hi = param_13;
     }
     int kind = int(B.y + 0.5);
-    float3 _3680;
+    float3 _3679;
     if (kind == 2)
     {
         int param_14 = i;
-        _3680 = flameDir(param_14, _1570);
+        _3679 = flameDir(param_14, _1570);
     }
     else
     {
-        _3680 = float3(0.0);
+        _3679 = float3(0.0);
     }
-    float3 fdir = _3680;
+    float3 fdir = _3679;
     float3 ro = _269.camPos.xyz;
     float3 rd = fast::normalize(in.vWorld - ro);
     float3 inv = (float3(1.0) / (abs(rd) + float3(9.9999999747524270787835121154785e-07))) * sign(rd + float3(9.999999717180685365747194737196e-10));
@@ -1232,50 +1232,50 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
     {
         discard_fragment();
     }
-    bool _3761 = tmin.x >= tmin.y;
-    bool _3769;
-    if (_3761)
+    bool _3760 = tmin.x >= tmin.y;
+    bool _3768;
+    if (_3760)
     {
-        _3769 = tmin.x >= tmin.z;
+        _3768 = tmin.x >= tmin.z;
     }
     else
     {
-        _3769 = _3761;
+        _3768 = _3760;
     }
-    int _3770;
-    if (_3769)
+    int _3769;
+    if (_3768)
     {
-        _3770 = 0;
+        _3769 = 0;
     }
     else
     {
-        _3770 = (tmin.y >= tmin.z) ? 1 : 2;
+        _3769 = (tmin.y >= tmin.z) ? 1 : 2;
     }
-    int axis0 = _3770;
+    int axis0 = _3769;
     if (t0 < 0.0)
     {
         t0 = 0.0;
         float3 a = abs(rd);
-        bool _3792 = a.x >= a.y;
-        bool _3800;
-        if (_3792)
+        bool _3791 = a.x >= a.y;
+        bool _3799;
+        if (_3791)
         {
-            _3800 = a.x >= a.z;
+            _3799 = a.x >= a.z;
         }
         else
         {
-            _3800 = _3792;
+            _3799 = _3791;
         }
-        int _3801;
-        if (_3800)
+        int _3800;
+        if (_3799)
         {
-            _3801 = 0;
+            _3800 = 0;
         }
         else
         {
-            _3801 = (a.y >= a.z) ? 1 : 2;
+            _3800 = (a.y >= a.z) ? 1 : 2;
         }
-        axis0 = _3801;
+        axis0 = _3800;
     }
     float dist = length(((lo + hi) * 0.5) - ro);
     float mpp = as_type<float>(_1570.fxCount.z);
@@ -1283,50 +1283,50 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
     if (mpp > 0.0)
     {
         float want = (dist * mpp) * _1570.fxC[i].x;
-        float _3839;
+        float _3838;
         if (want <= 0.25)
         {
-            _3839 = 0.25;
+            _3838 = 0.25;
         }
         else
         {
-            _3839 = (want <= 0.5) ? 0.5 : 1.0;
+            _3838 = (want <= 0.5) ? 0.5 : 1.0;
         }
-        v = _3839;
+        v = _3838;
         if (kind == 2)
         {
-            float _3853;
+            float _3852;
             if (want <= 0.0500000007450580596923828125)
             {
-                _3853 = 0.0500000007450580596923828125;
+                _3852 = 0.0500000007450580596923828125;
             }
             else
             {
-                float _3859;
+                float _3858;
                 if (want <= 0.100000001490116119384765625)
                 {
-                    _3859 = 0.100000001490116119384765625;
+                    _3858 = 0.100000001490116119384765625;
                 }
                 else
                 {
-                    _3859 = (want <= 0.25) ? 0.25 : 0.5;
+                    _3858 = (want <= 0.25) ? 0.25 : 0.5;
                 }
-                _3853 = _3859;
+                _3852 = _3858;
             }
-            v = _3853;
+            v = _3852;
         }
         if (kind == 3)
         {
-            float _3874;
+            float _3873;
             if (want <= 0.100000001490116119384765625)
             {
-                _3874 = 0.100000001490116119384765625;
+                _3873 = 0.100000001490116119384765625;
             }
             else
             {
-                _3874 = (want <= 0.25) ? 0.25 : 0.5;
+                _3873 = (want <= 0.25) ? 0.25 : 0.5;
             }
-            v = _3874;
+            v = _3873;
         }
     }
     else
@@ -1343,10 +1343,10 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         float3 param_19 = rd;
         float param_20;
         float param_21;
-        bool _3912 = streamRayInterval(param_15, param_16, param_17, param_18, param_19, param_20, param_21);
+        bool _3911 = streamRayInterval(param_15, param_16, param_17, param_18, param_19, param_20, param_21);
         float sa = param_20;
         float sb = param_21;
-        if (!_3912)
+        if (!_3911)
         {
             discard_fragment();
         }
@@ -1354,26 +1354,26 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         {
             t0 = sa;
             float3 a_1 = abs(rd);
-            bool _3932 = a_1.x >= a_1.y;
-            bool _3940;
-            if (_3932)
+            bool _3931 = a_1.x >= a_1.y;
+            bool _3939;
+            if (_3931)
             {
-                _3940 = a_1.x >= a_1.z;
+                _3939 = a_1.x >= a_1.z;
             }
             else
             {
-                _3940 = _3932;
+                _3939 = _3931;
             }
-            int _3941;
-            if (_3940)
+            int _3940;
+            if (_3939)
             {
-                _3941 = 0;
+                _3940 = 0;
             }
             else
             {
-                _3941 = (a_1.y >= a_1.z) ? 1 : 2;
+                _3940 = (a_1.y >= a_1.z) ? 1 : 2;
             }
-            axis0 = _3941;
+            axis0 = _3940;
         }
         t1 = fast::min(t1, sb);
         if (t1 <= t0)
@@ -1405,10 +1405,10 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         float param_27 = (0.87000000476837158203125 * v) + 0.00999999977648258209228515625;
         float param_28;
         float param_29;
-        bool _4045 = blastRayInterval(param_22, param_23, param_24, param_25, param_26, param_27, param_28, param_29);
+        bool _4044 = blastRayInterval(param_22, param_23, param_24, param_25, param_26, param_27, param_28, param_29);
         float sa_1 = param_28;
         float sb_1 = param_29;
-        if (!_4045)
+        if (!_4044)
         {
             discard_fragment();
         }
@@ -1422,26 +1422,26 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
             int3 c2 = int3(floor((ro + (rd * sa_1)) / float3(v)));
             float3 tv3 = (((float3(c2) + float3(stp < int3(0))) * v) - ro) * inv;
             tv3 = select(tv3, float3(-1000000015047466219876688855040.0), stp == int3(0));
-            bool _4105 = tv3.x >= tv3.y;
-            bool _4113;
-            if (_4105)
+            bool _4104 = tv3.x >= tv3.y;
+            bool _4112;
+            if (_4104)
             {
-                _4113 = tv3.x >= tv3.z;
+                _4112 = tv3.x >= tv3.z;
             }
             else
             {
-                _4113 = _4105;
+                _4112 = _4104;
             }
-            int _4114;
-            if (_4113)
+            int _4113;
+            if (_4112)
             {
-                _4114 = 0;
+                _4113 = 0;
             }
             else
             {
-                _4114 = (tv3.y >= tv3.z) ? 1 : 2;
+                _4113 = (tv3.y >= tv3.z) ? 1 : 2;
             }
-            int axv = _4114;
+            int axv = _4113;
             if (tv3[axv] > t0)
             {
                 int3 dc = abs(c2 - cell);
@@ -1454,15 +1454,15 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         }
     }
     bool hit = false;
-    float _4181;
+    float _4180;
     float3 mat;
     float3 param_36;
-    float _4207;
+    float _4206;
     float3 param_43;
-    float _4233;
+    float _4232;
     float3 param_51;
     float3 param_58;
-    int _4292;
+    int _4291;
     for (int k = k0; k < maxSteps; k++)
     {
         float3 q = (float3(cell) + float3(0.5)) * v;
@@ -1474,9 +1474,9 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
             float param_33 = A.w;
             float param_34 = B.z;
             BlastShape param_35 = bs;
-            float _4202 = blastDensity(param_30, param_31, param_32, param_33, param_34, param_35, param_36);
+            float _4201 = blastDensity(param_30, param_31, param_32, param_33, param_34, param_35, param_36);
             mat = param_36;
-            _4181 = _4202;
+            _4180 = _4201;
         }
         else
         {
@@ -1488,9 +1488,9 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
                 float param_40 = A.w;
                 float param_41 = B.w;
                 float param_42 = B.z;
-                float _4228 = wreckDensity(param_37, param_38, param_39, param_40, param_41, param_42, param_43);
+                float _4227 = wreckDensity(param_37, param_38, param_39, param_40, param_41, param_42, param_43);
                 mat = param_43;
-                _4207 = _4228;
+                _4206 = _4227;
             }
             else
             {
@@ -1503,9 +1503,9 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
                     float param_48 = A.w;
                     float param_49 = B.w;
                     float param_50 = B.z;
-                    float _4256 = streamDensity(param_44, param_45, param_46, param_47, param_48, param_49, param_50, param_51);
+                    float _4255 = streamDensity(param_44, param_45, param_46, param_47, param_48, param_49, param_50, param_51);
                     mat = param_51;
-                    _4233 = _4256;
+                    _4232 = _4255;
                 }
                 else
                 {
@@ -1515,15 +1515,15 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
                     float param_55 = A.w;
                     float param_56 = B.w;
                     float param_57 = B.z;
-                    float _4277 = poolDensity(param_52, param_53, param_54, param_55, param_56, param_57, param_58);
+                    float _4276 = poolDensity(param_52, param_53, param_54, param_55, param_56, param_57, param_58);
                     mat = param_58;
-                    _4233 = _4277;
+                    _4232 = _4276;
                 }
-                _4207 = _4233;
+                _4206 = _4232;
             }
-            _4181 = _4207;
+            _4180 = _4206;
         }
-        float d = _4181;
+        float d = _4180;
         if (d > 0.0)
         {
             hit = true;
@@ -1531,13 +1531,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         }
         if (tMax.x < tMax.y)
         {
-            _4292 = (tMax.x < tMax.z) ? 0 : 2;
+            _4291 = (tMax.x < tMax.z) ? 0 : 2;
         }
         else
         {
-            _4292 = (tMax.y < tMax.z) ? 1 : 2;
+            _4291 = (tMax.y < tMax.z) ? 1 : 2;
         }
-        ax = _4292;
+        ax = _4291;
         tEnter = tMax[ax];
         if (tEnter > tEnd)
         {
@@ -1559,16 +1559,16 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
     float3 col;
     if (mat.y > 1.5)
     {
-        float _4379;
+        float _4378;
         if (ax == 1)
         {
-            _4379 = (stp.y < 0) ? 1.0 : 0.62000000476837158203125;
+            _4378 = (stp.y < 0) ? 1.0 : 0.62000000476837158203125;
         }
         else
         {
-            _4379 = (ax == 0) ? 0.86000001430511474609375 : 0.7799999713897705078125;
+            _4378 = (ax == 0) ? 0.86000001430511474609375 : 0.7799999713897705078125;
         }
-        float face = _4379;
+        float face = _4378;
         float param_60 = T;
         col = (((flameRamp(param_60) * (1.0 + (0.3499999940395355224609375 * (1.0 - T)))) * face) * 2.599999904632568359375) * (0.939999997615814208984375 + (0.119999997317790985107421875 * jit));
     }
@@ -1581,41 +1581,41 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer
         }
         else
         {
-            float3 _4429;
+            float3 _4428;
             if (kind >= 2)
             {
-                _4429 = mix(float3(0.23999999463558197021484375, 0.2199999988079071044921875, 0.20000000298023223876953125), float3(0.1599999964237213134765625, 0.1459999978542327880859375, 0.13500000536441802978515625), float3(mat.z));
+                _4428 = mix(float3(0.23999999463558197021484375, 0.2199999988079071044921875, 0.20000000298023223876953125), float3(0.1599999964237213134765625, 0.1459999978542327880859375, 0.13500000536441802978515625), float3(mat.z));
             }
             else
             {
-                float3 _4445;
+                float3 _4444;
                 if (mat.y > 0.5)
                 {
-                    _4445 = float3(0.119999997317790985107421875, 0.115000002086162567138671875, 0.104999996721744537353515625);
+                    _4444 = float3(0.119999997317790985107421875, 0.115000002086162567138671875, 0.104999996721744537353515625);
                 }
                 else
                 {
-                    _4445 = mix(float3(0.100000001490116119384765625, 0.097999997437000274658203125, 0.09700000286102294921875), float3(0.02199999988079071044921875, 0.0199999995529651641845703125, 0.01899999938905239105224609375), float3(mat.z));
+                    _4444 = mix(float3(0.100000001490116119384765625, 0.097999997437000274658203125, 0.09700000286102294921875), float3(0.02199999988079071044921875, 0.0199999995529651641845703125, 0.01899999938905239105224609375), float3(mat.z));
                 }
-                _4429 = _4445;
+                _4428 = _4444;
             }
-            float3 alb = _4429;
+            float3 alb = _4428;
             alb *= (0.819999992847442626953125 + (0.36000001430511474609375 * jit));
             float3 param_62 = alb * 2.0;
             float3 param_63 = N;
             float3 param_64 = P;
             float param_65 = 1.0;
             col = shade(param_62, param_63, param_64, param_65, _269);
-            float _4481;
+            float _4480;
             if (blast)
             {
-                _4481 = (1.0 - smoothstep(0.4000000059604644775390625, 1.60000002384185791015625 * sqrt(B.x), A.w)) * (1.0 - mat.y);
+                _4480 = (1.0 - smoothstep(0.4000000059604644775390625, 1.60000002384185791015625 * sqrt(B.x), A.w)) * (1.0 - mat.y);
             }
             else
             {
-                _4481 = 0.0;
+                _4480 = 0.0;
             }
-            float glow = _4481;
+            float glow = _4480;
             col += (((float3(1.60000002384185791015625, 0.3499999940395355224609375, 0.0500000007450580596923828125) * glow) * (0.300000011920928955078125 + (0.699999988079071044921875 * fast::max(-N.y, 0.0)))) * (0.5 + jit));
         }
     }

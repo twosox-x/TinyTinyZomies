@@ -394,8 +394,8 @@ float cloudShadow(thread const float3& P, constant Frame& _131)
     }
     float2 q = (P.xz + (_131.sunDir.xz * ((_131.cloudP.w - P.y) / fast::max(_131.sunDir.y, 0.02999999932944774627685546875)))) - _131.cloudW.xy;
     float2 c = (floor(q / float2(_131.cloudP.y)) + float2(0.5)) * _131.cloudP.y;
-    float2 param = c * 0.014285714365541934967041015625;
-    float2 param_1 = (c * 0.0384615398943424224853515625) + float2(17.299999237060546875, 5.099999904632568359375);
+    float2 param = c * 0.0199999995529651641845703125;
+    float2 param_1 = (c * 0.052631579339504241943359375) + float2(17.299999237060546875, 5.099999904632568359375);
     float n = (0.64999997615814208984375 * cloudNoise(param)) + (0.3499999940395355224609375 * cloudNoise(param_1));
     float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _131.cloudP.z);
     float _816;
@@ -629,7 +629,7 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     return float4(_1074, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer(0)]], const device StaticH& _1750 [[buffer(1)]], const device CorpseH& _1929 [[buffer(2)]], const device Density& _1916 [[buffer(3)]], const device NavDir& _1982 [[buffer(4)]], const device NavDist& _2065 [[buffer(5)]], const device Decals& _1504 [[buffer(6)]], const device ShadowH& _1127 [[buffer(7)]], const device LampGrid& _414 [[buffer(8)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer(0)]], const device StaticH& _1750 [[buffer(1)]], const device CorpseH& _1929 [[buffer(2)]], const device Density& _1916 [[buffer(3)]], const device NavDir& _1981 [[buffer(4)]], const device NavDist& _2064 [[buffer(5)]], const device Decals& _1504 [[buffer(6)]], const device ShadowH& _1127 [[buffer(7)]], const device LampGrid& _414 [[buffer(8)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
 {
     main0_out out = {};
     float2 xz = in.vWorld.xz;
@@ -822,13 +822,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer
         if ((dbg & 1u) != 0u)
         {
             float param_7 = d.x / 4.0;
-            float3 _1967 = heat(param_7);
-            overlay = _1967;
+            float3 _1966 = heat(param_7);
+            overlay = _1966;
             overlayA = (d.x > 0.0500000007450580596923828125) ? 0.75 : 0.20000000298023223876953125;
         }
         if ((dbg & 2u) != 0u)
         {
-            float2 dir = _1982.navDir[id];
+            float2 dir = _1981.navDir[id];
             if (dot(dir, dir) > 9.9999997473787516355514526367188e-05)
             {
                 float ang = precise::atan2(dir.y, dir.x);
@@ -843,7 +843,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer
         }
         if ((dbg & 8u) != 0u)
         {
-            float dd = _2065.navDist[id];
+            float dd = _2064.navDist[id];
             if (dd < 1000000.0)
             {
                 float iso = smoothstep(0.920000016689300537109375, 1.0, fract(dd / 5.0));
@@ -854,8 +854,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer
         if (((dbg & 16u) != 0u) && (corpse > 0.0))
         {
             float param_8 = corpse / 1.5;
-            float3 _2102 = heat(param_8);
-            overlay = mix(overlay, _2102, float3(0.89999997615814208984375));
+            float3 _2101 = heat(param_8);
+            overlay = mix(overlay, _2101, float3(0.89999997615814208984375));
             overlayA = fast::max(overlayA, 0.800000011920928955078125);
         }
         if ((dbg & 4u) != 0u)
@@ -904,22 +904,22 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer
     int i_1 = 0;
     for (;;)
     {
-        bool _2273 = i_1 < 8;
-        bool _2280;
-        if (_2273)
+        bool _2272 = i_1 < 8;
+        bool _2279;
+        if (_2272)
         {
-            _2280 = (_131.gridDim.w & 64u) == 0u;
+            _2279 = (_131.gridDim.w & 64u) == 0u;
         }
         else
         {
-            _2280 = _2273;
+            _2279 = _2272;
         }
-        if (_2280)
+        if (_2279)
         {
             if (_131.blasts[i_1].w < 0.0)
             {
-                int _2315 = i_1;
-                i_1 = _2315 + 1;
+                int _2314 = i_1;
+                i_1 = _2314 + 1;
                 continue;
             }
             float r_1 = length(xz - _131.blasts[i_1].xz);
@@ -928,8 +928,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer
             {
                 emissive += (((float3(1.0, 0.699999988079071044921875, 0.300000011920928955078125) * smoothstep(3.0, 0.0, r_1)) * (1.0 - (age / 0.800000011920928955078125))) * 4.0);
             }
-            int _2315 = i_1;
-            i_1 = _2315 + 1;
+            int _2314 = i_1;
+            i_1 = _2314 + 1;
             continue;
         }
         else
@@ -957,17 +957,17 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _131 [[buffer
     }
     if ((_131.gridDim.w & 64u) != 0u)
     {
-        bool _2412 = overlayA < 0.0199999995529651641845703125;
-        bool _2419;
-        if (_2412)
+        bool _2411 = overlayA < 0.0199999995529651641845703125;
+        bool _2418;
+        if (_2411)
         {
-            _2419 = dot(emissive, emissive) < 9.9999997473787516355514526367188e-05;
+            _2418 = dot(emissive, emissive) < 9.9999997473787516355514526367188e-05;
         }
         else
         {
-            _2419 = _2412;
+            _2418 = _2411;
         }
-        if (_2419)
+        if (_2418)
         {
             discard_fragment();
         }

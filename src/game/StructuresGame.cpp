@@ -462,6 +462,7 @@ bool structureMetric(GameWorld& w, const std::string& m, const std::vector<std::
     if (m == "cars_siphoned") { out = fl.stats().siphoned; return true; }
     if (m == "cars_disassembled") { out = fl.stats().disassembled; return true; }
     if (m == "towers_destroyed") { out = st.stats().towersDestroyed; return true; }
+    if (m == "tower_falls") { out = st.stats().fell; return true; }   // occupants who fell with a collapsing tower
     if (m == "tower_climbs") { out = st.stats().climbed; return true; }
     if (m == "noise_areas") { out = (double)st.noiseAreas().size(); return true; }
     if (m == "noise_strength" || m == "noise_radius" || m == "noise_generators") {   // ... X Z: the area nearest the point (0: none within 40 m)

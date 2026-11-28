@@ -111,7 +111,7 @@ public:
     void takeNotices(std::vector<StructureNotice>& out) { out.insert(out.end(), notices_.begin(), notices_.end()); notices_.clear(); }
     struct Area { V3 pos; int generators = 0; float strength = 0.f, radius = 0.f; };
     const std::vector<Area>& noiseAreas() const { return areas_; }   // last pulse (tests / HUD)
-    struct Stats { uint32_t placed[4] = {0, 0, 0, 0}, built[4] = {0, 0, 0, 0}, towersDestroyed = 0, climbed = 0, released = 0; double fuelBurned = 0, fuelIn = 0; };
+    struct Stats { uint32_t placed[4] = {0, 0, 0, 0}, built[4] = {0, 0, 0, 0}, towersDestroyed = 0, climbed = 0, released = 0, fell = 0; double fuelBurned = 0, fuelIn = 0; };
     const Stats& stats() const { return stats_; }
     bool onTower(uint32_t soldier) const { return soldier < phase_.size() && phase_[soldier] == 3; }
     int towerOf(uint32_t soldier) const { return soldier < tower_.size() ? tower_[soldier] : -1; }

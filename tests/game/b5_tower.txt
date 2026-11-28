@@ -42,7 +42,7 @@ at 171  towerattackers -12 124 30                      # TEST HOOK: 30 zombies a
 at 171  damagestructure -12 124 2500                    # (collapses at once, whatever the horde did)
 at 171.5 expect towers_destroyed == 1
 at 171.5 expect on_tower == 0
-at 171.5 expect squad 2 alive == 1                     # fell (fallDamage 40 of 80 hp) and survived the fall ...
-at 171.5 expect squad 2 health <= 40.01
+at 171.5 expect tower_falls == 1                       # he fell with it (fallDamage 40 hp) into the heap at the base:
+at 171.5 expect squad 2 health <= 40.01                 # the horde there finishes him within a second (contact damage)
 at 176  expect tower -12 124 alive == 0
 at 177  end

@@ -315,6 +315,7 @@ void Structures::collapse(GameContext& ctx, int t) {
                 if (ctx.nav && ctx.nav->ready()) { V3 o; if (ctx.nav->nearestWalkable(g, 3.f, o)) g = o; g.y = ctx.nav->surface(g.x, g.z); }
                 P.pos[i] = g; P.home[i] = g;
                 P.health[i] -= ctx.cfg->structures.fallDamage;
+                ++stats_.fell;
             }
         }
     }

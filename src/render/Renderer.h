@@ -114,7 +114,7 @@ struct RenderSettings {
     // voxel cloud shadows (lighting.glsl cloudShadow): sparse blocky clouds on a coarse grid drifting with the wind dim
     // the sun term only (ambient untouched); fade out with the sun's elevation, off by night (moon key light)
     bool clouds = true;
-    float cloudStrength = 0.5f;      // sun dimmed by this under a cloud core (the stepped fringe: ~60 % of it)
+    float cloudStrength = 0.55f;     // sun dimmed by this under a cloud core (the stepped fringe: ~60 % of it)
     float cloudCell = 4.0f;          // m per cloud block
     float cloudCoverage = 0.2f;      // fraction of the map in cloud shadow
     float cloudSpeed = 3.0f;         // wind, m/s (render time: also drifts while the clock is paused)

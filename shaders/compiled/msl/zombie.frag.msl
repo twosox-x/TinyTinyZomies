@@ -81,8 +81,8 @@ float cloudShadow(thread const float3& P, constant Frame& _85)
     }
     float2 q = (P.xz + (_85.sunDir.xz * ((_85.cloudP.w - P.y) / fast::max(_85.sunDir.y, 0.02999999932944774627685546875)))) - _85.cloudW.xy;
     float2 c = (floor(q / float2(_85.cloudP.y)) + float2(0.5)) * _85.cloudP.y;
-    float2 param = c * 0.014285714365541934967041015625;
-    float2 param_1 = (c * 0.0384615398943424224853515625) + float2(17.299999237060546875, 5.099999904632568359375);
+    float2 param = c * 0.0199999995529651641845703125;
+    float2 param_1 = (c * 0.052631579339504241943359375) + float2(17.299999237060546875, 5.099999904632568359375);
     float n = (0.64999997615814208984375 * cloudNoise(param)) + (0.3499999940395355224609375 * cloudNoise(param_1));
     float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _85.cloudP.z);
     float _536;
