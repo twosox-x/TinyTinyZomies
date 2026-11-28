@@ -109,7 +109,7 @@ float cloudShadow(thread const float3& P, constant Frame& _85)
     }
     else
     {
-        _774 = (n > thr) ? 0.60000002384185791015625 : 0.0;
+        _774 = (n > thr) ? 0.75 : 0.0;
     }
     float k = _774;
     return 1.0 - (g * k);
@@ -299,16 +299,16 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _85)
     float3 param = P;
     col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _85)));
     col = mix(col, _85.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _935;
+    float _934;
     if (_85.sunColor.w > 0.0)
     {
-        _935 = _85.sunColor.w;
+        _934 = _85.sunColor.w;
     }
     else
     {
-        _935 = 1.0;
+        _934 = 1.0;
     }
-    col *= _935;
+    col *= _934;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
@@ -320,17 +320,17 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     float r = (d - _85.sunDir.w) / d;
     float rb = sign(r) * fast::max(abs(r) - _85.dofP.x, 0.0);
     float coc = _85.skyColor.w * rb;
-    bool _993 = _85.dofP.y > 0.0;
-    bool _999;
-    if (_993)
+    bool _992 = _85.dofP.y > 0.0;
+    bool _998;
+    if (_992)
     {
-        _999 = _85.skyColor.w > 0.0;
+        _998 = _85.skyColor.w > 0.0;
     }
     else
     {
-        _999 = _993;
+        _998 = _992;
     }
-    if (_999)
+    if (_998)
     {
         float4 cp = _85.viewProj * float4(P, 1.0);
         float ny = abs(cp.y / fast::max(abs(cp.w), 9.9999997473787516355514526367188e-05));
@@ -340,11 +340,11 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     coc = fast::clamp(coc, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _1044 = finish(param, param_1, _85);
-    return float4(_1044, 0.5 + (0.5 * coc));
+    float3 _1043 = finish(param, param_1, _85);
+    return float4(_1043, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _85 [[buffer(0)]], const device Mats& _1072 [[buffer(1)]], const device LampGrid& _370 [[buffer(2)]], bool gl_FrontFacing [[front_facing]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _85 [[buffer(0)]], const device Mats& _1071 [[buffer(1)]], const device LampGrid& _370 [[buffer(2)]], bool gl_FrontFacing [[front_facing]])
 {
     main0_out out = {};
     float3 N = fast::normalize(in.vNormal);
@@ -352,7 +352,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _85 [[buffer(
     {
         N = -N;
     }
-    float3 albedo = _1072.mats[in.vMat].albedo.xyz * (0.819999992847442626953125 + (0.36000001430511474609375 * in.vTint));
+    float3 albedo = _1071.mats[in.vMat].albedo.xyz * (0.819999992847442626953125 + (0.36000001430511474609375 * in.vTint));
     float ao = mix(0.550000011920928955078125, 1.0, fast::clamp((in.vWorld.y + 0.100000001490116119384765625) / 1.2000000476837158203125, 0.0, 1.0));
     float3 param = albedo * 2.0;
     float3 param_1 = N;

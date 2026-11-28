@@ -1011,7 +1011,7 @@ float cloudShadow(thread const float3& P, constant Frame& _269)
     }
     else
     {
-        _717 = (n > thr) ? 0.60000002384185791015625 : 0.0;
+        _717 = (n > thr) ? 0.75 : 0.0;
     }
     float k = _717;
     return 1.0 - (g * k);
@@ -1124,16 +1124,16 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _269)
     float3 param = P;
     col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _269)));
     col = mix(col, _269.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _882;
+    float _881;
     if (_269.sunColor.w > 0.0)
     {
-        _882 = _269.sunColor.w;
+        _881 = _269.sunColor.w;
     }
     else
     {
-        _882 = 1.0;
+        _881 = 1.0;
     }
-    col *= _882;
+    col *= _881;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
@@ -1145,17 +1145,17 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     float r = (d - _269.sunDir.w) / d;
     float rb = sign(r) * fast::max(abs(r) - _269.dofP.x, 0.0);
     float coc = _269.skyColor.w * rb;
-    bool _940 = _269.dofP.y > 0.0;
-    bool _946;
-    if (_940)
+    bool _939 = _269.dofP.y > 0.0;
+    bool _945;
+    if (_939)
     {
-        _946 = _269.skyColor.w > 0.0;
+        _945 = _269.skyColor.w > 0.0;
     }
     else
     {
-        _946 = _940;
+        _945 = _939;
     }
-    if (_946)
+    if (_945)
     {
         float4 cp = _269.viewProj * float4(P, 1.0);
         float ny = abs(cp.y / fast::max(abs(cp.w), 9.9999997473787516355514526367188e-05));
@@ -1165,8 +1165,8 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     coc = fast::clamp(coc, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _993 = finish(param, param_1, _269);
-    return float4(_993, 0.5 + (0.5 * coc));
+    float3 _992 = finish(param, param_1, _269);
+    return float4(_992, 0.5 + (0.5 * coc));
 }
 
 fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _269 [[buffer(0)]], constant FxVolumes& _1570 [[buffer(1)]])

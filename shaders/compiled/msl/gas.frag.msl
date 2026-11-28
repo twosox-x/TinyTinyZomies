@@ -92,7 +92,7 @@ float cloudShadow(thread const float3& P, constant Frame& _80)
     }
     else
     {
-        _531 = (n > thr) ? 0.60000002384185791015625 : 0.0;
+        _531 = (n > thr) ? 0.75 : 0.0;
     }
     float k = _531;
     return 1.0 - (g * k);
@@ -205,16 +205,16 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _80)
     float3 param = P;
     col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _80)));
     col = mix(col, _80.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _696;
+    float _695;
     if (_80.sunColor.w > 0.0)
     {
-        _696 = _80.sunColor.w;
+        _695 = _80.sunColor.w;
     }
     else
     {
-        _696 = 1.0;
+        _695 = 1.0;
     }
-    col *= _696;
+    col *= _695;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
@@ -222,20 +222,20 @@ float3 finish(thread float3& col, thread const float3& P, constant Frame& _80)
 fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _80 [[buffer(0)]])
 {
     main0_out out = {};
-    float _728;
+    float _727;
     if (in.vNormal.y > 0.5)
     {
-        _728 = 1.0;
+        _727 = 1.0;
     }
     else
     {
-        _728 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
+        _727 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
     }
-    float face = _728;
-    float3 _743;
+    float face = _727;
+    float3 _742;
     if (in.vEmissive > 0.5)
     {
-        _743 = in.vColor.xyz;
+        _742 = in.vColor.xyz;
     }
     else
     {
@@ -243,13 +243,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _80 [[buffer(
         float3 param_1 = fast::normalize(in.vNormal);
         float3 param_2 = in.vWorld;
         float param_3 = 1.0;
-        _743 = shade(param, param_1, param_2, param_3, _80) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
+        _742 = shade(param, param_1, param_2, param_3, _80) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
     }
-    float3 col = _743;
+    float3 col = _742;
     float3 param_4 = col;
     float3 param_5 = in.vWorld;
-    float3 _783 = finish(param_4, param_5, _80);
-    out.outColor = float4(_783, in.vColor.w);
+    float3 _782 = finish(param_4, param_5, _80);
+    out.outColor = float4(_782, in.vColor.w);
     return out;
 }
 

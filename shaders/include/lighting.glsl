@@ -76,7 +76,7 @@ vec3 lampLights(vec3 P, vec3 N) { return vec3(0.0); }
 #endif
 // Voxel cloud shadows: sparse clouds drifting with the wind, as blocks of a coarse grid (cloudP.y m) so their shadows
 // read like the voxel city: low-frequency value noise sampled once per block centre, thresholded for the coverage
-// (cloudP.z), with a stepped fringe (outer blocks ~60 % as dark as the core) and no smooth edges. The point is
+// (cloudP.z), with a stepped fringe (outer blocks ~75 % as dark as the core) and no smooth edges. The point is
 // projected along the sun onto the cloud deck (cloudP.w m up), so walls and roofs agree with the ground below them.
 // Returns the factor for the sun term only; 1 by night (moon key light) and fading out as the sun gets low. ALU only.
 float cloudHash(vec2 p) {
@@ -97,7 +97,7 @@ float cloudShadow(vec3 P) {
     vec2 c = (floor(q / cloudP.y) + 0.5) * cloudP.y;                                     // block centre (m)
     float n = 0.65 * cloudNoise(c * (1.0 / 50.0)) + 0.35 * cloudNoise(c * (1.0 / 19.0) + vec2(17.3, 5.1));
     float thr = 0.766 - 0.59 * cloudP.z;            // n above thr on ~cloudP.z of the map (calibrated for this noise)
-    float k = n > thr + 0.045 ? 1.0 : n > thr ? 0.6 : 0.0;
+    float k = n > thr + 0.045 ? 1.0 : n > thr ? 0.75 : 0.0;
     return 1.0 - g * k;
 }
 // vis: key-light visibility (1 lit, 0 in shadow), see shadow.glsl
