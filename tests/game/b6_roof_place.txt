@@ -1,0 +1,24 @@
+# Owner round 15 (#6): "rooftops are just like regular ground: place units and stuff that fits there (crates, towers,
+# walls) IF I HAVE SPACE THERE". On the 76 m parapet roof (-48 116): a generator, a cheap wall run and an airdropped
+# crate fit on the roof level and are accepted; a wall run hanging over the roof edge is refused with a reason.
+# cheat build 1 = instant construction (engineer access to roofs: see GAMEPLAY_ARCHITECTURE 16).
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_roof_place.txt
+at 0.0  camera -48 116 0.6 1.0 70
+at 0.1  cheat build 1
+at 0.2  roofinfo -48 116
+at 0.5  structure generator -46 118
+at 0.6  wall cheap -52 112 -46 112
+at 0.7  airdrop -50 120
+at 1.0  log
+at 2.0  expect generator -46 118 alive == 1
+at 2.0  expect generator -46 118 built == 1
+at 2.0  expect walls >= 1
+at 2.5  wall cheap -48 112 -48 160          # over the roof edge: refused
+at 3.0  expect walls <= 2
+at 30   log
+at 30   expect supply 1 landed == 1
+at 30   expect supplyy 1 >= 70
+at 30   structures
+at 30.1 camera -48 116 0.6 1.1 45
+at 30.2 shot b6_roof_place.png
+at 31   end

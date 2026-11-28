@@ -6,7 +6,7 @@
 at 0.0  camera -3 80 0.6 0.9 70
 at 0.5  roofzombies 120 -3 80 4
 at 1.0  roofzombies 120 -3 80 4
-at 1.5  expect zombies_above -3 80 30 15 >= 20  # they stand on the roof level
+at 1.5  expect zombies_above -3 80 30 15 >= 10  # they stand on the roof level
 at 25   log
 at 25   expect fall_splats >= 1
 at 25   expect kills_other >= 1

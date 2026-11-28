@@ -154,9 +154,7 @@ void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
         for (size_t k = 0; k < near.size() && k < 3; ++k) {
             std::vector<V3> b;
             nav.islandCells(near[k].second, 80.f, 3000, b);
-            // a fixture rises at most ~3 m above the roof it stands on; a higher small top (the 147 m tower crown above its
-            // 144 m ledge) is a roof level of its own and keeps priority (b1_rooftops / b3_roof_levels)
-            if (a0.size() < 60 && b.size() > a0.size() * 2 && near[k].second.y < s0.y - 0.5f && near[k].second.y > s0.y - 3.2f) starts.insert(starts.begin() + (long)front++, near[k].second);
+            if (a0.size() < 60 && b.size() > a0.size() * 2 && near[k].second.y < s0.y - 0.5f) starts.insert(starts.begin() + (long)front++, near[k].second);
             else starts.push_back(near[k].second);
         }
     }
