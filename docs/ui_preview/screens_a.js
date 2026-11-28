@@ -116,8 +116,8 @@
       `<div class="sa-head"><span class="tag">SEL</span>${T.glyph("troops", 14)}<span class="sa-title">${SQUADS.length} SQUADS</span><span class="sa-cnt"><b>${a}</b>/${n} soldiers</span>${pill("1 UNDER ATTACK", "bad")}</div>` +
       `<div class="sa-sq sa-mh"><span></span><span class="lbl">Squad</span><span class="lbl">Alive</span><span class="lbl">Avg HP</span><span class="lbl">Ammo</span><span class="lbl">State</span></div>` +
       `<div class="sa-list sa-list-m scroll">${rows}</div>` +
-      `<div class="sa-foot">${SQUADS.length} squads · ${a}/${n} soldiers<span class="sa-hint">click: focus · dbl-click: select only · ${T.key("Ctrl")}+${T.key("1")} group</span></div>` +
-      `<div class="sa-row">${T.btn("Halt", { id: "halt", glyph: "halt", k: "H" })}${paceSeg(s.pace || "auto")}${T.btn("Garrison", { id: "garrison", icon: "garrison", k: "G" })}</div>` });
+      `<div class="sa-foot">${SQUADS.length} squads · ${a}/${n} soldiers<span class="sa-hint">click focus · double-click select only</span></div>` +
+      `<div class="sa-row">${T.btn("Halt", { id: "halt", glyph: "halt", k: "H" })}${paceSeg(s.pace || "auto")}<span class="sa-hint">${T.key("P")} pace</span></div>` });
   }
 
   function sniperPanel(s) {
@@ -134,7 +134,7 @@
       `<div class="sa-stats">` +
         `<div><span class="lbl">Range</span><b>${s.inTower ? "180 m" : "160 m"}</b><small class="c-ok">${s.inTower ? "+40 tower" : "+20 roof"}</small></div>` +
         `<div><span class="lbl">Kills</span><b>37</b><small>12 runners</small></div>` +
-        `<div><span class="lbl">Position</span><b>${s.inTower ? "Tower 1" : "Bakery roof"}</b><small>${s.inTower ? "slot 1 of 2" : "4 floors up"}</small></div>` +
+        `<div><span class="lbl">Position</span><b>${s.inTower ? "Tower 1" : "Bakery roof"}</b><small>${s.inTower ? "slot 1 of 2" : "4th floor"}</small></div>` +
         `<div><span class="lbl">Target</span><b class="c-warn">Runner</b><small>92 m</small></div>` +
       `</div>` +
       `<div class="sa-row">${T.btn("Halt", { id: "halt", glyph: "halt", k: "H" })}${(s.inTower ? T.btn("Leave tower", { id: "leave", glyph: "arrow", k: "L" }) : T.btn("Occupy tower", { id: "occupy", glyph: "occupy", k: "O", off: true, why: "No defense tower built" }))}${s.inTower ? "" : T.btn("Leave roof", { id: "leave", glyph: "arrow", k: "L" })}</div>` });
@@ -198,8 +198,8 @@
         `<div class="sa-row tight">${T.btn("Admit wounded", { id: "admit", glyph: "cross", k: "G" })}${T.btn("Discharge all", { id: "discharge", glyph: "arrow", k: "L" })}</div>`;
     }
     return T.plate({ cls: "sa-panel sa-bld rivets", id: "sa-bld", html:
-      `<div class="sa-head"><span class="tag">BLDG</span>${T.icon(role === "hospital" ? "hospital" : "garrison", 22)}<span class="sa-title">MID-RISE <small>9 FLOORS · FLAT ROOF</small></span>${pill("CAPTURED", "ok")}</div>` +
-      `<div class="sa-sub"><span>${T.glyph("skull", 9)} Zombies inside <b class="c-ok">0</b></span><span class="c-dim">cleared 2 min ago</span><span class="sa-sub-r">Defence <b class="money">Lv ${lv}</b>/3</span></div>` +
+      `<div class="sa-head"><span class="tag">BLDG</span>${T.icon(role === "hospital" ? "hospital" : "garrison", 22)}<span class="sa-title">MID-RISE</span><span class="sa-cnt">9 floors · flat roof</span>${pill("CAPTURED", "ok")}</div>` +
+      `<div class="sa-sub"><span>${T.glyph("skull", 9)} Zombies inside <b class="c-ok">0</b></span><span class="c-dim">· cleared 2 min ago</span><span class="sa-sub-r">Defence <b class="money">Lv ${lv}</b>/3</span></div>` +
       `<div class="sa-bbody scroll">` + roleSeg + body +
         `<div class="sa-sect"><span class="tag dim">DEFENCE UPGRADES</span><span class="c-dim">each step shows on the model</span></div>` +
         `<div class="sa-def">${facade(d)}<div class="sa-ladder">${ladder(d)}</div></div>` +
@@ -308,8 +308,8 @@
     { id: "sel-multi", num: 3.2, badge: "3b", title: "Selection · multiple squads", kind: "multi", notes:
       `<ul><li>Same fixed slot; with 2+ squads the panel turns into a <b>roster</b>: icon, name, alive/total, average-HP pips, average-ammo bar, state pill.</li>
       <li>6 rows do not fit; the list window shows ~4.5 rows and <b>scrolls inside</b> — the half row is the cue that there is more. Header keeps the summary ("21/24 soldiers") and the worst state ("1 UNDER ATTACK").</li>
-      <li>Click = highlight/focus a squad (brass edge); double-click = select only that squad (opens 3a). Ctrl+1..9 control groups proposed.</li>
-      <li>Only orders shared by every squad are shown (Halt, pace, Garrison). Class-specific actions appear once a single squad is selected.</li>
+      <li>Click = highlight/focus a squad (brass edge); double-click = select only that squad (opens 3a). </li>
+      <li>Only orders shared by every squad are shown (Halt, pace). Garrison and class actions appear once a single squad is selected (which squads go in is ambiguous otherwise). Ctrl+1..9 control groups proposed.</li>
       <li><b>Owner:</b> sort order — by threat (under attack first) or by creation order? Currently creation order.</li></ul>` },
     { id: "sel-eng", num: 3.3, badge: "3c", title: "Selection · engineers", kind: "eng", notes:
       `<ul><li>Engineers reuse the member row, but the state column shows the <b>job</b>: "building wall 62%", "covering".</li>
