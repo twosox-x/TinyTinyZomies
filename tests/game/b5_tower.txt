@@ -19,7 +19,8 @@ at 2.2  expect on_tower == 0
 at 12   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_building.png
 at 45   structures
 at 45   expect tower -12 124 built == 1
-at 45   expect obstacles >= 1                          # the base is an obstacle (zombies pile against it)
+at 45   expect tower -12 124 obstacle == 1             # the base is an obstacle (zombies pile against it) ...
+at 45   expect game_obstacles >= 1                     # ... in the CityVehicles obstacle grid (fort 'obstacles' counts walls only)
 at 45   expect walkable -12 124 == 0
 at 46   occupy 2 -12 124
 at 62   squadinfo 2
@@ -34,12 +35,14 @@ at 110  expect squad 2 rooftop == 0
 at 110  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_firing.png
 at 111  spawn 400 -12 150 8
 at 170  structures
-at 170  expect on_tower == 1                           # nobody climbed up to him
+at 170  expect on_tower == 1                           # nobody climbed up to him; out of ammo he stays up (zombies close)
+at 170  expect squad 2 alive == 1
 at 170  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_heap.png
 at 171  towerattackers -12 124 30                      # TEST HOOK: 30 zombies at the base (beyond the threshold of 4)
-at 171  damagestructure -12 124 2400
-at 176  expect towers_destroyed == 1
-at 176  expect on_tower == 0
-at 176  expect squad 2 alive == 1                      # fell (fallDamage) but survived
+at 171  damagestructure -12 124 2500                    # (collapses at once, whatever the horde did)
+at 171.5 expect towers_destroyed == 1
+at 171.5 expect on_tower == 0
+at 171.5 expect squad 2 alive == 1                     # fell (fallDamage 40 of 80 hp) and survived the fall ...
+at 171.5 expect squad 2 health <= 40.01
 at 176  expect tower -12 124 alive == 0
 at 177  end

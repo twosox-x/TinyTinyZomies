@@ -44,7 +44,7 @@
                    "towerPrice": 200, "generatorPrice": 150, "lightPrice": 40, "fuelStorePrice": 60,
                    "towerTime": 60, "generatorTime": 24, "lightTime": 9, "fuelStoreTime": 15,
                    "towerHealth": 2500, "towerDamagePerZombie": 2.0, "towerPressureThreshold": 4, "towerHalf": 1.75, "towerObstacleTop": 5.1, "deckHeight": 5.1,
-                   "towerCapacity": 2, "climbTime": 3.0, "fallDamage": 40,
+                   "towerCapacity": 2, "climbTime": 3.0, "fallDamage": 40, "safeDescent": 25,
                    "generatorTank": 20, "generatorBurn": 0.02, "burnPerLight": 0.006, "generatorMaxLights": 4, "cableRange": 25, "fuelLinkRange": 30, "lightsOnlyAtNight": true,
                    "lightRadius": 24, "lightIntensity": 3.0, "lightHeight": 4.5, "lightReach": 9,
                    "noiseIntensity": 0.5, "noiseRadius": 40, "noiseStackRadius": 30, "noiseCap": 1.5, "noiseRadiusCap": 80, "noiseInterval": 1.0,

@@ -396,7 +396,20 @@ void Structures::tick(GameContext& ctx) {
             // posted: pinned on the deck (SoldierAI holds POST_FIRING soldiers; they fire over the parapet)
             P.pos[i] = post; P.vel[i] = {};
             P.home[i] = post;
-            if (P.mag[i] + P.reserve[i] <= 0) release(ctx, i);   // out of ammo: climbs down (resupply on the ground)
+            if (P.mag[i] + P.reserve[i] <= 0) {   // out of ammo: climbs down to resupply, but only when no zombie is close
+                float nearest = 1e9f;                // (the deck is safe: climbing down into the heap at the base is death)
+                const uint32_t id = P.idOf(i).packed();
+                bool seen = false;
+                if (ctx.horde)
+                    for (const SoldierContact& c : ctx.horde->contacts())
+                        if (c.packedId == id) {   // nearPos: exact nearest zombies at any height; nearby: coarse count within 8 m
+                            seen = true;
+                            nearest = c.nearby > 0 ? 0.f : 1e9f;
+                            for (uint32_t q = 0; q < c.nNear; ++q) nearest = std::min(nearest, std::hypot(c.nearPos[q].x - P.pos[i].x, c.nearPos[q].z - P.pos[i].z));
+                            break;
+                        }
+                if (seen && nearest > S.safeDescent) release(ctx, i);
+            }
         }
     }
     // ---- tower pressure (zombies at the base, latest contacts of the proxies)

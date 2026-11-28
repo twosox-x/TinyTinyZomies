@@ -151,7 +151,7 @@ bool BalanceConfig::load(const std::string& path, std::string* error) {
     num(sr, "towerTime", S.towerTime); num(sr, "generatorTime", S.generatorTime); num(sr, "lightTime", S.lightTime); num(sr, "fuelStoreTime", S.fuelStoreTime);
     num(sr, "towerHealth", S.towerHealth); num(sr, "towerDamagePerZombie", S.towerDamagePerZombie); num(sr, "towerPressureThreshold", S.towerPressureThreshold);
     num(sr, "towerHalf", S.towerHalf); num(sr, "towerObstacleTop", S.towerObstacleTop); num(sr, "deckHeight", S.deckHeight); num(sr, "towerCapacity", S.towerCapacity);
-    num(sr, "climbTime", S.climbTime); num(sr, "fallDamage", S.fallDamage);
+    num(sr, "climbTime", S.climbTime); num(sr, "fallDamage", S.fallDamage); num(sr, "safeDescent", S.safeDescent);
     num(sr, "generatorTank", S.generatorTank); num(sr, "generatorBurn", S.generatorBurn); num(sr, "burnPerLight", S.burnPerLight);
     num(sr, "generatorMaxLights", S.generatorMaxLights); num(sr, "cableRange", S.cableRange); num(sr, "fuelLinkRange", S.fuelLinkRange);
     if (sr["lightsOnlyAtNight"].type == json::Value::Bool) S.lightsOnlyAtNight = sr["lightsOnlyAtNight"].b;

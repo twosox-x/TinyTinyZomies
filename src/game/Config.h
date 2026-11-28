@@ -206,6 +206,7 @@ struct StructureConfig {
     int towerCapacity = 2;               // soldiers on the deck
     float climbTime = 3.0f;              // s up / down the ladder
     float fallDamage = 40.f;             // hp lost by an occupant when his tower collapses
+    float safeDescent = 25.f;            // m: an occupant out of ammo climbs down only with no zombie closer than this (PROPOSED)
     float generatorTank = 20.f;          // l in the generator's own tank (refilled from a fuel store within fuelLinkRange)
     float generatorBurn = 0.02f;         // l / s while running (base load)
     float burnPerLight = 0.006f;         // l / s per powered floodlight

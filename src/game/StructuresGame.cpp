@@ -447,7 +447,8 @@ bool structureMetric(GameWorld& w, const std::string& m, const std::vector<std::
         else if (f == "powered") out = s.powered;
         else if (f == "lit") out = s.lit ? 1 : 0;
         else if (f == "fuel") out = s.fuel;
-        else err = "field hp|alive|built|build|occupants|attackers|tank|running|powered|lit|fuel";
+        else if (f == "obstacle") out = s.obstacle != ~0u ? 1 : 0;   // stamped in the zombies' obstacle grid (CityVehicles)
+        else err = "field hp|alive|built|build|occupants|attackers|tank|running|powered|lit|fuel|obstacle";
         return true;
     }
     if (m == "lights_lit") { out = 0; for (const Structure& s : st.all()) out += s.kind == StructureKind::Light && s.lit ? 1 : 0; return true; }
@@ -503,6 +504,7 @@ bool structureMetric(GameWorld& w, const std::string& m, const std::vector<std::
         else err = "field state|drained|health|removed|fuel";
         return true;
     }
+    if (m == "game_obstacles") { AppState* app = w.app(); out = app ? app->vehicles.obstacleCount() : 0; return true; }   // all gameplay obstacles (walls, posts, containers, structures)
     if (m == "vehicle_explosions") { AppState* app = w.app(); out = app ? app->vehicles.stats().explosions : 0; return true; }
     return false;
 }
