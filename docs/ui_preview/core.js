@@ -153,7 +153,7 @@
     h += `<div class="mem">` + o.members.map((m, i) => `<div class="m${m.kia ? " kia" : ""}">${TTZ.tok({ ic: m.kia ? "kia" : m.ic, size: 26, isize: 15, round: true, ring: m.kia ? 0 : m.hp, ringCol: m.wounded ? "var(--bad)" : null, tip: m.tip || "" })}${m.kia ? "" : `<span class="am"><i style="width:${Math.round((m.ammo ?? 1) * 100)}%;${(m.ammo ?? 1) < 0.25 ? "background:var(--warn)" : ""}"></i></span>`}</div>`).join("") + `</div>`;
     const pace = o.pace || "auto";
     h += `<div class="acts">${TTZ.tok({ ic: "halt", size: 28, isize: 17, key: "H", tip: "Halt" })}<span class="sep"></span>` +
-      ["auto", "run", "walk"].map((p) => TTZ.tok({ ic: p, size: 28, isize: 17, on: pace === p, tip: { auto: "Pace: auto", run: "Pace: run (tires faster)", walk: "Pace: walk (quiet)" }[p] + " — P cycles", attrs: ` data-pace="${p}"` })).join("") +
+      ["auto", "run", "walk"].map((p) => TTZ.tok({ ic: p, size: 28, isize: 17, on: pace === p, tip: { auto: "Pace: auto", run: "Pace: run (tires faster)", walk: "Pace: walk (quiet)" }[p] + " · P cycles", attrs: ` data-pace="${p}"` })).join("") +
       ((o.actions || []).length ? `<span class="sep"></span>` + o.actions.map((a) => TTZ.tok({ ic: a.ic, size: 28, isize: 17, key: a.key, off: a.off, why: a.why, on: a.on, tip: a.tip, id: a.id })).join("") : "") + `</div></div>`;
     return h;
   };

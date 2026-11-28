@@ -61,9 +61,9 @@
       let h = TTZ.frame(ctx, s) + TTZ.mock([["rifle", "rifle squad"], ["multi", "8 squads"], ["eng", "engineers"], ["flame", "flamers"], ["sniper", "sniper"]], s.v);
       if (s.v === "multi") {
         const vis = MULTI.slice(s.off, s.off + 7);
-        h += `<div class="sel" id="sel"><div class="head"><div class="fl"><div class="nm">8 squads selected</div><div class="stt" style="color:var(--dim)">${TTZ.ic("troops", 13)}26 / 30 soldiers · <span style="color:var(--bad);margin-left:4px">2 under attack</span></div></div></div>` +
-          `<div style="position:absolute;left:0;top:34px;display:flex;gap:6px;align-items:center">` +
-          vis.map(([ic, n, hp, st]) => `<div style="display:grid;justify-items:center;gap:2px">${TTZ.tok({ ic, size: 36, isize: 21, round: true, ring: hp, n, tip: ic + " squad " + n + " · " + TTZ.STATE[st][2] })}<span style="color:${TTZ.STATE[st][1]}">${TTZ.ic(TTZ.STATE[st][0], 11)}</span></div>`).join("") +
+        h += `<div class="sel" id="sel"><div class="fl" style="position:absolute;left:0;top:0;display:flex;align-items:baseline;gap:10px;white-space:nowrap"><span class="nm">8 squads</span><span class="stt" style="color:var(--dim)">${TTZ.ic("troops", 13)}26 / 30</span><span class="stt" style="color:var(--bad)">${TTZ.ic("alert", 13)}2 under attack</span></div>` +
+          `<div style="position:absolute;left:0;top:22px;display:flex;gap:7px;align-items:center">` +
+          vis.map(([ic, n, hp, st]) => `<div class="msq">${TTZ.tok({ ic, size: 34, isize: 20, round: true, ring: hp, n, tip: ic + " squad " + n + " · " + TTZ.STATE[st][2] })}<span class="mst" style="color:${TTZ.STATE[st][1]}">${TTZ.ic(TTZ.STATE[st][0], 10)}</span></div>`).join("") +
           `<span class="fl" style="cursor:pointer;font-weight:800;font-size:16px;margin-left:2px;opacity:${MULTI.length > 7 ? 1 : 0}" data-more>›</span></div>` +
           `<div class="acts">${TTZ.tok({ ic: "halt", size: 28, isize: 17, key: "H", tip: "Halt all" })}<span class="sep"></span>${["auto", "run", "walk"].map((p) => TTZ.tok({ ic: p, size: 28, isize: 17, on: s.pace === p, attrs: ` data-pace="${p}"`, tip: "Pace: " + p })).join("")}</div></div>`;
       } else h += TTZ.selection({ ...SEL[s.v], pace: s.pace });

@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="screens_a.css">
 <link rel="stylesheet" href="screens_b.css">
 <link rel="stylesheet" href="screens_c.css">
+<link rel="stylesheet" href="juice.css">
 <div class="app">
   <nav class="nav" id="nav">
     <div class="brand">TINY TINY ZOMBIES<small>HUD design v2 · Counters</small></div>
@@ -19,6 +20,7 @@
       <div class="seg" id="seg-tod" role="group" aria-label="Time of day">
         <button data-tod="day">Day</button><button data-tod="busy">Busy day</button><button data-tod="night">Night</button>
       </div>
+      <div class="seg" role="group" aria-label="Sound"><button id="snd" aria-pressed="true" title="Placeholder UI sounds">UI sound</button></div>
     </div>
     <div class="stage-wrap" id="wrap">
       <div class="stage" id="stage"><div class="hud" id="hud"></div><div class="res-tag" id="restag"></div></div>
@@ -32,6 +34,7 @@
 <script src="screens_a.js"></script>
 <script src="screens_b.js"></script>
 <script src="screens_c.js"></script>
+<script src="juice.js"></script>
 <script>
 (function () {
   const RES = { "720": [1280, 720, 1.0], "1080": [1920, 1080, 1.25], "1440": [2560, 1440, 1.5] };
@@ -48,7 +51,8 @@
   if (!screens.find((s) => s.id === st.id)) st.id = screens[0].id;
   const hash = location.hash.slice(1); if (screens.find((s) => s.id === hash)) st.id = hash;
   const stage = document.getElementById("stage"), hud = document.getElementById("hud"), wrap = document.getElementById("wrap");
-  let ctx = null, keyHandler = null;
+  let ctx = null, keyHandler = null, lastView = "";
+  TTZ.juice.attach(hud, stage);
   function render() {
     const s = screens.find((x) => x.id === st.id);
     const [w, h, u] = RES[st.res];
@@ -71,16 +75,20 @@
     hud.style.width = w / u + "px"; hud.style.height = h / u + "px"; hud.style.transform = `scale(${u})`;
     document.getElementById("restag").textContent = `${w}×${h} · UI scale ${u}`;
     ctx = { W: w / u, H: h / u, u, fit, res: st.res, tod, night: tod === "night", rerender: () => render(), state: (s._state = s._state || (s.initState ? s.initState() : {})) };
+    const view = s.id + "|" + st.res + "|" + st.tod; const changed = view !== lastView; lastView = view;
+    if (!changed) TTZ.juice.before();
     hud.innerHTML = s.render(ctx);
     keyHandler = null;
     if (s.mount) keyHandler = s.mount(hud, ctx) || null;
+    TTZ.juice.after(ctx, changed);
   }
   nav.addEventListener("click", (e) => { const b = e.target.closest("[data-s]"); if (b) { st.id = b.dataset.s; render(); } });
   document.getElementById("seg-res").addEventListener("click", (e) => { const b = e.target.closest("[data-res]"); if (b) { st.res = b.dataset.res; render(); } });
   document.getElementById("seg-tod").addEventListener("click", (e) => { const b = e.target.closest("[data-tod]"); if (b) { st.tod = b.dataset.tod; render(); } });
   window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h !== st.id && screens.find((s) => s.id === h)) { st.id = h; render(); } });
-  window.addEventListener("resize", render);
-  window.addEventListener("keydown", (e) => { if (keyHandler && !e.target.closest("input,select,textarea")) keyHandler(e); });
+  window.addEventListener("resize", () => { lastView = ""; render(); });
+  window.addEventListener("keydown", (e) => { if (e.target.closest("input,select,textarea")) return; if (keyHandler) keyHandler(e); TTZ.juice.key(e); });
+  document.getElementById("snd").addEventListener("click", (e) => { TTZ.juice.sound = !TTZ.juice.sound; e.currentTarget.setAttribute("aria-pressed", TTZ.juice.sound); });
   render();
 })();
 </script>
