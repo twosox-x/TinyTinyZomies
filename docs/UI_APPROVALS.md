@@ -36,5 +36,5 @@ WS-A's fixed layout, keys (1-7, Tab, Ctrl+n, Esc) and D's sound hooks are unchan
 - Tests (lavapipe, headless): ui_hud 20/20 at 1280x720, 1920x1080, 2560x1440; b1_input 12/12; b2_input 7/7; ui_tower 11/11.
   Captures: docs/media/ui_v2/.
 - Not verified headless: structure info cards (the script hover snaps onto parked cars next to the test tower), pause /
-  settings / main menu (no capture yet). Audio settings show Music only until D's setBusVolume lands.
+  settings / main menu (no capture yet). Audio settings: Master + Effects, Voices, Ambience, UI, Music via audio::setMasterVolume / setBusVolume (not persisted yet).
 - Known gaps: Esc on a settings sub-page closes the menu instead of stepping back; main menu has no keyboard navigation.
