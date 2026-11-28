@@ -12,11 +12,11 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 | 5 | Zombies can fall off roofs and smash into gore | B | open |
 | 6 | Roofs are like ground: place units, crates, towers, walls on roofs when there is space | B | open |
 | 7 | Sniper killed by a zombie on a roof did not reanimate (soldiers must turn on roofs too) | B | open |
-| 8 | Engineers and flamethrowers need autonomy: fix / clear what the situation needs, near their position, no wandering without orders | D | open |
+| 8 | Engineers and flamethrowers need autonomy: fix / clear what the situation needs, near their position, no wandering without orders | D (session C, branch sessionC/ws-d) | open |
 | 9 | Tower / generator / floodlight / fuel models in game are not the reviewed ones | orch | reviewed models switched on (timber tower; owner to pick timber / steel) |
 | 10 | Toxic gas = ugly particle blocks; must be voxel-volume gas clouds in the same style as the explosion / flame volumes | E (session B, branch sessionB/ws-e) | open |
 | 11 | Keys 1 2 3 4 5 6 7 for units (not Z X C V B) – intuitive layout | A | open |
-| 12 | Engineers (3): at least one keeps working the job, the others cover him when threatened | D | open |
+| 12 | Engineers (3): at least one keeps working the job, the others cover him when threatened | D (session C, branch sessionC/ws-d) | open |
 | 13 | Select squad → tower → "Occupy tower" → nothing happens | A | open |
 | 14 | DOF: whatever is at the dead centre of the screen must be sharp | E (session B, branch sessionB/ws-e) | open |
 | 15 | Garrison fortification must fit every building type; "Door planks" looks like a black blob in the street | C (session B, branch sessionB/ws-c) | open |
