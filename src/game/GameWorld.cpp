@@ -89,6 +89,8 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     ctx_.engineers = &engineers_;                              // 14d: construction radius, jobs, car clearing
     engineers_.ai = &ai_;
     engineers_.removeVehicle = [&app](uint32_t v) { app.vehicles.removeVehicle(v); };
+    buildings_.addObstacle = [&app](float cx, float cz, float hx, float hz, float yaw, float top) { return app.vehicles.addObstacle(cx, cz, hx, hz, yaw, top); };
+    buildings_.carNear = [&app](float x, float z, float r) { return app.vehicles.parkedAt(x, z, r) != UINT32_MAX; };
     ai_.workHook = [this](GameContext& c, uint32_t i) { return engineers_.work(c, i); };
     ai_.workFirstHook = [this](const GameContext& c, uint32_t i, V3 t, float d) { return engineers_.keepWorking(c, i, t, d); };
     installStructures(*this, app);                             // 14e: tower / generator / light / fuel jobs, car fuel, UI

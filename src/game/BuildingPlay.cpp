@@ -210,6 +210,116 @@ int BuildingPlay::fortifyPrice(const BuildingConfig& bc, const Building& B) {
     return p;
 }
 
+// Entrance sandbag Us (L2+: beside each door, the doorway clear) and the L3 slit-wall perimeter (3 m out along every
+// facade with an entrance, a gap on each door axis). Each piece is kept at the first candidate whose footprint is
+// clear: walkable NavGrid cells at its base height, outside other buildings, no parked vehicle within 0.3 m, not over
+// an accepted piece or a doorway. Candidates: as designed, closer to the facade (lot side), further out, shifted
+// along the facade, rotated 90 deg, then a 0.6-scale (shorter) piece. Accepted pieces are stamped as obstacles.
+void BuildingPlay::placeFortPieces(GameContext& ctx, Building& B) {
+    if (B.fortLevel >= B.defence) return;
+    struct Box { float cx, cz, hx, hz, c, s; };
+    auto boxOf = [](const Building::FortPiece& p) {
+        const float c = std::cos(p.yaw), s = std::sin(p.yaw), oz = p.kind == 1 ? 0.25f * p.scale : 0.f;   // slit: back face at z = 0
+        return Box{p.pos.x + s * oz, p.pos.z + c * oz, p.hx, p.hz, c, s};
+    };
+    auto inBox = [](const Box& b, float x, float z, float m) {
+        const float dx = x - b.cx, dz = z - b.cz;
+        return std::fabs(dx * b.c - dz * b.s) < b.hx + m && std::fabs(dx * b.s + dz * b.c) < b.hz + m;
+    };
+    auto ground = [&](float x, float z, float def) { return ctx.nav && ctx.nav->ready() ? ctx.nav->surface(x, z) : def; };
+    std::vector<const Building*> nearB;
+    const V3 bc0 = B.centre();
+    for (uint32_t k = 0; k < (uint32_t)reg_.size(); ++k) {
+        const Building* o = reg_.get(BuildingId{k});
+        if (!o || o == &B) continue;
+        const V3 oc = o->centre();
+        const float r = 0.5f * (std::hypot(B.w, B.d) + std::hypot(o->w, o->d)) + 8.f;
+        if ((oc.x - bc0.x) * (oc.x - bc0.x) + (oc.z - bc0.z) * (oc.z - bc0.z) < r * r) nearB.push_back(o);
+    }
+    auto clear = [&](const Building::FortPiece& p) {
+        const Box b = boxOf(p);
+        for (int i = -1; i <= 1; ++i)
+            for (int j = -1; j <= 1; ++j) {
+                const float lx = (float)i * (b.hx + 0.15f), lz = (float)j * (b.hz + 0.15f);
+                const float x = b.cx + lx * b.c + lz * b.s, z = b.cz - lx * b.s + lz * b.c;
+                if (ctx.nav && ctx.nav->ready() && (!ctx.nav->walkable(x, z) || std::fabs(ctx.nav->surface(x, z) - p.pos.y) > 0.35f)) return false;
+                if (B.contains(x, z)) return false;
+                for (const Building* o : nearB) if (o->contains(x, z)) return false;
+                for (const Building::FortPiece& q : B.fortPieces) if (inBox(boxOf(q), x, z, 0.1f)) return false;
+                for (const Opening& o : B.openings) {   // doorway corridor: 1.5 m out, door width + 0.3 m
+                    if (o.type != OpeningType::Door) continue;
+                    const float dx = x - o.pos.x, dz = z - o.pos.z, out = dx * o.nx + dz * o.nz;
+                    if (out > -0.5f && out < 1.8f && std::fabs(dx * o.nz - dz * o.nx) < 0.5f * o.width + 0.3f) return false;
+                }
+            }
+        if (carNear && carNear(b.cx, b.cz, std::max(b.hx, b.hz) + 0.3f)) return false;
+        return true;
+    };
+    auto place = [&](uint8_t kind, V3 at, float yaw, float nx, float nz) {
+        const float tx = nz, tz = -nx;
+        static const float outs[5] = {0.f, -0.6f, -1.2f, 1.0f, 2.0f}, alongs[3] = {0.f, 0.8f, -0.8f};
+        for (int sc = 0; sc < 2; ++sc)
+            for (int rot = 0; rot < 2; ++rot)
+                for (float dO : outs)
+                    for (float dA : alongs) {
+                        Building::FortPiece p;
+                        p.kind = kind; p.scale = sc ? 0.6f : 1.f;
+                        p.yaw = yaw + (rot ? 1.5707963f : 0.f);
+                        p.hx = (kind == 0 ? 1.3f : 1.0f) * p.scale; p.hz = (kind == 0 ? 0.9f : 0.25f) * p.scale; p.top = (kind == 0 ? 0.9f : 1.2f) * p.scale;
+                        const float x = at.x + nx * dO + tx * dA, z = at.z + nz * dO + tz * dA;
+                        p.pos = {x, ground(x, z, at.y), z};
+                        if (!clear(p)) continue;
+                        const Box b = boxOf(p);
+                        if (addObstacle) p.obstacle = addObstacle(b.cx, b.cz, b.hx, b.hz, p.yaw, p.pos.y + p.top);
+                        B.fortPieces.push_back(p);
+                        return;
+                    }
+    };
+    if (B.defence >= 2 && B.fortLevel < 2)
+        for (const Opening& o : B.openings) {
+            if (o.type != OpeningType::Door) continue;
+            float u, v;
+            B.toLocal(o.pos.x, o.pos.z, u, v);
+            const float ins = std::max(0.f, std::max({-(o.nx * B.e2x + o.nz * B.e2z) * v, (o.nx * B.e1x + o.nz * B.e1z) * (B.w - u),
+                                                      (o.nx * B.e2x + o.nz * B.e2z) * (B.d - v), -(o.nx * B.e1x + o.nz * B.e1z) * u}));
+            const float tx = o.nz, tz = -o.nx, yaw = std::atan2(o.nx, o.nz);
+            for (int sd = -1; sd <= 1; sd += 2) {
+                const float off = 0.5f * o.width + 1.5f, out = ins + 1.0f;
+                place(0, {o.pos.x + o.nx * out + tx * off * (float)sd, o.pos.y, o.pos.z + o.nz * out + tz * off * (float)sd}, yaw, o.nx, o.nz);
+            }
+        }
+    if (B.defence >= 3 && B.fortLevel < 3) {
+        const float ax[4][2] = {{-B.e2x, -B.e2z}, {B.e1x, B.e1z}, {B.e2x, B.e2z}, {-B.e1x, -B.e1z}};
+        unsigned sides = 0;
+        for (const Opening& o : B.openings) {
+            if (o.type != OpeningType::Door) continue;
+            int best = 0; float bd = -2.f;
+            for (int k = 0; k < 4; ++k) { const float dd = o.nx * ax[k][0] + o.nz * ax[k][1]; if (dd > bd) { bd = dd; best = k; } }
+            sides |= 1u << best;
+        }
+        for (int k = 0; k < 4; ++k) {
+            if (!(sides & (1u << k))) continue;
+            const float len = (k & 1) ? B.d : B.w, yaw = std::atan2(ax[k][0], ax[k][1]);
+            const int n = std::max(1, (int)std::floor(len / 2.0f));
+            for (int i = 0; i < n; ++i) {
+                const float a = (len - 2.0f * (float)n) * 0.5f + 1.0f + 2.0f * (float)i;
+                float u, v;
+                if (k == 0) { u = a; v = -3.0f; } else if (k == 2) { u = len - a; v = B.d + 3.0f; }
+                else if (k == 1) { u = B.w + 3.0f; v = a; } else { u = -3.0f; v = len - a; }
+                const V3 p = B.toWorld(u, v, B.y0);
+                bool gap = false;
+                for (const Opening& o : B.openings) {
+                    if (o.type != OpeningType::Door) continue;
+                    const float dx = p.x - o.pos.x, dz = p.z - o.pos.z;
+                    if (std::fabs(dx * o.nz - dz * o.nx) < 1.0f + 0.5f * std::max(o.width, 1.6f) && dx * o.nx + dz * o.nz > 0.f) gap = true;
+                }
+                if (!gap) place(1, p, yaw, ax[k][0], ax[k][1]);
+            }
+        }
+    }
+    B.fortLevel = B.defence;
+}
+
 bool BuildingPlay::fortify(GameContext& ctx, BuildingId id, std::string& msg, bool free) {
     Building* B = reg_.get(id);
     if (!B) { msg = "no building"; return false; }
@@ -231,6 +341,7 @@ bool BuildingPlay::fortify(GameContext& ctx, BuildingId id, std::string& msg, bo
         }
     B->coverType = levelCover(L);
     n += (int)B->covers.size();
+    placeFortPieces(ctx, *B);
     if (L == 3)
         for (FiringPosition& f : B->firing)
             if (f.kind == FiringKind::RoofEdge && !f.nest) { f.nest = true; ++stats_.nests; }

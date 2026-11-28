@@ -143,6 +143,11 @@ struct Building {
     std::vector<SoldierId> patients; // hospital: soldiers inside being treated
     int capacity = 0;                // garrison: firing positions used; hospital: beds (BuildingConfig)
     uint8_t defence = 0;             // fortification level 0..3 (BuildingPlay::fortify)
+    // entrance sandbag Us (L2+) and the L3 slit-wall perimeter as placed by BuildingPlay::placeFortPieces (clearance
+    // checked, re-placed when blocked; obstacle = CityVehicles obstacle id, ~0u none). The renderer only reads them.
+    struct FortPiece { uint8_t kind = 0; V3 pos; float yaw = 0, scale = 1, hx = 0, hz = 0, top = 0; uint32_t obstacle = ~0u; };   // kind 0 U, 1 slit
+    std::vector<FortPiece> fortPieces;
+    uint8_t fortLevel = 0;           // defence level the pieces were placed for
     BarricadeType coverType = BarricadeType::None;   // covers on the closed lower windows (None: open glass)
     // ---- dynamic: B3b writes (zombies; -1 = unknown / not simulated)
     int zombiesInside = -1;          // all floors

@@ -15,6 +15,7 @@
 #include "game/Buildings.h"
 #include "game/GameContext.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,10 @@ public:
     void takeNotices(std::vector<BuildingNotice>& out) { out.insert(out.end(), notices_.begin(), notices_.end()); notices_.clear(); }
 
     BuildingId selected;              // UI selection (one building)
+    // Fort-piece collision hooks (GameWorld): stamp an oriented box like B2 walls (CityVehicles::addObstacle: horde grid
+    // + soldier NavGrid patch), and "a parked vehicle within r of (x, z)". Unset: placement still checks the NavGrid.
+    std::function<uint32_t(float cx, float cz, float hx, float hz, float yaw, float top)> addObstacle;
+    std::function<bool(float x, float z, float r)> carNear;
 
     // UI / script requests, applied at the start of the next tick (input never mutates game state directly)
     enum class Act : uint8_t { Role, Garrison, BarricadeDoors, BarricadeWindows, Nest, Release, Fortify };
@@ -72,6 +77,7 @@ public:
 
 private:
     void capture(GameContext& ctx, float dt);
+    void placeFortPieces(GameContext& ctx, Building& B);
     void approach(GameContext& ctx);
     void hospital(GameContext& ctx, float dt);
     void breachFallback(GameContext& ctx, float dt);
