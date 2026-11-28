@@ -316,6 +316,7 @@ void Renderer::shutdown() {
     SDL_GPUDevice* d = gpu_->device();
     SDL_WaitForGPUIdle(d);
     for (auto p : {pFxHalf_, pFxHalfNear_, pFxComp_}) if (p) SDL_ReleaseGPUGraphicsPipeline(d, p);
+    for (FocusSlot& f : focusRb_) if (f.tb) { SDL_ReleaseGPUTransferBuffer(d, f.tb); f.tb = nullptr; }
     for (auto t : {fxCol_, fxVox_, fxDepth_}) if (t) SDL_ReleaseGPUTexture(d, t);
     for (auto p : {pBoxShadow_, pZombie_, pCorpse_, pBox_, pGround_, pParticle_, pFx_, pFxNear_, pDofPre_, pDofTile_, pDofDilate_, pDofGather_,
                    pDofFill_, pComposite_})
@@ -527,6 +528,79 @@ float Renderer::measureFocus(const Camera& cam, uint32_t w, uint32_t h) const {
     return std::min(ds[2], camDist);
 }
 
+void Renderer::recordFocusReadback(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h) {
+    if (!focusRecord_ || !resolved_ || w < 32 || h < 32) return;
+    SDL_GPUDevice* d = gpu_->device();
+    const uint32_t side = (uint32_t)std::clamp((int)(0.06f * (float)h) & ~1, 16, 128);
+    FocusSlot& s = focusRb_[focusFrame_ % kFocusSlots];
+    if (s.tb && s.side != side) { SDL_ReleaseGPUTransferBuffer(d, s.tb); s.tb = nullptr; }
+    if (!s.tb) {
+        SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, side * side * 4, 0};
+        s.tb = SDL_CreateGPUTransferBuffer(d, &tci);
+        s.side = side;
+        if (!s.tb) { s.valid = false; return; }
+    }
+    SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+    SDL_GPUTextureRegion src{};
+    src.texture = resolved_;
+    src.x = w / 2 - side / 2;
+    src.y = h / 2 - side / 2;
+    src.w = side;
+    src.h = side;
+    src.d = 1;
+    SDL_GPUTextureTransferInfo dst{s.tb, 0, 0, 0};
+    SDL_DownloadFromGPUTexture(cp, &src, &dst);
+    SDL_EndGPUCopyPass(cp);
+    s.frame = focusFrame_;
+    s.valid = true;
+    s.focus = focusUsed_;
+    s.aperture = focusAperture_;
+    s.band = focusBand_;
+}
+
+// The centre window's alpha holds the signed thin-lens CoC code c = aperture * sign(r) * max(|r| - band, 0) with
+// r = (d - focus) / d (finishA; the tilt-shift floor is zero this close to the centre), so d = focus / (1 - r). The sky
+// (r = 1) is skipped; a saturated near code only bounds d from above (next frames refine it). The focus is the
+// Gaussian-weighted 25th percentile of the window's distances: the nearest significant surface (a tower top, a tree
+// crown, a soldier), not a lone pixel and not the street behind the subject.
+bool Renderer::readFocusWindow(float& out) {
+    static const bool gridOnly = SDL_getenv("TTZ_DOF_GRID_FOCUS") != nullptr;   // A/B: the old height-grid focus only
+    if (gridOnly) return false;
+    const FocusSlot* best = nullptr;
+    for (const FocusSlot& s : focusRb_)
+        if (s.valid && s.tb && s.frame >= focusCutFrame_ && s.frame + kFocusLag <= focusFrame_ && (!best || s.frame > best->frame)) best = &s;
+    if (!best) return false;
+    SDL_GPUDevice* d = gpu_->device();
+    const auto* px = (const uint8_t*)SDL_MapGPUTransferBuffer(d, best->tb, false);
+    if (!px) return false;
+    const int n = (int)best->side;
+    const float a = std::max(1e-3f, best->aperture), f = best->focus, sig2 = 2.f * (0.33f * n) * (0.33f * n);
+    std::vector<std::pair<float, float>> dw;   // (distance, weight)
+    dw.reserve((size_t)n * n);
+    float wAll = 0.f, wHit = 0.f;
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x) {
+            const float fx = (float)x + 0.5f - 0.5f * n, fy = (float)y + 0.5f - 0.5f * n;
+            const float wt = std::exp(-(fx * fx + fy * fy) / sig2);
+            wAll += wt;
+            const float c = (float)px[(y * n + x) * 4 + 3] * (2.f / 255.f) - 1.f;
+            float r = std::fabs(c) < 1.5f / 255.f ? 0.f : (c > 0.f ? 1.f : -1.f) * (std::fabs(c) / a + best->band);
+            if (c <= -0.999f) r = -(1.f / a + best->band);
+            if (r >= 0.97f) continue;   // sky / beyond 30x the focus distance
+            dw.push_back({f / (1.f - r), wt});
+            wHit += wt;
+        }
+    SDL_UnmapGPUTransferBuffer(d, best->tb);
+    if (wHit < 0.1f * wAll) return false;   // (almost) only sky
+    std::sort(dw.begin(), dw.end());
+    float acc = 0.f;
+    out = dw.back().first;
+    for (const auto& [dist, wt] : dw)
+        if ((acc += wt) >= 0.25f * wHit) { out = dist; break; }
+    out = std::max(out, 1.f);
+    return true;
+}
+
 void Renderer::addBlast(float x, float y, float z, float scale) {
     blasts_.push_back({x, y, z, 0.f, std::max(scale, 0.1f)});
     // chain reactions: a blast going off inside a young fireball (< 0.6 s, within ~its radius) grows that volume
@@ -610,28 +684,44 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
     const TimeOfDayLight tl = evalTimeOfDay(rs.tod);
     const float camDist = cam.distance();
     const bool dof = rs.tiltShift && !rs.studioLighting && rs.dofStrength > 0.f;
-    // focus: the scene under the screen centre (auto focus, smoothed in log distance), else the pivot
+    // focus: the scene under the screen centre (auto focus: the rendered frame's centre window, read back a few frames
+    // late; the coarse height grid until that is available or after a camera cut), smoothed in log distance; else the pivot
+    const RenderSettings::DofAt da = rs.dofAt(camDist);   // zoom-adaptive aperture / max blur / in-focus band / tilt-shift
     float focus = camDist;
+    focusRecord_ = false;
     if (dof && rs.dofAutoFocus && city_) {
-        const float want = measureFocus(cam, w, h);
+        ++focusFrame_;
         const double dtf = time - focusTime_;
         const V3 de = e - focusEye_;
         const bool cut = dot(de, de) > 0.04f * camDist * camDist;   // camera cut (view preset, jump): no glide
         focusEye_ = e;
-        if (focusDist_ <= 0.f || dtf <= 0.0 || dtf > 0.5 || cut) focusDist_ = want;
+        const bool snap = focusDist_ <= 0.f || dtf <= 0.0 || dtf > 0.5 || cut;
+        if (snap) focusCutFrame_ = focusFrame_;   // older readbacks show another view
+        float want = 0.f;
+        const bool fromFrame = readFocusWindow(want);
+        if (!fromFrame) want = measureFocus(cam, w, h);
+        if (snap) focusDist_ = want;
         else {
             const float k = 1.f - std::exp(-(float)dtf / std::max(0.01f, rs.dofFocusTime));
             focusDist_ = std::exp(std::log(focusDist_) + (std::log(want) - std::log(focusDist_)) * k);
         }
         focusTime_ = time;
         focus = focusDist_;
+        static const bool logFocus = SDL_getenv("TTZ_DOF_LOG") != nullptr;
+        if (logFocus)
+            SDL_Log("dof focus: want %.2f m (%s) smoothed %.2f m, pivot %.2f m", want, fromFrame ? "frame" : "height grid", focusDist_, camDist);
     } else focusDist_ = -1.f;
     fu.sunDir = {tl.dir.x, tl.dir.y, tl.dir.z, std::max(1.f, focus * (1.f + rs.dofFocusOffset))};   // w: thin-lens focus (finishA)
     fu.sunColor = {tl.color.x, tl.color.y, tl.color.z, tl.exposure * rs.exposure};
-    const RenderSettings::DofAt da = rs.dofAt(camDist);   // zoom-adaptive aperture / max blur / in-focus band / tilt-shift
     fu.skyColor = {tl.sky.x, tl.sky.y, tl.sky.z, dof ? std::max(1e-3f, da.aperture) : 0.f};   // aperture, 0 = CoC 0
     fu.dofP = {dof ? da.band : 0.f, dof ? da.tilt : 0.f, std::clamp(rs.dofTiltSharp, 0.f, 0.95f), 0.f};
     dofMaxBlurEff_ = da.maxBlur;
+    if (dof && rs.dofAutoFocus && city_) {
+        focusRecord_ = true;
+        focusUsed_ = fu.sunDir.w;
+        focusAperture_ = fu.skyColor.w;
+        focusBand_ = fu.dofP.x;
+    }
     fu.groundColor = {tl.ground.x, tl.ground.y, tl.ground.z, rs.fogStart * camDist};
     fu.fogColor = {tl.fog.x, tl.fog.y, tl.fog.z, rs.fogDensity};
     fu.todP = {tl.night, 1.f + 0.6f * tl.night, tl.moon ? 1.f : 0.f, rs.tod.hours};
@@ -1009,6 +1099,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
 void Renderer::postProcess(SDL_GPUCommandBuffer* cmd, uint32_t w, uint32_t h, const RenderSettings& rs) {
     const bool dof = rs.tiltShift && !rs.studioLighting && rs.dofStrength > 0.f;
     const uint32_t hw = std::max(1u, w / 2), hh = std::max(1u, h / 2);
+    recordFocusReadback(cmd, w, h);   // auto focus: centre window of this frame, read kFocusLag frames later
     auto fullscreen = [&](SDL_GPUTexture* dst, SDL_GPUTexture* dst2, SDL_GPUGraphicsPipeline* p, SDL_GPUTextureSamplerBinding* tex,
                           uint32_t ntex, const void* ub, uint32_t ubSize) {
         SDL_GPUColorTargetInfo ct[2]{};
