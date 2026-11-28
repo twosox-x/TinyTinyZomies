@@ -58,8 +58,8 @@ struct UiAction {
     uint32_t accent = 0;                          // optional icon accent colour (IM_COL32), 0 = default
     std::function<int(const UiCtx&)> cost;        // price shown on the card (null / < 0: none)
     std::string costSuffix;                       // e.g. "/4m"
-    int hotkey = 0;                               // SDL_Keycode (0 = none); fires onSelect without modifiers (Shift allowed)
-    std::string hotkeyLabel;                      // shown on the card ("Z"); derived from hotkey when empty
+    int hotkey = 0;                               // legacy, NOT bound: cards are picked with 1-7 by their position in the tab
+    std::string hotkeyLabel;                      // extra combo a feature handles itself ("Ctrl+Z"), listed in the tooltip
     std::function<void(const UiCtx&)> onSelect;   // card click / hotkey
     // Greyed out when false; `why` (optional) is shown in the tooltip ("Not enough funding", "Needs engineers").
     // Cost affordability is checked automatically when `cost` is set. Hotkeys still fire when disabled by funding only

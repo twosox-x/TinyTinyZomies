@@ -96,10 +96,11 @@ public:
     // Height-grid pick (street, roof) under a screen point; false when the ray leaves the grid.
     static bool pickGround(const AppState& app, const GameContext& ctx, float sx, float sy, V3& out);
     static bool worldToScreen(const AppState& app, V3 p, float& sx, float& sy);   // scripts: synthetic mouse input
-    // ---- B2 wall tool (FortUI.cpp): N cheap wall, M reinforced wall, J gate (PROPOSED). Click adds points (snapped to
+    // ---- Card keys: 1-7 = the cards of the active tab, Tab / Shift+Tab = tabs (owner round 15 #11; no letter keys).
+    // B2 wall tool (FortUI.cpp): cheap wall, reinforced wall, gate (PROPOSED). Click adds points (snapped to
     // the 1 m grid / existing joints), drag = straight run in whole 4 m pieces (Ctrl: 1 m steps), Enter / double-click /
     // closing the loop confirms, Backspace undoes a point, Esc cancels. Container: Q / E / wheel rotate 15 deg, T 90.
-    // 14d engineers (FortUI.cpp): U buys engineers, K clears a car (click it), J places a single gate (click; Q / E / wheel
+    // 14d engineers (FortUI.cpp): engineers card, clear car (click it), single gate (click; Q / E / wheel
     // rotate 15 deg, T 90; over a wall it replaces that part, next to a wall end it continues it), Ctrl+Z undoes the
     // newest unfinished placement. Wall tool: Shift snaps the direction to 15 deg steps (and 0 / 45 / 90 deg relative to
     // the previous leg / the wall it starts on snap magnetically within 4 deg); guide lines and a 1 m grid near the cursor.

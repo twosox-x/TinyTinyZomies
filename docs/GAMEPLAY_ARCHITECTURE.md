@@ -356,11 +356,16 @@ everyone's new files; others send the line) and `shaders/compiled/` (WS-A and WS
 
 ## 5. B1 integration notes (WS-D, 2026-11-27)
 
-**Controls (`ttz --map city --game`).** Build bar (bottom right) or hotkeys: Z rifle squad, X MG squad, C sniper,
-V ammo container (T rotates), B ammo airdrop. LMB places with a live preview (green = valid, red + reason = refused;
-nothing is charged for a refused spot). LMB click / box drag selects squads (Shift adds), 1..9 select squad N, Tab
-cycles, Esc cancels the tool / clears the selection. RMB click = move order (Shift+RMB runs), RMB drag still pans
-(OWNER question 4 kept as proposed), H halts. F1 shows the debug panel (off by default in `--game`).
+**Controls (`ttz --map city --game`; owner round 15 #11, 2026-11-28).** Command bar (bottom): **1-7** pick the cards of
+the active tab in order (the number is drawn on each card; no letter hotkeys for cards any more), **Tab / Shift+Tab** next /
+previous tab (Units, Structures, Supplies, Engineering, Vehicles). LMB places with a live preview (green = valid, red +
+reason = refused; nothing is charged for a refused spot); Shift keeps the tool. **Q / E**: while a placement tool is
+active they only rotate the placement (container, gate; T = 90 deg), never the camera; otherwise they turn the camera.
+LMB click / box drag selects squads (Shift adds), **Ctrl+1-9** selects squad N (Ctrl+Shift adds), **.** (period) next
+squad. RMB click = move order (Shift+RMB runs), RMB drag pans, H halts. LMB / RMB on an object with a default action
+(a defense tower with shooters selected: occupy) runs it. **Esc** cancels the tool, else clears the selection, else
+opens the pause menu (Resume / Quit); Esc never quits directly. G garrisons (building selected), Ctrl+Z undoes the
+newest unfinished build. F1 shows the debug panel (off by default in `--game`).
 
 **Economy.** Base income credited per tick, ledgered once per second; kill rewards per `KillCause` with seq dedupe;
 ring-overflow kills paid anonymously; one-time purchases; no upkeep, no refunds. Explosion kills pay
@@ -975,7 +980,7 @@ info panel never overlaps the menu. HUD 2 (`src/game/HudBar.cpp`, part of `GameU
 - **Notification feed** (top right, under the top bar): compact, fading, deduplicated (`x3`); entries with a position
   (breach, squad under attack, out of ammo, gas, building events) are clickable and move the camera there.
 - **Command bar** (bottom centre): category tabs **Units / Structures / Supplies / Engineering / Vehicles** (Vehicles greyed,
-  "coming later"); each tab shows icon cards (voxel-style icon, name, cost, hotkey badge; tooltip with description / stats;
+  "coming later"); each tab shows icon cards (voxel-style icon, name, cost, number-key badge 1-7; tooltip with description / stats;
   greyed when unaffordable or unavailable, with the reason). Cards never clip: when they do not fit, the row scrolls
   (arrows or mouse wheel over the bar). Sizes scale with the DPI / `--ui-scale F`.
 - **Selection panel** (left, always above the command bar): squad class icon, members with health / ammo / stamina bars,
@@ -991,6 +996,9 @@ info panel never overlaps the menu. HUD 2 (`src/game/HudBar.cpp`, part of `GameU
   every size on a Mac, which pushed the build bar off screen); `--ui-scale F` overrides.
 - **World hover menus**: providers fill a small menu for the object under the cursor (e.g. a parked car with engineers
   selected); the menu stays open while the cursor moves onto it.
+  Fixed sizes (owner round 15 #2): the command bar is always 7 card slots wide (more cards scroll, fewer leave empty
+  slots), the selection panel has a fixed height (8 member rows / 6 squad rows, 2 button rows; more buttons become icon
+  buttons, a long member list scrolls), notification rows have a fixed width. Sizes live in `hudsz` (HudBar.cpp).
 
 ### Registration API (`src/game/UiActions.h`, `GameUI`)
 
@@ -1003,7 +1011,7 @@ Features never edit the layout; they register at init (where `GameWorld` install
 UiAction a;
 a.id = "struct.tower"; a.category = UiCategory::Structures; a.label = "Defense tower"; a.icon = UiIcon::Tower;
 a.cost = [](const UiCtx& u) { return u.ctx.cfg->towers.price; };
-a.hotkey = SDLK_O;                                  // optional; fires onSelect (Shift allowed, never with Ctrl)
+// no letter hotkey: the card's position in its tab gives its number key (1-7, drawn on the card)
 a.onSelect = [](const UiCtx& u) { u.ui.beginTargeting("Defense tower", "LMB place | Q/E rotate", [](const UiCtx& u, V3 p) {
     Command c; /* ... */ u.out.push(c); }); };
 a.enabled = [](const UiCtx& u, std::string* why) { if (!hasEngineers(u.ctx)) { *why = "Needs engineers"; return false; } return true; };
