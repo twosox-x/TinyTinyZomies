@@ -24,6 +24,7 @@ namespace game { class GameWorld; }
 struct AppOptions {
     int traceEvery = 0;           // headless: log stats every N frames
     bool headless = false;
+    bool noAudio = false;          // --no-audio: sound off (all audio calls become no-ops)
     int width = 1600, height = 900;
     std::string screenshot;       // save a PNG after `frames` frames, then exit
     int frames = -1;              // run this many frames then exit (-1 = interactive)

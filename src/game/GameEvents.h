@@ -37,12 +37,24 @@ struct NoiseEvent {
 enum class FxKind : uint8_t { Shot, Footstep, BodyFall, Landing, CrateTouch, Impact, Flame /* flamethrower spray: pos nozzle, dir */ };
 struct FxEvent { FxKind kind; SoldierId soldier; V3 pos, dir; };
 
+// Sound-only cues (sessionD/sound, agreed with A): events that have no other source on this bus. Producers push them in
+// their own modules; GameAudioBridge consumes and clears them at the end of every tick. Missing cues are simply silent.
+enum class AudioCueKind : uint8_t {
+    ZombieAggro, ZombieAttack, ZombieReanimate, ZombieRoofFall,
+    SoldierHurt, SoldierDeath, CalloutContact, CalloutAmmo, CalloutKill, CalloutPanic, CalloutOrder,
+    Reload, EmptyClick, ImpactMetal, ImpactConcrete, ImpactWood,
+    AlertAttack, AlertBreach, AlertCasualty, AlertAmmo,
+    GenStart, GenStop, GenOutOfFuel, StructureCollapse, TowerCreak, PlaneFlyover, ChuteDeploy, ContainerLand, Radio
+};
+struct AudioCue { AudioCueKind kind; V3 pos; float intensity = 1.f; };
+
 struct TickEvents {
     std::vector<ShotEvent> shots;
     std::vector<KillEvent> kills;
     std::vector<NoiseEvent> noise;
     std::vector<FxEvent> fx;
-    void clear() { shots.clear(); kills.clear(); noise.clear(); fx.clear(); }
+    std::vector<AudioCue> cues;
+    void clear() { shots.clear(); kills.clear(); noise.clear(); fx.clear(); cues.clear(); }
 };
 
 } // namespace ttz::game

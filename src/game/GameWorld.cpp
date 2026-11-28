@@ -1,5 +1,6 @@
 // GameWorld: integration of the gameplay modules (WS-D owns this file). Tick order: see GameWorld.h.
 #include "game/GameWorld.h"
+#include "audio/GameAudioBridge.h"   // [SOUND HOOK]
 
 #include "app/App.h"
 #include "game/BuildingGame.h"
@@ -323,9 +324,11 @@ void GameWorld::tick(AppState& app) {
         std::vector<TerritoryNotice> tn;
         fort_.takeNotices(tn);
         for (const TerritoryNotice& n : tn) ui_.notify(n.text, n.bad, ctx_.time);
+        for (const TerritoryNotice& n : tn) if (n.bad) events_.cues.push_back({AudioCueKind::AlertBreach, {n.x, 0.f, n.z}, 1.f});   // [SOUND HOOK] breach / territory lost
     }
     economy_.tick(ctx_);                                       // h
     if (script_.loaded() && !script_.tick(*this, ctx_.time)) finished_ = true;   // i
+    audio::bridgeTick(app, events_, soldiers_);                           // [SOUND HOOK] TickEvents -> audio (consumes cues)
     ctx_.time += kTickDt;
     ++ctx_.tick;
     tickMs_ = nowMs() - t0;

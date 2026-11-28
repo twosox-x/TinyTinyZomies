@@ -1,0 +1,552 @@
+<meta charset="utf-8">
+<title>Mini Dead Sound Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: field-manual sound board — sticky control strip (camera / master / A-B), scene row, then category sections of sound cards. */
+:root {
+  --bg: #eef0e6; --panel: #ffffff; --ink: #22261d; --muted: #646b58; --line: #d3d7c6;
+  --olive: #4f5d2f; --accent: #d9661f; --accent-ink: #ffffff; --chip: #e4e8d6; --on: #2f6b3a;
+  --f-display: "Big Shoulders Stencil Display", "Impact", "Arial Narrow", sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161912; --panel: #1f2319; --ink: #e6e9dc; --muted: #9aa18b; --line: #343a2b;
+  --olive: #a9bb73; --accent: #f08a3e; --accent-ink: #1a1208; --chip: #2a3021; --on: #7fcf8c; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161912; --panel: #1f2319; --ink: #e6e9dc; --muted: #9aa18b; --line: #343a2b;
+  --olive: #a9bb73; --accent: #f08a3e; --accent-ink: #1a1208; --chip: #2a3021; --on: #7fcf8c; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--f-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--panel); }
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.top { padding-block: 28px 12px; }
+h1 { font: 800 clamp(2.1rem, 5vw, 3.4rem)/0.95 var(--f-display); letter-spacing: 0.01em; margin: 0; text-wrap: balance; color: var(--olive); }
+.lede { max-width: 68ch; color: var(--muted); margin: 10px 0 0; }
+.lede b { color: var(--ink); font-weight: 600; }
+.strip { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--panel); border-block: 1px solid var(--line); }
+.strip .wrap { display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: center; padding-block: 10px; }
+.ctl { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ctl label { font: 500 11px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.ctl input[type=range] { width: 150px; accent-color: var(--accent); }
+.cam { flex: 1 1 320px; }
+.cam input[type=range] { flex: 1; min-width: 120px; }
+.camread { font: 12px var(--f-mono); color: var(--ink); min-width: 9ch; font-variant-numeric: tabular-nums; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: 600 12px var(--f-body); padding: 6px 10px; cursor: pointer; }
+.seg button[aria-pressed=true] { background: var(--olive); color: var(--panel); }
+button { font-family: var(--f-body); }
+.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 6px; padding: 6px 12px; font: 600 13px var(--f-body); cursor: pointer; }
+.btn:hover { border-color: var(--olive); }
+.btn.stop { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.meter { height: 6px; width: 90px; background: var(--chip); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 60ms linear; }
+h2 { font: 700 1.6rem/1 var(--f-display); letter-spacing: 0.02em; margin: 0; color: var(--ink); }
+.sec { padding-block: 26px 6px; display: grid; gap: 12px; }
+.sechead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sechead span { font: 12px var(--f-mono); color: var(--muted); }
+.scenes { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.scene { text-align: left; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 12px 14px; cursor: pointer; display: grid; gap: 4px; }
+.scene strong { font: 700 1.15rem/1.1 var(--f-display); letter-spacing: 0.02em; }
+.scene small { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+.scene.playing { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
+.scene .cam-tag { font: 11px var(--f-mono); color: var(--olive); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.card.playing { border-color: var(--accent); }
+.card h3 { margin: 0; font: 600 15px/1.25 var(--f-body); display: flex; justify-content: space-between; gap: 8px; }
+.card h3 .id { font: 11px var(--f-mono); color: var(--muted); font-weight: 400; }
+.card p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.45; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.play { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px; padding: 6px 12px; font: 600 13px var(--f-body); cursor: pointer; }
+.play.loop[aria-pressed=true] { background: var(--on); color: var(--panel); }
+.v { border: 1px solid var(--line); background: var(--chip); color: var(--ink); border-radius: 5px; font: 500 12px var(--f-mono); padding: 4px 8px; cursor: pointer; min-width: 30px; }
+.v:hover { border-color: var(--olive); }
+.src { font: 11px/1.45 var(--f-mono); color: var(--muted); overflow-wrap: anywhere; }
+.src a { color: var(--olive); }
+.ab { margin-left: auto; }
+.note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--panel); font-size: 13.5px; max-width: 80ch; }
+footer { padding-block: 30px 50px; color: var(--muted); font-size: 13px; }
+.mpanel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.mpanel .ctl input[type=range] { width: 140px; }
+.mstate { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; }
+.mstate div { display: grid; gap: 2px; min-width: 0; }
+.mstate .k { font: 500 11px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.mstate b { font: 600 14px var(--f-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#mGraph { width: 100%; height: 110px; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+@media (max-width: 520px) { .ctl input[type=range] { width: 110px; } .strip .wrap { gap: 10px 16px; } }
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+
+<header class="top wrap">
+  <h1>Night of the Mini Dead — Sound Board</h1>
+  <p class="lede">Phase 1 preview for Tiny Tiny Zombies. Every sound is built from <b>real CC0 recordings</b> (OpenGameArt) and given a deliberate miniature treatment per category. Use <b>Mini / Original</b> to hear what the treatment does, and the <b>camera height</b> slider while a scene plays: close up you hear individual squeaky soldiers, high up it all melts into a swarm roar.</p>
+</header>
+
+<div class="strip">
+  <div class="wrap">
+    <div class="ctl"><label for="vol">Master</label><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></div>
+    <div class="ctl cam"><label for="cam">Camera height</label><input id="cam" type="range" min="0" max="1" step="0.01" value="0.25"><span class="camread" id="camread">12 m</span></div>
+    <div class="ctl"><label>Treatment</label><div class="seg" role="group" aria-label="Treatment"><button id="abMini" aria-pressed="true">Mini</button><button id="abOrig" aria-pressed="false">Original</button></div></div>
+    <div class="ctl"><div class="meter" aria-hidden="true"><i id="meter"></i></div><button class="btn stop" id="stopAll">Stop all</button></div>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="sec">
+    <div class="sechead"><h2>Scenes</h2><span>layered the way they would mix in play · scenes keep running until stopped</span></div>
+    <div class="scenes" id="scenes"></div>
+  </section>
+  <section class="sec" id="music">
+    <div class="sechead"><h2>Adaptive music</h2><span>The Infection ↔ The Last Stand · tracks used as supplied</span></div>
+    <p class="lede" style="margin:0">Intensity comes from what the battle reports: shots, zombie kills, explosions, live zombies while fighting, casualties and breaches. Here the scenes feed it the same way the game does; switch to Manual to drive it yourself. Escalation needs sustained intensity, de-escalation is slower, and every switch waits for the next bar and crossfades.</p>
+    <div class="mpanel">
+      <div class="row">
+        <button class="play" id="mPlay">▶ Play music</button>
+        <div class="seg" role="group" aria-label="Intensity source"><button id="mAuto" aria-pressed="true">Auto (scenes)</button><button id="mManual" aria-pressed="false">Manual</button></div>
+        <div class="ctl"><label for="mInt">Intensity</label><input id="mInt" type="range" min="0" max="1" step="0.01" value="0.1" disabled></div>
+        <div class="ctl"><label for="mVol">Music volume</label><input id="mVol" type="range" min="-30" max="0" step="1" value="-9"><span class="camread" id="mVolRead">−9 dB</span></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="mEsc">Preview escalation</button>
+        <button class="btn" id="mDeesc">Preview de-escalation</button>
+        <button class="btn" id="mSeam">Preview loop seam</button>
+      </div>
+      <div class="mstate">
+        <div><span class="k">Playing</span><b id="mTrack">—</b></div>
+        <div><span class="k">State</span><b id="mState">stopped</b></div>
+        <div><span class="k">Intensity</span><b id="mI">0.00</b></div>
+        <div><span class="k">Position</span><b id="mPos">—</b></div>
+      </div>
+      <canvas id="mGraph" width="900" height="110" aria-label="Intensity over the last 90 seconds with escalation and de-escalation thresholds"></canvas>
+      <p class="src" id="mCfg"></p>
+    </div>
+  </section>
+  <div id="cats"></div>
+  <section class="sec">
+    <div class="sechead"><h2>Notes for review</h2></div>
+    <div class="note">Adaptive music: press Play music, then run the squad firefight scene. The Last Stand should come in after about 30–45 s of sustained fighting and give way to The Infection about 40 s after the scene stops. Horde: zoomed out it is now quieter and muffled. Not yet found as CC0: a recorded <b>"Ammo!"</b> callout (stand-ins: "Reloading!", "Call for backup!"). The UI set was expanded after review: 25 tactile switch / latch sounds, including a chirp per squad class. Loudness: each sound is levelled to a per-category target (gunfire −13, explosions −11, chain −9, voices −15, zombies −19, footsteps −24, ambience loops −26 LUFS-ish); the page has a master limiter.</div>
+  </section>
+</main>
+<footer class="wrap">All source recordings: CC0 1.0 from OpenGameArt.org; full per-file list in <code>assets/audio/sources.json</code> and <code>docs/SOUND_SOURCES.md</code> on branch <code>sessionD/sound</code>. Processing: <code>tools/audio/recipes.py</code>.</footer>
+
+<script>
+const ORDER = ["Weapons","Flamethrower","Explosions","Zombies","Soldiers","Supply","Engineering","Structures","Environment","UI"];
+const BLURB = {
+  Weapons: "Transient + body sped up ×1.6–1.9, the full-size outdoor tail cut, replaced by a tight tabletop room.",
+  Flamethrower: "Gas jet + fire roar layered; kept a little lower and broader so it reads as dangerous.",
+  Explosions: "Crack and body pitched up for a satisfying pop, plus a low layer at the original pitch. Single blasts keep it subtle; chain reactions turn it up.",
+  Zombies: "Recorded moans pitched ×1.3: squeaky, still gross. Hordes are many layered voices; the big swarm adds a lowpassed collective roar.",
+  Soldiers: "Voices pitched ×1.42 and sped up ×1.14. Footsteps and kit sped up ×1.7 with a tiny room.",
+  Supply: "Plane sounds like a buzzy RC model but keeps some weight. The container landing is the one supply sound with real low end.",
+  Engineering: "Workshop and tool recordings sped up ×1.4–1.5.",
+  Structures: "Timber creaks, a small buzzy generator, floodlight hum.",
+  Environment: "Gentler treatment; far elements lowpassed and roomy.",
+  UI: "Tactile miniature controls: model-kit toggle switches, little metal latches and ratchets (x1.2–1.5), each with a small low thump underneath so they never sound thin. Dry and hard-cut at 50–150 ms; alerts and stings run longer."
+};
+let SOUNDS = {}, ctx, master, limiter, analyser, nearBus, farBus, ambBus, nearLP, farLP;
+const buffers = {};
+let mode = "mini";
+let cam = 0.25;
+const active = new Set();      // {stop()} handles
+const loopHandles = {};        // id -> handle (card loop toggles)
+
+function ensureCtx() {
+  if (ctx) return;
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  master = ctx.createGain(); master.gain.value = +document.getElementById("vol").value;
+  limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -6; limiter.knee.value = 4; limiter.ratio.value = 12; limiter.attack.value = 0.002; limiter.release.value = 0.15;
+  analyser = ctx.createAnalyser(); analyser.fftSize = 512;
+  master.connect(limiter); limiter.connect(analyser); analyser.connect(ctx.destination);
+  nearLP = ctx.createBiquadFilter(); nearLP.type = "lowpass";
+  farLP = ctx.createBiquadFilter(); farLP.type = "lowpass";
+  nearBus = ctx.createGain(); farBus = ctx.createGain(); ambBus = ctx.createGain();
+  nearBus.connect(nearLP); nearLP.connect(master);
+  farBus.connect(farLP); farLP.connect(master);
+  ambBus.connect(master);
+  applyCam(true);
+  meterLoop();
+}
+
+function meterLoop() {
+  const d = new Float32Array(analyser.fftSize);
+  const m = document.getElementById("meter");
+  (function tick() {
+    analyser.getFloatTimeDomainData(d);
+    let p = 0; for (const v of d) p = Math.max(p, Math.abs(v));
+    m.style.width = Math.min(100, p * 110) + "%";
+    requestAnimationFrame(tick);
+  })();
+}
+
+// camera height 0 = right above soldiers, 1 = high strategic view
+function applyCam(instant) {
+  const h = cam, t = ctx ? ctx.currentTime : 0, r = instant ? 0.001 : 0.15;
+  document.getElementById("camread").textContent = Math.round(4 + h * h * 116) + " m";
+  if (!ctx) return;
+  const nearG = Math.pow(1 - h, 1.6) * 1.0 + 0.04;        // individual voices / shots fade with height
+  // owner feedback: far away the swarm must get quieter and muffled, never louder. It takes over from the individual
+  // voices as the camera rises, but its own level falls with height and it is lowpassed down to ~1 kHz.
+  const farG = (0.15 + 0.85 * h) * (1 - 0.55 * h);
+  const nearCut = 18000 * Math.pow(1 - h, 2) + 1400;      // distance air absorption on individual sounds
+  const farCut = 1000 + 8000 * Math.pow(1 - h, 2);
+  nearBus.gain.setTargetAtTime(nearG, t, r); farBus.gain.setTargetAtTime(farG, t, r);
+  ambBus.gain.setTargetAtTime(1 - 0.35 * h, t, r);
+  nearLP.frequency.setTargetAtTime(nearCut, t, r); farLP.frequency.setTargetAtTime(farCut, t, r);
+}
+
+async function buf(id, orig) {
+  const key = id + (orig ? "_o" : "");
+  if (!buffers[key]) buffers[key] = fetch("a/" + key + ".mp3").then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b));
+  return buffers[key];
+}
+
+function sliceBuffer(b, off, dur) {
+  const a = Math.floor(off * b.sampleRate), n = Math.min(b.length - a, Math.floor(dur * b.sampleRate));
+  const o = ctx.createBuffer(b.numberOfChannels, n, b.sampleRate);
+  for (let c = 0; c < b.numberOfChannels; c++) o.copyToChannel(b.getChannelData(c).subarray(a, a + n), c);
+  return o;
+}
+
+// play(id, {v, bus, gain(dB), pan, loop, rate, when})
+async function play(id, o = {}) {
+  ensureCtx();
+  const s = SOUNDS[id]; if (!s) return null;
+  noteMusic(id);
+  const orig = (o.mode || mode) === "orig";
+  const b = await buf(id, orig);
+  let off, dur;
+  if (orig) { [off, dur] = s.orig; }
+  else { const v = o.v ?? Math.floor(Math.random() * s.offsets.length); [off, dur] = s.offsets[v % s.offsets.length]; }
+  const src = ctx.createBufferSource();
+  const g = ctx.createGain(); g.gain.value = Math.pow(10, (o.gain || 0) / 20);
+  const p = ctx.createStereoPanner(); p.pan.value = o.pan || 0;
+  src.connect(g); g.connect(p); p.connect(o.bus || master);
+  if (o.rate) src.playbackRate.value = o.rate;
+  const when = ctx.currentTime + (o.when || 0);
+  if (o.loop) { src.buffer = sliceBuffer(b, off, dur); src.loop = true; src.start(when); g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(Math.pow(10, (o.gain || 0) / 20), when + (o.fadeIn ?? 0.4)); }
+  else { src.buffer = b; src.start(when, off, dur + 0.05); }
+  const h = { src, g, stop(f = 0.25) { try { const t = ctx.currentTime; g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0, t, f / 3); src.stop(t + f + 0.05); } catch (e) {} active.delete(h); } };
+  active.add(h);
+  src.onended = () => active.delete(h);
+  return h;
+}
+
+// ---------------- adaptive music (mirrors src/audio/Music.cpp, same music.json) ----------------
+let MCFG = null, MUS = null, sceneLive = 0, mMode = "auto";
+const mIn = { shot: 0, kill: 0, expl: 0, cas: 0, breach: 0 }, mRate = { shot: 0, kill: 0, expl: 0, cas: 0, breach: 0 };
+const mHist = [];
+function noteMusic(id) {
+  if (/^(rifle_|mg_|sniper_|carbine_)/.test(id)) mIn.shot += id === "rifle_burst" ? 4 : id === "mg_sustained" ? 10 : 1;
+  else if (id === "zombie_death") mIn.kill++;
+  else if (id === "car_explosion") mIn.expl++;
+  else if (id === "chain_explosion") mIn.expl += 4;
+  else if (id === "vo_death" || id === "alert_casualty") mIn.cas++;
+  else if (id === "alert_breach") mIn.breach++;
+}
+const dB = v => Math.pow(10, v / 20);
+fetch("m/music.json").then(r => r.json()).then(c => {
+  MCFG = c; const d = c.director;
+  document.getElementById("mVol").value = c.musicVolumeDb;
+  document.getElementById("mVolRead").textContent = c.musicVolumeDb + " dB";
+  document.getElementById("mCfg").textContent = `Config (assets/audio/music/music.json): escalate above ${d.escalateAbove} for ${d.escalateHold} s · de-escalate below ${d.deescalateBelow} for ${d.deescalateHold} s · at least ${d.minTimeOnTrack} s per track · crossfade ${d.escalateBars} bars up / ${d.deescalateBars} bars down (bar = 2.6 s at 92.3 BPM) · loops: ` +
+    c.tracks.map(t => `${t.title} ${t.loopStart.toFixed(1)}–${t.loopEnd.toFixed(1)} s`).join(", ") + ".";
+});
+
+function trackPos(t) {   // seconds in the file, following the loop
+  let p = t.offset + (ctx.currentTime - t.t0);
+  const L = t.cfg.loopEnd - t.cfg.loopStart;
+  if (p >= t.cfg.loopEnd) p = t.cfg.loopStart + ((p - t.cfg.loopStart) % L);
+  return p;
+}
+function startSource(t, offset, when) {
+  if (t.src) try { t.src.stop(); } catch (e) {}
+  const s = ctx.createBufferSource(); s.buffer = t.buf; s.loop = true; s.loopStart = t.cfg.loopStart; s.loopEnd = t.cfg.loopEnd;
+  s.connect(t.gain); s.start(when, offset); t.src = s; t.offset = offset; t.t0 = when;
+}
+async function musicStart() {
+  ensureCtx();
+  if (MUS) return;
+  document.getElementById("mState").textContent = "loading…";
+  const bus = ctx.createGain(); bus.gain.value = dB(+document.getElementById("mVol").value);
+  const duck = ctx.createGain(); bus.connect(duck); duck.connect(master);
+  const side = ctx.createAnalyser(); side.fftSize = 1024; nearBus.connect(side); farBus.connect(side);
+  const tracks = await Promise.all(MCFG.tracks.map(async cfg => {
+    const b = await fetch("m/" + cfg.file.replace(".ogg", ".mp3")).then(r => r.arrayBuffer()).then(a => ctx.decodeAudioData(a));
+    const g = ctx.createGain(); g.gain.value = 0; g.connect(bus);
+    return { cfg, buf: b, gain: g, bar: 60 / cfg.bpm * cfg.beatsPerBar, src: null, offset: 0, t0: 0 };
+  }));
+  const now = ctx.currentTime + 0.1;
+  tracks.forEach(t => startSource(t, t.cfg.entryPoint, now));   // both run (continuity); gains pick the audible one
+  tracks[0].gain.gain.setValueAtTime(dB(tracks[0].cfg.gainDb), now);
+  MUS = { tracks, bus, duck, side, active: 0, I: 0, raw: 0, above: 0, below: 0, onTrack: 0, busyUntil: 0, pending: null, sideBuf: new Float32Array(1024), maxI: 0 };
+  document.getElementById("mPlay").textContent = "■ Stop music";
+}
+function musicStop() {
+  if (!MUS) return;
+  MUS.tracks.forEach(t => { try { t.src.stop(); } catch (e) {} });
+  MUS.bus.disconnect(); MUS = null;
+  document.getElementById("mPlay").textContent = "▶ Play music";
+  document.getElementById("mState").textContent = "stopped"; document.getElementById("mTrack").textContent = "—";
+}
+function curve(up) { const n = 64, a = new Float32Array(n); for (let i = 0; i < n; i++) { const u = i / (n - 1); a[i] = up ? Math.sin(u * Math.PI / 2) : Math.cos(u * Math.PI / 2); } return a; }
+function musicSchedule(to, bars, why) {
+  if (!MUS || to === MUS.active || to < 0 || to >= MUS.tracks.length || MUS.pending) return;
+  const a = MUS.tracks[MUS.active], b = MUS.tracks[to];
+  const p = trackPos(a), o = a.cfg.gridOrigin;
+  let nb = o + Math.ceil((p - o) / a.bar - 1e-6) * a.bar; if (nb > a.cfg.loopEnd) nb = a.cfg.loopEnd;
+  const t0 = ctx.currentTime + Math.max(0.02, nb - p), len = bars * b.bar;
+  // incoming track joins on its own bar line
+  let q = trackPos(b) + (t0 - ctx.currentTime); const ob = b.cfg.gridOrigin;
+  q = ob + Math.ceil((q - ob) / b.bar - 1e-6) * b.bar; if (q >= b.cfg.loopEnd) q = b.cfg.loopStart;
+  startSource(b, q, t0);
+  const ga = dB(a.cfg.gainDb), gb = dB(b.cfg.gainDb);
+  a.gain.gain.cancelScheduledValues(t0); b.gain.gain.cancelScheduledValues(t0);
+  a.gain.gain.setValueCurveAtTime(curve(false).map(v => v * ga), t0, len);
+  b.gain.gain.setValueCurveAtTime(curve(true).map(v => v * gb), t0, len);
+  MUS.pending = { to, t0, len, why };
+}
+function musicTick(dt) {
+  // rates (EMA over rateWindow) -> raw intensity, same weights as the game
+  const c = MCFG.intensity, k = 1 - Math.exp(-dt / c.rateWindow);
+  for (const key in mIn) { mRate[key] += (mIn[key] / dt - mRate[key]) * k; mIn[key] = 0; }
+  const term = (v, x) => Math.min(1, v / x.full) * x.weight;
+  let raw = term(mRate.shot, c.shotsPerSec) + term(mRate.kill, c.zombieKillsPerSec) + term(mRate.expl * 60, c.explosionsPerMin)
+          + term(mRate.cas * 60, c.casualtiesPerMin) + term(mRate.breach * 60, c.breachesPerMin);
+  if (mRate.shot > 1) raw += term(sceneLive, c.liveZombies);
+  if (!MUS) { mHist.push([0, Math.min(1, raw)]); if (mHist.length > 900) mHist.shift(); drawGraph(); return; }
+  const d = MCFG.director, M = MUS;
+  M.raw = mMode === "manual" ? +document.getElementById("mInt").value : Math.min(1, raw);
+  M.I += (M.raw - M.I) * (1 - Math.exp(-dt / (M.raw > M.I ? c.rise : c.fall)));
+  M.onTrack += dt;
+  M.above = (M.I > d.escalateAbove && M.raw > d.escalateAbove) ? M.above + dt : 0;
+  M.below = M.I < d.deescalateBelow ? M.below + dt : 0;
+  if (M.pending && ctx.currentTime >= M.pending.t0 + M.pending.len) { M.active = M.pending.to; M.pending = null; M.onTrack = 0; M.above = M.below = 0; }
+  if (!M.pending && M.onTrack >= d.minTimeOnTrack) {
+    if (M.above >= d.escalateHold && M.active + 1 < M.tracks.length) musicSchedule(M.active + 1, d.escalateBars, "sustained intensity");
+    else if (M.below >= d.deescalateHold && M.active > 0) musicSchedule(M.active - 1, d.deescalateBars, "battlefield quiet");
+  }
+  // ducking: battlefield peak pushes the music down (sfx and voices stay on top)
+  M.side.getFloatTimeDomainData(M.sideBuf); let pk = 0; for (const v of M.sideBuf) pk = Math.max(pk, Math.abs(v));
+  const du = MCFG.duck, want = pk > du.threshold ? dB(du.depthDb * Math.min(1, pk / 0.5)) : 1;
+  M.duck.gain.setTargetAtTime(want, ctx.currentTime, want < M.duck.gain.value ? du.attack / 3 : du.release / 3);
+  // readout
+  const a = M.tracks[M.active];
+  document.getElementById("mTrack").textContent = M.pending && ctx.currentTime >= M.pending.t0 ? `${a.cfg.title} → ${M.tracks[M.pending.to].cfg.title}` : a.cfg.title;
+  let st;
+  if (M.pending) st = ctx.currentTime < M.pending.t0 ? `waiting for the bar line (${(M.pending.t0 - ctx.currentTime).toFixed(1)} s)` : `crossfading ${Math.round(M.pending.len / a.bar)} bars (${M.pending.why})`;
+  else if (M.onTrack < d.minTimeOnTrack) st = `settling (${Math.ceil(d.minTimeOnTrack - M.onTrack)} s before a switch is allowed)`;
+  else if (M.above > 0 && M.active + 1 < M.tracks.length) st = `escalating if sustained (${M.above.toFixed(0)} / ${d.escalateHold} s)`;
+  else if (M.below > 0 && M.active > 0) st = `calming down (${M.below.toFixed(0)} / ${d.deescalateHold} s)`;
+  else st = "holding";
+  document.getElementById("mState").textContent = st;
+  document.getElementById("mI").textContent = `${M.I.toFixed(2)} (live ${M.raw.toFixed(2)})`;
+  const p = trackPos(a); document.getElementById("mPos").textContent = `${Math.floor(p / 60)}:${String(Math.floor(p % 60)).padStart(2, "0")} · loop ${a.cfg.loopStart.toFixed(0)}–${a.cfg.loopEnd.toFixed(0)} s`;
+  mHist.push([M.active, M.I]); if (mHist.length > 900) mHist.shift();
+  drawGraph();
+}
+function drawGraph() {
+  const cv = document.getElementById("mGraph"), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue(n).trim();
+  g.clearRect(0, 0, W, H);
+  if (!MCFG) return;
+  const y = v => H - 8 - v * (H - 16);
+  g.lineWidth = 1; g.setLineDash([4, 4]); g.font = "11px IBM Plex Mono, monospace"; g.fillStyle = col("--muted");
+  for (const [v, lbl] of [[MCFG.director.escalateAbove, "escalate"], [MCFG.director.deescalateBelow, "de-escalate"]]) {
+    g.strokeStyle = col("--line"); g.beginPath(); g.moveTo(0, y(v)); g.lineTo(W, y(v)); g.stroke(); g.fillText(lbl + " " + v, 6, y(v) - 4);
+  }
+  g.setLineDash([]);
+  const n = mHist.length, x = i => W - (n - 1 - i) * (W / 900);
+  for (let i = 1; i < n; i++) {   // colour by playing track
+    g.strokeStyle = mHist[i][0] ? col("--accent") : col("--olive"); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x(i - 1), y(mHist[i - 1][1])); g.lineTo(x(i), y(mHist[i][1])); g.stroke();
+  }
+}
+setInterval(() => { if (MCFG) musicTick(0.1); }, 100);
+
+// ---------------- scenes ----------------
+const R = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+let sceneRun = null;
+
+function every(min, max, fn, state) {
+  const loop = () => { if (state.dead) return; fn(); state.timers.push(setTimeout(loop, R(min, max) * 1000)); };
+  state.timers.push(setTimeout(loop, R(0, max) * 1000));
+}
+function at(sec, fn, state) { state.timers.push(setTimeout(() => !state.dead && fn(), sec * 1000)); }
+
+const N = () => nearBus, F = () => farBus, A = () => ambBus;
+const SCENES = [
+  { id: "day", name: "Quiet day street", cam: 0.25, desc: "Wind, birds, a patrol walking past, a lone zombie groan, a far-off tiny car alarm.",
+    run(s) {
+      s.loops.push(play("amb_day", { loop: true, bus: A(), gain: 0 }));
+      every(5, 9, () => play("steps_asphalt_walk", { bus: N(), pan: R(-0.6, 0.6), gain: -2 }), s);
+      every(3, 6, () => play("gear_rattle", { bus: N(), pan: R(-0.5, 0.5), gain: -4 }), s);
+      every(4, 8, () => play("zombie_idle", { bus: N(), pan: R(-1, 1), gain: -6 }), s);
+      every(10, 16, () => play("radio_chirp", { bus: N(), pan: R(-0.3, 0.3), gain: -6 }), s);
+      at(7, () => play("car_alarm", { bus: F(), pan: 0.7, gain: -10 }), s);
+    } },
+  { id: "fight", name: "Squad firefight · zoomed in", cam: 0.12, desc: "Rifle squad + MG against a street horde. Individual shots, callouts, reloads, hits and zombie snarls.", run: s => firefight(s) },
+  { id: "fightfar", name: "Same fight · zoomed out", cam: 0.9, desc: "Identical scene from high up: the individual layer fades and the swarm roar takes over.", run: s => firefight(s) },
+  { id: "night", name: "Night base", cam: 0.3, desc: "Crickets, generator chugging, floodlight hum, a sniper picking off stragglers, radio.",
+    run(s) {
+      s.loops.push(play("amb_night", { loop: true, bus: A(), gain: 0 }));
+      s.loops.push(play("gen_run", { loop: true, bus: N(), pan: -0.4, gain: -4 }));
+      s.loops.push(play("floodlight_hum", { loop: true, bus: N(), pan: 0.3, gain: 0 }));
+      every(5, 10, () => { play("sniper_suppressed", { bus: N(), pan: 0.2 }); play("zombie_death", { bus: F(), pan: R(-1, 1), gain: -10, when: 0.25 }); }, s);
+      every(7, 12, () => play("radio_chirp", { bus: N(), pan: -0.1, gain: -4 }), s);
+      every(4, 7, () => play("zombie_idle", { bus: F(), pan: R(-1, 1), gain: -8 }), s);
+      every(9, 15, () => play("tower_creak", { bus: N(), pan: 0.5, gain: -6 }), s);
+    } },
+  { id: "chain", name: "Car-explosion chain", cam: 0.35, desc: "A shot hits a car: single blast, then the chain reaction, fire, debris, panicked soldiers, burning wrecks.",
+    run(s) {
+      s.loops.push(play("amb_day", { loop: true, bus: A(), gain: -6 }));
+      at(0.1, () => play("rifle_burst", { bus: N(), pan: -0.4 }), s);
+      at(0.6, () => play("impact_metal", { bus: N(), pan: 0.3 }), s);
+      at(1.0, () => play("car_explosion", { bus: N(), pan: 0.3 }), s);
+      at(1.1, () => play("fire_whoosh", { bus: N(), pan: 0.3, gain: -3 }), s);
+      at(2.4, () => play("chain_explosion", { bus: N(), pan: 0 }), s);
+      at(2.4, () => play("chain_explosion", { bus: F(), pan: 0, gain: -6 }), s);
+      at(3.3, () => play("vo_panic", { bus: N(), pan: -0.5 }), s);
+      at(4.2, () => play("car_alarm", { bus: N(), pan: 0.8, gain: -6 }), s);
+      at(4.6, () => { s.loops.push(play("burning_puddle", { loop: true, bus: N(), pan: 0.2, gain: -2 })); s.loops.push(play("corpse_fire", { loop: true, bus: N(), pan: -0.3, gain: -3 })); }, s);
+      at(5.5, () => play("vo_orders", { bus: N(), pan: -0.3, v: 3 }), s);
+      every(1.5, 3, () => play("debris_rain", { bus: N(), pan: R(-0.5, 0.5), gain: -10 }), s);
+    } },
+  { id: "roof", name: "Zombies falling off a roof", cam: 0.2, desc: "Zombies pushing over a roof edge one after another: fall, splat, and the ones that get back up.",
+    run(s) {
+      s.loops.push(play("horde_small", { loop: true, bus: N(), gain: -6 }));
+      s.loops.push(play("amb_day", { loop: true, bus: A(), gain: -6 }));
+      let t = 0.3;
+      for (let i = 0; i < 6; i++) { const p = R(-0.6, 0.6); at(t, () => play("roof_fall", { bus: N(), pan: p }), s); t += R(0.6, 1.6); }
+      at(t + 0.8, () => play("gore_splat", { bus: N(), pan: 0.2 }), s);
+      at(t + 2.5, () => play("zombie_reanimate", { bus: N(), pan: -0.2 }), s);
+      at(t + 4.0, () => play("zombie_reanimate", { bus: N(), pan: 0.4 }), s);
+      at(t + 1.5, () => play("vo_kill", { bus: N(), pan: -0.6, v: 1 }), s);
+      every(6, 10, () => play("roof_fall", { bus: N(), pan: R(-0.6, 0.6) }), s);
+    } },
+];
+
+function firefight(s) {
+  s.loops.push(play("amb_day", { loop: true, bus: A(), gain: -8 }));
+  s.loops.push(play("horde_medium", { loop: true, bus: N(), gain: -4 }));
+  s.loops.push(play("horde_large", { loop: true, bus: F(), gain: 0 }));
+  s.loops.push(play("squad_march", { loop: true, bus: F(), gain: -10 }));
+  const shooters = [-0.6, -0.35, -0.1, 0.15, 0.4];
+  every(0.18, 0.7, () => play(Math.random() < 0.7 ? "rifle_shot" : "rifle_burst", { bus: N(), pan: pick(shooters), gain: R(-5, 0) }), s);
+  every(2.5, 5, () => play("mg_sustained", { bus: N(), pan: 0.55, gain: -2 }), s);
+  every(0.4, 1.2, () => play(pick(["impact_flesh", "impact_flesh", "impact_concrete", "impact_metal"]), { bus: N(), pan: R(-1, 1), gain: -8 }), s);
+  every(1.2, 2.5, () => play(pick(["zombie_aggro", "zombie_death", "zombie_idle"]), { bus: N(), pan: R(-1, 1), gain: -4 }), s);
+  every(2.0, 4.0, () => play(pick(["vo_contact", "vo_orders", "vo_ammo", "vo_kill", "vo_kill", "vo_panic", "vo_hurt"]), { bus: N(), pan: pick(shooters), gain: -1 }), s);
+  every(3, 6, () => { const p = pick(shooters); play("reload", { bus: N(), pan: p, gain: -4 }); }, s);
+  every(6, 12, () => play("empty_click", { bus: N(), pan: pick(shooters), gain: -4 }), s);
+  every(4, 8, () => play("steps_asphalt_run", { bus: N(), pan: R(-0.5, 0.5), gain: -4 }), s);
+  every(5, 9, () => play("zattack_sandbag", { bus: N(), pan: R(-0.3, 0.3), gain: -6 }), s);
+}
+
+function stopScene() {
+  if (!sceneRun) return;
+  sceneRun.dead = true; sceneRun.timers.forEach(clearTimeout); sceneLive = 0;
+  sceneRun.loops.forEach(p => p.then(h => h && h.stop(0.6)));
+  document.querySelectorAll(".scene").forEach(e => e.classList.remove("playing"));
+  sceneRun = null;
+}
+function stopAll() {
+  stopScene(); musicStop();
+  for (const h of [...active]) h.stop(0.15);
+  for (const k in loopHandles) { delete loopHandles[k]; }
+  document.querySelectorAll(".play.loop").forEach(b => { b.setAttribute("aria-pressed", "false"); b.textContent = "Loop ▶"; });
+}
+
+function startScene(sc, el) {
+  ensureCtx();
+  const was = sceneRun && sceneRun.id === sc.id;
+  stopScene();
+  if (was) return;
+  cam = sc.cam; document.getElementById("cam").value = cam; applyCam();
+  sceneRun = { id: sc.id, dead: false, timers: [], loops: [] };
+  sceneLive = { day: 20, fight: 1500, fightfar: 1500, night: 200, chain: 300, roof: 150 }[sc.id] || 0;   // live zombies the scene implies
+  el.classList.add("playing");
+  sc.run(sceneRun);
+}
+
+// ---------------- UI ----------------
+function setMode(m) {
+  mode = m;
+  document.getElementById("abMini").setAttribute("aria-pressed", m === "mini");
+  document.getElementById("abOrig").setAttribute("aria-pressed", m === "orig");
+}
+
+function esc(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+
+function render() {
+  const sc = document.getElementById("scenes");
+  for (const s of SCENES) {
+    const b = document.createElement("button"); b.className = "scene"; b.id = "scene-" + s.id;
+    b.innerHTML = `<strong>${esc(s.name)}</strong><small>${esc(s.desc)}</small><span class="cam-tag">camera ${Math.round(4 + s.cam * s.cam * 116)} m · click again to stop</span>`;
+    b.onclick = () => startScene(s, b);
+    sc.appendChild(b);
+  }
+  const cats = document.getElementById("cats");
+  for (const c of ORDER) {
+    const list = Object.values(SOUNDS).filter(s => s.cat === c);
+    const sec = document.createElement("section"); sec.className = "sec"; sec.id = "cat-" + c.toLowerCase();
+    sec.innerHTML = `<div class="sechead"><h2>${c}</h2><span>${list.length} sounds</span></div><p class="lede" style="margin:0">${esc(BLURB[c] || "")}</p><div class="grid"></div>`;
+    const grid = sec.querySelector(".grid");
+    for (const s of list) {
+      const card = document.createElement("article"); card.className = "card";
+      const srcs = (s.sources || []).map(x => `<a href="${x.url}" target="_blank" rel="noopener">${esc(x.pack)}</a> (${esc(x.author)}, ${esc(x.license)})`).join(" · ");
+      const vars = s.offsets.map((_, i) => `<button class="v" data-v="${i}" title="variation ${i + 1}">${i + 1}</button>`).join("");
+      card.innerHTML = `<h3>${esc(s.title)}<span class="id">${s.id}</span></h3><p>${esc(s.desc)}</p>
+        <div class="row">${s.loop ? `<button class="play loop" aria-pressed="false">Loop ▶</button>` : `<button class="play">▶ Random</button>`}${vars}
+        <span class="ab seg" role="group" aria-label="A/B for ${esc(s.title)}"><button data-ab="mini" title="Play miniaturised variation 1">A mini</button><button data-ab="orig" title="Play the untreated original">B orig</button></span></div>
+        <div class="src">${srcs}</div>`;
+      const flash = () => { card.classList.add("playing"); setTimeout(() => card.classList.remove("playing"), 400); };
+      const pb = card.querySelector(".play");
+      if (s.loop) {
+        pb.onclick = async () => {
+          if (loopHandles[s.id]) { (await loopHandles[s.id]).stop(0.3); delete loopHandles[s.id]; pb.setAttribute("aria-pressed", "false"); pb.textContent = "Loop ▶"; return; }
+          loopHandles[s.id] = play(s.id, { loop: true }); pb.setAttribute("aria-pressed", "true"); pb.textContent = "Loop ■";
+        };
+      } else pb.onclick = () => { play(s.id); flash(); };
+      card.querySelectorAll(".v").forEach(b => b.onclick = () => { play(s.id, { v: +b.dataset.v, mode: "mini", loop: s.loop && false }); flash(); });
+      card.querySelectorAll("[data-ab]").forEach(b => b.onclick = () => { play(s.id, { v: 0, mode: b.dataset.ab }); flash(); });
+      grid.appendChild(card);
+    }
+    cats.appendChild(sec);
+  }
+}
+
+document.getElementById("vol").oninput = e => { ensureCtx(); master.gain.setTargetAtTime(+e.target.value, ctx.currentTime, 0.05); };
+document.getElementById("cam").oninput = e => { cam = +e.target.value; applyCam(); };
+document.getElementById("abMini").onclick = () => setMode("mini");
+document.getElementById("abOrig").onclick = () => setMode("orig");
+document.getElementById("stopAll").onclick = stopAll;
+document.getElementById("mPlay").onclick = () => MUS ? musicStop() : musicStart();
+function setMMode(m) {
+  mMode = m;
+  document.getElementById("mAuto").setAttribute("aria-pressed", m === "auto");
+  document.getElementById("mManual").setAttribute("aria-pressed", m === "manual");
+  document.getElementById("mInt").disabled = m !== "manual";
+}
+document.getElementById("mAuto").onclick = () => setMMode("auto");
+document.getElementById("mManual").onclick = () => setMMode("manual");
+document.getElementById("mVol").oninput = e => {
+  document.getElementById("mVolRead").textContent = e.target.value + " dB";
+  if (MUS) MUS.bus.gain.setTargetAtTime(dB(+e.target.value), ctx.currentTime, 0.05);
+};
+document.getElementById("mEsc").onclick = async () => { if (!MUS) await musicStart(); if (MUS.active + 1 < MUS.tracks.length) musicSchedule(MUS.active + 1, MCFG.director.escalateBars, "preview"); };
+document.getElementById("mDeesc").onclick = async () => { if (!MUS) await musicStart(); if (MUS.active > 0) musicSchedule(MUS.active - 1, MCFG.director.deescalateBars, "preview"); };
+document.getElementById("mSeam").onclick = async () => {   // jump 6 s before the loop end of the playing track
+  if (!MUS) await musicStart();
+  const a = MUS.tracks[MUS.active]; startSource(a, a.cfg.loopEnd - 6, ctx.currentTime + 0.05);
+  document.getElementById("mState").textContent = "loop seam in 6 s";
+};
+applyCam();
+
+fetch("sounds.json").then(r => r.json()).then(list => { for (const s of list) if (!s.error) SOUNDS[s.id] = s; render(); })
+  .catch(() => { document.getElementById("cats").innerHTML = '<p class="note">Could not load the sound list. Reload the page.</p>'; });
+</script>
