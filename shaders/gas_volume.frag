@@ -113,7 +113,7 @@ void main() {
             d *= 0.6 + 0.8 * gH01(cell * 3 + ivec3(17, 5, 29));   // per-voxel density: the cubes read individually
             vec3 alb = mix(vec3(0.26, 0.38, 0.05), vec3(0.60, 0.68, 0.16), clamp(0.25 + 0.6 * hf + 0.3 * (jit - 0.5), 0.0, 1.0));
             vec3 lit = shade(alb * 1.5, vec3(0.0, 1.0, 0.0), q, 1.0) * (0.5 + 0.5 * hf);   // deep / low inside: darker
-            lit += alb * (0.05 + 0.22 * night);                // faint sickly glow: still reads at night
+            lit += alb * (0.04 + 0.07 * night) * (0.5 + 0.5 * hf) * (0.7 + 0.6 * jit);   // faint sickly glow: reads at night, not a lamp
             if (!any_) { Pfirst = q; any_ = true; }
             acc += T * a * lit;
             T *= 1.0 - a;

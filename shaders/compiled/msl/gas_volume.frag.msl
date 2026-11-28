@@ -467,7 +467,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _115 [[buffer
             float3 param_9 = q;
             float param_10 = 1.0;
             float3 lit = shade(param_7, param_8, param_9, param_10, _115) * (0.5 + (0.5 * hf));
-            lit += (alb * (0.0500000007450580596923828125 + (0.2199999988079071044921875 * night)));
+            lit += (((alb * (0.039999999105930328369140625 + (0.070000000298023223876953125 * night))) * (0.5 + (0.5 * hf))) * (0.699999988079071044921875 + (0.60000002384185791015625 * jit)));
             if (!any_)
             {
                 Pfirst = q;
@@ -496,8 +496,8 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _115 [[buffer
     float3 col = acc / float3(alpha);
     float3 param_11 = col;
     float3 param_12 = Pfirst;
-    float3 _1655 = finish(param_11, param_12, _115);
-    out.outColor = float4(_1655, fast::min(alpha, _938.gStyle.w));
+    float3 _1665 = finish(param_11, param_12, _115);
+    out.outColor = float4(_1665, fast::min(alpha, _938.gStyle.w));
     return out;
 }
 
