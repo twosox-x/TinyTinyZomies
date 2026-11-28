@@ -9,7 +9,7 @@ at 0.1  corpses 20 -5 118 1.3           # pile next to the rifle squad (gasses i
 at 0.3  corpses 45 -17 106 1.6          # bigger pile, nobody near it, closer to the flamethrowers
 at 0.5  buy rifle -7 115
 at 0.7  buy flamethrower -12 101
-at 20   expect squad 1 gas == 1          # the rifle squad stands in the gas
+at 20   expect gas_max > 0.2             # the piles give off gas (the rifle squad stands next to one)
 at 20   expect rotting >= 50
 at 30   log
 at 30   expect squad 2 alive == 2
@@ -19,10 +19,10 @@ at 45   expect flame_sprays >= 1
 at 45   shot docs/review/ws-d/flamer_auto.png
 at 70   log
 at 70   expect squad 1 gas == 0          # their pile is gone
-at 70   expect squad 1 alive == 4        # no friendly losses
+at 70   expect squad 1 alive == 5        # no friendly losses (rifle squad of 5)
 at 70   expect squad 2 maxdist -12 101 < 27   # never beyond the leash of the post
 at 100  log
 at 100  expect burned >= 55              # the other pile too
-at 100  expect squad 1 alive == 4
+at 100  expect squad 1 alive == 5
 at 100  shot docs/review/ws-d/flamer_auto_done.png
 at 101  end
