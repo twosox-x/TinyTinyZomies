@@ -62,6 +62,15 @@ ImU32 shade(ImU32 c, float k) {
     v.x = std::min(1.f, v.x * k); v.y = std::min(1.f, v.y * k); v.z = std::min(1.f, v.z * k);
     return ImGui::ColorConvertFloat4ToU32(v);
 }
+// v2: hover tick through the sound session's API (D owns the sounds; throttled 45 ms, once per newly hovered control)
+void hoverSound(ImGuiID id, bool hov) {
+    static ImGuiID last = 0; static double lastT = -1.0;
+    if (!hov) { if (last == id) last = 0; return; }
+    if (last == id) return;
+    last = id;
+    const double now = ImGui::GetTime();
+    if (now - lastT > 0.045) { audio::ui("ui_hover"); lastT = now; }   // [UI SOUND via D's audio::ui]
+}
 float approach(float cur, float goal, float rate) { return cur + (goal - cur) * std::min(1.f, dtUi * rate); }
 
 ImVec2 tsize(float px, const char* t) { return F->CalcTextSizeA(px * S, FLT_MAX, 0.f, t); }
@@ -916,6 +925,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             const bool tipForced = !forceTip.empty() && forceTip == A.id;
             // v2 token: icon + number key + price; the name lives in the tooltip
             const ImGuiID tid = ImGui::GetID(id);
+            hoverSound(tid, hov && en);
             if (hov && ImGui::IsMouseClicked(0)) hs::kick(tid);
             if (act && !wasActive_.count(A.id)) hs::kick(tid);
             if (act) wasActive_.insert(A.id); else wasActive_.erase(A.id);
@@ -1154,6 +1164,7 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
             }
             // v2 token button: hover lift, press squash, pop when switched on / shake when refused
             const ImGuiID tid = ImGui::GetID(id);
+            hoverSound(tid, hov && en);
             if (hov && ImGui::IsMouseClicked(0)) hs::kick(tid);
             const float pl = hs::pulse(tid, 0.3f), lf = hs::tween(tid, hov && en ? 1.f : 0.f);
             const float dy = (-2.f * lf + (hov && ImGui::IsMouseDown(0) ? 1.f : 0.f)) * S, dx = en ? 0.f : hs::shakeX(pl) * S;
