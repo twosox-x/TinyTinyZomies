@@ -27,6 +27,7 @@ extern const ImU32 kTok, kTokHi, kBone, kDim, kMute, kGold, kOk, kWarn, kBad, kT
 
 // icons by atlas name ("rifle", "halt", ...) or by UiIcon; centred at c, size in pixels, tinted.
 bool icon(ImDrawList* dl, const char* name, ImVec2 c, float size, ImU32 col, bool shadow = false);
+bool atlasReady();   // false when assets/ui/icons.png was not found (callers may draw their own fallback)
 const char* iconName(UiIcon i);
 
 // a token (counter): square (round = false) or round; returns nothing, draws only. `lift` 0..1 (hover), `press` 0..1.
