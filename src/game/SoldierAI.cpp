@@ -176,6 +176,7 @@ bool SoldierAI::levelMove(GameContext& ctx, uint32_t i, int r) {
     if (!nav.nearestWalkable(goal, 3.f, g)) return false;
     const uint32_t fromRoof = roofOf(ctx, from);
     const uint32_t goalIsl = nav.island(g.x, g.z);
+    if (std::getenv("TTZ_DEBUG_LEVELS")) std::printf("  levelMove %u: from (%.1f %.1f %.1f) roof %u -> goal island %u\n", i, from.x, from.y, from.z, fromRoof, goalIsl);
     V3 hatchPt, doorPt;
     int floors = 1;
     if (fromRoof && goalIsl != fromRoof) {
