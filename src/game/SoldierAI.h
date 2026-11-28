@@ -171,7 +171,17 @@ public:
     uint64_t edgeReturns() const { return edgeReturns_; }  // ... and back to their inset spot
     // Roof island a soldier stands on (his cell, or the walkable cell of his level beside a rim cell); 0 = not a roof.
     static uint32_t roofOf(const GameContext& ctx, V3 p);
+    // Owner round 15 (#4): moves between a roof and the street. Roof with an access (B3a building: roof hatch + door):
+    // through the stair core (walk to the hatch, transit, out of the door; street -> roof the reverse); roof without
+    // one: walk to the rim cell nearest the way and parachute down (Deploy::jumpFromRoof).
+    uint64_t roofJumps() const { return roofJumps_; }
+    uint64_t stairTrips() const { return stairTrips_; }
 private:
+    struct LevelMove { uint8_t mode = 0; V3 next, goal; float t = 0.f; };   // 1 to hatch / door, 2 in the stairs, 3 to the edge
+    std::vector<LevelMove> level_;
+    uint64_t roofJumps_ = 0, stairTrips_ = 0;
+    bool levelTransit(GameContext& ctx, uint32_t i);        // in the stairs: true while it holds the soldier
+    bool levelMove(GameContext& ctx, uint32_t i, int r);    // after followPath: plan / advance a move between levels
     uint64_t sidesteps_ = 0, edgeSteps_ = 0, edgeReturns_ = 0;
     uint64_t recoveries_ = 0;                // 14e getDown steps
     std::vector<float> edgeT_, edgeStepT_;   // per soldier: s away from home with nothing shootable / until the next search

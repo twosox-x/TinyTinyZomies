@@ -2,7 +2,9 @@
 // field with target hysteresis, path following with separation and stuck recovery, resupply trips. See SoldierAI.h.
 #include "game/SoldierAI.h"
 
+#include "game/Buildings.h"
 #include "game/Config.h"
+#include "game/Deploy.h"
 #include "game/HordeInterface.h"
 #include "game/NavGrid.h"
 #include "game/SoldierAnim.h"
@@ -63,6 +65,124 @@ uint32_t SoldierAI::roofOf(const GameContext& ctx, V3 p) {
     uint32_t isl = nav.island(p.x, p.z);
     if (!isl) { V3 w; if (nav.nearestWalkableLevel(p, 1.6f, p.y, 0.6f, w)) isl = nav.island(w.x, w.z); }
     return nav.roofIsland(isl) ? isl : 0u;
+}
+
+// ---- moves between a roof and the street (owner round 15 #4) -------------------------------------------------------
+namespace {
+// The roof hatch (walk point on the roof) and a door (street point) of the building whose roof is at `roof`.
+bool stairRoute(const GameContext& ctx, V3 roof, V3& hatchPt, V3& doorPt, int& floors) {
+    if (!ctx.registry || !ctx.nav) return false;
+    const BuildingRegistry& R = *ctx.registry;
+    const Building* b = R.get(R.at(roof.x, roof.z, 0.5f));
+    if (!b || !b->prepared || !b->flatRoof || std::fabs(b->roofY - roof.y) > 1.5f) return false;
+    const Opening* hatch = nullptr;
+    const Opening* door = nullptr;
+    for (const Opening& o : b->openings) {
+        if (o.type == OpeningType::RoofHatch && !hatch) hatch = &o;
+        if (o.type == OpeningType::Door && (!door || dist2D(o.pos, roof) < dist2D(door->pos, roof))) door = &o;
+    }
+    if (!hatch || !door) return false;
+    const NavGrid& nav = *ctx.nav;
+    if (!nav.nearestWalkableLevel(hatch->pos, 4.f, b->roofY, 1.0f, hatchPt)) return false;
+    if (nav.island(hatchPt.x, hatchPt.z) != nav.island(roof.x, roof.z)) return false;   // the hatch is on another level
+    const V3 out{door->pos.x + door->nx * 1.2f, door->pos.y, door->pos.z + door->nz * 1.2f};
+    if (!nav.nearestWalkableLevel(out, 3.f, door->pos.y, 1.0f, doorPt)) return false;
+    floors = b->floors;
+    return true;
+}
+// The rim cell of the roof at `from` and the street landing point below it that serve a jump toward `goal` best.
+bool roofJumpSpot(const NavGrid& nav, V3 from, V3 goal, uint32_t goalIsl, V3& edge, V3& land) {
+    std::vector<V3> cells;
+    nav.islandCells(from, 90.f, 8000, cells);
+    float best = 1e9f;
+    for (const V3& c : cells) {
+        if (nav.edgeClearance(c.x, c.z) > 0.9f) continue;
+        for (int k = 0; k < 16; ++k) {
+            const float a = (float)k * 0.3926991f, dx = std::cos(a), dz = std::sin(a);
+            for (float d = 1.f; d <= 7.f; d += 0.75f) {
+                const V3 q{c.x + dx * d, 0.f, c.z + dz * d};
+                const float s = nav.surface(q.x, q.z);
+                if (s > c.y + 1.3f) break;                // a wall / roof object in the way (parapets are fine)
+                if (s > c.y - 2.5f) continue;
+                if (!nav.walkable(q.x, q.z) || nav.onRoof(q.x, q.z) || (goalIsl && nav.island(q.x, q.z) != goalIsl)) break;
+                bool clear = true;                        // room for the canopy collapse: walkable ring of 1.2 m
+                for (int r = 0; r < 4 && clear; ++r) clear = std::fabs(nav.surface(q.x + std::cos(r * 1.5708f) * 1.2f, q.z + std::sin(r * 1.5708f) * 1.2f) - s) < 0.6f;
+                if (!clear) break;
+                const float score = dist2D(from, c) + dist2D(q, goal);
+                if (score < best) { best = score; edge = c; land = V3{q.x, s, q.z}; }
+                break;
+            }
+        }
+    }
+    return best < 1e8f;
+}
+} // namespace
+
+bool SoldierAI::levelTransit(GameContext& ctx, uint32_t i) {
+    if (level_.size() <= i || level_[i].mode != 2) return false;
+    SoldierPool& P = *ctx.soldiers;
+    LevelMove& m = level_[i];
+    P.vel[i] = {};
+    m.t -= ctx.dt;
+    if (m.t > 0.f) return true;
+    P.pos[i] = m.next;              // out of the stair core: hatch on the roof / door on the street
+    P.progressPos[i] = m.next;
+    m.mode = 0;
+    ++stairTrips_;
+    startPath(ctx, i, m.goal);
+    return true;
+}
+
+bool SoldierAI::levelMove(GameContext& ctx, uint32_t i, int r) {
+    if (!ctx.nav || !ctx.nav->ready()) return false;
+    SoldierPool& P = *ctx.soldiers;
+    if (level_.size() < P.capacity()) level_.resize(P.capacity());
+    LevelMove& m = level_[i];
+    const NavGrid& nav = *ctx.nav;
+    if (m.mode == 1 && r == 1) {    // at the hatch / door: through the building (2.2 s per storey + hatch / door)
+        int floors = 1;
+        V3 a, b;
+        if (stairRoute(ctx, P.pos[i].y > 2.f ? P.pos[i] : m.next, a, b, floors)) {}
+        m.mode = 2;
+        m.t = 2.5f + 2.2f * (float)floors;
+        return true;
+    }
+    if (m.mode == 3 && r == 1) {    // at the roof edge: parachute down
+        m.mode = 0;
+        if (!ctx.deploy) return false;
+        ctx.deploy->jumpFromRoof(ctx, P.idOf(i), P.pos[i], m.next);
+        ++roofJumps_;
+        return true;
+    }
+    if (m.mode != 0) { m.mode = 0; return false; }   // the route to the hatch / edge failed: the normal failure
+    if (r != 2) return false;
+    const V3 from = P.pos[i], goal = P.goal[i];
+    V3 g;
+    if (!nav.nearestWalkable(goal, 3.f, g)) return false;
+    const uint32_t fromRoof = roofOf(ctx, from);
+    const uint32_t goalIsl = nav.island(g.x, g.z);
+    V3 hatchPt, doorPt;
+    int floors = 1;
+    if (fromRoof && goalIsl != fromRoof) {
+        if (stairRoute(ctx, from, hatchPt, doorPt, floors) && nav.island(doorPt.x, doorPt.z) == goalIsl) {
+            m = {1, doorPt, goal, 0.f};
+            startPath(ctx, i, hatchPt);
+            return true;
+        }
+        V3 edge, land;
+        if (roofJumpSpot(nav, from, g, nav.roofIsland(goalIsl) ? 0u : goalIsl, edge, land)) {
+            m = {3, land, goal, 0.f};
+            startPath(ctx, i, edge);
+            return true;
+        }
+        return false;
+    }
+    if (!fromRoof && nav.roofIsland(goalIsl) && stairRoute(ctx, g, hatchPt, doorPt, floors) && nav.island(doorPt.x, doorPt.z) == nav.island(from.x, from.z)) {
+        m = {1, hatchPt, goal, 0.f};   // street -> roof: in at the door, up the stairs, out of the hatch
+        startPath(ctx, i, doorPt);
+        return true;
+    }
+    return false;
 }
 
 V3 SoldierAI::roofInset(const GameContext& ctx, V3 p, uint32_t isl, float maxR) const {
@@ -1051,7 +1171,9 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         const bool ordered = P.state[i] == SoldierState::Moving && sq && !(P.phase[i] & PH_RETURNING);
         bool running = false;
         const float pace = paceFor(ctx, i, ordered && sq->order.run, ordered && sq->order.walk, highStakes, running);
+        if (levelTransit(ctx, i)) break;
         const int r = followPath(ctx, i, pace);
+        if (r != 0 && levelMove(ctx, i, r)) break;
         if (r == 1) P.setState(i, SoldierState::Idle);
         else if (r == 2) {   // unreachable / stuck after the re-plan: hold here and flag the squad (no endless retries)
             V3 h = P.pos[i];

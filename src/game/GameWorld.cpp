@@ -82,6 +82,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     ctx_.economy = &economy_;
     ctx_.logistics = &logistics_;
     ctx_.deploy = &deploy_;
+    ctx_.registry = &buildings_.registry();
     ctx_.walls = &fort_.walls();
     ctx_.territory = &fort_.territory();
     ctx_.engineers = &engineers_;                              // 14d: construction radius, jobs, car clearing
