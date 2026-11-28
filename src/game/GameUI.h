@@ -140,6 +140,14 @@ private:
     bool pauseMenu_ = false;        // Esc with nothing to cancel: Resume / Quit (HudBar.cpp drawPauseMenu)
     float selScroll_ = 0.f;         // selection panel member list scroll (fixed-size panel)
     void drawPauseMenu(AppState& app);
+    // v2 menus (HudMenus.cpp): pause words + settings column + key bindings page, minimal main menu (windowed only)
+    void drawMenus(AppState& app);
+    int pausePage_ = 0;             // 0 words, 1 settings, 2 key bindings
+    int menuConfirm_ = 0;           // 1: inline "quit?" confirm open
+    bool pauseWasOpen_ = false;     // open / close sounds on transitions (Esc toggles pauseMenu_ in GameUI.cpp)
+    bool mainMenu_ = false, mainMenuDone_ = false;   // main menu once at start (never headless)
+    float musicVol_ = 1.f, uiScaleDrag_ = -1.f;
+    bool musicMute_ = false;
     const UiAction* cardForDigit(int n) const;   // n-th (0-based) card of the active tab (number keys)
     int digitOf(const UiAction& a) const;        // its number key 1-9 (0: none)
     std::vector<float> hudRects_;   // x0 y0 x1 y1 of this frame's HUD panels (labels never cover them)

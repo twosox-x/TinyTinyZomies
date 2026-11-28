@@ -6,6 +6,8 @@
 #include "game/GameScript.h"
 #include "game/GameUI.h"
 #include "game/GameWorld.h"
+#include "game/Economy.h"
+#include "game/HudStyle.h"
 #include "game/NavGrid.h"
 #include "lab/MilitaryRenderer.h"
 #include "render/TimeOfDay.h"
@@ -126,16 +128,19 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
         ImVec2 s;
         if (!project(app, B.toWorld(B.w * 0.5f, B.d * 0.5f, B.roofY + 2.5f), s)) continue;
         if (B.capture == CaptureState::Capturing || B.capture == CaptureState::Contested) {
-            const ImU32 c = B.capture == CaptureState::Contested ? IM_COL32(220, 90, 60, 230) : IM_COL32(200, 210, 120, 230);
-            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 3), ImVec2(s.x + 22, s.y + 3), IM_COL32(20, 20, 14, 180));
-            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 3), ImVec2(s.x - 22 + 44 * B.captureProgress, s.y + 3), c);
+            // v2: thin shadowed progress rail + flag icon, red when contested
+            const ImU32 c = B.capture == CaptureState::Contested ? hs::kBad : hs::kGold;
+            dl->AddRectFilled(ImVec2(s.x - 21, s.y - 1), ImVec2(s.x + 23, s.y + 4), hs::kShadow, 2.f);
+            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 2), ImVec2(s.x + 22, s.y + 2), IM_COL32(21, 23, 15, 200), 2.f);
+            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 2), ImVec2(s.x - 22 + 44 * B.captureProgress, s.y + 2), c, 2.f);
+            hs::icon(dl, "flag", ImVec2(s.x - 30, s.y), 12.f, c, true);
             ui.worldLabel(s.x, s.y - 20, B.capture == CaptureState::Contested ? "contested" : "capturing", c,
                           B.capture == CaptureState::Contested ? GameUI::kLabelAlert : GameUI::kLabelStatus, true);
         } else if (B.role != BuildingRole::None) {
             char t[64];
             std::snprintf(t, sizeof(t), "%s %d/%d%s", B.role == BuildingRole::Garrison ? "GARRISON" : "HOSPITAL",
                           B.role == BuildingRole::Garrison ? (int)B.garrison.size() : (int)B.patients.size(), B.capacity, B.zombiesInside > 0 ? " !" : "");
-            const ImU32 c = B.role == BuildingRole::Garrison ? IM_COL32(170, 180, 110, 220) : IM_COL32(150, 220, 150, 220);
+            const ImU32 c = B.zombiesInside > 0 ? hs::kBad : B.role == BuildingRole::Garrison ? hs::kBone : hs::kOk;
             ui.worldLabel(s.x, s.y - 8, t, c, bp.selected.v == b ? GameUI::kLabelSelected : GameUI::kLabelStatus, true);
         }
     }
@@ -162,57 +167,171 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
     // fixed size (owner round 15 #2): the content scrolls inside, the panel never grows / shrinks with the building state
     ImGui::SetNextWindowSize(ImVec2(std::min(470.f * L.scale, io.DisplaySize.x - 2.f * L.panelX),
                                     std::min(190.f * L.scale, std::max(60.f, L.panelBottom - 40.f * L.scale))), ImGuiCond_Always);
+    // v2 "Counters" look: frameless dark glass card, Archivo, icons before labels, dots / pips for counts,
+    // gold buttons for what can be bought now, grey (reason in the tooltip) when not. Labels / IDs unchanged.
+    auto v4 = [](ImU32 c, float a = -1.f) { ImVec4 v = ImGui::ColorConvertU32ToFloat4(c); if (a >= 0.f) v.w = a; return v; };
+    const float S = L.scale;
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, v4(hs::kInk, 0.80f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Text, v4(hs::kBone));
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, v4(hs::kMute));
+    ImGui::PushStyleColor(ImGuiCol_Button, v4(hs::kTok));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, v4(hs::kTokHi));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, v4(hs::kGold, 0.35f));
+    ImGui::PushStyleColor(ImGuiCol_Separator, v4(hs::kMute, 0.35f));
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, v4(hs::kGold));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, v4(hs::kTok));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.f * S);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f * S);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+    ImGui::PushFont(hudFont(), 13.f * S);
+    auto finish = [] {
+        ImGui::End();
+        ImGui::PopFont();
+        ImGui::PopStyleVar(4);
+        ImGui::PopStyleColor(10);
+    };
     ImGui::Begin("##building", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
-    ImGui::Text("%s, %d floor%s%s", kindName(B.kind), (int)B.floors, B.floors > 1 ? "s" : "", B.flatRoof ? ", flat roof" : "");
-    if (!B.supported) { ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1), "Unsupported: %s", B.unsupportedWhy); ImGui::End(); return; }
+    ImDrawList* wl = ImGui::GetWindowDrawList();
+    const float lh = ImGui::GetTextLineHeight();
+    // an icon in front of the next item on the line
+    auto ic = [&](const char* name, ImU32 col) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        hs::icon(wl, name, ImVec2(p.x + lh * 0.5f, p.y + lh * 0.5f), lh * 1.05f, col, true);
+        ImGui::Dummy(ImVec2(lh, lh));
+        ImGui::SameLine(0.f, 5.f * S);
+    };
+    // n of total as dots (filled = taken), on the current line
+    auto dots = [&](int n, int total, ImU32 col) {
+        total = std::clamp(total, 0, 24);
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float r = 3.6f * S, gap = 3.f * S;
+        for (int k = 0; k < total; ++k) {
+            const ImVec2 c(p.x + r + k * (2.f * r + gap), p.y + lh * 0.5f);
+            if (k < n) wl->AddCircleFilled(c, r, col, 12);
+            else wl->AddCircle(c, r - 0.5f, hs::kMute, 12, 1.2f);
+        }
+        ImGui::Dummy(ImVec2(std::max(1.f, total * (2.f * r + gap)), lh));
+    };
+    // level pips (3), current level gold
+    auto pips = [&](int lvl, int max) {
+        const ImVec2 p = ImGui::GetCursorScreenPos();
+        const float w = 10.f * S, h = 5.f * S, gap = 3.f * S;
+        for (int k = 0; k < max; ++k) {
+            const ImVec2 a(p.x + k * (w + gap), p.y + lh * 0.5f - h * 0.5f);
+            wl->AddRectFilled(a, ImVec2(a.x + w, a.y + h), k < lvl ? hs::kGold : IM_COL32(60, 62, 52, 220), 1.5f * S);
+        }
+        ImGui::Dummy(ImVec2(max * (w + gap), lh));
+    };
+    const double funds = ctx.economy ? ctx.economy->funding() : 1e18;
+    // token-look button: gold text when affordable, grey + reason tooltip when not (still clickable: the request refuses
+    // with its own message, so scripts / sounds behave exactly as before)
+    auto tokBtn = [&](const char* label, int price, bool active = false) {
+        const bool ok = price <= 0 || funds >= (double)price;
+        ImGui::PushStyleColor(ImGuiCol_Text, v4(!ok ? hs::kMute : active ? hs::kInk : hs::kGold));
+        if (active) ImGui::PushStyleColor(ImGuiCol_Button, v4(hs::kGold, 0.9f));
+        const bool hit = ImGui::Button(label);
+        if (active) ImGui::PopStyleColor();
+        ImGui::PopStyleColor();
+        if (!ok && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Not enough funds: $%d needed", price);
+        return hit;
+    };
+    {
+        const char* hi = B.role == BuildingRole::Garrison ? "garrison" : B.role == BuildingRole::Hospital ? "hospital" : "fort";
+        ic(hi, B.capture == CaptureState::Captured ? hs::kGold : hs::kDim);
+        ImGui::PushFont(hudFontBold(), 15.f * S);
+        ImGui::TextUnformatted(kindName(B.kind));
+        ImGui::PopFont();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d floor%s%s", (int)B.floors, B.floors > 1 ? "s" : "", B.flatRoof ? ", flat roof" : "");
+    }
+    if (!B.supported) {
+        ic("alert", hs::kBad);
+        ImGui::TextColored(v4(hs::kBad), "Unsupported: %s", B.unsupportedWhy);
+        finish();
+        return;
+    }
+    ic("flag", B.capture == CaptureState::Captured ? hs::kOk : B.capture == CaptureState::Contested ? hs::kBad : hs::kDim);
     ImGui::Text("%s%s", captureName(B.capture), B.capture == CaptureState::Captured ? "" : " (PROPOSED: a squad at the entrance, no zombies)");
-    if (B.zombiesInside > 0) ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1), "Zombies inside: %d", B.zombiesInside);
+    if (B.zombiesInside > 0) { ic("zombie", hs::kBad); ImGui::TextColored(v4(hs::kBad), "Zombies inside: %d", B.zombiesInside); }
     const BuildingConfig& bc = ctx.cfg->buildings;
     if (B.capture == CaptureState::Captured) {
-        ImGui::Text("Role: %s   (costs UNAPPROVED)", roleName(B.role));
+        ImGui::TextDisabled("Role: %s   (costs UNAPPROVED)", roleName(B.role));
         char t[64];
         std::snprintf(t, sizeof(t), "Garrison  $%d", bc.garrisonPrice);
-        if (B.role != BuildingRole::Garrison && ImGui::Button(t)) bp.request({BuildingPlay::Act::Role, bp.selected, {}, (int)BuildingRole::Garrison});
+        if (B.role != BuildingRole::Garrison) { ic("garrison", hs::kDim); if (tokBtn(t, bc.garrisonPrice)) bp.request({BuildingPlay::Act::Role, bp.selected, {}, (int)BuildingRole::Garrison}); }
         ImGui::SameLine();
         std::snprintf(t, sizeof(t), "Hospital  $%d", bc.hospitalPrice);
-        if (B.role != BuildingRole::Hospital && ImGui::Button(t)) bp.request({BuildingPlay::Act::Role, bp.selected, {}, (int)BuildingRole::Hospital});
+        if (B.role != BuildingRole::Hospital) { ic("hospital", hs::kDim); if (tokBtn(t, bc.hospitalPrice)) bp.request({BuildingPlay::Act::Role, bp.selected, {}, (int)BuildingRole::Hospital}); }
         if (B.role == BuildingRole::Garrison) {
-            ImGui::Text("Positions %d / %d, ammo stack %d", (int)B.garrison.size(), (int)B.firing.size(), bp.ammoStock(bp.selected));
+            // positions as slot dots (taken = gold), ammo stack beside
+            ic("troops", hs::kDim);
+            dots((int)B.garrison.size(), (int)B.firing.size(), hs::kGold);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Positions %d / %d", (int)B.garrison.size(), (int)B.firing.size());
+            ImGui::SameLine(0.f, 12.f * S);
+            ic("ammo", hs::kDim);
+            ImGui::Text("%d", bp.ammoStock(bp.selected));
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ammo stack");
             const Selection& sel = ui.selectionConst();
             ImGui::BeginDisabled(sel.squads.empty());
-            if (ImGui::Button("Garrison selected squads (G)"))
+            if (tokBtn("Garrison selected squads (G)", 0, !sel.squads.empty()))
                 for (const SquadId& s : sel.squads) bp.request({BuildingPlay::Act::Garrison, bp.selected, s, 0});
             ImGui::EndDisabled();
+            if (sel.squads.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Select a squad first");
             ImGui::SameLine();
             if (ImGui::Button("Leave")) bp.request({BuildingPlay::Act::Release, bp.selected, {}, 0});
-        } else if (B.role == BuildingRole::Hospital)
-            ImGui::Text("Beds %d / %d (heal %.0f hp/s, PROPOSED)", (int)B.patients.size(), B.capacity, bc.healRate);
+        } else if (B.role == BuildingRole::Hospital) {
+            // beds as dots (occupied = green)
+            ic("medic", hs::kOk);
+            dots((int)B.patients.size(), B.capacity, hs::kOk);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Beds %d / %d (heal %.0f hp/s, PROPOSED)", (int)B.patients.size(), B.capacity, bc.healRate);
+            ImGui::SameLine(0.f, 10.f * S);
+            ImGui::TextDisabled("%d / %d", (int)B.patients.size(), B.capacity);
+        }
         ImGui::Separator();
-        ImGui::TextUnformatted("Fortify (UNAPPROVED prices)");
+        ImGui::TextDisabled("Fortify (UNAPPROVED prices)");
+        // three tracks: doors / windows / nests, each with level pips then its buttons
+        int doorLv = 0, winLv = 0, nests = 0;
+        for (const Opening& o : B.openings) {
+            if (o.type == OpeningType::Door) doorLv = std::max(doorLv, (int)o.barricade);
+            else if (o.type == OpeningType::Window) winLv = std::max(winLv, (int)o.barricade);
+        }
+        for (const FiringPosition& f : B.firing) nests += f.nest ? 1 : 0;
         static const char* names[3] = {"planks", "plate", "sandbags"};
-        for (int k = 0; k < 3; ++k) {
-            std::snprintf(t, sizeof(t), "Doors: %s $%d##d%d", names[k], bc.barricadePrice[(size_t)k], k);
-            if (ImGui::Button(t)) bp.request({BuildingPlay::Act::BarricadeDoors, bp.selected, {}, k + 1});
-            if (k < 2) ImGui::SameLine();
+        static const char* tracks[3] = {"door", "window", "nest"};
+        for (int tr = 0; tr < 2; ++tr) {
+            ic(tracks[tr], hs::kDim);
+            pips(tr == 0 ? doorLv : winLv, 3);
+            for (int k = 0; k < 3; ++k) {
+                ImGui::SameLine();
+                std::snprintf(t, sizeof(t), tr == 0 ? "Doors: %s $%d##d%d" : "Windows: %s $%d##w%d", names[k], bc.barricadePrice[(size_t)k], k);
+                if (tokBtn(t, bc.barricadePrice[(size_t)k], (tr == 0 ? doorLv : winLv) == k + 1))
+                    bp.request({tr == 0 ? BuildingPlay::Act::BarricadeDoors : BuildingPlay::Act::BarricadeWindows, bp.selected, {}, k + 1});
+            }
         }
-        for (int k = 0; k < 3; ++k) {
-            std::snprintf(t, sizeof(t), "Windows: %s $%d##w%d", names[k], bc.barricadePrice[(size_t)k], k);
-            if (ImGui::Button(t)) bp.request({BuildingPlay::Act::BarricadeWindows, bp.selected, {}, k + 1});
-            if (k < 2) ImGui::SameLine();
-        }
+        ic(tracks[2], hs::kDim);
+        dots(nests, (int)B.firing.size(), hs::kGold);
+        ImGui::SameLine();
         std::snprintf(t, sizeof(t), "Window nests / roof rings  $%d each", bc.nestPrice);
-        if (ImGui::Button(t)) bp.request({BuildingPlay::Act::Nest, bp.selected, {}, 0});
-        ImGui::Text("Defence level %d / 3", (int)B.defence);
+        if (tokBtn(t, bc.nestPrice)) bp.request({BuildingPlay::Act::Nest, bp.selected, {}, 0});
+        ic("fort", B.defence > 0 ? hs::kGold : hs::kDim);
+        pips((int)B.defence, 3);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Defence level %d / 3", (int)B.defence);
+        ImGui::SameLine();
+        ImGui::TextDisabled("Defence level %d / 3", (int)B.defence);
         if (B.defence < 3) {
             static const char* lv[3] = {"planks on doors + lower windows", "plates, entrance sandbags, roof positions", "heavy plating, door perimeter, roof nests"};
-            std::snprintf(t, sizeof(t), "Fortify L%d: %s  $%d", B.defence + 1, lv[B.defence], BuildingPlay::fortifyPrice(bc, B));
-            if (ImGui::Button(t)) bp.request({BuildingPlay::Act::Fortify, bp.selected, {}, 0});
+            const int price = BuildingPlay::fortifyPrice(bc, B);
+            std::snprintf(t, sizeof(t), "Fortify L%d: %s  $%d", B.defence + 1, lv[B.defence], price);
+            ic("build", hs::kGold);
+            if (tokBtn(t, price)) bp.request({BuildingPlay::Act::Fortify, bp.selected, {}, 0});
         }
     } else {
         ImGui::ProgressBar(B.captureProgress, ImVec2(-1, 6), "");
         ImGui::TextDisabled("Send a squad to an entrance to capture it");
     }
-    ImGui::End();
+    finish();
 }
 } // namespace
 
