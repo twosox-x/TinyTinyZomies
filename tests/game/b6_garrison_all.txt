@@ -71,11 +71,19 @@ at 76   shot docs/review/ws-c/tower_L0.png
 at 77   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 78   expect building defence == 1
 at 78   shot docs/review/ws-c/tower_L1.png
+at 78.2 camera 3.6 74.4 -2.6 0.5 45             # lobby door close-up (no door leaf: barricade in the glass plane)
+at 78.8 shot docs/review/ws-c/tower_lobby_L1.png
+at 78.9 camera 6 82 -2.6 0.6 60
 at 79   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 80   shot docs/review/ws-c/tower_L2.png
+at 80.2 camera 3.6 74.4 -2.6 0.5 45
+at 80.8 shot docs/review/ws-c/tower_lobby_L2.png
+at 80.9 camera 6 82 -2.6 0.6 60
 at 81   bfortify free                           # TEST HOOK: not charged (the mid-rise above is charged)
 at 82   expect building defence == 3
 at 82   shot docs/review/ws-c/tower_L3.png
+at 82.1 camera 3.6 74.4 -2.6 0.5 45
+at 82.7 shot docs/review/ws-c/tower_lobby_L3.png
 # ---- house (suburbs: the window follows the camera)
 at 83   camera -245 452 0.6 0.8 60
 at 87   bselect -252.5 453
