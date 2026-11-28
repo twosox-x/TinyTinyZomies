@@ -30,5 +30,5 @@ Carried-over open items from earlier rounds (must not be forgotten):
 - possible soldier standing on a car roof (garrison shot) — D
 - long-range squad hit rate 20 % (target was 45 %) — D
 - flamethrower test near walls / between cars not verified — D
-- car windshield glints not visible — E
-- cloud drift and night not verified in screenshots — E
+- car windshield glints not visible — E: vehicle glass lighter + sun sparkle (ws-e2), docs/review/ws-e/glass_*
+- cloud drift and night not verified in screenshots — E: verified (ws-e2): 0 / 2.5 / 5 s sequence docs/review/ws-e/clouds_*; at 23:00 clouds on vs off render pixel-identical
