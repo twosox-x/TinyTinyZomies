@@ -593,7 +593,7 @@ other scripts) before their checks.
   soldiers most (summed gas exposure) is picked first, then the best pile near the post; with no pile, a wall piece
   zombies are pressing within the leash -> the squad stands 3.5 m inside it and the normal engagement burns them.
   Friendly-fire guard unchanged (`FlameAI::spray`). Low fuel: the generic SoldierAI resupply. Status: `FlameAI::status`.
-- **Dead locks (carry-over 3a)**: a kill report next to a soldier's lock (1.2 m) ends that lock at once (coarse /
+- **Dead locks (carry-over 3a)**: a kill report at a non-sniper's long-range (non-exact) lock (0.7 m) ends that lock at once (coarse /
   long-range locks followed the dead zombie's sample for a while); the next lock is no target switch. b5_long_range:
   rounds at dead locks 12 -> 0, shots 39 -> 22, hit rate 20.5 % -> 31.8 % (4 kills). Metric `rounds_at_dead` (Combat).
 

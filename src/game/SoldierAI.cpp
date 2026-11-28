@@ -1537,8 +1537,8 @@ void SoldierAI::tick(GameContext& ctx) {
             for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
                 TargetLock& L = P.target[i];
                 // exact (near-list) locks drop a dead zombie on their own (lockLostExact); only long-range locks here, and
-                // only the zombie itself (0.7 m: a neighbour's kill in a crowd must not cost a sniper his aim)
-                if (P.used[i] && L.active && !L.exact && dist2D(L.pos, k.pos) < 0.7f) { L.active = false; deadDropped_[i] = 1; ++deadLockDrops_; }
+                // only the zombie itself (0.7 m); not snipers (single confirmed shots: b1_sniper lost 19 -> 6 kills with it)
+                if (P.used[i] && L.active && !L.exact && P.cls[i] != SoldierClass::Sniper && dist2D(L.pos, k.pos) < 0.7f) { L.active = false; deadDropped_[i] = 1; ++deadLockDrops_; }
             }
     hash_.clear();
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
