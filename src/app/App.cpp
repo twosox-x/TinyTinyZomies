@@ -2,6 +2,7 @@
 
 #include "city/CityWorld.h"
 #include "debug/DebugUI.h"
+#include "game/HudStyle.h"   // [UI STYLE HOOK]
 #include "game/GameWorld.h"
 #include "lab/MilitaryLab.h"
 #include "imgui.h"
@@ -136,6 +137,7 @@ bool App::init() {
         ImGui::GetStyle().FontScaleMain = scale;
         ImGui::GetIO().Fonts->AddFontDefaultBitmap();   // [0] debug panels (pixel font)
         ImGui::GetIO().Fonts->AddFontDefaultVector();   // [1] game HUD (scalable, crisp at any UI scale / density)
+        ttz::game::hudStyleLoad(ImGui::GetIO().Fonts);   // [UI STYLE HOOK] Archivo + game-icons atlas (HudStyle.cpp)
         ImGui_ImplSDL3_InitForSDLGPU(s_.window);
         ImGui_ImplSDLGPU3_InitInfo ii{};
         ii.Device = s_.gpu.device();
@@ -151,6 +153,7 @@ bool App::init() {
         if (o.uiScale > 0.f) { ImGui::GetStyle().ScaleAllSizes(o.uiScale); ImGui::GetStyle().FontScaleMain = o.uiScale; }
         ImGui::GetIO().Fonts->AddFontDefaultBitmap();   // [0] debug panels
         ImGui::GetIO().Fonts->AddFontDefaultVector();   // [1] game HUD (HudBar.cpp)
+        ttz::game::hudStyleLoad(ImGui::GetIO().Fonts);   // [UI STYLE HOOK] Archivo + game-icons atlas (HudStyle.cpp)
         ImGui_ImplSDLGPU3_InitInfo ii{};
         ii.Device = s_.gpu.device();
         ii.ColorTargetFormat = swapFmt;   // == the renderer's final colour target (R8G8B8A8)
