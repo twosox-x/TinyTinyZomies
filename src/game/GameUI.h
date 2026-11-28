@@ -19,6 +19,7 @@
 #include "game/UiActions.h"
 
 #include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -163,6 +164,7 @@ private:
     double fundShown_ = -1, fundFlashT_ = -100;
     int fundFlashDir_ = 0;
     float tabIndX_ = -1, tabIndW_ = 0;
+    std::set<std::string> wasActive_;   // v2 HUD: cards that were active last frame (pop when switched on)
     std::string revealId_;
 public:
     std::string forceTip;            // scripts / captures: show this card's tooltip (headless shots have no mouse)

@@ -3,6 +3,7 @@
 // actions, placement banner, world hover menus, voxel-style icons. Everything scales with the UI scale (DPI /
 // --ui-scale) and is laid out from the window size every frame, so nothing clips or overlaps.
 #include "game/GameUI.h"
+#include "game/HudStyle.h"   // v2 "Counters" style: Archivo, game-icons atlas, tokens, tweens
 #include "audio/Audio.h"   // [SOUND HOOK]
 
 #include "app/App.h"
@@ -27,16 +28,18 @@ namespace ttz::game {
 
 namespace {
 // ---- miniature-military palette ---------------------------------------------------------------------------------
-const ImU32 kBg = IM_COL32(20, 23, 16, 212), kBgHi = IM_COL32(34, 38, 26, 232), kEdge = IM_COL32(104, 110, 72, 150),
-            kSand = IM_COL32(232, 224, 190, 255), kDim = IM_COL32(158, 154, 128, 255), kFaint = IM_COL32(110, 108, 90, 255),
-            kKhaki = IM_COL32(204, 184, 112, 255), kOk = IM_COL32(126, 196, 92, 255), kBad = IM_COL32(226, 86, 64, 255),
-            kAmber = IM_COL32(232, 178, 64, 255), kBlue = IM_COL32(96, 160, 220, 255), kShadow = IM_COL32(0, 0, 0, 140),
-            kInk = IM_COL32(14, 16, 10, 255);
+// v2 "Counters" palette (docs/ui_preview/core.css; owner-approved direction 2026-11-28): near-black olive glass, bone
+// text, gold only for money / the active thing, state colours only for state.
+const ImU32 kBg = IM_COL32(16, 18, 14, 205), kBgHi = IM_COL32(37, 42, 32, 235), kEdge = IM_COL32(255, 255, 255, 0),
+            kSand = IM_COL32(241, 234, 216, 255), kDim = IM_COL32(168, 162, 141, 255), kFaint = IM_COL32(109, 106, 93, 255),
+            kKhaki = IM_COL32(244, 183, 64, 255), kOk = IM_COL32(143, 212, 106, 255), kBad = IM_COL32(255, 91, 71, 255),
+            kAmber = IM_COL32(246, 166, 35, 255), kBlue = IM_COL32(124, 198, 226, 255), kShadow = IM_COL32(0, 0, 0, 150),
+            kInk = IM_COL32(21, 23, 15, 255);
 constexpr float kPi = 3.14159265f;
 // HUD sizes in one place (unscaled px; multiplied by the UI scale S). Panels have FIXED sizes (owner round 15 #2):
 // content scrolls / truncates inside, the panels never grow or shrink with what they show.
 namespace hudsz {
-constexpr float cardW = 84, cardH = 70, cardGap = 5;
+constexpr float cardW = 52, cardH = 66, cardGap = 6;   // v2 dock: 46 pt token + price line
 constexpr int barCards = 7;                        // command bar width = 7 card slots (keys 1-7)
 constexpr float selW = 372;                        // selection panel width
 constexpr int selRows = 8;                         // member rows (single squad) in the fixed list area
@@ -59,10 +62,19 @@ ImU32 shade(ImU32 c, float k) {
     v.x = std::min(1.f, v.x * k); v.y = std::min(1.f, v.y * k); v.z = std::min(1.f, v.z * k);
     return ImGui::ColorConvertFloat4ToU32(v);
 }
+// v2: hover tick through the sound session's API (D owns the sounds; throttled 45 ms, once per newly hovered control)
+void hoverSound(ImGuiID id, bool hov) {
+    static ImGuiID last = 0; static double lastT = -1.0;
+    if (!hov) { if (last == id) last = 0; return; }
+    if (last == id) return;
+    last = id;
+    const double now = ImGui::GetTime();
+    if (now - lastT > 0.045) { audio::ui("ui_hover"); lastT = now; }   // [UI SOUND via D's audio::ui]
+}
 float approach(float cur, float goal, float rate) { return cur + (goal - cur) * std::min(1.f, dtUi * rate); }
 
 ImVec2 tsize(float px, const char* t) { return F->CalcTextSizeA(px * S, FLT_MAX, 0.f, t); }
-void text(ImDrawList* dl, float x, float y, ImU32 col, float px, const char* t, bool shadow = false) {
+void text(ImDrawList* dl, float x, float y, ImU32 col, float px, const char* t, bool shadow = true) {
     if (shadow) dl->AddText(F, px * S, ImVec2(x + 1, y + 1), withA(kShadow, ((col >> 24) & 0xFF) / 255.f), t);
     dl->AddText(F, px * S, ImVec2(x, y), col, t);
 }
@@ -75,8 +87,7 @@ std::string fit(float px, const std::string& t, float w) {
 }
 void panel(ImDrawList* dl, ImVec2 a, ImVec2 b, float alpha = 1.f, float round = 4.f) {
     dl->AddRectFilled(ImVec2(a.x + 2 * S, a.y + 2 * S), ImVec2(b.x + 2 * S, b.y + 2 * S), withA(kShadow, 0.5f * alpha), round * S);
-    dl->AddRectFilled(a, b, withA(kBg, alpha), round * S);
-    dl->AddRect(a, b, withA(kEdge, alpha), round * S, 0, 1.f);
+    dl->AddRectFilled(a, b, withA(kBg, alpha), round * S);   // frameless glass (v2): no keyline
 }
 void bar(ImDrawList* dl, float x, float y, float w, float h, float f, ImU32 col) {
     dl->AddRectFilled(ImVec2(x, y), ImVec2(x + w, y + h), IM_COL32(8, 9, 6, 220), h * 0.4f);
@@ -186,6 +197,7 @@ const char* uiCategoryName(UiCategory c) {
 }
 
 void drawUiIcon(ImDrawList* dl, UiIcon icon, float cx, float cy, float size, bool on, uint32_t accent) {
+    if (hs::icon(dl, hs::iconName(icon), ImVec2(cx, cy), size * 0.92f, on ? kSand : kFaint, true)) return;   // game-icons silhouette
     std::vector<Box> v;
     switch (icon) {
     case UiIcon::Rifle:
@@ -646,7 +658,7 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
     std::snprintf(b, sizeof(b), "%s", money((int)fundShown_).c_str());
     std::snprintf(x, sizeof(x), "+%.0f/min", eco.incomePerMinute());
     const float flash = std::clamp(1.f - (float)(ImGui::GetTime() - fundFlashT_) / 0.8f, 0.f, 1.f);
-    segs.push_back({"FUNDING", b, x, mix(kSand, fundFlashDir_ > 0 ? kOk : kBad, flash), kOk,
+    segs.push_back({"FUNDING", b, x, mix(kKhaki, fundFlashDir_ > 0 ? kSand : kBad, flash), kOk,
                     "Funding. Income: passive + kills (UNAPPROVED values).", 0});
     std::snprintf(b, sizeof(b), "%llu", (unsigned long long)eco.kills());
     segs.push_back({"KILLS", b, "", kSand, kSand, "Zombies killed (rewarded once each).", 0});
@@ -685,7 +697,7 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
         for (size_t k = 0; k < segs.size(); ++k) {
             const Seg& s = segs[k];
             if (k) w += gap;
-            if (labels && !s.label.empty()) w += tsize(10.5f, s.label.c_str()).x + 5 * S;
+            if (labels && !s.label.empty()) w += 21 * S;   // v2: icon instead of the word
             if (s.icon) w += 14 * S;
             w += tsize(14.f, s.value.c_str()).x;
             if (extras && !s.extra.empty()) w += 4 * S + tsize(12.f, s.extra.c_str()).x;
@@ -701,17 +713,21 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
     hudRects_.insert(hudRects_.end(), {a.x, a.y, c.x, c.y});
     if (beginPane("##hud_top", a, c)) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        panel(dl, a, c);
+        panel(dl, a, c, 0.55f, 13.f);   // v2: faint glass pill, no frame
         float px = a.x + padX;
         for (size_t k = 0; k < segs.size(); ++k) {
             const Seg& s = segs[k];
             const float x0 = px;
-            if (k) { dl->AddCircleFilled(ImVec2(px + gap * 0.5f - gap, a.y + h * 0.5f), 1.5f * S, kFaint); }
-            if (labels && !s.label.empty()) {
-                text(dl, px, a.y + (h - 10.5f * S) * 0.5f + S, kDim, 10.5f, s.label.c_str());
-                px += tsize(10.5f, s.label.c_str()).x + 5 * S;
+            if (labels && !s.label.empty()) {   // v2: game-icons glyph for the segment (word kept in the tooltip)
+                const char* in = s.label == "FUNDING" ? "funds" : s.label == "KILLS" ? "kills" : s.label == "TROOPS" ? "troops" :
+                                 s.label == "TERRITORY" ? "territory" : s.label == "NIGHT" ? "moon" : s.label == "DAY" ? "sun" : nullptr;
+                const ImU32 icol = s.label == "FUNDING" ? kKhaki : s.label == "TERRITORY" ? kOk : s.label == "NIGHT" ? kBlue : s.label == "DAY" ? kKhaki : kSand;
+                if (!in || !hs::icon(dl, in, ImVec2(px + 8 * S, a.y + h * 0.5f), 16 * S, icol, true))
+                    text(dl, px, a.y + (h - 10.5f * S) * 0.5f + S, kDim, 10.5f, s.label.substr(0, 1).c_str());
+                px += 21 * S;
             }
-            if (s.icon) {   // sun / moon
+            if (s.icon && labels) { px += 14 * S; }   // v2: the sun / moon glyph above replaces the drawn disc
+            else if (s.icon) {   // sun / moon
                 const ImVec2 ic(px + 5 * S, a.y + h * 0.5f);
                 if (s.icon == 1) {
                     dl->AddCircleFilled(ic, 3.5f * S, kAmber, 12);
@@ -843,7 +859,8 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
     tabAnim_ = app.window ? approach(tabAnim_, 1.f, 10.f) : 1.f;
     if (beginPane("##hud_bar", a, c)) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        panel(dl, ImVec2(a.x, a.y + tabH), c);
+        ImGui::GetBackgroundDrawList()->AddRectFilledMultiColor(ImVec2(0, H - 130 * S), ImVec2(W, H), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0),
+                                                                IM_COL32(0, 0, 0, 95), IM_COL32(0, 0, 0, 95));   // v2: edge shade, no frame
         // ---- tabs: folder tabs over the panel; narrow windows shrink them to equal widths (labels cut)
         float tx = a.x + pad;
         const float tscale = tabsFit ? 1.f : (barW - 2 * pad) / tabsW;
@@ -856,8 +873,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             if (hit(id, ta, tb, &hov) && tab_ != cat) { tab_ = cat; tabAnim_ = 0.f; barScrollGoal_ = barScroll_ = 0.f; audio::ui("ui_tab"); }   // [SOUND HOOK]
             const bool sel = tab_ == cat;
             const bool later = counts[k] > 0 && std::all_of(actions_.begin(), actions_.end(), [&](const UiAction& x) { return x.category != cat || x.comingLater; });
-            if (sel || hov) dl->AddRectFilled(ta, ImVec2(tb.x, tb.y + 1), sel ? kBg : withA(kBg, 0.6f), 4 * S, ImDrawFlags_RoundCornersTop);
-            else dl->AddRectFilled(ImVec2(ta.x, ta.y + 3 * S), ImVec2(tb.x, tb.y), withA(kBg, 0.45f), 4 * S, ImDrawFlags_RoundCornersTop);
+            if (sel || hov) dl->AddRectFilled(ta, tb, sel ? kBg : withA(kBg, 0.5f), 3 * S);   // v2: glass chip for the open tab only
             const std::string lab = fit(11.5f, uiCategoryName(cat), w - 10 * S);
             const ImVec2 ls = tsize(11.5f, lab.c_str());
             text(dl, ta.x + (tb.x - ta.x - ls.x) * 0.5f, ta.y + (tabH - ls.y) * 0.5f + S, sel ? kSand : later ? kFaint : hov ? kSand : kDim, 11.5f, lab.c_str());
@@ -907,44 +923,34 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
             bool hov = false;
             if (hit(id, ka, kb, &hov) && A.onSelect) { audio::uiAction(A.id, en); if (en) A.onSelect(u); }   // [SOUND HOOK]
             const bool tipForced = !forceTip.empty() && forceTip == A.id;
-            const float up = (hov && en) ? 2 * S : 0.f;
-            const ImVec2 p0(x, cy0 + lift - up), p1(x + cardW, cy0 + cardH + lift - up);
-            const ImU32 bg = act ? IM_COL32(86, 80, 44, 240) : hov ? IM_COL32(44, 48, 32, 240) : IM_COL32(30, 33, 23, 235);
-            dl->AddRectFilled(p0, p1, withA(bg, fade), 4 * S);
-            dl->AddRect(p0, p1, withA(act ? kKhaki : hov ? kEdge : withA(kEdge, 0.6f), fade), 4 * S, 0, act ? 2.f : 1.f);
-            // icon
-            const float iconBox = 34 * S;
-            const ImVec2 ic(x + cardW * 0.5f, p0.y + 4 * S + iconBox * 0.5f);
-            dl->AddRectFilled(ImVec2(x + 4 * S, p0.y + 4 * S), ImVec2(x + cardW - 4 * S, p0.y + 4 * S + iconBox), withA(IM_COL32(12, 14, 9, 150), fade), 3 * S);
-            if (A.painter) A.painter(dl, ic.x, ic.y, iconBox * 0.82f, en || (!afford && !A.comingLater));
-            else drawUiIcon(dl, A.icon, ic.x, ic.y, iconBox * 0.82f, en || (!afford && !A.comingLater), A.accent);
-            if (A.badge) {
-                const std::string bdg = A.badge(u);
-                text(dl, x + 7 * S, p0.y + 6 * S, withA(kDim, fade), 10.5f, bdg.c_str(), true);
-            }
-            // name
-            const float npx = tsize(11.5f, A.label.c_str()).x <= cardW - 8 * S ? 11.5f : 10.f;   // long names: smaller, then cut
-            const std::string nm = fit(npx, A.label, cardW - 6 * S);
-            const ImVec2 ns = tsize(npx, nm.c_str());
-            text(dl, x + (cardW - ns.x) * 0.5f, p0.y + 6 * S + iconBox + (11.5f - npx) * S, withA(A.comingLater ? kFaint : en || !afford ? kSand : kDim, fade), npx, nm.c_str());
-            // cost (left) / number key badge (right)
-            const float by = p1.y - 15 * S;
+            // v2 token: icon + number key + price; the name lives in the tooltip
+            const ImGuiID tid = ImGui::GetID(id);
+            hoverSound(tid, hov && en);
+            if (hov && ImGui::IsMouseClicked(0)) hs::kick(tid);
+            if (act && !wasActive_.count(A.id)) hs::kick(tid);
+            if (act) wasActive_.insert(A.id); else wasActive_.erase(A.id);
+            hs::Tok t;
+            t.size = 46; t.on = act; t.off = !en;
+            t.lift = hs::tween(tid, hov && en ? 1.f : 0.f);
+            t.press = hov && ImGui::IsMouseDown(0) ? 1.f : 0.f;
+            const float pl = hs::pulse(tid, 0.32f);
+            if (en) t.pop = pl; else t.shake = pl;
             const int dg = digitOf(A);
             const std::string keyLab = dg ? std::to_string(dg) : std::string();
-            if (A.comingLater) text(dl, x + 6 * S, by, withA(kFaint, fade), 10.5f, "coming later");
-            else if (cost >= 0) {
-                const std::string cs = money(cost) + A.costSuffix;
-                text(dl, x + 6 * S, by, withA(afford ? kKhaki : kBad, fade), 11.f, fit(11.f, cs, cardW - 28 * S).c_str());
+            const std::string bdg = A.badge ? A.badge(u) : std::string();
+            t.key = A.comingLater || keyLab.empty() ? nullptr : keyLab.c_str();
+            t.num = bdg.empty() ? nullptr : bdg.c_str();
+            const ImVec2 tc(x + cardW * 0.5f, cy0 + 26 * S + lift);
+            if (fade > 0.05f) hs::token(dl, tc, t, A.painter ? nullptr : hs::iconName(A.icon), S);
+            if (A.painter && fade > 0.05f) A.painter(dl, tc.x, tc.y, 26 * S, en);
+            const float by = cy0 + 53 * S + lift;
+            std::string cs = A.comingLater ? std::string("soon") : cost >= 0 ? money(cost) : std::string();
+            if (!cs.empty()) {
+                const ImVec2 sz = tsize(11.f, cs.c_str());
+                text(dl, tc.x - sz.x * 0.5f, by, withA(A.comingLater ? kFaint : afford ? kKhaki : kBad, fade), 11.f, cs.c_str());
             }
-            if (!keyLab.empty() && !A.comingLater) {
-                const ImVec2 hs = tsize(10.5f, keyLab.c_str());
-                const ImVec2 ha(x + cardW - 6 * S - hs.x - 6 * S, by - S), hb(x + cardW - 5 * S, by + hs.y + S);
-                dl->AddRectFilled(ha, hb, withA(IM_COL32(60, 64, 44, 255), fade), 2 * S);
-                text(dl, ha.x + 3 * S, by, withA(kSand, fade), 10.5f, keyLab.c_str());
-            }
-            if (!en && !A.comingLater && afford) dl->AddRectFilled(p0, p1, withA(IM_COL32(10, 10, 8, 90), fade), 4 * S);   // unavailable veil
             if ((hov || tipForced) && (fade > 0.5f)) {
-                if (tipForced) ImGui::SetNextWindowPos(ImVec2(x, p0.y - 8 * S), ImGuiCond_Always, ImVec2(0.f, 1.f));
+                if (tipForced) ImGui::SetNextWindowPos(ImVec2(x, cy0 - 8 * S), ImGuiCond_Always, ImVec2(0.f, 1.f));
                 tipBegin();
                 ImGui::PushFont(F, 14.f);
                 ImGui::TextColored(v4(kSand), "%s", A.label.c_str());
@@ -1156,13 +1162,27 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
                 if (en && A.onSelect) A.onSelect(u);
                 else if (!en) notify(A.label + ": " + (why.empty() ? std::string("unavailable") : why), true, now_);
             }
-            dl->AddRectFilled(ba, bb, act ? IM_COL32(86, 80, 44, 240) : hov ? IM_COL32(48, 52, 34, 240) : IM_COL32(32, 35, 24, 235), 3 * S);
-            dl->AddRect(ba, bb, act ? kKhaki : withA(kEdge, hov ? 1.f : 0.6f), 3 * S, 0, 1.f);
-            float tx = x + 7 * S;
+            // v2 token button: hover lift, press squash, pop when switched on / shake when refused
+            const ImGuiID tid = ImGui::GetID(id);
+            hoverSound(tid, hov && en);
+            if (hov && ImGui::IsMouseClicked(0)) hs::kick(tid);
+            const float pl = hs::pulse(tid, 0.3f), lf = hs::tween(tid, hov && en ? 1.f : 0.f);
+            const float dy = (-2.f * lf + (hov && ImGui::IsMouseDown(0) ? 1.f : 0.f)) * S, dx = en ? 0.f : hs::shakeX(pl) * S;
+            const float grow = en ? (hs::springPop(pl) - 1.f) * w * 0.5f : 0.f;
+            const ImVec2 va(ba.x + dx - grow, ba.y + dy - grow * 0.5f), vb(bb.x + dx + grow, bb.y + dy + grow * 0.5f);
+            dl->AddRectFilled(ImVec2(va.x, va.y + 2 * S), ImVec2(vb.x, vb.y + 2 * S), IM_COL32(0, 0, 0, 100), 4 * S);
+            dl->AddRectFilled(va, vb, act ? hs::kGold : hov ? hs::kTokHi : hs::kTok, 4 * S);
+            float tx = x + dx + 7 * S;
             const bool iconOnly = compactActs && A.icon != UiIcon::None;
-            if (A.icon != UiIcon::None) { drawUiIcon(dl, A.icon, iconOnly ? x + w * 0.5f : tx + 7 * S, y + abH * 0.5f, 15 * S, en); tx += 18 * S; }
+            const ImU32 fg = act ? hs::kInk : en ? kSand : kFaint;
+            if (A.icon != UiIcon::None) {
+                const ImVec2 icp(iconOnly ? x + dx + w * 0.5f : tx + 7 * S, y + dy + abH * 0.5f);
+                if (!hs::icon(dl, hs::iconName(A.icon), icp, 15 * S, fg)) drawUiIcon(dl, A.icon, icp.x, icp.y, 15 * S, en);
+                if (!en) dl->AddLine(ImVec2(icp.x - 6 * S, icp.y + 5 * S), ImVec2(icp.x + 6 * S, icp.y - 5 * S), kBad, 2.f * S);
+                tx += 18 * S;
+            }
             if (!iconOnly) {
-                text(dl, tx, y + (abH - 11.5f * S) * 0.5f, en ? kSand : kFaint, 11.5f, A.label.c_str());
+                text(dl, tx, y + dy + (abH - 11.5f * S) * 0.5f, fg, 11.5f, A.label.c_str(), !act);
                 tx += tsize(11.5f, A.label.c_str()).x + 5 * S;
                 if (!compactActs && !A.hotkeyLabel.empty()) text(dl, tx, y + (abH - 10 * S) * 0.5f + S, kFaint, 10.f, A.hotkeyLabel.c_str());
             }
@@ -1389,8 +1409,9 @@ void hudFrameBegin(const AppState& app) {
     const ImGuiStyle& st = ImGui::GetStyle();
     S = std::max(0.5f, st.FontScaleMain * st.FontScaleDpi * ImGui::GetIO().FontGlobalScale);
     ImFontAtlas* at = ImGui::GetIO().Fonts;
-    F = at && at->Fonts.Size > 1 ? at->Fonts[1] : ImGui::GetFont();
+    F = hudFont() ? hudFont() : at && at->Fonts.Size > 1 ? at->Fonts[1] : ImGui::GetFont();
     dtUi = app.window ? std::clamp(ImGui::GetIO().DeltaTime, 0.f, 0.1f) : 10.f;
+    hs::frame(app.window ? dtUi : 1.f);   // headless captures: tweens at rest
 }
 float hudScale() { return S; }
 

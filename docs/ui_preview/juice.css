@@ -1,0 +1,50 @@
+/* Juice: motion + feedback for the Counters HUD. Short, springy, never in the way.
+   Timing: press 60 ms, release spring 220 ms, pops 260 ms, entrances 300 ms + 25 ms stagger. */
+@property --v { syntax: "<number>"; inherits: true; initial-value: 1; }
+:root { --spring: cubic-bezier(.34, 1.7, .5, 1); --snap: cubic-bezier(.2, .9, .25, 1); }
+
+/* tokens: hover lift, press squash, spring back */
+.hud .tok { transition: transform .22s var(--spring), background-color .12s, filter .12s, box-shadow .12s; will-change: transform; }
+.hud .tok:not(.off):hover { transform: translateY(-2px); filter: brightness(1.18); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -2px 0 rgba(0,0,0,.45), 0 5px 10px rgba(0,0,0,.55); }
+.hud .tok.press { transform: translateY(1px) scale(.86) !important; transition-duration: .06s; filter: brightness(1.3); }
+.hud .tok.hit { animation: j-hit .3s var(--spring); }
+.hud .tok.pop { animation: j-pop .34s var(--spring); }
+.hud .tok.deny { animation: j-deny .32s ease-out; }
+.hud .tok.on::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 10px rgba(244,183,64,.55); pointer-events: none; animation: j-glow 2.4s ease-in-out infinite; }
+@keyframes j-hit { 0% { transform: scale(.86); } 60% { transform: scale(1.1); } 100% { transform: scale(1); } }
+@keyframes j-pop { 0% { transform: scale(.7); } 55% { transform: scale(1.22); } 100% { transform: scale(1); } }
+@keyframes j-deny { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+@keyframes j-glow { 50% { box-shadow: 0 0 16px rgba(244,183,64,.85); } }
+
+/* rings fill when they appear and glide when they change */
+.hud .ring { transition: --v .35s var(--snap); }
+.hud.enter .ring { animation: j-ring .6s var(--snap) both; }
+@keyframes j-ring { from { --v: 0; } }
+
+/* numbers that changed */
+.hud .bump { animation: j-bump .45s var(--spring); display: inline-block; }
+@keyframes j-bump { 0% { transform: scale(1.35); color: #fff; text-shadow: 0 0 10px var(--gold), 0 1px 0 #000; } 100% { transform: scale(1); } }
+
+/* entrances when a screen opens */
+.hud.enter .res .r, .hud.enter .clock > * { animation: j-drop .32s var(--spring) both; animation-delay: calc(var(--i, 0) * 30ms); }
+.hud.enter .dock .slot, .hud .strip.swap .slot { animation: j-rise .3s var(--spring) both; animation-delay: calc(var(--i, 0) * 28ms); }
+.hud.enter .sel .tok { animation: j-pop .34s var(--spring) both; animation-delay: calc(var(--i, 0) * 30ms + 80ms); }
+.hud.enter .wc, .hud .wc.fresh { animation: j-card .26s var(--spring) both; transform-origin: 50% 100%; }
+.hud.enter .dock .cats { animation: j-rise .3s var(--spring) both; }
+@keyframes j-drop { from { opacity: 0; transform: translateY(-10px); } }
+@keyframes j-rise { from { opacity: 0; transform: translateY(12px) scale(.9); } }
+@keyframes j-card { from { opacity: 0; scale: .85; } }
+.hud .tip { animation: j-tip .12s var(--snap); }
+@keyframes j-tip { from { opacity: 0; transform: translateY(4px); } }
+
+/* fx layer: click burst of voxel sparks + ring */
+.fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 60; transform-origin: 0 0; }
+.fx .burst { position: absolute; width: 0; height: 0; }
+.fx .burst .rg { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--bc, var(--gold)); animation: j-ring-out .38s var(--snap) forwards; }
+.fx .burst .sp { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; background: var(--bc, var(--gold)); animation: j-spark .45s var(--snap) forwards; }
+@keyframes j-ring-out { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+@keyframes j-spark { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)) rotate(180deg) scale(.4); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hud *, .fx * { animation: none !important; transition: none !important; }
+}

@@ -1,0 +1,167 @@
+/* Tiny Tiny Zombies — HUD v2 "Counters"
+   Idea: the HUD is a handful of wargame counters laid on the diorama's edge. No panels, no frames.
+   Every control is a small, solid, bevelled token with a game-icons silhouette; numbers float on the world with a
+   hard shadow; colour rings carry state. Information about a world object appears AT the object.
+   Sizes in UI points (1pt = 1px at 720p, x1.25 at 1080p, x1.5 at 1440p). */
+:root {
+  color-scheme: dark;
+  --page: #121410; --page-2: #191c16; --page-line: #2b2f25; --page-fg: #e9e3d2; --page-dim: #959080;
+  --tok: #1a1d17;              /* token face */
+  --tok-2: #252a20;            /* token face, hover */
+  --tok-glass: rgba(16,18,14,.80);
+  --bone: #f1ead8;             /* icons + text */
+  --dim: #a8a28d;
+  --mute: #6d6a5d;
+  --gold: #f4b740;             /* money + "this is the active thing" */
+  --ok: #8fd46a; --warn: #f6a623; --bad: #ff5b47; --toxic: #c8e83e; --info: #7cc6e2;
+  --shadow: 0 1px 0 #000, 0 0 2px #000, 0 0 6px rgba(0,0,0,.55);
+  --f: "Archivo", "Arial Narrow", sans-serif;
+}
+.stage[data-tod="night"] { --tok: #141713; --tok-glass: rgba(10,12,10,.86); }
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--page-fg); font-family: var(--f); font-size: 15px; }
+
+/* ---------------- page chrome ---------------- */
+.app { display: grid; grid-template-columns: 220px minmax(0,1fr); height: 100vh; height: 100dvh; }
+.nav { background: var(--page-2); border-right: 1px solid var(--page-line); overflow-y: auto; padding-block: 16px;
+  padding-left: max(14px, env(safe-area-inset-left, 0px)); padding-right: 10px; }
+.brand { font: 800 17px/1.05 var(--f); font-stretch: 80%; letter-spacing: .01em; color: var(--bone); }
+.brand small { display: block; font: 500 12px/1.3 var(--f); color: var(--page-dim); margin-top: 4px; }
+.nav h4 { font: 600 12px/1 var(--f); color: var(--gold); margin: 18px 0 6px; }
+.nav button { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; background: none; border: 0; color: var(--page-fg);
+  font: 500 14.5px/1.25 var(--f); padding: 5px 8px; border-radius: 3px; cursor: pointer; }
+.nav button .n { font-weight: 700; font-size: 12px; color: var(--page-dim); min-width: 16px; }
+.nav button:hover { background: #22261d; }
+.nav button[aria-current="true"] { background: #2c3125; color: var(--bone); }
+.nav button .st { margin-left: auto; font-size: 11px; color: var(--page-dim); }
+.nav button .st.ok { color: var(--ok); }
+.main { display: grid; grid-template-rows: auto minmax(0,1fr) auto; min-width: 0; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--page-line); }
+.toolbar h2 { font: 700 18px/1.1 var(--f); margin: 0; margin-right: auto; }
+.seg { display: inline-flex; background: #1d2019; border-radius: 4px; padding: 2px; }
+.seg button { background: none; border: 0; color: var(--page-dim); font: 600 13px/1 var(--f); padding: 7px 10px; border-radius: 3px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: #353b2d; color: var(--bone); }
+.seg button:focus-visible, .nav button:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
+.stage-wrap { position: relative; min-height: 0; overflow: hidden; padding: 14px; }
+.notes { border-top: 1px solid var(--page-line); padding: 10px 16px 14px; font-size: 14px; line-height: 1.45; color: var(--page-dim); max-height: 24vh; overflow-y: auto; }
+.notes b { color: var(--page-fg); }
+.notes ul { margin: 4px 0 0; padding-left: 18px; }
+@media (max-width: 760px) {
+  .app { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); height: auto; }
+  .nav { max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--page-line); }
+  .stage-wrap { min-height: 62vw; }
+}
+
+/* ---------------- stage ---------------- */
+.stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; overflow: hidden; background: #000 center/cover no-repeat; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.hud { position: absolute; left: 0; top: 0; transform-origin: 0 0; font-family: var(--f); color: var(--bone); font-size: 13px; line-height: 1.2;
+  font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+.hud * { user-select: none; }
+.res-tag { position: absolute; right: 6px; bottom: 3px; font: 600 10px var(--f); color: rgba(255,255,255,.3); pointer-events: none; z-index: 99; }
+.gi { display: block; flex: none; }
+
+/* text that sits straight on the world */
+.fl { text-shadow: var(--shadow); }
+.k { display: inline-grid; place-items: center; min-width: 13px; height: 13px; padding: 0 3px; border-radius: 2px; font: 700 10px/1 var(--f);
+  color: #15170f; background: var(--bone); }
+
+/* ---------------- tokens: the one building block ---------------- */
+.tok { position: relative; display: grid; place-items: center; background: var(--tok); color: var(--bone); border-radius: 4px; cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.09), inset 0 -2px 0 rgba(0,0,0,.45), 0 2px 5px rgba(0,0,0,.5); }
+.tok:hover { background: var(--tok-2); }
+.tok.round { border-radius: 50%; }
+.tok.on { color: #15170f; background: var(--gold); }
+.tok.off { color: var(--mute); cursor: not-allowed; }
+.tok.off::after { content: ""; position: absolute; left: 22%; right: 22%; top: 50%; height: 2px; background: var(--bad); transform: rotate(-38deg); border-radius: 1px; opacity: .9; }
+.tok .k { position: absolute; left: -3px; top: -3px; }
+.tok .n { position: absolute; right: -3px; bottom: -3px; font: 800 10px/1 var(--f); background: #0c0d0a; color: var(--bone); padding: 2px 3px; border-radius: 2px; }
+.ring { position: absolute; inset: -3px; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(var(--rc, var(--ok)) calc(var(--v, 1) * 360deg), rgba(0,0,0,.55) 0);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - var(--rw, 3px) - .5px), #000 calc(100% - var(--rw, 3px))); mask: radial-gradient(closest-side, transparent calc(100% - var(--rw, 3px) - .5px), #000 calc(100% - var(--rw, 3px))); }
+
+/* tooltip */
+.tip { position: absolute; z-index: 40; width: 210px; padding: 8px 10px 9px; background: var(--tok-glass); border-radius: 4px; color: var(--bone);
+  box-shadow: 0 4px 16px rgba(0,0,0,.55); font-size: 12px; line-height: 1.35; pointer-events: none; }
+.tip .tt { display: flex; align-items: baseline; gap: 6px; font: 700 14px/1.1 var(--f); }
+.tip .tt .m { margin-left: auto; color: var(--gold); font-size: 13px; }
+.tip .d { color: var(--dim); margin-top: 3px; }
+.tip .st { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; }
+.tip .st span { display: inline-flex; align-items: center; gap: 4px; }
+.tip .why { margin-top: 6px; color: var(--bad); font-weight: 600; }
+
+/* ---------------- top-left: resources ---------------- */
+.res { position: absolute; left: 12px; top: 9px; display: flex; gap: 18px; align-items: center; }
+.res .r { display: flex; align-items: center; gap: 5px; }
+.res .v { font: 700 16px/1 var(--f); }
+.res .s { font: 600 11px/1 var(--f); color: var(--dim); }
+.edge-tl { position: absolute; left: 0; top: 0; width: 520px; height: 70px; pointer-events: none;
+  background: radial-gradient(120% 100% at 0 0, rgba(0,0,0,.42), transparent 70%); }
+.edge-tr { position: absolute; right: 0; top: 0; width: 380px; height: 70px; pointer-events: none;
+  background: radial-gradient(120% 100% at 100% 0, rgba(0,0,0,.42), transparent 70%); }
+.edge-b { position: absolute; left: 0; right: 0; bottom: 0; height: 120px; pointer-events: none;
+  background: linear-gradient(transparent, rgba(0,0,0,.38)); }
+
+/* ---------------- top-right: clock + speed ---------------- */
+.clock { position: absolute; right: 12px; top: 8px; display: flex; align-items: center; gap: 8px; }
+.clock .t { font: 700 16px/1 var(--f); }
+.clock .dial { position: relative; width: 22px; height: 22px; }
+.clock .speed { display: flex; gap: 3px; margin-left: 4px; }
+.clock .speed .tok { width: 22px; height: 22px; }
+
+/* ---------------- dock (command bar) ---------------- */
+.dock { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); width: 412px; height: 92px; }
+.dock .cats { position: absolute; left: 0; right: 0; top: 0; height: 26px; display: flex; justify-content: center; gap: 2px; }
+.dock .cats button { all: unset; cursor: pointer; display: flex; align-items: center; gap: 5px; padding: 0 8px; height: 24px; border-radius: 3px; color: var(--dim);
+  font: 600 12px/1 var(--f); }
+.dock .cats button .cn { display: none; }
+.dock .cats button.on { color: var(--bone); background: var(--tok-glass); }
+.dock .cats button.on .cn { display: inline; }
+.dock .cats button:hover { color: var(--bone); }
+.dock .cats button.later { opacity: .45; }
+.dock .row { position: absolute; left: 18px; right: 18px; top: 30px; height: 62px; overflow: hidden; }
+.dock .strip { display: flex; gap: 6px; transition: transform .16s; padding: 3px 3px 0; }
+.dock .slot { flex: 0 0 48px; display: grid; justify-items: center; gap: 3px; }
+.dock .slot .tok { width: 46px; height: 46px; }
+.dock .slot .c { font: 700 11px/1 var(--f); color: var(--gold); }
+.dock .slot.off .c { color: var(--bad); }
+.dock .slot.later .c { color: var(--mute); }
+.dock .slot.empty .tok { background: rgba(0,0,0,.18); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); cursor: default; }
+.dock .arw { position: absolute; top: 33px; width: 14px; height: 46px; display: grid; place-items: center; color: var(--bone); font: 700 16px var(--f); cursor: pointer; }
+.dock .arw.l { left: 0; } .dock .arw.r { right: 0; } .dock .arw.dis { opacity: .15; cursor: default; }
+
+/* ---------------- selection (bottom-left) ---------------- */
+.sel { position: absolute; left: 12px; bottom: 10px; width: 336px; height: 92px; }
+.sel .head { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 8px; }
+.sel .sq { width: 52px; height: 52px; }
+.sel .sq .gi { width: 30px; height: 30px; }
+.sel .nm { font: 700 14px/1.1 var(--f); }
+.sel .stt { display: flex; align-items: center; gap: 4px; font: 600 12px/1 var(--f); }
+.sel .mem { position: absolute; left: 64px; top: 22px; display: flex; gap: 7px; }
+.sel .m { display: grid; justify-items: center; gap: 3px; }
+.sel .m .tok { width: 26px; height: 26px; }
+.sel .m .am { width: 22px; height: 3px; background: rgba(0,0,0,.6); border-radius: 1px; overflow: hidden; }
+.sel .m .am i { display: block; height: 100%; background: var(--bone); }
+.sel .m.kia .tok { opacity: .45; }
+.sel .acts { position: absolute; left: 0; bottom: 0; display: flex; gap: 4px; align-items: center; }
+.sel .acts .tok { width: 28px; height: 28px; }
+.sel .acts .sep { width: 1px; height: 20px; background: rgba(255,255,255,.18); margin: 0 4px; }
+
+/* ---------------- world card (info at the object) ---------------- */
+.wc { position: absolute; transform: translate(-50%, calc(-100% - 14px)); background: var(--tok-glass); border-radius: 4px; padding: 7px 8px 8px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.5); min-width: 150px; }
+.wc::after { content: ""; position: absolute; left: 50%; bottom: -6px; margin-left: -6px; border: 6px solid transparent; border-bottom: 0; border-top-color: var(--tok-glass); }
+.wc .h { display: flex; align-items: center; gap: 6px; font: 700 13px/1.1 var(--f); white-space: nowrap; }
+.wc .h .x { margin-left: auto; font-weight: 600; color: var(--dim); font-size: 12px; }
+.wc .a { display: flex; gap: 5px; margin-top: 7px; }
+.wc .a .slot { display: grid; justify-items: center; gap: 2px; }
+.wc .a .tok { width: 32px; height: 32px; }
+.wc .a .c { font: 700 10.5px/1 var(--f); color: var(--gold); }
+.wc .a .slot.off .c { color: var(--bad); }
+
+/* mock-only switches (not part of the HUD): dashed so nobody mistakes them for game UI */
+.mock { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); display: flex; gap: 2px; padding: 2px; border: 1px dashed rgba(255,255,255,.35); border-radius: 4px; background: rgba(0,0,0,.35); z-index: 30; }
+.mock button { all: unset; cursor: pointer; font: 600 11px/1 var(--f); color: #ddd; padding: 4px 7px; border-radius: 2px; }
+.mock button.on { background: #ddd; color: #111; }
+.dock .cats button:not(.on) { filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 3px rgba(0,0,0,.8)); color: var(--bone); }
+.msq { position: relative; }
+.msq .mst { position: absolute; right: -4px; top: -4px; width: 15px; height: 15px; border-radius: 50%; background: #0c0d0a; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0,0,0,.6); }

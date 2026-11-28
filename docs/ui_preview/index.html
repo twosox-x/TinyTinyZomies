@@ -1,0 +1,94 @@
+<title>Tiny Tiny Zombies HUD</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&display=swap">
+<link rel="stylesheet" href="core.css">
+<link rel="stylesheet" href="screens_a.css">
+<link rel="stylesheet" href="screens_b.css">
+<link rel="stylesheet" href="screens_c.css">
+<link rel="stylesheet" href="juice.css">
+<div class="app">
+  <nav class="nav" id="nav">
+    <div class="brand">TINY TINY ZOMBIES<small>HUD design v2 · Counters</small></div>
+  </nav>
+  <div class="main">
+    <div class="toolbar">
+      <h2 id="title">—</h2>
+      <div class="seg" id="seg-res" role="group" aria-label="Resolution">
+        <button data-res="720">1280×720</button><button data-res="1080">1920×1080</button><button data-res="1440">2560×1440</button>
+      </div>
+      <div class="seg" id="seg-tod" role="group" aria-label="Time of day">
+        <button data-tod="day">Day</button><button data-tod="busy">Busy day</button><button data-tod="night">Night</button>
+      </div>
+      <div class="seg" role="group" aria-label="Sound"><button id="snd" aria-pressed="true" title="Approved UI sounds from the sound design session">UI sound</button></div>
+    </div>
+    <div class="stage-wrap" id="wrap">
+      <div class="stage" id="stage"><div class="hud" id="hud"></div><div class="res-tag" id="restag"></div></div>
+    </div>
+    <div class="notes" id="notes"></div>
+  </div>
+</div>
+<script src="icons.js"></script>
+<script src="core.js"></script>
+<script src="screens_core.js"></script>
+<script src="screens_a.js"></script>
+<script src="screens_b.js"></script>
+<script src="screens_c.js"></script>
+<script src="juice.js"></script>
+<script>
+(function () {
+  const RES = { "720": [1280, 720, 1.0], "1080": [1920, 1080, 1.25], "1440": [2560, 1440, 1.5] };
+  const BG = { day: "img/day.jpg", busy: "img/busy.jpg", night: "img/night.jpg" };
+  let st = { id: null, res: "1080", tod: "day" };
+  try { Object.assign(st, JSON.parse(localStorage.getItem("ttz-ui") || "{}")); } catch (e) {}
+  const screens = TTZ.screens.slice().sort((a, b) => a.num - b.num);
+  const nav = document.getElementById("nav");
+  let group = null;
+  for (const s of screens) {
+    if (s.group !== group) { group = s.group; nav.insertAdjacentHTML("beforeend", `<h4>${group}</h4>`); }
+    nav.insertAdjacentHTML("beforeend", `<button data-s="${s.id}"><span class="n">${s.badge ?? s.num}</span>${s.title}<span class="st ${s.status === "approved" ? "ok" : ""}">${s.status || "draft"}</span></button>`);
+  }
+  if (!screens.find((s) => s.id === st.id)) st.id = screens[0].id;
+  const hash = location.hash.slice(1); if (screens.find((s) => s.id === hash)) st.id = hash;
+  const stage = document.getElementById("stage"), hud = document.getElementById("hud"), wrap = document.getElementById("wrap");
+  let ctx = null, keyHandler = null, lastView = "";
+  TTZ.juice.attach(hud, stage);
+  function render() {
+    const s = screens.find((x) => x.id === st.id);
+    const [w, h, u] = RES[st.res];
+    try { localStorage.setItem("ttz-ui", JSON.stringify(st)); } catch (e) {}
+    if (location.hash.slice(1) !== s.id) history.replaceState(null, "", "#" + s.id);
+    nav.querySelectorAll("[data-s]").forEach((b) => b.setAttribute("aria-current", b.dataset.s === s.id));
+    document.querySelectorAll("#seg-res button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.res === st.res));
+    document.querySelectorAll("#seg-tod button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.tod === st.tod));
+    document.getElementById("title").textContent = (s.badge ?? s.num) + " · " + s.title;
+    document.getElementById("notes").innerHTML = s.notes || "";
+    const fullPage = !!s.page;
+    stage.style.width = w + "px"; stage.style.height = h + "px";
+    const tod = st.tod === "night" ? "night" : "day";
+    const bg = st.tod === "busy" && s.bg === undefined ? BG.busy : typeof s.bg === "function" ? s.bg(tod) : s.bg ? (s.bg[tod] || s.bg) : s.bg === null ? null : BG[tod];
+    stage.style.backgroundImage = bg ? `url(${bg})` : "none";
+    stage.dataset.tod = tod;
+    const fit = Math.min((wrap.clientWidth - 28) / w, (wrap.clientHeight - 28) / h);
+    stage.style.transform = `scale(${fit})`;
+    stage.style.left = Math.max(14, (wrap.clientWidth - w * fit) / 2) + "px"; stage.style.top = Math.max(14, (wrap.clientHeight - h * fit) / 2) + "px";
+    hud.style.width = w / u + "px"; hud.style.height = h / u + "px"; hud.style.transform = `scale(${u})`;
+    document.getElementById("restag").textContent = `${w}×${h} · UI scale ${u}`;
+    ctx = { W: w / u, H: h / u, u, fit, res: st.res, tod, night: tod === "night", rerender: () => render(), state: (s._state = s._state || (s.initState ? s.initState() : {})) };
+    const view = s.id + "|" + st.res + "|" + st.tod; const changed = view !== lastView; lastView = view;
+    if (!changed) TTZ.juice.before();
+    hud.innerHTML = s.render(ctx);
+    keyHandler = null;
+    if (s.mount) keyHandler = s.mount(hud, ctx) || null;
+    TTZ.juice.after(ctx, changed);
+  }
+  nav.addEventListener("click", (e) => { const b = e.target.closest("[data-s]"); if (b) { st.id = b.dataset.s; render(); } });
+  document.getElementById("seg-res").addEventListener("click", (e) => { const b = e.target.closest("[data-res]"); if (b) { st.res = b.dataset.res; render(); } });
+  document.getElementById("seg-tod").addEventListener("click", (e) => { const b = e.target.closest("[data-tod]"); if (b) { st.tod = b.dataset.tod; render(); } });
+  window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if (h !== st.id && screens.find((s) => s.id === h)) { st.id = h; render(); } });
+  window.addEventListener("resize", () => { lastView = ""; render(); });
+  window.addEventListener("keydown", (e) => { if (e.target.closest("input,select,textarea")) return; if (keyHandler) keyHandler(e); TTZ.juice.key(e); });
+  document.getElementById("snd").addEventListener("click", (e) => { TTZ.juice.sound = !TTZ.juice.sound; e.currentTarget.setAttribute("aria-pressed", TTZ.juice.sound); });
+  render();
+})();
+</script>
