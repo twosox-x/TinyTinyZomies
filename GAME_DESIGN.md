@@ -206,6 +206,20 @@ Military vehicles, tanks, helicopters, artillery, multiplayer, campaigns, story 
 - New squad, **Flamethrower**: burns corpses. Burnt corpses are gone and stop the gas. Squad size is PROPOSED at 2.
 - Engineer and flamethrower models and animations go through the same visual approval as the other squads.
 
+## 14e. Owner decisions 2026-11-28 (APPROVED)
+- Rooftops: deploying units and dropping supplies on roofs must be effortless. Units on roofs respect roof collisions, pathfind properly and keep back from the edge. They use roof supply crates sensibly.
+- Garrison look: soldiers appear in opened windows, with the window removed and a small simple room inside (floor and walls) they shoot from. More soldiers inside means more windows open. Rooftop fortification setups stay, but set back from the edge and grounded.
+- Walls meet building facades with no gap, so enclosures feel sealed. The build grid is finer.
+- Engineers need better pathfinding and awareness of what they build: no getting stuck on cars or behind walls.
+- Gas: no grid overlay. The gas particles are more noticeable.
+- Tracers: about 20% slower, thinner, and visible from the muzzle to the target.
+- Flamethrowers spray longer. Fire puddles behave like fire, never render on top of cars, and keep lighting while they burn. Flamethrowers can burn corpses next to walls and between cars.
+- UI: thin and unobtrusive but more dynamic, visual and tactical. It has categories (Units / Structures / Supplies / Vehicles, the last one later), no clipped buttons, and the unit info panel never overlaps the menu.
+- New structures:
+  - **Defense towers** that snipers can occupy.
+  - **Placeable lights** that need a **generator**, which needs **fuel**.
+- New fuel logistics: with engineers selected, hovering a car offers "siphon fuel" (deliver it to base) or "disassemble" (which also empties the fuel). A car emptied of fuel can no longer explode.
+
 ## 15. Progress and known limitations
 - 2026-11-27: Engineers (14d) implemented (docs/GAMEPLAY_ARCHITECTURE.md 12): engineer squad of 3 (buy, parachute;
   approved engineer model, tools and work clips since the final stabilisation pass), construction only
