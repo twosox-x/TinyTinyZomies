@@ -101,7 +101,6 @@ void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
     if (!ctx.nav || !ctx.nav->ready()) return;
     const NavGrid& nav = *ctx.nav;
     const float clicked = nav.surface(click.x, click.z), c = nav.cell();
-    auto islandSize = [&](V3 s0) { std::vector<V3> cells; nav.islandCells(s0, 60.f, 40, cells); return (int)cells.size(); };
     auto add = [&](V3 q) {
         for (const V3& s0 : starts) if (nav.island(s0.x, s0.z) == nav.island(q.x, q.z)) return;
         starts.push_back(q);
@@ -120,26 +119,44 @@ void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
                 if (d2 > 3.5f * 3.5f || d2 >= best || !nav.walkable(x, z) || !nav.onRoof(x, z)) continue;
                 if (own && nav.island(x, z) == own) continue;
                 const float y = nav.surface(x, z);
-                if (y > clicked + (onRoof ? -0.4f : 0.5f) || y < clicked - 4.f) continue;
+                // under a parapet / cornice notch the roof can be a few metres above the clicked cell
+                if (y > clicked + (onRoof ? -0.4f : 4.5f) || y < clicked - 4.f) continue;
                 best = d2; bq = {x, y, z};
             }
         if (best < 1e8f) add(bq);
     }
     if (starts.empty()) return;
-    // a small raised top (stair housing, tank, kiosk roof): the roof around it is what the player means
-    if (islandSize(starts[0]) < 40) {
+    // a raised top inside a larger roof (stair housing, tank, lift room) or a small level of a cluttered roof: the
+    // roof levels around it (up to 3, within 8 m, lower), a larger one before the clicked top
+    {
         const V3 s0 = starts[0];
-        float best = 1e9f;
-        V3 bq;
-        for (float dz = -6.f; dz <= 6.f + 1e-3f; dz += c)
-            for (float dx = -6.f; dx <= 6.f + 1e-3f; dx += c) {
+        std::vector<std::pair<float, V3>> near;   // nearest cell per other roof island
+        for (float dz = -8.f; dz <= 8.f + 1e-3f; dz += c)
+            for (float dx = -8.f; dx <= 8.f + 1e-3f; dx += c) {
                 const float x = s0.x + dx, z = s0.z + dz, d2 = dx * dx + dz * dz;
-                if (d2 > 36.f || d2 >= best || !nav.walkable(x, z) || !nav.onRoof(x, z) || nav.island(x, z) == nav.island(s0.x, s0.z)) continue;
+                if (d2 > 64.f || !nav.walkable(x, z) || !nav.onRoof(x, z)) continue;
+                const uint32_t I = nav.island(x, z);
+                bool known = false;
+                for (const V3& q : starts) known |= nav.island(q.x, q.z) == I;
+                if (known) continue;
                 const float y = nav.surface(x, z);
-                if (y > s0.y - 0.5f || y < s0.y - 6.f) continue;
-                best = d2; bq = {x, y, z};
+                if (y > s0.y + 0.6f || y < s0.y - 8.f) continue;
+                bool dup = false;
+                for (auto& e : near) if (nav.island(e.second.x, e.second.z) == I) { dup = true; if (d2 < e.first) e = {d2, {x, y, z}}; }
+                if (!dup) near.push_back({d2, {x, y, z}});
             }
-        if (best < 1e8f) { starts.insert(starts.begin(), bq); }
+        // nearest, and the level right below the top first (the roof a housing stands on, not the next building's)
+        auto key = [&](const std::pair<float, V3>& e) { return std::sqrt(e.first) + 0.5f * std::fabs(s0.y - e.second.y); };
+        std::sort(near.begin(), near.end(), [&](const auto& a, const auto& b) { return key(a) < key(b); });
+        std::vector<V3> a0;
+        nav.islandCells(s0, 80.f, 3000, a0);
+        size_t front = 0;   // nearest first among the levels put before the clicked top
+        for (size_t k = 0; k < near.size() && k < 3; ++k) {
+            std::vector<V3> b;
+            nav.islandCells(near[k].second, 80.f, 3000, b);
+            if (a0.size() < 60 && b.size() > a0.size() * 2 && near[k].second.y < s0.y - 0.5f) starts.insert(starts.begin() + (long)front++, near[k].second);
+            else starts.push_back(near[k].second);
+        }
     }
 }
 
@@ -159,12 +176,11 @@ DropPlan Deploy::plan(const GameContext& ctx, SquadType type, V3 dest) const {
     {
         std::vector<V3> roofs;
         if (known) roofLevels(ctx, dest, roofs);
-        const char* why = nullptr;
-        for (const V3& start : roofs) {
+        for (const V3& start : roofs)
             if (planRoof(ctx, type, dest, start, p)) return p;
-            why = p.reason;
-        }
-        if (why) { p.reason = why; return p; }
+        // no inset spot on any of these roof levels (a very narrow ledge / ring): the plain surface snap below
+        p = DropPlan{};
+        p.price = def.price;
     }
     // The clicked surface (street, roof, parapet). Snap to the nearest landing spot on that same surface within 2.5 m:
     // a click near a roof edge, on a parapet or a roof fixture lands on the roof next to it, never below it.
@@ -245,9 +261,17 @@ bool Deploy::planRoof(const GameContext& ctx, SquadType type, V3 click, V3 start
         return (a.x - click.x) * (a.x - click.x) + (a.z - click.z) * (a.z - click.z) < (b.x - click.x) * (b.x - click.x) + (b.z - click.z) * (b.z - click.z);
     });
     struct Tier { float edge, obs, clear; };
-    static const Tier tiers[] = {{1.5f, 0.6f, 1.5f}, {1.2f, 0.6f, 1.0f}, {1.0f, 0.4f, 0.75f}};
-    std::vector<V3> ok;
-    for (const Tier& t : tiers) {
+    // inset 1.5 m, else 1.2 / 1.0 m; narrow roofs (rings around a tower core, strips between roof objects) take the most
+    // inset spots they have: never refused while the roof has a clear walkable spot
+    static const Tier tiers[] = {{1.5f, 0.6f, 1.5f}, {1.2f, 0.6f, 1.0f}, {1.0f, 0.4f, 0.75f}, {0.7f, 0.3f, 0.6f}, {0.36f, 0.f, 0.f}};
+    // every tier that fits the squad is a candidate; the chosen one minimises (distance of its first spot from the
+    // click + tierPenalty): a slightly less inset spot right at the click beats a perfect one across the roof
+    static const float tierPenalty[] = {0.f, 2.f, 4.f, 8.f, 14.f};
+    std::vector<V3> ok, bestLanding;
+    float bestScore = 1e9f;
+    int nOk = 0;
+    for (size_t ti = 0; ti < sizeof(tiers) / sizeof(tiers[0]); ++ti) {
+        const Tier& t = tiers[ti];
         ok.clear();
         for (const V3& c : cells) {
             if (!insideGrid(nav, c.x, c.z, 2.f) || (ctx.horde && !ctx.horde->simulated(c.x, c.z))) continue;
@@ -256,23 +280,27 @@ bool Deploy::planRoof(const GameContext& ctx, SquadType type, V3 click, V3 start
             if (!landable(ctx, c, t.clear, &y)) continue;
             ok.push_back({c.x, y, c.z});
         }
+        nOk = std::max(nOk, (int)ok.size());
         if ((int)ok.size() < n) continue;
         const V3 first = ok[0];
+        const float score = std::hypot(first.x - click.x, first.z - click.z) + tierPenalty[ti];
+        if (score >= bestScore) continue;
         std::sort(ok.begin() + 1, ok.end(), [&](const V3& a, const V3& b) {
             return (a.x - first.x) * (a.x - first.x) + (a.z - first.z) * (a.z - first.z) < (b.x - first.x) * (b.x - first.x) + (b.z - first.z) * (b.z - first.z);
         });
         for (float spacing : {dropSpacing, 3.0f, 2.2f, 1.6f}) {
-            p.landing.assign(1, first);
-            for (size_t k = 1; k < ok.size() && (int)p.landing.size() < n; ++k) {
+            std::vector<V3> land(1, first);
+            for (size_t k = 1; k < ok.size() && (int)land.size() < n; ++k) {
                 bool apart = true;
-                for (const V3& q : p.landing) apart &= (q.x - ok[k].x) * (q.x - ok[k].x) + (q.z - ok[k].z) * (q.z - ok[k].z) >= spacing * spacing;
-                if (apart) p.landing.push_back(ok[k]);
+                for (const V3& q : land) apart &= (q.x - ok[k].x) * (q.x - ok[k].x) + (q.z - ok[k].z) * (q.z - ok[k].z) >= spacing * spacing;
+                if (apart) land.push_back(ok[k]);
             }
-            if ((int)p.landing.size() >= n) { p.valid = true; p.rooftop = true; p.reason = ""; return true; }
+            if ((int)land.size() >= n) { bestScore = score; bestLanding = land; break; }
         }
     }
+    if (!bestLanding.empty()) { p.landing = bestLanding; p.valid = true; p.rooftop = true; p.reason = ""; return true; }
     p.landing.clear();
-    p.reason = cells.empty() ? "blocked: no walkable roof here" : ok.empty() ? "no clear spot on this roof" : "roof too small for the squad";
+    p.reason = cells.empty() ? "blocked: no walkable roof here" : nOk == 0 ? "no clear spot on this roof" : "roof too small for the squad";
     return false;
 }
 

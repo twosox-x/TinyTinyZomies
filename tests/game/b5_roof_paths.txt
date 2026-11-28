@@ -1,0 +1,35 @@
+# GAME_DESIGN 14e: rooftop navigation. Roof islands keep per-cell clearances to the roof edge (drop / parapet) and to
+# roof objects (stair housings, HVAC units, water tanks, other roof levels); A* pays for cells near either, string
+# pulling never cuts along the rim. Cluttered 48 m roof (-40 92: stair housing in the middle, a narrow passage at its
+# north end), flat 76 m roof (-48 116).
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_roof_paths.txt
+at 0.0  camera -42 92 0.6 1.1 120
+at 0.2  roofpath -50.5 84 -42 96                # west strip -> east side, around the stair housing
+at 0.2  expect roofpath ok == 1
+at 0.2  expect roofpath minobs >= 0.3
+at 0.2  expect roofpath len - roofpath direct <= 9
+at 0.3  roofpath -39 82 -39 99                  # along the east rim: kept off the edge
+at 0.3  expect roofpath ok == 1
+at 0.3  expect roofpath minedge >= 0.75
+at 0.4  roofpath -52 110 -40 120                # flat roof, open: straight
+at 0.4  expect roofpath ok == 1
+at 0.4  expect roofpath minedge >= 1.0
+at 0.4  expect roofpath len - roofpath direct <= 1.5
+at 0.5  buy mg -39 84                           # east side of the cluttered roof
+at 0.6  buy rifle -48 116                       # flat roof
+at 30   expect squad 1 rooftop + squad 2 rooftop == 8
+at 30   move 1 -50.5 92                         # to the west strip, round the housing
+at 30   move 2 -40 106                          # across the flat roof, toward its rim
+at 30   roofwatch
+at 60   log
+at 60   expect squad 1 maxdist -50.5 92 <= 5
+at 60   expect squad 1 rooftop == 3
+at 60   expect squad 1 y >= 144
+at 60   expect squad 1 inside + squad 2 inside == 0
+at 60   expect roofobs 1 >= 0.25
+at 60   expect squad 2 maxdist -40 106 <= 6
+at 60   expect squad 2 rooftop == 5
+at 60   expect roofedge 2 >= 1.0
+at 60   camera -45 92 0.6 1.25 60
+at 60   shot roof_paths_cluttered.png
+at 61   end

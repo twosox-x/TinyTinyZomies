@@ -1,0 +1,22 @@
+# Owner feedback 2026-11-28 (GAME_DESIGN 14e): flamethrowers spray in sustained sweeping bursts, burn corpses lying right
+# against a building wall and between parked cars (stand-off spots with a clear spray line, the jet arcs over cars),
+# fire puddles sit on the street (never on a car) and every puddle drawn keeps its light while it burns.
+# `corpsespot` (test verb) puts the bodies at the nearest such spot to the pivot.
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_flame_obstacles.txt
+at 0.0  camera -8 114 0.7 0.95 45
+at 0.1  corpsespot wall 25 -8 114
+at 0.2  corpsespot cars 25 -8 114
+at 0.5  buy flamethrower -8 110
+at 3    expect corpses_window >= 40
+at 30   log
+at 30   expect flame_sprays > 0
+at 30   expect fire_lights - fire_pools >= 0
+at 30   expect fire_pools_on_cars == 0
+at 40   expect fire_lights - fire_pools >= 0
+at 40   expect fire_pools_on_cars == 0
+at 40   shot flame_obstacles.png
+at 50   expect fire_lights - fire_pools >= 0
+at 75   log
+at 75   expect burned >= 34                 # both piles (20 + 20 bodies) burnt away
+at 75   expect fire_pools_on_cars == 0
+at 76   end

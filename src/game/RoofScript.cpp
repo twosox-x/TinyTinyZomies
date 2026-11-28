@@ -1,7 +1,7 @@
 // Rooftop script verbs / metrics (GAME_DESIGN 14e: effortless roof placement, roof navigation, roof logistics). Called
 // from GameScript after the B2 / B3a / B3b hooks.
 //   roofinfo X Z                                  print the roof island at a point (cells, inset cells, roof objects)
-//   roofclicks X0 Z0 X1 Z1 STEP [sniper|rifle|mg|crate]
+//   roofclicks X0 Z0 X1 Z1 STEP [sniper|rifle|mg|crate] [MINY]
 //                                                 click every STEP m over a rectangle (Deploy::plan / airdropSpot, the
 //                                                 code behind the UI preview); clicks on or at a roof are counted
 //   roofpath X0 Z0 X1 Z1                          solve a path now (NavGrid A*), measure its clearances
@@ -9,6 +9,7 @@
 // metrics: roofclick n|valid|refused|minedge|maxsnap     roofpath ok|minobs|minedge|len|direct
 //          roofedge N (min edge clearance of squad N's living members; 3 = off roofs)   roofobs N
 //          roofwatch ticks|violations|minedge (idle = Idle state at the home spot, or Idle for > edgeLinger + 1 s)
+//          supplyedge N | supplyy N (supply point N: edge clearance / height)
 //          roofsteps roofreturns (AI edge steps / returns to the inset spot)
 #include "game/Deploy.h"
 #include "game/GameScript.h"
@@ -58,10 +59,27 @@ void roofWatchTick(GameWorld& w) {
 bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
     const std::vector<std::string>& a = L.args;
     const GameContext& ctx = w.context();
-    if (L.verb != "roofinfo" && L.verb != "roofclicks" && L.verb != "roofpath" && L.verb != "roofwatch") return false;
+    if (L.verb != "roofinfo" && L.verb != "roofclicks" && L.verb != "roofpath" && L.verb != "roofwatch" && L.verb != "roofmap") return false;
     if (!ctx.nav || !ctx.nav->ready()) { err = L.verb + ": no navigation grid"; return true; }
     NavGrid& nav = *ctx.nav;
     if (L.verb == "roofwatch") { g.watch = true; return true; }
+    if (L.verb == "roofmap") {   // debug: X Z R -> per cell: digit = edge clearance (m, 0..9 = x0.25 m) on the roof island at X Z,
+                                 // '+' higher (parapet / roof object), '-' lower (drop / other level)
+        if (a.size() < 3) { err = "roofmap X Z R"; return true; }
+        const float x0 = fa(a, 0), z0 = fa(a, 1), r = fa(a, 2), c = nav.cell();
+        const uint32_t I = nav.island(x0, z0);
+        const float y0 = nav.surface(x0, z0);
+        std::printf("  roofmap (%.1f %.1f) island %u roof %d y %.2f\n", x0, z0, I, (int)nav.roofIsland(I), y0);
+        for (float z = z0 - r; z <= z0 + r; z += c) {
+            std::string row = "   ";
+            for (float x = x0 - r; x <= x0 + r; x += c) {
+                if (nav.island(x, z) == I && I) { const int d = std::min(9, (int)(nav.cellEdge(x, z) / 0.25f)); row += nav.cellObstacle(x, z) < 0.5f ? (char)('a' + d) : (char)('0' + d); }
+                else row += nav.surface(x, z) > y0 ? '+' : '-';
+            }
+            std::printf("%s\n", row.c_str());
+        }
+        return true;
+    }
     if (L.verb == "roofinfo") {
         if (a.size() < 2) { err = "roofinfo X Z"; return true; }
         const V3 p{fa(a, 0), 0, fa(a, 1)};
@@ -91,6 +109,7 @@ bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
         const float x0 = std::min(fa(a, 0), fa(a, 2)), x1 = std::max(fa(a, 0), fa(a, 2)), z0 = std::min(fa(a, 1), fa(a, 3)), z1 = std::max(fa(a, 1), fa(a, 3));
         const float step = std::max(0.25f, fa(a, 4));
         const std::string kind = a.size() > 5 ? a[5] : "sniper";
+        const float minY = a.size() > 6 ? fa(a, 6) : -1e9f;   // only clicks whose surface is at least this high (the roof, its parapets / objects)
         const SquadType t = kind == "rifle" ? SquadType::Rifle : kind == "mg" ? SquadType::MachineGun : SquadType::Sniper;
         g.clickN = g.clickValid = g.clickRefused = 0; g.clickMinEdge = 99; g.clickMaxSnap = 0;
         int shown = 0;
@@ -99,7 +118,7 @@ bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
                 const V3 p{x, 0, z};
                 std::vector<V3> roofs;
                 roofLevels(ctx, p, roofs);
-                if (roofs.empty()) continue;   // a street click: not what this verb measures
+                if (roofs.empty() || nav.surface(x, z) < minY) continue;   // a street / lower-ledge click: not what this verb measures
                 g.clickN += 1;
                 std::vector<V3> spots;
                 const char* why = "";
@@ -152,6 +171,7 @@ bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
             prev = q;
         }
     }
+    for (const V3& q : out) std::printf("    waypoint (%.2f %.2f %.2f) edge %.2f obstacle %.2f\n", q.x, q.y, q.z, nav.edgeClearance(q.x, q.z), nav.obstacleClearance(q.x, q.z));
     std::printf("  roofpath (%.1f %.1f) -> (%.1f %.1f): %s, %zu waypoints, length %.1f m (direct %.1f), min clearance: obstacles %.2f m, edge %.2f m\n", p0.x, p0.z,
                 p1.x, p1.z, g.pathOk ? "ok" : "FAILED", out.size(), g.pathLen, g.pathDirect, g.pathMinObs, g.pathMinEdge);
     return true;
@@ -164,6 +184,15 @@ bool roofMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
         if (m == "roofclick") out = f == "n" ? g.clickN : f == "valid" ? g.clickValid : f == "refused" ? g.clickRefused : f == "minedge" ? g.clickMinEdge : g.clickMaxSnap;
         else if (m == "roofpath") out = f == "ok" ? g.pathOk : f == "minobs" ? g.pathMinObs : f == "minedge" ? g.pathMinEdge : f == "len" ? g.pathLen : g.pathDirect;
         else out = f == "ticks" ? g.watchTicks : f == "violations" ? g.watchViol : g.watchMinEdge;
+        return true;
+    }
+    if (m == "supplyedge" || m == "supplyy") {   // supply point N (creation order): edge clearance / surface height
+        if (k >= a.size()) { err = m + " N"; return true; }
+        const int n = std::atoi(a[k++].c_str());
+        int c = 0;
+        for (const SupplyPoint& p : w.logistics().points())
+            if (++c == n) { out = m == "supplyy" ? p.pos.y : (w.context().nav ? w.context().nav->edgeClearance(p.pos.x, p.pos.z) : 0.0); return true; }
+        err = "no supply point " + std::to_string(n);
         return true;
     }
     if (m == "roofsteps") { out = (double)w.ai().edgeSteps(); return true; }

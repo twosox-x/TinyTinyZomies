@@ -191,6 +191,7 @@ void CityRenderer::shutdown() {
     SDL_WaitForGPUIdle(d);
     water.shutdown();
     foliage.shutdown();
+    if (skirtVB_) { SDL_ReleaseGPUBuffer(d, skirtVB_); skirtVB_ = nullptr; }
     for (auto& [k, t] : tiles_) {
         if (t.vb) SDL_ReleaseGPUBuffer(d, t.vb);
         if (t.ib) SDL_ReleaseGPUBuffer(d, t.ib);
@@ -259,6 +260,47 @@ void CityRenderer::computeWanted(const Camera& cam, float aspect, std::vector<in
         }
     std::sort(order.begin(), order.end());
     for (auto& o : order) out.push_back(o.second);
+}
+
+// Map outskirts skirt: 4 ground quads (FORMAT.md 2 vertices, implicit quads) around the map rect out to 6 km.
+void CityRenderer::uploadSkirt(SDL_GPUCopyPass* cp) {
+    const CityAsset& a = *asset_;
+    const float E = 6000.f, ov = 0.6f, y = 0.1f;
+    const float cx = 0.5f * (a.x0 + a.x1), cz = 0.5f * (a.z0 + a.z1);
+    const float ext = std::max(a.x1 - a.x0, a.z1 - a.z0) * 0.5f + E;
+    skirtOrigin_[0] = cx; skirtOrigin_[1] = 0.f; skirtOrigin_[2] = cz;
+    skirtScale_[0] = ext / 32000.f; skirtScale_[1] = 1.f / 512.f;
+    const float x0 = a.x0 + ov, x1 = a.x1 - ov, z0 = a.z0 + ov, z1 = a.z1 - ov;
+    const float X0 = a.x0 - E, X1 = a.x1 + E, Z0 = a.z0 - E, Z1 = a.z1 + E;
+    const float rects[4][4] = {{X0, Z0, X1, z0}, {X0, z1, X1, Z1}, {X0, z0, x0, z1}, {x1, z0, X1, z1}};
+    std::vector<CityVertex> v;
+    const uint8_t mat = 205;   // GROUND_FOREST: dark forest floor (rural ground palette)
+    auto q = [&](float x, float z) {
+        CityVertex c{};
+        // inner edges rounded towards the map (overlap), outer ones outwards
+        c.x = (int16_t)std::lround((x - cx) / skirtScale_[0]);
+        c.y = (int16_t)std::lround(y / skirtScale_[1]);
+        c.z = (int16_t)std::lround((z - cz) / skirtScale_[0]);
+        c.flags = 0; c.nx = 0; c.ny = 127; c.nz = 0; c.mat = mat;
+        v.push_back(c);
+    };
+    for (auto& r : rects) {   // counter-clockwise seen from above (+y): front face up
+        q(r[0], r[1]); q(r[0], r[3]); q(r[2], r[3]); q(r[2], r[1]);
+    }
+    SDL_GPUDevice* d = gpu_->device();
+    const uint32_t bytes = (uint32_t)(v.size() * sizeof(CityVertex));
+    SDL_GPUBufferCreateInfo bi{SDL_GPU_BUFFERUSAGE_VERTEX, bytes, 0};
+    skirtVB_ = SDL_CreateGPUBuffer(d, &bi);
+    SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
+    SDL_GPUTransferBuffer* tb = SDL_CreateGPUTransferBuffer(d, &tci);
+    std::memcpy(SDL_MapGPUTransferBuffer(d, tb, false), v.data(), bytes);
+    SDL_UnmapGPUTransferBuffer(d, tb);
+    SDL_GPUTransferBufferLocation src{tb, 0};
+    SDL_GPUBufferRegion dst{skirtVB_, 0, bytes};
+    SDL_UploadToGPUBuffer(cp, &src, &dst, false);
+    SDL_ReleaseGPUTransferBuffer(d, tb);
+    ensureQuadIB(cp, 4);
+    SDL_Log("city: outskirts skirt %.0f..%.0f x %.0f..%.0f (+%.0f m)", a.x0, a.x1, a.z0, a.z1, E);
 }
 
 // Shared u32 index buffer of the implicit quad pattern (FORMAT.md 2): quad q = vertices 4q + (0,1,2), (0,2,3).
@@ -480,6 +522,11 @@ void CityRenderer::update(SDL_GPUCommandBuffer* cmd, const Camera& cam, float as
             ++n;
         }
         decoded_.erase(decoded_.begin(), decoded_.begin() + (long)n);
+        SDL_EndGPUCopyPass(cp);
+    }
+    if (!skirtVB_ && asset_ && asset_->x1 > asset_->x0) {
+        SDL_GPUCopyPass* cp = SDL_BeginGPUCopyPass(cmd);
+        uploadSkirt(cp);
         SDL_EndGPUCopyPass(cp);
     }
     evict(frame);
@@ -757,6 +804,15 @@ void CityRenderer::draw(SDL_GPURenderPass* pass, SDL_GPUCommandBuffer* cmd, SDL_
                                                  (uint32_t)g->ranges.size());
         else
             for (auto& r : g->ranges) SDL_DrawGPUIndexedPrimitives(pass, r.second, 1, r.first, (int32_t)Q.vtxOffset, 0);
+    }
+    if (skirtVB_ && quadIB_) {   // map outskirts (after the tiles: mostly hidden behind them)
+        DrawU u{{skirtOrigin_[0], skirtOrigin_[1], skirtOrigin_[2], 0}, {skirtScale_[0], skirtScale_[1], 0, 0}, 0, 0, 0, 0, {}, {}};
+        SDL_PushGPUVertexUniformData(cmd, 1, &u, sizeof(u));
+        SDL_GPUBufferBinding vb{skirtVB_, 0};
+        SDL_BindGPUVertexBuffers(pass, 0, &vb, 1);
+        SDL_GPUBufferBinding ib{quadIB_, 0};
+        SDL_BindGPUIndexBuffer(pass, &ib, SDL_GPU_INDEXELEMENTSIZE_32BIT);
+        SDL_DrawGPUIndexedPrimitives(pass, 24, 1, 0, 0, 0);
     }
     for (const VDraw& v : vdraws_) {
         const GpuMesh& m = models_[v.lod][v.model];

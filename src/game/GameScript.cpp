@@ -20,6 +20,9 @@ namespace ttz::game {
 // B3b (VerticalScript.cpp)
 bool verticalVerb(GameWorld& w, const ScriptLine& L, std::string& err);
 bool verticalMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
+// 14e structures + fuel (StructuresGame.cpp)
+bool structureVerb(GameWorld& w, const ScriptLine& L, std::string& err);
+bool structureMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
 // GAME_DESIGN 14e rooftops (RoofScript.cpp)
 bool roofVerb(GameWorld& w, const ScriptLine& L, std::string& err);
 bool roofMetric(GameWorld& w, const std::string& m, const std::vector<std::string>& a, size_t& k, double& out, std::string& err);
@@ -91,6 +94,29 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     }
     if (m == "ledger_sum") { out = 0; for (const LedgerEntry& e : eco.ledger()) out += e.amount; return true; }
     if (m == "shots") { out = (double)w.combat().roundsFired(); return true; }
+    if (m == "fire_pools" || m == "fire_lights") {   // 14e: ground-fire puddles drawn / fire lights (jets + puddles) now
+        AppState* app = w.app();
+        if (!app) { out = 0; return true; }
+        std::vector<FlameVolume> vols;
+        const V3 c = app->camera.target();
+        w.flameVolumes(c.x, c.z, app->sim.simTime(), vols);
+        if (m == "fire_pools") { out = 0; for (const FlameVolume& v : vols) out += v.kind == 3 ? 1 : 0; return true; }
+        std::vector<PointLight> lights;
+        w.flameLights(app->sim.simTime(), lights);
+        out = (double)lights.size();
+        return true;
+    }
+    if (m == "fire_pools_on_cars") {   // 14e: puddles whose centre sits on a parked car / obstacle (must stay 0)
+        AppState* app = w.app();
+        if (!app) { out = 0; return true; }
+        std::vector<FlameVolume> vols;
+        const V3 c = app->camera.target();
+        w.flameVolumes(c.x, c.z, app->sim.simTime(), vols);
+        out = 0;
+        for (const FlameVolume& v : vols)
+            if (v.kind == 3 && (app->vehicles.solidAt(v.x, v.z) > v.y + 0.3f || v.y > app->vehicles.groundAt(v.x, v.z) + 0.3f)) out += 1;
+        return true;
+    }
     if (m == "lock_tracked") { out = (double)w.ai().lockTracked(); return true; }   // long-range locks on the exact zombie (owner 2026-11-28)
     if (m == "hits") { out = (double)w.horde().stats().hitsOnZombies; return true; }          // rounds that hit a zombie (GPU)
     if (m == "hit_pct") { const double sh = (double)w.combat().roundsFired(); out = sh > 0 ? 100.0 * (double)w.horde().stats().hitsOnZombies / sh : 0; return true; }
@@ -116,7 +142,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "selected") { out = (double)w.ui().selection().squads.size(); return true; }
     if (m == "tool") { out = (double)w.ui().tool(); return true; }
     if (m == "ui_tab") { out = (double)w.ui().category(); return true; }        // HUD 2: 0 units 1 structures 2 supplies 3 engineering 4 vehicles
-    if (m == "ui_actions") { out = (double)w.ui().actions().size(); return true; }
+    if (m == "ui_actions") { w.ui().ensureBuiltinActions(); out = (double)w.ui().actions().size(); return true; }
     if (m == "ui_pace") { out = (double)w.ui().movePace; return true; }
     // GAME_DESIGN 14d corpse gas / flamethrowers
     if (m == "gas_max") { out = w.gas().stats().maxGas; return true; }
@@ -222,6 +248,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (fortMetric(w, m, a, k, out, err)) return err.empty();   // B2 metrics (FortScript.cpp)
     if (buildingMetric(w, m, a, k, out, err)) return err.empty();   // B3a metrics (BuildingGame.cpp)
     if (verticalMetric(w, m, a, k, out, err)) return err.empty();   // B3b metrics (VerticalScript.cpp)
+    if (structureMetric(w, m, a, k, out, err)) return err.empty();   // 14e metrics (StructuresGame.cpp)
     if (roofMetric(w, m, a, k, out, err)) return err.empty();       // 14e rooftop metrics (RoofScript.cpp)
     err = "unknown metric " + m;
     return false;
@@ -370,6 +397,8 @@ bool GameScript::tick(GameWorld& world, double time) {
             else if (a[0] == "hover" && a.size() >= 2) {
                 if (a[1] == "off") { ui.forceHover = false; ui.clearForcedPreview(); continue; }
                 V3 p{f(a, 1), 0, f(a, 2)};
+                const uint32_t v = app->vehicles.parkedAt(p.x, p.z, 8.f);   // snap onto the nearest parked vehicle (8 m)
+                if (v != UINT32_MAX) { float hx, hz, yaw; app->vehicles.groundBox(v, p.x, p.z, hx, hz, yaw); }
                 if (world.context().nav && world.context().nav->ready()) p.y = world.context().nav->surface(p.x, p.z);
                 ui.forcePreview(Tool::Select, p);
                 ui.forceHover = true;
@@ -381,6 +410,40 @@ bool GameScript::tick(GameWorld& world, double time) {
             if (!app || a.size() < 3) { bad("corpses N X Z [R]"); continue; }
             const float r = f(a, 3, 1.5f);
             app->sim.requestSpawnCorpses({f(a, 1) - r, f(a, 2) - r, f(a, 1) + r, f(a, 2) + r}, (uint32_t)std::atoi(a[0].c_str()));
+        } else if (L.verb == "corpsespot") {   // 14e test: N corpses at the street spot nearest X Z that is right against a
+            // building wall ("wall") or between two parked cars / obstacles ("cars"); prints the spot
+            const GameContext& ctx = world.context();
+            if (!app || !ctx.nav || !ctx.nav->ready() || a.size() < 4) { bad("corpsespot wall|cars N X Z"); continue; }
+            const NavGrid& nav = *ctx.nav;
+            const bool wall = a[0] == "wall";
+            const float cx = f(a, 2), cz = f(a, 3), cs = nav.cell();
+            float best = 1e9f;
+            V3 spot;
+            for (float dz = -40.f; dz <= 40.f; dz += cs)
+                for (float dx = -40.f; dx <= 40.f; dx += cs) {
+                    const float x = cx + dx, z = cz + dz, d2 = dx * dx + dz * dz;
+                    if (d2 >= best || !nav.walkable(x, z)) continue;
+                    const float g = nav.surface(x, z);
+                    if (std::fabs(g - app->vehicles.groundAt(x, z)) > 0.3f) continue;   // street level
+                    bool ok = false;
+                    if (wall) {
+                        for (int k = 0; k < 4 && !ok; ++k) {
+                            const float ox = k == 0 ? 1.f : k == 1 ? -1.f : 0.f, oz = k == 2 ? 1.f : k == 3 ? -1.f : 0.f;
+                            ok = nav.surface(x + ox * 1.1f, z + oz * 1.1f) > g + 3.f;
+                        }
+                    } else {
+                        auto car = [&](float px, float pz) { const float h = app->vehicles.solidAt(px, pz) - g; return h > 0.8f && h < 2.6f; };
+                        for (int k = 0; k < 2 && !ok; ++k) {
+                            const float ox = k == 0 ? 1.f : 0.f, oz = k == 0 ? 0.f : 1.f;
+                            for (float r1 = 0.8f; r1 <= 1.6f && !ok; r1 += 0.4f)
+                                ok = car(x + ox * r1, z + oz * r1) && car(x - ox * r1, z - oz * r1);
+                        }
+                    }
+                    if (ok) { best = d2; spot = {x, g, z}; }
+                }
+            if (best > 1e8f) { bad("corpsespot: no such spot within 40 m"); continue; }
+            std::printf("  corpsespot %s at (%.2f %.2f)\n", a[0].c_str(), spot.x, spot.z);
+            app->sim.requestSpawnCorpses({spot.x - 0.4f, spot.z - 0.4f, spot.x + 0.4f, spot.z + 0.4f}, (uint32_t)std::atoi(a[1].c_str()));
         } else if (L.verb == "rot") {       // TEST HOOK (scripts only): rot DELAY [RAMP] shortens corpse rot for scenarios
             static RotConfig rc;
             rc = world.config().rot;
@@ -546,6 +609,8 @@ bool GameScript::tick(GameWorld& world, double time) {
             if (!berr.empty()) bad(berr.c_str());
         } else if (std::string verr; verticalVerb(world, L, verr)) {   // B3b verbs (VerticalScript.cpp)
             if (!verr.empty()) bad(verr.c_str());
+        } else if (std::string serr; structureVerb(world, L, serr)) {   // 14e verbs (StructuresGame.cpp)
+            if (!serr.empty()) bad(serr.c_str());
         } else if (std::string rerr; roofVerb(world, L, rerr)) {      // 14e rooftop verbs (RoofScript.cpp)
             if (!rerr.empty()) bad(rerr.c_str());
         } else bad(("unknown verb " + L.verb).c_str());

@@ -17,8 +17,8 @@
 // y0 + f * floorHeight; the roof is at roofY (flat roofs; pitched house roofs: roofY = eave, roof not walkable). One
 // stair core per building (local stairU / stairV) connects every floor and the roof hatch (RoofHatch opening).
 // Zombies (B3b) move between floors only through the stair core; soldiers (B3a) are placed at firing positions
-// (windows: floor level + standing at the window; roof edges: on roofY) and are visible there; the interior itself
-// is never drawn.
+// (windows: floor level + standing at the window; roof edges: on roofY) and are visible there; interiors are not
+// modelled, only a small room behind each opened window post is drawn (BuildingGame.cpp, GAME_DESIGN 14e).
 #include "game/GameTypes.h"
 
 #include <cstdint>
@@ -86,6 +86,7 @@ struct FiringPosition {
     float arcHalf = 1.0f;            // half angle of the firing arc around yaw (rad): windows ~60 deg, roof edges ~80 deg
     SoldierId occupant;              // B3a: the garrison soldier assigned to it (invalid: free)
     bool nest = false;               // a fort_window_nest / fort_roof_ring is built at it (defence bonus)
+    bool ringFits = false;           // roof posts: a fort_roof_ring fits on flat roof here (else the U position is drawn)
     float outReach = 0.9f;           // m from pos out to the firing point (SoldierPool::firePos: past the facade / edge)
     // ---- window posts (GAME_DESIGN 14e): the opened window cut into the facade art and the small room behind it
     bool realWindow = false;         // the rect is a glass pane of the baked facade (false: derived spacing)

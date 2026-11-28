@@ -1,28 +1,33 @@
-# GAME_DESIGN 14e: engineers build a perimeter around a block of parked cars (x -23 .. -15, z 105 .. 121) without getting
-# stuck: work spots outside the future enclosure, never on car roofs, never walled in. All engineers end outside the
-# perimeter on the street island. Then a soldier placed on a car roof gets down by himself (small steps, no teleport).
+# GAME_DESIGN 14e: engineers close a perimeter around a block of parked cars (x -23 .. -15, z 105 .. 121) without getting
+# stuck: work spots outside the future enclosure, never on car roofs, never walled in between the new wall and a car.
+# Three sides are pre-built (cheat); the engineers build the closing east side (x -12.5, 2 m from the cars). All
+# engineers end outside the perimeter on the street island. Then a soldier placed on a car roof gets down by himself
+# (small walking steps, no teleport).
 #   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_engineer_cars.txt
-at 0.1  camera -19 114 0.9 0.95 50
-at 0.5  buy engineer -19 127
-at 6    wallrect cheap -25.5 104 -12.5 123              # around the car block (blueprints)
-at 6.4  expect walls >= 16
-at 30   jobs
-at 30   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/eng_cars_mid.png
-at 150  jobs
-at 150  log
-at 150  expect jobs == 0
-at 150  expect regions == 1
-at 150  expect squad_outside 1 -25.5 104 -12.5 123 == 3   # all three ended outside the perimeter
-at 150  expect squad_island 1 -19 127 == 3               # ... on the street (reachable)
-at 150  expect squad_onobstacle 1 == 0
-at 150  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/eng_cars_done.png
-# a soldier on a car roof (west of the block: x -38 .. -26, z 127 .. 131) recovers
-at 151  buy rifle -16 134
-at 158  placesoldier 2 -30 129.5
-at 158.1 expect squad_onobstacle 2 >= 1
-at 158.1 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_before.png
-at 162  expect squad_onobstacle 2 == 0
-at 162  expect squad_island 2 -16 134 >= 1
-at 162  log
-at 162  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_after.png
-at 163  end
+at 0.0  cheat build 1
+at 0.1  camera -16 114 0.9 0.95 45
+at 0.2  wall cheap -12.5 104 -25.5 104 -25.5 123 -12.5 123   # U around the car block, open to the east
+at 0.4  cheat build 0
+at 0.5  buy engineer -9 113
+at 6    wall cheap -12.5 104 -12.5 123                       # the closing side (blueprints)
+at 6.4  expect jobs >= 5
+at 20   jobs
+at 20   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/eng_cars_mid.png
+at 75   jobs
+at 75   log
+at 75   expect jobs == 0
+at 75   expect regions == 1
+at 75   expect squad_outside 1 -25.5 104 -12.5 123 == 3    # all three ended outside the perimeter
+at 75   expect squad_island 1 -9 113 == 3                  # ... on the street (reachable)
+at 75   expect squad_onobstacle 1 == 0
+at 75   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/eng_cars_done.png
+# a soldier on a car roof (west row: x -38 .. -26, z 127 .. 131) gets down by himself, in walking steps
+at 76   placesoldier 1 -30 129.5 0
+at 76.1 expect squad_onobstacle 1 == 1
+at 76.1 camera -28 128 0.9 0.95 25
+at 76.2 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_before.png
+at 77   expect squad_onobstacle 1 == 0                   # off the roof within a second
+at 77   expect squad_near 1 -30 129.5 3 >= 1             # ... right beside the car (stepped down, no teleport)
+at 77   expect squad_island 1 -9 113 == 3                # on the street, reachable
+at 77.1 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/car_roof_after.png
+at 78   end

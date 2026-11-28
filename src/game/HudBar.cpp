@@ -599,7 +599,7 @@ void GameUI::drawTopBar(AppState& app, const GameContext& ctx) {
                       "Income per controlled area (UNAPPROVED). Zombies inside pause it; after %.0f s the area is lost (PROPOSED).", ctx.cfg->fort.lossTime);
         segs.push_back({"TERRITORY", b, x, kSand, xc, tip, 0});
     }
-    const float hours = app.renderSettings.tod.hours;
+    const float hours = std::isfinite(app.renderSettings.tod.hours) ? app.renderSettings.tod.hours : 12.f;
     const bool night = hours < 6.f || hours >= 18.f;
     std::snprintf(b, sizeof(b), "%02d:%02d", (int)hours % 24, (int)((hours - std::floor(hours)) * 60.f));
     const int t = (int)ctx.time;
@@ -734,7 +734,7 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
     const float W = io.DisplaySize.x, H = io.DisplaySize.y;
     const UiCtx u{app, ctx, *this, out};
     const int nCat = (int)UiCategory::Count;
-    const float cardW = 76 * S, cardH = 70 * S, gap = 5 * S, pad = 6 * S, tabH = 22 * S, arrowW = 16 * S, margin = 8 * S;
+    const float cardW = 84 * S, cardH = 70 * S, gap = 5 * S, pad = 6 * S, tabH = 22 * S, arrowW = 16 * S, margin = 8 * S;
     // tabs
     float tabW[8] = {}, tabsW = 0;
     int counts[8] = {};
@@ -851,9 +851,10 @@ void GameUI::drawBuildBar(AppState& app, const GameContext& ctx, CommandQueue& o
                 text(dl, x + 7 * S, p0.y + 6 * S, withA(kDim, fade), 10.5f, bdg.c_str(), true);
             }
             // name
-            const std::string nm = fit(11.5f, A.label, cardW - 8 * S);
-            const ImVec2 ns = tsize(11.5f, nm.c_str());
-            text(dl, x + (cardW - ns.x) * 0.5f, p0.y + 6 * S + iconBox, withA(A.comingLater ? kFaint : en || !afford ? kSand : kDim, fade), 11.5f, nm.c_str());
+            const float npx = tsize(11.5f, A.label.c_str()).x <= cardW - 8 * S ? 11.5f : 10.f;   // long names: smaller, then cut
+            const std::string nm = fit(npx, A.label, cardW - 6 * S);
+            const ImVec2 ns = tsize(npx, nm.c_str());
+            text(dl, x + (cardW - ns.x) * 0.5f, p0.y + 6 * S + iconBox + (11.5f - npx) * S, withA(A.comingLater ? kFaint : en || !afford ? kSand : kDim, fade), npx, nm.c_str());
             // cost (left) / hotkey badge (right)
             const float by = p1.y - 15 * S;
             if (A.comingLater) text(dl, x + 6 * S, by, withA(kFaint, fade), 10.5f, "coming later");

@@ -140,7 +140,7 @@ vec3 glassDay(vec3 base, vec3 N, vec3 V, vec3 P, vec2 room, float rh, float roug
     vec3 L = sunDir.xyz;
     bool wall = abs(N.y) < 0.3;
     // pixel footprint in metres: pane jitter fades and the lobe widens once rooms are a few pixels (temporal stability)
-    float px = length(fwidth(P));
+    float px = length(P - camPos.xyz) * 0.0015;                                     // ~ metres per pixel (0.75 rad fov, 540p)
     float fine = 1.0 - smoothstep(0.25, 0.9, px);
     vec3 T = wall ? normalize(vec3(-N.z, 0.0, N.x)) : vec3(1.0, 0.0, 0.0);
     vec3 B = cross(N, T);

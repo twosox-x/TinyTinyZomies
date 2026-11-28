@@ -1,0 +1,66 @@
+# GAME_DESIGN 14e (owner 2026-11-28): "placing items on roofs and deploying units on roofs must be effortless and simple;
+# units on the roof respect its collisions and keep back from the edge". The roof-surface picker resolves the roof
+# level under a click (a click on a parapet / ledge / roof object / the rim means the roof beside it) and searches that
+# roof island for the nearest clear spot inset from the edge. Roofs: a flat 76 m roof with parapets (-48 116), a
+# cluttered 48 m roof with a stair housing and roof objects (-40 92), a stepped 36 / 33 m roof (24 92).
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_roof_drops.txt
+at 0.0  camera -14 120 0.6 0.9 250
+# every click on or at these roofs gives a valid, inset plan (squads and crates)
+at 0.2  roofclicks -58.5 103.5 -35.5 125.5 1.0 sniper 75
+at 0.2  expect roofclick n >= 250
+at 0.2  expect roofclick refused == 0
+at 0.2  expect roofclick minedge >= 1.2
+at 0.3  roofclicks -58.5 103.5 -35.5 125.5 1.5 rifle 75
+at 0.3  expect roofclick refused == 0
+at 0.3  expect roofclick minedge >= 1.2
+at 0.4  roofclicks -51.5 79.5 -35 101.5 1.0 sniper 47
+at 0.4  expect roofclick n >= 200
+at 0.4  expect roofclick refused == 0
+at 0.4  expect roofclick minedge >= 1.0
+at 0.5  roofclicks -51.5 79.5 -35 101.5 1.5 mg 47
+at 0.5  expect roofclick refused == 0
+at 0.6  roofclicks 14 75 32.5 101.5 1.0 sniper 32
+at 0.6  expect roofclick refused == 0
+at 0.6  expect roofclick minedge >= 0.4          # narrow strips of the lower level: the most inset spot they have
+at 0.7  roofclicks -58.5 103.5 -35.5 125.5 1.5 crate 75
+at 0.7  expect roofclick refused == 0
+at 0.7  expect roofclick minedge >= 1.2
+at 0.8  roofclicks -51.5 79.5 -35 101.5 1.5 crate 47
+at 0.8  expect roofclick refused == 0
+# drops right at the edge / on the parapet / on the stair housing
+at 1.0  buy sniper -57.5 114                   # cornice notch under the parapet of the 76 m roof
+at 1.1  buy rifle -38.5 112                    # rim of the 76 m roof, far side
+at 1.2  buy mg -46 90                          # on the stair housing of the cluttered 48 m roof
+at 1.3  buy sniper 26.8 98.5                   # edge of the stepped roof (lower level)
+at 1.4  key c                                  # sniper through the UI pick, clicked at the roof edge
+at 1.5  click left -56.3 117                  # rim of the 76 m roof
+at 2.0  expect squads == 5
+at 2.0  expect refused == 0
+at 35   log
+at 35   expect landed == 11
+at 35   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop == 11
+at 35   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside == 0
+at 35   expect squad 1 y >= 75.7
+at 35   expect squad 2 y >= 378
+at 35   expect squad 3 y >= 141
+at 35   expect squad 4 y >= 32.5
+at 35   expect squad 5 y >= 75.7
+at 35   expect roofedge 1 >= 1.0
+at 35   expect roofedge 2 >= 1.0
+at 35   expect roofedge 3 >= 1.0
+at 35   expect roofedge 4 >= 1.0
+at 35   expect roofedge 5 >= 1.0
+at 35   roofwatch
+at 35   camera -48 116 0.6 1.2 90
+at 35   shot roof_drops_flat.png
+at 35.1 camera -42 92 0.6 1.2 80
+at 35.1 shot roof_drops_cluttered.png
+at 35.2 camera -14 120 0.6 0.9 250
+at 90   log
+at 90   expect squad 1 rooftop + squad 2 rooftop + squad 3 rooftop + squad 4 rooftop + squad 5 rooftop == 11
+at 90   expect squad 1 inside + squad 2 inside + squad 3 inside + squad 4 inside + squad 5 inside == 0
+at 90   expect roofwatch ticks > 1000
+at 90   expect roofwatch violations == 0
+at 90   expect roofedge 2 >= 1.0
+at 90   expect roofedge 3 >= 1.0
+at 91   end

@@ -2321,7 +2321,11 @@ class Rasterizer {
     out[0] = hs;
     if (area === 'rural') { const rg = ruralGround(this.net, x, z, car - o.sw); out[1] = rg ? rg.mat : MAT.YARD; return; }
     if (area === 'plaza' || area === 'square' || area === 'pocket') { out[1] = plazaTile(x, z, v); return; }
-    if (area === 'park') { out[1] = parkSurface(x, z, v); return; }
+    if (area === 'park') {
+      const L = parkAt(this.net, x, z);
+      if (L) { const g = parkGround(L, x, z, v); out[1] = g[0]; out[0] = hs + g[1]; } else out[1] = parkSurface(x, z, v);
+      return;
+    }
     if (area === 'lot') { out[1] = MAT.LOT; return; }
     out[1] = road.district === 'residential' || (this.suburb && this.suburb.has(this.F.blockAt(x, z))) ? MAT.YARD : MAT.PLOT;
   }
@@ -2335,6 +2339,202 @@ function parkSurface(x, z, v) {
   const a = (x * 0.7071 + z * 0.7071), b = (x * 0.7071 - z * 0.7071);
   const pa = ((a % 38) + 38) % 38, pb = ((b % 51) + 51) % 51;
   return (pa < 2.6 || pb < 2.6) ? MAT.PARK_PATH : MAT.PARK;
+}
+// ---- city parks: the open blocks of generateCity's 'park' areas (rectangles; schools are parks with school: true)
+// get a designed layout per park, deterministic from the area polygon, its index and the city seed (no window state):
+// ground (paths, plazas, pond, courts, pitch, mounds) is drawn by the raster below (parkGround: flat, walkable, no
+// coplanar overlays), the furniture / trees by towers/cityparkkit.js from the same layout. Themes rotate so that
+// neighbouring parks differ: school grounds are 'sports' (pitch, court, playground, bleachers), the other parks
+// alternate 'woodland' (pond, meandering paths, groves on low mounds, gazebo, picnic lawn) and 'formal' (round plaza
+// with a fountain, cross axes and a ring walk, hedges, parterres, allees, a low wall).
+const PG = { LAWN: 14, LAWN_D: 10, LAWN_L: 155, PATH: 18, PLAZA: 12, PLAZA_J: 13, GRAVEL: 207, SOIL: 140, WATER: 206, ROCK: 216,
+  COURT: 65, COURT_B: 127, LINE: 64, MEDAL: 141 };
+const PARK_GROUND = new Set([14, 10, 155, 18, 12, 13, 207, 140, 206, 216, 65, 127, 64, 141]);
+function parkLayouts(net) {
+  if (net._parkL) return net._parkL;
+  const out = [], seed = net.seed || 1;
+  let nPark = 0;
+  (net.areas || []).forEach((a, idx) => {
+    if (a.kind !== 'park' || a.shape !== 'poly' || !a.pts || a.pts.length !== 4) return;
+    const p = a.pts;
+    let e1 = [p[0][0] - p[1][0], p[0][1] - p[1][1]], e2 = [p[0][0] - p[3][0], p[0][1] - p[3][1]];
+    if (Math.hypot(e1[0], e1[1]) < Math.hypot(e2[0], e2[1])) { const t = e1; e1 = e2; e2 = t; }
+    const l1 = Math.hypot(e1[0], e1[1]), l2 = Math.hypot(e2[0], e2[1]);
+    const c = [(p[0][0] + p[1][0] + p[2][0] + p[3][0]) / 4, (p[0][1] + p[1][1] + p[2][1] + p[3][1]) / 4];
+    const L = { idx, name: a.name, c, u: [e1[0] / l1, e1[1] / l1], v: [e2[0] / l2, e2[1] / l2], hu: l1 / 2, hv: l2 / 2,
+      theme: a.school ? 'sports' : (nPark++ % 2 === 0 ? 'woodland' : 'formal'), seed: (hash2(idx, 77, seed + 911) * 4294967296) >>> 0,
+      segs: [], rings: [], discs: [], rects: [], mounds: [], feats: [] };
+    const bb = 30 + Math.hypot(L.hu, L.hv);
+    L.bb = [c[0] - bb, c[1] - bb, c[0] + bb, c[1] + bb];
+    parkDesign(L);
+    out.push(L);
+  });
+  net._parkL = out;
+  return out;
+}
+function parkDesign(L) {
+  const R = mulberry32(L.seed), hu = L.hu, hv = L.hv, m = Math.min(hu, hv), X = 22;
+  const seg = (a, b, hw, mat) => L.segs.push({ a, b, hw, mat });
+  const curve = (a, k, b, hw, mat, n) => {                         // quadratic Bezier a -> b (control k) as segments
+    n = n || 10; let prev = a;
+    for (let i = 1; i <= n; ++i) { const t = i / n, w0 = (1 - t) * (1 - t), w1 = 2 * t * (1 - t), w2 = t * t;
+      const q = [w0 * a[0] + w1 * k[0] + w2 * b[0], w0 * a[1] + w1 * k[1] + w2 * b[1]]; seg(prev, q, hw, mat); prev = q; }
+  };
+  const fl = R() < 0.5 ? 1 : -1, ft = R() < 0.5 ? 1 : -1;            // mirror the design per park
+  if (L.theme === 'formal') {
+    const rp = clamp(m * 0.27, 6.5, 11), ring = Math.max(rp + 8, m * 0.72);
+    L.discs.push({ c: [0, 0], rx: rp, ry: rp, mat: 'plaza' });
+    L.rings.push({ c: [0, 0], rx: ring, ry: ring, hw: 1.1, mat: PG.GRAVEL });
+    seg([-hu - X, 0], [hu + X, 0], 1.6, PG.PLAZA); seg([0, -hv - X], [0, hv + X], 1.6, PG.PLAZA);
+    for (const sx of [-1, 1]) for (const st of [-1, 1]) {           // diagonals from the corners to the ring
+      const d = Math.hypot(hu, hv), dx = hu / d, dz = hv / d;
+      seg([sx * dx * ring, st * dz * ring], [sx * (hu + X * dx), st * (hv + X * dz)], 1.0, PG.PATH);
+    }
+    if (hu > hv * 1.35 && hu - ring > 12) for (const sx of [-1, 1]) L.discs.push({ c: [sx * (ring + (hu - ring) / 2), 0], rx: 4.2, ry: 4.2, mat: 'plaza', rondel: true });
+    L.feats.push({ t: 'fountain', c: [0, 0], r: rp });
+  } else if (L.theme === 'woodland') {
+    const rx = clamp(hu * 0.3, 7.5, 18), ry = clamp(hv * 0.32, 6, 12), pc = [fl * hu * 0.26, -ft * hv * 0.1];
+    L.discs.push({ c: pc, rx, ry, mat: 'water', wob: R() * 6.28 });
+    const lr = 4.4;
+    L.rings.push({ c: pc, rx: rx + lr, ry: ry + lr, hw: 0.9, mat: PG.GRAVEL });
+    const w = [pc[0] - fl * (rx + lr), pc[1]], e = [pc[0] + fl * (rx + lr), pc[1]];
+    // the long meander: west entrance -> pond loop -> east entrance
+    curve([-fl * (hu + X), ft * hv * 0.35], [-fl * hu * 0.35, ft * hv * 0.75], w, 1.0, PG.GRAVEL, 14);
+    curve(e, [pc[0] + fl * (rx + lr + 6), -ft * hv * 0.55], [fl * (hu + X), -ft * hv * 0.45], 1.0, PG.GRAVEL, 8);
+    // a branch from the far long side down to the meander
+    const A0 = [-fl * (hu + X), ft * hv * 0.35], K0 = [-fl * hu * 0.35, ft * hv * 0.75], tj = 0.55;
+    const j = [(1 - tj) * (1 - tj) * A0[0] + 2 * tj * (1 - tj) * K0[0] + tj * tj * w[0], (1 - tj) * (1 - tj) * A0[1] + 2 * tj * (1 - tj) * K0[1] + tj * tj * w[1]];
+    curve([j[0] + fl * hu * 0.3, ft * (hv + X)], [j[0] + fl * hu * 0.25, j[1] + ft * hv * 0.2], j, 0.9, PG.GRAVEL, 8);
+    // gazebo pad on the pond loop, on the open side
+    const ga = -ft * Math.PI / 2 + fl * 0.5, gr = 3.4, gc = [pc[0] + Math.cos(ga) * (rx + lr + gr - 0.4), pc[1] + Math.sin(ga) * (ry + lr + gr - 0.4)];
+    if (Math.abs(gc[0]) < hu - gr - 1 && Math.abs(gc[1]) < hv - gr - 1) { L.discs.push({ c: gc, rx: gr, ry: gr, mat: 'plaza' }); L.feats.push({ t: 'gazebo', c: gc, r: gr }); }
+    L.feats.push({ t: 'pond', c: pc, rx, ry, lr });
+    // low mounds under the groves (clear of every path)
+    for (const [ms, mt] of [[-fl * hu * 0.62, -ft * hv * 0.5], [fl * hu * 0.7, ft * hv * 0.55], [-fl * hu * 0.1, -ft * hv * 0.62]]) {
+      const mr = clamp(m * 0.28, 6, 11), mz = clamp(m * 0.2, 4.5, 8);
+      if (Math.abs(ms) + mr > hu - 1 || Math.abs(mt) + mz > hv - 1) continue;
+      if (parkPathDist(L, ms, mt) < mr + 2.5) continue;
+      const pd = Math.hypot((ms - pc[0]) / (rx + lr + mr + 3), (mt - pc[1]) / (ry + lr + mz + 3)); if (pd < 1) continue;
+      L.mounds.push({ c: [ms, mt], rx: mr, ry: mz });
+    }
+    L.feats.push({ t: 'picnic', c: [-fl * hu * 0.55, ft * hv * 0.05] });
+  } else {
+    // sports: pitch at one end, a cross walk, the court and the playground beyond it, a walk along the long side
+    const a = clamp(hu * 0.42, 13, 32), b = clamp(Math.min(hv - 6, a * 0.64), 8, 21), ps = -fl * (hu - a - 3);
+    L.rects.push({ c: [ps, 0], hu: a, hv: b, mat: 'pitch' });
+    L.feats.push({ t: 'pitch', c: [ps, 0], hu: a, hv: b });
+    const xs = ps + fl * (a + 2.6);
+    seg([xs, -hv - X], [xs, hv + X], 1.1, PG.PATH);
+    const wt = ft * (hv - 2.2);
+    if (hv - b > 4.5) seg([-hu - X, wt], [hu + X, wt], 1.1, PG.PATH);
+    // court: full (28 x 15) across or along, else half (15 x 14)
+    const room = hu - fl * xs - 2;                                    // metres from the cross walk to the far end
+    const cs = [[7.5 + 1.2, 14 + 1.2, 'full', true], [14 + 1.2, 7.5 + 1.2, 'full', false], [7.5 + 1, 7 + 1, 'half', false]];
+    for (const [chu, chv, kind, across] of cs) {
+      if (2 * chu + 1.5 > room || chv > hv - (hv - b > 4.5 ? 4.6 : 1.5)) continue;
+      const cc = [xs + fl * (1.1 + 0.8 + chu), -ft * (hv - (hv - b > 4.5 ? 4.6 : 1.5) - chv) * 0.0];
+      L.rects.push({ c: cc, hu: chu, hv: chv, mat: 'court', kind, across, flip: fl });
+      L.feats.push({ t: 'court', c: cc, hu: chu, hv: chv, kind, across });
+      const left = room - 2 * chu - 1.9;
+      if (left >= 10) {
+        const pr = Math.min(6.5, left / 2 - 0.6), pcx = cc[0] + fl * (chu + 1.0 + pr);
+        L.discs.push({ c: [pcx, -ft * Math.min(hv * 0.3, hv - pr - 2)], rx: pr, ry: pr * 0.85, mat: 'soil' });
+        L.feats.push({ t: 'playground', c: [pcx, -ft * Math.min(hv * 0.3, hv - pr - 2)], r: pr });
+        seg([pcx, wt], [pcx, -ft * Math.min(hv * 0.3, hv - pr - 2)], 0.9, PG.PATH);
+      }
+      break;
+    }
+  }
+}
+function parkPathDist(L, s, t) {
+  let d = 1e9;
+  for (const g of L.segs) d = Math.min(d, segDist(s, t, g.a[0], g.a[1], g.b[0], g.b[1]) - g.hw);
+  for (const r of L.rings) d = Math.min(d, Math.abs(Math.hypot((s - r.c[0]) / r.rx, (t - r.c[1]) / r.ry) - 1) * Math.sqrt(r.rx * r.ry) - r.hw);
+  return d;
+}
+function parkAt(net, x, z) {
+  for (const L of parkLayouts(net)) if (x > L.bb[0] && x < L.bb[2] && z > L.bb[1] && z < L.bb[3]) return L;
+  return null;
+}
+// ground of a city park at (x, z): [material, height offset in voxels]
+function parkGround(L, x, z, v) {
+  const dx = x - L.c[0], dz = z - L.c[1], s = dx * L.u[0] + dz * L.u[1], t = dx * L.v[0] + dz * L.v[1];
+  let hit = null;
+  for (const d of L.discs) {
+    const q = Math.hypot((s - d.c[0]) / d.rx, (t - d.c[1]) / d.ry);
+    if (d.mat === 'water') {
+      const an = Math.atan2(t - d.c[1], s - d.c[0]), wob = 1 + 0.07 * Math.sin(an * 3 + d.wob) + 0.04 * Math.sin(an * 5 + d.wob * 2);
+      const qq = q / wob, rm = Math.min(d.rx, d.ry);
+      if (qq < 1) return [PG.WATER, -1];
+      if ((qq - 1) * rm < 0.55) return [PG.ROCK, 0];
+      if ((qq - 1) * rm < 1.1) return [PG.GRAVEL, 0];
+      continue;
+    }
+    if (q >= 1) continue;
+    const r = Math.hypot(s - d.c[0], t - d.c[1]);
+    if (d.mat === 'soil') return [(q > 1 - 0.3 / d.ry) ? 70 : PG.SOIL, 0];
+    // plaza: concentric paving rings with joints, a granite medallion in the middle, a granite border
+    const rr = d.rx;
+    if (rr - r < 0.4) return [PG.MEDAL, 0];
+    if (!d.rondel && r < 1.2) return [PG.MEDAL, 0];
+    const f = ((r % 1.8) + 1.8) % 1.8;
+    if (f < v * 0.999) return [PG.PLAZA_J, 0];
+    const an = Math.atan2(t - d.c[1], s - d.c[0]), nseg = Math.max(8, Math.round(r * 2.2)), fa = ((an / (2 * Math.PI) + 1) * nseg) % 1;
+    if (fa * 2 * Math.PI * r / nseg < v * 0.999) return [PG.PLAZA_J, 0];
+    return [PG.PLAZA, 0];
+  }
+  for (const g of L.rects) {
+    const a = s - g.c[0], b = t - g.c[1];
+    if (Math.abs(a) > g.hu || Math.abs(b) > g.hv) continue;
+    if (g.mat === 'pitch') hit = parkPitch(g, a, b, v);
+    else hit = parkCourt(g, a, b, v);
+    if (hit) return hit;
+  }
+  if (parkPathDist(L, s, t) < 0) {
+    for (const g of L.segs) if (segDist(s, t, g.a[0], g.a[1], g.b[0], g.b[1]) < g.hw) return [g.mat, 0];
+    for (const r of L.rings) if (Math.abs(Math.hypot((s - r.c[0]) / r.rx, (t - r.c[1]) / r.ry) - 1) * Math.sqrt(r.rx * r.ry) < r.hw) return [r.mat, 0];
+  }
+  let dh = 0;
+  for (const mo of L.mounds) {
+    const q = Math.hypot((s - mo.c[0]) / mo.rx, (t - mo.c[1]) / mo.ry);
+    if (q < 1) dh = Math.max(dh, q < 0.45 ? 2 : 1);
+  }
+  // lawn: patches of darker / lighter grass on a 1.6 m voxel grid (low-frequency noise + a cell hash)
+  const n = 0.68 * vnoise(L.seed & 0xffff, x / 11, z / 11) + 0.32 * hash2(Math.floor(x / 1.6), Math.floor(z / 1.6), L.seed & 0xffff);
+  return [n > 0.66 ? PG.LAWN_D : n < 0.3 ? PG.LAWN_L : PG.LAWN, dh];
+}
+function parkPitch(g, a, b, v) {
+  const w = Math.max(0.12, v * 1.2), A = g.hu - 1.5, B = g.hv - 1.5, on = (d) => Math.abs(d) < w / 2;
+  if (Math.abs(a) <= A + w / 2 && Math.abs(b) <= B + w / 2) {
+    if (on(Math.abs(a) - A) || on(Math.abs(b) - B) || on(a)) return [PG.LINE, 0];
+    const cr = Math.min(9.15, B * 0.42);
+    if (on(Math.hypot(a, b) - cr)) return [PG.LINE, 0];
+    const pa = Math.min(16.5, A * 0.3), pb = Math.min(20.15, B * 0.6), ga = Math.min(5.5, A * 0.1), gb = Math.min(9.16, B * 0.3);
+    for (const [xa, xb] of [[pa, pb], [ga, gb]]) if ((on(Math.abs(a) - (A - xa)) && Math.abs(b) <= xb) || (on(Math.abs(b) - xb) && Math.abs(a) >= A - xa)) return [PG.LINE, 0];
+  }
+  // mowing stripes
+  return [Math.floor((a + g.hu) / 4.6) % 2 ? PG.LAWN : PG.LAWN_L, 0];
+}
+function parkCourt(g, a, b, v) {
+  // court in its own frame: x along its length, y across
+  let x = g.across ? b : a, y = g.across ? a : b;
+  const hx = (g.across ? g.hv : g.hu) - 1.1, hy = (g.across ? g.hu : g.hv) - 1.1, w = Math.max(0.1, v * 1.1), on = (d) => Math.abs(d) < w / 2;
+  const surf = PG.COURT;
+  if (Math.abs(x) > hx + w / 2 || Math.abs(y) > hy + w / 2) return [PG.COURT_B, 0];   // apron
+  if (on(Math.abs(x) - hx) || on(Math.abs(y) - hy)) return [PG.LINE, 0];
+  if (g.kind !== 'half') { if (on(x)) return [PG.LINE, 0]; if (on(Math.hypot(x, y) - 1.8)) return [PG.LINE, 0]; }
+  for (const e of (g.kind === 'half' ? [-hx] : [-hx, hx])) {
+    const ax = (x - e) * (e < 0 ? 1 : -1);                         // metres in from that baseline
+    if (ax < 0 || ax > 9) continue;
+    if (ax <= 5.8 && on(Math.abs(y) - 2.45)) return [PG.LINE, 0];
+    if (on(ax - 5.8) && Math.abs(y) <= 2.45) return [PG.LINE, 0];
+    if (ax > 5.8 && on(Math.hypot(ax - 5.8, y) - 1.8)) return [PG.LINE, 0];
+    if (ax <= 5.8 && Math.abs(y) < 2.45) return [PG.COURT_B, 0];   // painted key
+    const r3 = Math.hypot(ax - 1.6, y);
+    if (ax > 1.6 && on(r3 - 6.75) && Math.abs(y) < 6.6) return [PG.LINE, 0];
+    if (ax <= 1.6 + Math.sqrt(Math.max(0, 6.75 * 6.75 - 6.6 * 6.6)) && on(Math.abs(y) - 6.6)) return [PG.LINE, 0];
+  }
+  return [surf, 0];
 }
 // arrow glyph in lane-local coordinates: a = lateral from lane centre (+ = towards the driver's left),
 // b = metres before the glyph tip (0 at the tip, increasing away from the junction)
@@ -4463,6 +4663,6 @@ function exportNetwork(net) {
 Object.assign(PROP_PALETTE, VEH_PALETTE);
 // rural ground (city_core GROUND): crop green, furrow, wheat, forest floor, water, farmyard gravel
 Object.assign(PROP_PALETTE, { 202: [112, 146, 74], 203: [128, 104, 78], 204: [204, 182, 116], 205: [86, 100, 66], 206: [76, 114, 138], 207: [166, 156, 138] });
-const CityCore = { WATER, waterSD, bankY, bridgePlan, bridgeAt, waterColumn, roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
+const CityCore = { parkLayouts, parkAt, parkGround, parkPathDist, PARK_GROUND, PG, WATER, waterSD, bankY, bridgePlan, bridgeAt, waterColumn, roadIndex, roadSpans, inSpans, Vehicles, VM, chunkGrid, chunksForCuts, CUT_FLARE, pointAt, chamfer, PV, PM, PROP_PALETTE, PROP_TYPES, buildPropMeshes, placeProps, meshVoxels3D, VoxModel, PROFILES, MAT, MAT_NAMES, PALETTE, generateCity, growOutskirts, ringGeom, landUseAt, ruralGround, ruralParcel, isRural, forestNoise, inFarm, lakeR, GROUND, generateTestArea, FieldSampler, Rasterizer, Plots, meshColumns, MeshBuffer, prepareBuild, buildChunk, buildBlocks, buildCity, runSync, findJunctions, exportNetwork, hash2, mulberry32 };
 if (typeof module !== 'undefined' && module.exports) module.exports = CityCore; else root.CityCore = CityCore;
 })(typeof self !== 'undefined' ? self : this);

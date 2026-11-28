@@ -99,6 +99,8 @@ set(TTZ_GAME_CORE
   src/game/CorpseGas.cpp
   src/game/CorpseGasTest.cpp
   src/game/FlameAI.cpp
+  src/game/Structures.cpp
+  src/game/FuelLogistics.cpp
   src/lab/MilitaryAssets.cpp)
 add_executable(ttz
   src/main.cpp
@@ -138,6 +140,9 @@ add_executable(ttz
   src/game/Fortify.cpp
   src/game/FortUI.cpp
   src/game/HudBar.cpp
+  src/game/StructuresGame.cpp
+  src/game/Structures.cpp
+  src/game/FuelLogistics.cpp
   src/game/FortScript.cpp
   src/game/BuildingGame.cpp
   src/game/VerticalScript.cpp

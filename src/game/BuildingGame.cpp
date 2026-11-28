@@ -315,7 +315,7 @@ void buildRoom(RoomBuilder& R, const FiringPosition& f, uint32_t seed) {
     // sandbag sill: courses of bags on the reveal floor up to a little under the soldier's shoulder (a window nest
     // replaces it); taller openings (shop / curtain glazing) get a low sandbag wall
     if (f.nest) return;
-    const float top = std::clamp(F + 1.22f - A, 0.12f, 1.0f);
+    const float top = std::clamp(F + 1.08f - A, 0.12f, 1.0f);
     const int courses = std::max(1, (int)std::lround(top / 0.13f));
     const float ch = top / (float)courses;
     const float bo0 = -T + 0.03f, bo1 = f.realWindow ? -0.05f : 0.06f;
@@ -455,8 +455,8 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
             const float c = std::sin(f.yaw), s = std::cos(f.yaw);
             if (f.kind == FiringKind::Window) {
                 if (f.nest) mil.addProp(P.nest, {f.win.x - c * 0.6f, f.roomFloor, f.win.z - s * 0.6f}, f.yaw);
-            } else if (f.nest) mil.addProp(P.ring, {f.pos.x - c * 0.9f, f.pos.y, f.pos.z - s * 0.9f}, f.yaw);
-            else if (f.occupant.valid()) mil.addProp(P.roofPos, {f.pos.x - c * 0.3f, f.pos.y, f.pos.z - s * 0.3f}, f.yaw);
+            } else if (f.nest && f.ringFits) mil.addProp(P.ring, {f.pos.x - c * 0.9f, f.pos.y, f.pos.z - s * 0.9f}, f.yaw);
+            else if (f.nest || f.occupant.valid()) mil.addProp(P.roofPos, {f.pos.x - c * 0.3f, f.pos.y, f.pos.z - s * 0.3f}, f.yaw);
         }
         if (B.role == BuildingRole::None) continue;
         const int r = B.role == BuildingRole::Garrison ? 0 : 1;
@@ -466,7 +466,20 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
         else mil.addProp(P.flag[r], B.toWorld(-0.8f, -1.2f, B.y0), yawFront);
         // banner on the front facade, hanging from under the roof line (or from the first floor of a house)
         const float by = B.flatRoof ? std::min(B.roofY - 0.4f, B.y0 + 2.f * B.floorHeight + 2.4f) : B.y0 + B.floorHeight * B.floors - 0.2f;
-        mil.addProp(P.banner[r], B.toWorld(B.w * 0.5f + (B.w > 8.f ? 2.5f : 0.f), -0.06f, by), yawFront);
+        float bs = B.w * 0.5f + (B.w > 8.f ? 2.5f : 0.f), bestGap = -1.f;   // never over a front window post
+        for (float cand = 0.8f; cand <= B.w - 0.8f; cand += 0.25f) {
+            float gap = 1e9f;
+            for (const FiringPosition& f : B.firing) {
+                if (f.kind != FiringKind::Window || f.winHalfW <= 0.f) continue;
+                float u, v;
+                B.toLocal(f.win.x, f.win.z, u, v);
+                if (v > 1.5f) continue;   // front facade only
+                gap = std::min(gap, std::fabs(u - cand) - f.winHalfW);
+            }
+            gap = std::min(gap, 1.2f) - 0.01f * std::fabs(cand - bs);   // prefer the usual spot when it is clear
+            if (gap > bestGap) { bestGap = gap; bs = cand; }
+        }
+        mil.addProp(P.banner[r], B.toWorld(bs, -0.06f, by), yawFront);
         int door = -1;
         for (size_t k = 0; k < B.openings.size(); ++k) if (B.openings[k].type == OpeningType::Door) { door = (int)k; break; }
         if (r == 0) {

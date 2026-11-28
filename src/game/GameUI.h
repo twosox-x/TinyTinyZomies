@@ -66,6 +66,7 @@ public:
     void registerSelectionAction(UiSelectionAction a);
     void registerHoverProvider(const std::string& id, UiHoverProvider p);
     const std::vector<UiAction>& actions() const { return actions_; }
+    void ensureBuiltinActions() { registerBuiltinActions(); }   // normally lazy (first draw / event); scripts / tests
     // Scripts / tests: run a registered action as if its card (or selection button) was clicked. False: unknown id.
     bool invokeAction(AppState& app, const GameContext& ctx, CommandQueue& out, const std::string& id);
     void setCategory(UiCategory c) { tab_ = c; }

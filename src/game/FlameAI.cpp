@@ -23,7 +23,62 @@ bool busy(SoldierState s) {
     return s == SoldierState::Engaging || s == SoldierState::Hit || s == SoldierState::Reloading || s == SoldierState::Resupplying ||
            s == SoldierState::Collecting || s == SoldierState::Dying || s == SoldierState::Dead;
 }
+constexpr float kBurstMin = 2.2f, kBurstMax = 3.6f;   // owner 14e "spray longer": sustained bursts (s)
+constexpr float kBurstPause = 1.2f;                   // s between pile bursts (let it burn, look again)
+constexpr float kZombieBurst = 2.0f;                  // s a burst at zombies keeps going after the target fell
+// Ground under a point (the nav heights carry cars and walls: a pile next to a wall / between cars read the wall or car
+// top -> "roof vs street" skipped it, aim too high): the lowest walkable surface within ~1.5 m.
+float groundNear(const NavGrid* nav, V3 p) {
+    if (!nav || !nav->ready()) return p.y;
+    float best = 1e9f;
+    for (float dz = -1.5f; dz <= 1.51f; dz += 0.5f)
+        for (float dx = -1.5f; dx <= 1.51f; dx += 0.5f)
+            if (nav->walkable(p.x + dx, p.z + dz)) best = std::min(best, nav->surface(p.x + dx, p.z + dz));
+    return best < 1e8f ? best : nav->surface(p.x, p.z);
+}
+// Highest obstacle top (shot layer: cars, walls, gates) between a nozzle at `a` and the pile at `b`, ignoring the last
+// `skipEnd` m (the pile's own cell, a wall right behind it); its distance from a in `at`.
+float obstacleTop(const NavGrid* nav, V3 a, V3 b, float skipEnd, float& at) {
+    at = 0.f;
+    if (!nav || !nav->ready()) return -1e9f;
+    const float dx = b.x - a.x, dz = b.z - a.z, L = std::sqrt(dx * dx + dz * dz);
+    float top = -1e9f;
+    for (float s = 0.6f; s < L - skipEnd; s += 0.375f) {
+        const float h = nav->shotHeight(a.x + dx / L * s, a.z + dz / L * s);
+        if (h > top) { top = h; at = s; }
+    }
+    return top;
+}
 } // namespace
+
+// Stand-off spot for spraying a pile (owner 14e: "trouble burning corpses next to walls and between cars"): 16
+// directions x 3 distances around the pile; walkable, on the squad's island, at street level with the pile; the spray
+// line from the nozzle may cross low obstacles (cars, low walls <= 1.9 m above the ground: the jet arcs over them, the
+// cone ignites through) but not a building / tall wall. Score: walking distance from the squad + obstacle penalty.
+bool FlameAI::pickStand(const GameContext& ctx, V3 pile, V3 from, float standoff, V3& out, float& facing) const {
+    const NavGrid* nav = ctx.nav;
+    if (!nav || !nav->ready()) return false;
+    const float gy = groundNear(nav, pile);
+    const uint32_t isl = nav->island(from.x, from.z);
+    float best = 1e9f;
+    for (float r : {standoff, standoff * 0.7f, standoff * 1.2f})
+        for (int k = 0; k < 16; ++k) {
+            const float a = (float)k * 0.392699f;
+            V3 q = pile + V3{std::sin(a) * r, 0, std::cos(a) * r}, w;
+            if (!nav->nearestWalkable(q, 0.8f, w, isl)) continue;
+            const float wy = nav->surface(w.x, w.z);
+            if (std::fabs(wy - gy) > 1.0f) continue;   // street level with the pile (not a roof / container top)
+            const float d = std::sqrt(dist2(w, pile));
+            if (d < 2.5f || d > 8.2f) continue;
+            float at;
+            const float top = obstacleTop(nav, V3{w.x, wy + kMuzzleHeight, w.z}, V3{pile.x, gy, pile.z}, 1.0f, at);
+            if (top > gy + 1.9f) continue;   // building / tall wall in the way
+            const float pen = top > gy + 0.4f ? 6.f + 3.f * (top - gy) : 0.f;
+            const float sc = std::sqrt(dist2(w, from)) + pen + std::fabs(d - standoff) * 0.5f;
+            if (sc < best) { best = sc; out = w; facing = std::atan2(pile.x - w.x, pile.z - w.z); }
+        }
+    return best < 1e8f;
+}
 
 void FlameAI::usePlaceholderAssets(DeployTiming& t) {
     const size_t f = (size_t)SoldierClass::Flamethrower, r = (size_t)SoldierClass::Rifleman;
@@ -35,12 +90,18 @@ void FlameAI::usePlaceholderAssets(DeployTiming& t) {
 
 void FlameAI::ensure(const GameContext& ctx) {
     const size_t n = ctx.soldiers->capacity();
-    if (last_.size() < n) { last_.resize(n, -1.0); fuelAcc_.resize(n, 0.f); lastGen_.resize(n, ~0u); noiseAt_.resize(n, -1e9); burnAnim_.resize(n, 0); }
+    if (last_.size() < n) {
+        last_.resize(n, -1.0); fuelAcc_.resize(n, 0.f); lastGen_.resize(n, ~0u); noiseAt_.resize(n, -1e9); burnAnim_.resize(n, 0);
+        burstStart_.resize(n, -1e9); pauseUntil_.resize(n, -1e9); lastAim_.resize(n, V3{});
+    }
     for (size_t i = 0; i < n; ++i)
-        if (lastGen_[i] != ctx.soldiers->gen[i]) { lastGen_[i] = ctx.soldiers->gen[i]; last_[i] = -1.0; fuelAcc_[i] = 0.f; noiseAt_[i] = -1e9; burnAnim_[i] = 0; }
+        if (lastGen_[i] != ctx.soldiers->gen[i]) {
+            lastGen_[i] = ctx.soldiers->gen[i]; last_[i] = -1.0; fuelAcc_[i] = 0.f; noiseAt_[i] = -1e9; burnAnim_[i] = 0;
+            burstStart_[i] = -1e9; pauseUntil_[i] = -1e9;
+        }
 }
 
-bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim) {
+bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim, float arcUp) {
     SoldierPool& P = *ctx.soldiers;
     const BalanceConfig& cfg = *ctx.cfg;
     const WeaponStats& w = cfg.weapon[(size_t)SoldierClass::Flamethrower];
@@ -63,6 +124,8 @@ bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim) {
         if (lat < std::max(along, 0.f) * tanA + F.friendlyClearance) { ++blocked_; return false; }
     }
     const double now = ctx.time;
+    if (last_[i] < 0.0 || now - last_[i] > 0.6) burstStart_[i] = now;   // a new burst
+    lastAim_[i] = aim;
     float secs = last_[i] < 0.0 ? w.fireInterval : (float)std::clamp(now - last_[i], 0.0, (double)kMaxSpraySeconds);
     if (secs <= 0.f) secs = w.fireInterval;
     last_[i] = now;
@@ -80,7 +143,11 @@ bool FlameAI::spray(GameContext& ctx, uint32_t i, V3 aim) {
         ctx.horde->queueHits(hits);
     }
     if (ctx.events) {
-        ctx.events->fx.push_back(FxEvent{FxKind::Flame, P.idOf(i), origin, d});
+        // the jet arcs over a low obstacle (car, low wall) between the nozzle and the pile: FX direction lifted, the
+        // cone (ignition, zombie rays) stays on the aim point
+        V3 fd = d;
+        if (arcUp > 0.f) fd = normalize(d + V3{0, std::tan(std::min(arcUp, 0.6f)) * std::sqrt(d.x * d.x + d.z * d.z), 0});
+        ctx.events->fx.push_back(FxEvent{FxKind::Flame, P.idOf(i), origin, fd});
         if (now - noiseAt_[i] > 1.0) {   // loud, but one noise source per second per flamethrower
             noiseAt_[i] = now;
             NoiseEvent n;
@@ -131,6 +198,21 @@ void FlameAI::tick(GameContext& ctx) {
     const WeaponStats& w = cfg.weapon[(size_t)SoldierClass::Flamethrower];
     ensure(ctx);
     if (mem_.size() < ctx.squads->squads.size()) mem_.resize(ctx.squads->squads.size());
+    // zombie bursts (owner 14e: "they insta-spray and then stop"): a burst started at zombies keeps going for
+    // kZombieBurst s after the target fell (or the engagement ended), sweeping over where it was: the zombies around
+    // it and bodies there keep getting the flame. Engaging soldiers with a live target are Combat's.
+    for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
+        if (!P.used[i] || !P.alive(i) || P.cls[i] != SoldierClass::Flamethrower || P.mag[i] <= 0) continue;
+        const SoldierState st = P.state[i];
+        if (!(st == SoldierState::Idle || (st == SoldierState::Engaging && !P.target[i].active))) continue;
+        if (ctx.time - last_[i] > 0.5 || ctx.time - burstStart_[i] > kZombieBurst || ctx.time - last_[i] < w.fireInterval - 1e-4) continue;
+        if (st == SoldierState::Idle && ctx.squads) {   // not when the squad is on a pile (its own bursts below)
+            const Squad* sq = ctx.squads->get(P.squad[i]);
+            if (sq && burning(sq->id)) continue;
+        }
+        const V3 side{std::cos(P.yaw[i]), 0, -std::sin(P.yaw[i])};
+        spray(ctx, i, lastAim_[i] + side * (std::sin((float)ctx.time * 3.1f + (float)i) * 0.25f));
+    }
     for (size_t si = 0; si < ctx.squads->squads.size(); ++si) {
         Squad& s = ctx.squads->squads[si];
         if (s.type != SquadType::Flamethrower) continue;
@@ -158,9 +240,11 @@ void FlameAI::tick(GameContext& ctx) {
                 const float l = std::sqrt(dir.x * dir.x + dir.z * dir.z);
                 dir = l > 0.5f ? dir * (1.f / l) : V3{0, 0, 1};
                 V3 stand = pile - dir * F.standoff, sw;
-                if (ctx.nav && ctx.nav->ready() && ctx.nav->nearestWalkable(stand, 3.f, sw)) stand = sw;
+                float face = std::atan2(dir.x, dir.z);
+                if (!pickStand(ctx, pile, c, F.standoff, stand, face))
+                    if (ctx.nav && ctx.nav->ready() && ctx.nav->nearestWalkable(stand, 3.f, sw)) stand = sw;
                 m.target = pile; m.phase = 1; m.phaseT = 0.f;
-                order(ctx, s, m, stand, std::atan2(dir.x, dir.z));
+                order(ctx, s, m, stand, face);
                 ++trips_;
             }
         }
@@ -174,9 +258,11 @@ void FlameAI::tick(GameContext& ctx) {
                 const float l = std::sqrt(dir.x * dir.x + dir.z * dir.z);
                 dir = l > 0.5f ? dir * (1.f / l) : V3{0, 0, 1};
                 V3 stand = pile - dir * F.standoff, sw;
-                if (ctx.nav && ctx.nav->ready() && ctx.nav->nearestWalkable(stand, 3.f, sw)) stand = sw;
+                float face = std::atan2(dir.x, dir.z);
+                const bool picked = pickStand(ctx, pile, c, F.standoff, stand, face);
+                if (!picked && ctx.nav && ctx.nav->ready() && ctx.nav->nearestWalkable(stand, 3.f, sw)) stand = sw;
                 m.target = pile; m.phase = 1; m.phaseT = 0.f;
-                if (std::sqrt(dist2(c, pile)) > F.standoff + 2.f) order(ctx, s, m, stand, std::atan2(dir.x, dir.z));
+                if (std::sqrt(dist2(c, pile)) > F.standoff + 2.f || (picked && std::sqrt(dist2(c, stand)) > 2.f)) order(ctx, s, m, stand, face);
                 ++trips_;
             }
         }
@@ -184,7 +270,8 @@ void FlameAI::tick(GameContext& ctx) {
         // approach / spray: members standing (not fighting) within range spray the pile, sweeping across it
         const float reach = w.range * 0.92f;
         // fuel economy: once every body at the pile is alight, stop spraying and let it burn (re-light if one is left)
-        const bool needFire = ctx.gas->corpsesNear(m.target, 2.3f, true) > 0;
+        const bool unlit = ctx.gas->corpsesNear(m.target, 2.3f, true) > 0;
+        const int leftNow = ctx.gas->corpsesNear(m.target, 2.3f);
         bool anySpray = false, arrived = true, anyBlocked = false;
         for (const SoldierId& id : s.members) {
             if (!P.valid(id) || !P.alive(id.index)) continue;
@@ -194,12 +281,32 @@ void FlameAI::tick(GameContext& ctx) {
             if (st != SoldierState::Idle) continue;   // moving / fighting / reloading members are the AI's
             const V3 tgt = m.target;
             if (dist2(P.pos[i], tgt) > reach * reach || P.mag[i] <= 0) continue;
-            if (std::fabs(P.pos[i].y - (ctx.nav && ctx.nav->ready() ? ctx.nav->surface(tgt.x, tgt.z) : P.pos[i].y)) > 2.5f) continue;   // roof vs street
+            const float gy = groundNear(ctx.nav, tgt);   // the street under the pile, not a car roof / wall top next to it
+            if (std::fabs(P.pos[i].y - gy) > 2.5f) continue;   // roof vs street
             m.phase = 2;
-            const float sweep = std::sin((float)ctx.time * 2.3f + (float)i) * 1.0f;
-            const V3 side{std::cos(P.yaw[i]), 0, -std::sin(P.yaw[i])};
-            const float gy = ctx.nav && ctx.nav->ready() ? ctx.nav->surface(tgt.x, tgt.z) : tgt.y;
-            const V3 aim = V3{tgt.x, gy + 0.35f, tgt.z} + side * sweep;
+            // sustained bursts (owner 14e): kBurstMin..kBurstMax s while bodies there are unlit (or the pile no longer
+            // burns), sweeping across and along the pile; then a short pause to let it burn, then look again
+            const double now = ctx.time;
+            const bool inBurst = now - last_[i] < 0.6;
+            const float el = (float)(now - burstStart_[i]);
+            const float burstLen = kBurstMin + (kBurstMax - kBurstMin) * (float)((i * 2654435761u) >> 24) / 255.f;
+            const bool burnsAlready = ctx.gas->at(tgt.x, tgt.z).fire > 0.5f;
+            bool needFire;
+            if (inBurst) {
+                needFire = el < burstLen || (unlit && el < kBurstMax);
+                if (!needFire) pauseUntil_[i] = now + kBurstPause;
+            } else needFire = now >= pauseUntil_[i] && (unlit || (leftNow > 0 && !burnsAlready));
+            const float sweep = std::sin((float)ctx.time * 1.7f + (float)i) * 1.3f, depth = std::sin((float)ctx.time * 0.9f + 1.3f * (float)i) * 0.7f;
+            const V3 side{std::cos(P.yaw[i]), 0, -std::sin(P.yaw[i])}, fwd{std::sin(P.yaw[i]), 0, std::cos(P.yaw[i])};
+            const V3 aim = V3{tgt.x, gy + 0.35f, tgt.z} + side * sweep + fwd * depth;
+            // a car / low wall between the nozzle and the pile: arc the jet over it (FX), the cone still lights the pile
+            float at, arc = 0.f;
+            const V3 nozzle = P.firePos(i) + V3{0, kMuzzleHeight, 0};
+            const float top = obstacleTop(ctx.nav, nozzle, aim, 0.9f, at);
+            if (top > gy + 0.4f && at > 0.3f) {
+                const float dAim = std::sqrt(dist2(nozzle, aim));
+                arc = std::max(0.f, std::atan2(top + 0.3f - nozzle.y, at) - std::atan2(aim.y - nozzle.y, dAim));
+            }
             const float want = std::atan2(tgt.x - P.pos[i].x, tgt.z - P.pos[i].z);
             P.yaw[i] = SoldierAnimator::turnToward(P.yaw[i], want, 7.f * ctx.dt);
             P.vel[i] = {};
@@ -214,7 +321,7 @@ void FlameAI::tick(GameContext& ctx) {
             if (!needFire) { anySpray = true; continue; }   // burning: hold, facing the pile
             if (std::fabs(err) < 0.35f && (last_[i] < 0.0 || ctx.time - last_[i] >= w.fireInterval - 1e-4)) {
                 const uint64_t b0 = blocked_;
-                anySpray |= spray(ctx, i, aim);
+                anySpray |= spray(ctx, i, aim, arc);
                 anyBlocked |= blocked_ != b0;
             } else anySpray = true;
         }

@@ -102,6 +102,7 @@ public:
     const Deploy& deploy() const { return deploy_; }
     const Logistics& logistics() const { return logistics_; }
     const Economy& economy() const { return economy_; }
+    Economy& economyMut() { return economy_; }                 // 14e structures (StructuresGame.cpp charges)
     EngineerAI& engineers() { return engineers_; }              // 14d engineers (construction jobs, car clearing)
     Fortifications& fort() { return fort_; }                    // B2
     const Fortifications& fort() const { return fort_; }

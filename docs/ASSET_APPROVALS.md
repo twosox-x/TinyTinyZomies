@@ -47,3 +47,18 @@ Separate files (`assets/military/specialists.*`, `specialist_anims.*`); the Stag
 
 ## Phase 7B specialists
 Engineer and flamethrower models, animations and flame FX (v4): APPROVED by the owner on 2026-11-28 ("Flamethrower and engineer - approved").
+
+## Phase 7b — structures (GAME_DESIGN 14e)
+
+Separate files (`assets/military/structures.*`); every approved file is byte-identical (md5 checked). In game: placeholders until approved (`kStructureAssetsApproved`, `src/game/StructuresGame.cpp`).
+
+| Asset | Models | Animations | Notes |
+|---|---|---|---|
+| Defense tower, timber (sandbag parapet, roof, ladder) | pending review | n/a | deck 5.1 m, 2 sniper posts; 44k tris (heaviest prop: LOD / merge later if needed) |
+| Defense tower, steel (plate parapet with slits, caged ladder) | pending review | n/a | alternative design: owner to pick one (or both) |
+| Diesel generator (genset, exhaust stack, fuel cap, cable reel) | pending review | n/a | exhaust socket for smoke FX |
+| Floodlight mast (tripod, 4 heads, cable) | pending review | n/a | `lamps` part lit only while powered |
+| Fuel jerrycan (20 l) | pending review | n/a | carried by engineers (no carry clip yet: drawn at the hand) |
+| Fuel drum (200 l) | pending review | n/a | |
+| Base fuel store (bund, 4 drums, pump, 6 jerrycan slots) | pending review | n/a | jerrycan slots show the stock level |
+

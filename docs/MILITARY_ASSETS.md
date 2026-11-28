@@ -292,3 +292,28 @@ Budgets: engineers 2.5–2.7 k triangles, flamethrowers 3.1–3.4 k, tools 46–
 
 Review shots: `NODE_PATH=$(npm root -g) node tools/military_lab/spec_shots.mjs <outDir>` (Lab mode `7b` lineup, RTS
 mode with the specialists, `Eng+Flame` / `Eng` / `Flame` in Anim mode, scene `RTS 7b`).
+
+## Structures (Phase 7b, GAME_DESIGN 14e): towers, generator, floodlight, fuel — pending review
+
+Separate files `assets/military/structures.ttzm` + `structures.json` (props only, 5 cm prop voxels, pivot = footprint
+centre at ground level, front = +Z). Source: `buildStructures()` in the MILITARY LIBRARY section of
+`tools/military_lab/military_lab_v1.html`; the converter bakes it after the specialists. The structures add 8 palette
+entries **after** `PAL_SPEC_COUNT` (lampWarm emissive, lampGlassOff glass, corrugated / corrugatedDark metal, timber /
+timberDark, drumOlive, drumBand): the specialists file is baked with `PALETTE.slice(0, PAL_SPEC_COUNT)`, so every
+approved file stays byte-identical (md5 verified: infantry, props, anims, specialists, specialist_anims).
+
+| Model | Size (m) | Tris | Parts | Sockets / notes |
+|---|---|---|---|---|
+| `tower_wood` | 3.8 x 7.7 x 3.8 | 44,148 | body | timber watchtower: battered 20 cm legs on concrete pads, two X-braced bays, plank deck at 5.0 m (deck top 5.10 m), 3-course sandbag parapet (0.9 m) with a gap at the ladder, corrugated roof on four posts (2.3 m headroom), vertical ladder on the rear (-Z). `post_a` / `post_b` (deck posts, front), `ladder_foot`, `ladder_top`; extra: deckHeight 5.1, parapetHeight 0.9, eyeHeight 6.55, capacity 2 |
+| `tower_steel` | 3.2 x 6.35 x 3.95 | 27,082 | body | alternative: steel scaffold legs, X-braced in three bays, grating deck, 1.15 m plate parapet with two firing slits per side, inner sandbag course, caged ladder, no roof. Same sockets |
+| `generator` | 2.8 x 1.75 x 1.1 | 6,012 | body | military diesel genset on a skid: olive enclosure, radiator louvres, door seams / latch, control panel (gauges, breakers), fuel filler neck + yellow cap and gauge (+Z side), roof muffler + exhaust stack with rain cap, lifting eye; cable reel (red flanges) on its own stand at the panel end, cable to the panel. Sockets `exhaust` (smoke / noise FX), `fuel_cap`, `cable_out`, `service` |
+| `floodlight` | 2.1 x 5.05 x 2.35 | 4,166 | body, **lamps** | tripod + two-stage mast (4.6 m), junction box, two crossbars with 4 lamp heads (stepped lower lip = slight downward tilt, cooling fins), cable down to a ground coil. Part `lamps` = the emissive lens faces (lampWarm): drawn only while powered; unpowered, the recessed dark glass of the body shows. Sockets `light` (beam origin / direction), `cable_in` |
+| `jerrycan` | 0.35 x 0.55 x 0.3 | 468 | body | NATO 20 l can: embossed X, three handles, spout cap. Socket `grip` (carried by engineers) |
+| `fuel_drum` | 0.6 x 0.95 x 0.6 | 1,156 | body | 200 l drum: two rolling ribs, yellow band, bung caps |
+| `fuel_store` | 2.5 x 2.05 x 1.6 | 9,856 | body, can0..can5 | base fuel store: steel bund (spill pallet) with grating, 4 drums, hand pump with hose / nozzle on one drum, red "no flames" plate on a post, 6 jerrycan slots. Parts `can0..can5` show the fill level (one per sixth of the stock). Sockets `deliver` (engineers pour fuel here), `pump` |
+
+Review sheets: `node tools/military_lab/struct_shots.mjs <outDir>` (lab mode "Struct": both towers with snipers on
+their deck posts, generator, floodlight lit / unlit at night with a spot light, fuel store, drum, jerrycan, rifleman for
+scale; per-model persp / front / side / top views, socket views, RTS 45 / 110 m, night). In the game the structures are
+drawn as coarse placeholders (`ph_*`, `MilitaryLibrary::addStructurePlaceholders`) until approval; the swap is one
+constant (`kStructureAssetsApproved` in `src/game/StructuresGame.cpp`).

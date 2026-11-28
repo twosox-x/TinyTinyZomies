@@ -208,6 +208,10 @@ bool App::initCity() {
         SDL_Log("city: no collision tiles under the simulation window");
         return false;
     }
+    if (o.lab.empty()) {   // map outskirts fade into the dark past the baked map's edges (lighting.glsl finish)
+        RenderSettings& rs = s_.renderSettings;
+        rs.mapRect[0] = s_.city.x0; rs.mapRect[1] = s_.city.z0; rs.mapRect[2] = s_.city.x1; rs.mapRect[3] = s_.city.z1;
+    }
     s_.cityMode = true;
     return true;
 }
@@ -599,6 +603,7 @@ void App::frame(double dt) {
         // GAME_DESIGN 14d / 14e: flamethrower jets and burning puddles light the street, first in the fire-light budget
         // (maxFireLights): burning cars no longer crowd out a puddle's light while it still burns
         if (s.game) s.game->flameLights(s.sim.simTime(), lamps);
+        if (s.game) s.game->structureLights(s, lamps);            // GAME_DESIGN 14e: floodlights powered by generators
         s.vehicles.fireLights(p.x, p.z, s.renderTime, 16, lamps);
         if (s.lab) s.lab->injectLights(lamps);
         s.renderer.setLights(lamps);

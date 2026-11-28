@@ -27,6 +27,7 @@ layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
                         // z tilt-shift sharp half-height (NDC), w unused
     mat4  shadowVP2;    // the other shadow map layer (next sun key; cross-faded, Renderer::shadowView)
     vec4  shadowP2;     // x weight of shadowVP2, y layer of shadowVP, z layer of shadowVP2
+    vec4  mapP;         // map edge fade: xz rect (x0, z0, x1, z1) of the baked map, x1 <= x0 off (lighting.glsl finish)
 };
 #define DBG_DENSITY 1u
 #define DBG_FLOW    2u

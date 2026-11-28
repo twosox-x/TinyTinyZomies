@@ -83,9 +83,22 @@ vec3 shadeV(vec3 albedo, vec3 N, vec3 P, float ao, float vis) {
 vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) { return shadeV(albedo, N, P, ao, 1.0); }
 // Fog (fogColor.w density per metre, starting groundColor.w metres from the eye, capped so distant blocks keep their
 // colours), exposure (sunColor.w, 0 = 1) and a soft highlight roll-off; returns display (gamma) colour.
+// Map outskirts: towards the baked map's edge (mapP rect) everything sinks into near-black, so the map never ends in a
+// hard line: the last ~120 m inside the edge (rural outskirts) fade to fully dark at the edge itself; the ground skirt
+// (CityRenderer) beyond it is dark throughout, so map and skirt meet without a seam (only the fog tints the distance). Distance from the rect, rounded at the corners. Applied before the
+// fog (far outskirts haze like any distant ground and meet the fog-coloured sky without a seam) and exposure: the same
+// at any time of day, on every surface that goes through finish() (tiles, foliage, water, characters, effects).
+#define MAP_DARK vec3(0.004, 0.0045, 0.006)
+float mapEdgeFade(vec3 P) {
+    if (mapP.z <= mapP.x) return 0.0;
+    vec2 o = max(mapP.xy - P.xz, P.xz - mapP.zw);          // > 0 outside along that axis
+    float d = length(max(o, 0.0)) + min(max(o.x, o.y), 0.0);   // signed distance outside the rect (m)
+    return smoothstep(-120.0, 0.0, d);
+}
 vec3 finish(vec3 col, vec3 P) {
     float d = length(P - camPos.xyz);
     float f = (1.0 - exp(-fogColor.w * max(d - groundColor.w, 0.0))) * 0.7;
+    col = mix(col, MAP_DARK, mapEdgeFade(P));
     col = mix(col, fogColor.rgb, clamp(f, 0.0, 1.0));
     col *= sunColor.w > 0.0 ? sunColor.w : 1.0;
     col = col / (1.0 + col * 0.3);          // soft highlight roll-off

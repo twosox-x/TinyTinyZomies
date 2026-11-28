@@ -1,0 +1,62 @@
+# GAME_DESIGN 14e generator, floodlights, fuel stock, generator noise (owner decision 2026-11-28: noise stacks per
+# area, capped). Instant construction (cheat build 1): this script is about power and fuel, not the engineers. Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_power.txt
+at 0.1  cheat build 1
+at 0.1  camera -12 128 0.6 0.9 45
+at 0.2  structure light -8 128                         # no generator within cable range: refused
+at 0.4  expect structures_placed light == 0
+at 0.5  structure fuel -16 124
+at 0.5  structure generator -10 124
+at 0.7  structure light -6 128
+at 0.7  structure light -14 131
+at 1.0  expect structures_alive fuel == 1
+at 1.0  expect structures_alive generator == 1
+at 1.0  expect structures_alive light == 2
+at 1.0  expect fuel_stock == 20                        # 40 l start, 20 l went into the generator tank
+at 1.0  expect generator -10 124 tank == 20
+at 1.5  expect lights_lit == 0                         # day (16:30): generators only run at night (PROPOSED)
+at 1.5  expect generator -10 124 running == 0
+at 1.6  lights on                                      # forced on (night / debug)
+at 2.0  expect lights_lit == 2
+at 2.0  expect generator -10 124 running == 1
+at 2.0  expect generator -10 124 powered == 2
+at 2.5  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/power_lit.png
+at 12   expect fuel_burned > 0.3                       # (0.02 + 2 x 0.006) l/s x 10 s
+at 12   expect fuel_burned < 0.4
+at 12   expect generator -10 124 tank < 19.7
+at 12   expect noise_areas == 1                        # one running generator = one noise area
+at 12   expect noise_generators -10 124 == 1
+at 12   expect noise_strength -10 124 == 0.5
+at 12   expect noise_radius -10 124 == 40
+at 12.5 setfuel -16 124 0                              # TEST HOOK: the fuel store runs dry ...
+at 12.5 setfuel -10 124 0.05                           # ... and the generator's tank too
+at 16   expect generator -10 124 running == 0
+at 16   expect generator -10 124 tank == 0
+at 16   expect lights_lit == 0                         # no fuel: dark
+at 16   expect noise_areas == 0                        # and silent
+at 16.5 setfuel -16 124 200                            # fuel delivered: the tank refills, the lights are back
+at 17   expect lights_lit == 2
+at 17   expect generator -10 124 tank > 19
+at 17.5 structure generator -20 130                    # a second generator 11.7 m away: same area, the noise adds up
+at 17.5 structure light -19 132
+at 20   expect noise_areas == 1
+at 20   expect noise_generators -15 127 == 2
+at 20   expect noise_strength -15 127 == 1
+at 20   expect noise_radius -15 127 > 56.5             # 40 x sqrt(2)
+at 20   expect noise_radius -15 127 < 56.6
+at 20.5 structure generator -16 136
+at 20.5 structure light -14 135
+at 20.6 structure generator -12 118
+at 20.6 structure light -10 116
+at 23   structures
+at 23   expect lights_lit == 5
+at 23   expect noise_areas == 1
+at 23   expect noise_generators -15 127 == 4
+at 23   expect noise_strength -15 127 == 1.5           # capped (noiseCap)
+at 23   expect noise_radius -15 127 > 69.2              # 40 x sqrt(1.5 / 0.5), under noiseRadiusCap 80
+at 23   expect noise_radius -15 127 < 69.4
+at 23   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/power_four.png
+at 23.5 lights auto                                    # day again: generators stop, lights off, silence
+at 25   expect lights_lit == 0
+at 25   expect noise_areas == 0
+at 26   end

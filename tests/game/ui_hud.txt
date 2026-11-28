@@ -22,9 +22,9 @@ at 0.5  expect ui_tab == 0
 at 0.6  key esc
 at 0.6  expect tool == 0
 at 0.7  buy rifle -11 117
-at 0.7  buy mg -18 112
-at 0.7  buy engineer -16 126
-at 0.7  buy flamethrower -8 110
+at 0.7  buy mg -5 102
+at 0.7  buy engineer -14 129
+at 0.7  buy flamethrower -12 101
 at 1.0  ui tab units
 at 1.0  ui tip unit.rifle                      # tooltip (capture; headless shots have no mouse)
 at 1.1  shot ui2_bar_tip.png

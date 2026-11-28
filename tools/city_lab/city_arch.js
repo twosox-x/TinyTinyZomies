@@ -3331,6 +3331,7 @@ function planAll(PL, R, voxel, C, popts) {
   const kmb = new C.MeshBuffer();
   if (LIB.serviceKit) { const ts = Date.now(); counts.service = LIB.serviceKit({ PL, R, C, occ, blocks, jobs: plan.blockJobs, hs, voxel, mb: kmb }); counts.serviceMs = Date.now() - ts; }
   if (sub && LIB.parkKit) { const tp = Date.now(); sub.leftovers = LIB.parkKit({ PL, C, R, blocks, sub, mb: kmb, hs, voxel }); counts.parkMs = Date.now() - tp; }
+  if (LIB.cityParkKit) { const tp = Date.now(); counts.cityParks = LIB.cityParkKit({ PL, C, mb: kmb, hs, voxel, rect: popts.core || null }); counts.parkMs = (counts.parkMs || 0) + Date.now() - tp; }
   plan.kit = kmb; plan.kitCuts = CUTS; CUTS = [];
   // per-quad centre + bounds (voxel units) of the kit mesh for binning
   const n = kmb.quads, KC = new Float32Array(n * 2), KB = new Float32Array(n * 4);
@@ -3737,6 +3738,7 @@ function buildAllLegacy(PL, R, voxel, C) {
   // Emitted after every building: cullHidden() groups faces by quantised normal and measures planes with the first
   // face of each group, so these freely rotated parts must not come first in a group the buildings use
   if (sub && LIB.parkKit) { const tp = Date.now(); sub.leftovers = LIB.parkKit({ PL, C, R, blocks, sub, mb, hs, voxel }); counts.parkMs = Date.now() - tp; }
+  if (LIB.cityParkKit) counts.cityParks = LIB.cityParkKit({ PL, C, mb, hs, voxel });
   // countryside past the county line (towers/ruralkit.js; only on grown maps, generateCity opts.scale > 1)
   if (LIB.ruralKit && PL.net.plan) counts.rural = LIB.ruralKit({ PL, C, R, mb, hs, voxel });
   // every curb cut is known now: the rasterizer drops the curbs (the page re-meshes the road chunks they touch)

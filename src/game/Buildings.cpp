@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace ttz::game {
@@ -180,7 +182,7 @@ void BuildingRegistry::readGlass(const TileCPU& t) {
                     if (a.side != c.side || std::fabs(a.inset - c.inset) > 0.15f) continue;
                     const float sOv = std::min(a.s1, c.s1) - std::max(a.s0, c.s0), yOv = std::min(a.y1, c.y1) - std::max(a.y0, c.y0);
                     const float minW = std::min(a.s1 - a.s0, c.s1 - c.s0), minH = std::min(a.y1 - a.y0, c.y1 - c.y0);
-                    const bool beside = sOv > -0.22f && yOv > 0.5f * minH, stacked = sOv > 0.5f * minW && yOv > -0.22f;
+                    const bool beside = sOv > -0.3f && yOv > 0.5f * minH, stacked = sOv > 0.5f * minW && yOv > -0.4f;
                     if (!beside && !stacked) continue;
                     const float wa = (a.s1 - a.s0) * (a.y1 - a.y0), wc = (c.s1 - c.s0) * (c.y1 - c.y0);
                     a.inset = (a.inset * wa + c.inset * wc) / std::max(1e-4f, wa + wc);
@@ -330,33 +332,51 @@ void BuildingRegistry::prepare(const std::function<float(float, float)>& heightA
                         const float hOut = heightAt(e.x + ox * 1.7f, e.z + oz * 1.7f);
                         if (std::isnan(hOut) || hOut > B.roofY - 2.f) continue;      // no drop: neighbour / lower roof
                     }
+                    // search: set back 1.6 .. 3 m, slid along the edge up to 2.25 m; the U position (2.6 x 1.8 m around
+                    // him) must fit on flat roof; the ring (3.6 m) is drawn only where it fits too (else the U position)
                     bool placed = false;
-                    for (int t = 0; t < 10 && !placed; ++t) {
-                        const float ins = t < 5 ? 1.9f : 2.5f;
-                        const float s = s0 + (float)((t % 5 + 1) / 2) * ((t % 5) % 2 ? 1.f : -1.f);
-                        if (s < ring + 0.5f || s > L - ring - 0.5f || ins + 0.9f + ring > depthAvail - 0.6f) continue;
+                    static const float insets[4] = {1.6f, 1.9f, 2.4f, 3.0f}, slide[7] = {0.f, 0.75f, -0.75f, 1.5f, -1.5f, 2.25f, -2.25f};
+                    for (int t = 0; t < 28 && !placed; ++t) {
+                        const float s = s0 + slide[t % 7];
+                        // the real roof edge along this line (the footprint can include awnings / canopies below it)
+                        float edge = -1.f;
+                        for (float o = 0.f; o <= 6.f && edge < 0.f; o += 0.25f) {
+                            auto [ue, ve] = at(s, o);
+                            const V3 w = B.toWorld(ue, ve, 0.f);
+                            const float h = heightAt(w.x, w.z);
+                            if (!std::isnan(h) && h >= B.roofY - 0.7f) edge = o;
+                        }
+                        if (edge < 0.f) continue;
+                        const float ins = edge + insets[t / 7];
+                        if (s < 1.6f || s > L - 1.6f || ins + 1.4f > depthAvail - 0.6f) continue;
                         auto [u, v] = at(s, ins);
-                        auto [uc, vc] = at(s, ins + 0.9f);                            // ring centre (behind him)
-                        const V3 p = B.toWorld(u, v, B.roofY), cc = B.toWorld(uc, vc, B.roofY);
+                        const V3 p = B.toWorld(u, v, B.roofY);
                         const float hc = heightAt(p.x, p.z);
-                        if (std::isnan(hc) || std::fabs(hc - B.roofY) > 0.7f) continue;
+                        if (std::isnan(hc) || hc < B.roofY - 0.7f || hc > std::min(B.topY - 0.5f, B.roofY + 3.5f)) continue;   // roof levels (setbacks)
+                        auto flat = [&](float sa, float sb, float oa, float ob) {   // facade-frame rect: s range, inset range
+                            for (float q = sa; q <= sb + 1e-3f; q += 0.4f)
+                                for (float o = oa; o <= ob + 1e-3f; o += 0.4f) {
+                                    auto [uu, vv] = at(s + q, ins + o);
+                                    const V3 w = B.toWorld(uu, vv, 0.f);
+                                    const float h = heightAt(w.x, w.z);
+                                    if (std::isnan(h) || h < hc - 0.35f || h > hc + 0.3f) return false;
+                                }
+                            return true;
+                        };
+                        if (!flat(-1.3f, 1.3f, -0.6f, 1.3f)) continue;
+                        auto [uc, vc] = at(s, ins + 0.9f);
+                        const V3 cc = B.toWorld(uc, vc, B.roofY);
                         bool ok = true;
-                        for (int j = -4; j <= 4 && ok; ++j)
-                            for (int i = -4; i <= 4 && ok; ++i) {
-                                if (i * i + j * j > 16) continue;
-                                const float h = heightAt(cc.x + i * 0.45f, cc.z + j * 0.45f);
-                                ok = !std::isnan(h) && h > hc - 0.35f && h < hc + 0.3f;
-                            }
-                        for (const V3& a : avoid) ok = ok && d2(a, cc) > (ring + 0.7f) * (ring + 0.7f);
+                        for (const V3& a : avoid) ok = ok && d2(a, p) > 2.0f * 2.0f;
                         for (const Cand& o : cands)
-                            if (o.fp.kind == FiringKind::RoofEdge) {
-                                const V3 oc = o.fp.pos - V3{std::sin(o.fp.yaw), 0, std::cos(o.fp.yaw)} * 0.9f;
-                                ok = ok && d2(oc, cc) > (2.f * ring + 0.3f) * (2.f * ring + 0.3f);
-                            }
+                            if (o.fp.kind == FiringKind::RoofEdge) ok = ok && d2(o.fp.pos, p) > 3.9f * 3.9f;
                         if (!ok) continue;
+                        bool ringOk = ins + 0.9f + ring <= depthAvail - 0.6f && flat(-ring, ring, 0.9f - ring, 0.9f + ring);
+                        for (const V3& a : avoid) ringOk = ringOk && d2(a, cc) > (ring + 0.7f) * (ring + 0.7f);
                         Cand c;
                         c.fp.kind = FiringKind::RoofEdge; c.fp.floor = kRoofFloor; c.fp.pos = {p.x, hc, p.z}; c.fp.yaw = yawOut; c.fp.arcHalf = 1.4f;
                         c.fp.outReach = ins + 0.6f;
+                        c.fp.ringFits = ringOk;
                         c.prio = (side == 0 ? 2 : 5) + k % 2;   // a few roof edges early: a squad gets windows and the roof
                         cands.push_back(c);
                         placed = true;

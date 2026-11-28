@@ -20,11 +20,13 @@
 //   Fuel store    : base fuel stock (fuelStoreCapacity l each, fuelStoreStart l when built). Engineers deliver fuel here
 //                   (FuelLogistics: siphoned / disassembled cars), generators draw from it.
 // No GPU and no App here (CPU, testable); the App side (obstacles, drawing, lights, UI, script verbs) is StructuresGame.cpp.
+#include "game/Config.h"
 #include "game/EngineerAI.h"
 #include "game/GameContext.h"
 #include "game/GameEvents.h"
 #include "game/HordeInterface.h"
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <string>
@@ -84,7 +86,8 @@ public:
     V3 ladderFoot(int tower, const StructureConfig& S) const;
     int occupants(int tower) const;
     void forceAttackers(int tower, int n) { if (tower >= 0) { if (forced_.size() <= (size_t)tower) forced_.resize((size_t)tower + 1, -1); forced_[(size_t)tower] = n; } }   // TEST HOOK
-    void damage(int s, float hp);                                                // TEST HOOK / explosions later
+    void damage(int s, float hp);
+    void setFuel(int s, float litres) { if (s >= 0 && (size_t)s < list_.size()) { Structure& x = list_[(size_t)s]; (x.kind == StructureKind::Generator ? x.tank : x.fuel) = std::max(0.f, litres); } }   // TEST HOOK                                                // TEST HOOK / explosions later
 
     // tick order (GameWorld): preAi before SoldierAI (new orders release tower posts), tick after BuildingPlay::tick
     // (climb, posts pinned, tower pressure, generators, lights, noise), preCombat fills Combat::extraCapsules.

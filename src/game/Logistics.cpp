@@ -113,20 +113,34 @@ bool Logistics::airdropSpot(const GameContext& ctx, V3 pos, V3& spot, const char
             std::sort(cells.begin(), cells.end(), [&](const V3& a, const V3& b) { return dist2(a, pos) < dist2(b, pos); });
             const uint32_t isl = nav.island(start.x, start.z);
             struct Tier { float edge, obs; };
-            static const Tier tiers[] = {{1.8f, 1.0f}, {1.4f, 0.8f}, {1.1f, 0.7f}};
-            for (const Tier& t : tiers)
+            static const Tier tiers[] = {{1.8f, 1.0f}, {1.4f, 0.8f}, {1.1f, 0.7f}, {0.8f, 0.5f}, {0.36f, 0.3f}};
+            static const float tierPenalty[] = {0.f, 2.f, 4.f, 8.f, 14.f};   // as Deploy::planRoof: inset vs distance
+            float bestScore = 1e9f;
+            for (size_t ti = 0; ti < 5; ++ti) {
+                const Tier& t = tiers[ti];
                 for (const V3& c : cells) {
+                    const float sc = std::sqrt(dist2(c, pos)) + tierPenalty[ti];
+                    if (sc >= bestScore) break;   // cells are sorted by distance
                     if (!simulatedAt(ctx, c.x, c.z) || nav.cellEdge(c.x, c.z) < t.edge || nav.cellObstacle(c.x, c.z) < t.obs) continue;
                     float y;
                     if (!flatFootprint(ctx, c, kCrateHalf, kCrateHalf, 0.f, 0.35f, &y)) continue;
                     V3 w;
-                    if (!nav.insetSpot(c + V3{1.1f, 0, 0}, 1.6f, 0.8f, 0.3f, isl, w)) continue;   // an access cell beside it
+                    bool access = false;   // an access cell beside it (not under the crate)
+                    for (float ae : {0.8f, 0.36f}) {
+                        if (access) break;
+                        for (int k = 0; k < 8 && !access; ++k) {
+                            const V3 q{c.x + std::cos(k * kPi / 4) * 1.1f, c.y, c.z + std::sin(k * kPi / 4) * 1.1f};
+                            access = nav.insetSpot(q, 0.5f, ae, 0.2f, isl, w) && dist2(w, c) > 0.8f * 0.8f;
+                        }
+                    }
+                    if (!access) continue;
+                    bestScore = sc;
                     spot = {c.x, y, c.z};
-                    if (why) *why = "";
-                    return true;
+                    break;
                 }
+            }
+            if (bestScore < 1e8f) { if (why) *why = ""; return true; }
         }
-        if (!roofs.empty()) return no("no clear spot for a crate on this roof");
     }
     const float clicked = nav.surface(pos.x, pos.z);
     // a spot: crate footprint flat (roof gravel / curbs within 0.35 m), on the clicked surface level (a stepped roof's

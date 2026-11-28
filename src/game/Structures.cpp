@@ -444,7 +444,7 @@ void Structures::tick(GameContext& ctx) {
             const Structure& G = list_[(size_t)g];
             if (G.powered >= S.generatorMaxLights || G.tank <= 0.f) continue;
             const float d = d2D(G.pos, L.pos);
-            if (d <= bd) { bd = d; best = g; }
+            if (d < bd) { bd = d; best = g; }
         }
         if (best >= 0) { L.source = best; ++list_[(size_t)best].powered; }
     }

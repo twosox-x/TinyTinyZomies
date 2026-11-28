@@ -650,6 +650,37 @@ not read from the facade art (a position can sit on a pier); roof-edge positions
 from `firePos`); interiors are not navigable for soldiers (they teleport from the door to the position after the clip);
 hospital patients are invisible and untouchable; one stair core per building; towers are unsupported.
 
+**Window posts and roof posts (GAME_DESIGN 14e, 2026-11-28).**
+- *Real windows:* `BuildingRegistry::addTile` now also reads the facade art: every vertical glass quad (palette
+  `MAT_GLASS`, `setGlassMaterials`) of the tile's LOD0 mesh is mapped to the facade of the building whose footprint edge
+  it lies on, and panes of one window (mullions, transoms) are merged into `Building::glass` rects (facade side, span,
+  height, glass-plane inset). `prepare` builds window posts from these rects (floors 1..`windowFloors`; shop / curtain
+  glazing split into 1.6 m panels; at most one post per 0.75 x `windowSpacing`; a facade without glass gets no window
+  post). Packages without glass fall back to the derived spacing. Each window post stores the opening (`win`,
+  `winHalfW`, `winH`), the room behind it (`roomHalfW` up to half the distance to the next post, `roomDepth` 1.2-2.4 m,
+  `roomFloor` = the soldier's feet with the sill at most 1.15 m above them, `roomCeil` under the next storey) and
+  `outReach` (the soldier stands 0.55 m behind the glass; `postOut` is scaled so `firePos` stays 0.6 m outside the
+  footprint: his building never blocks his sight lines).
+- *Opened windows (render, `BuildingGame.cpp`):* a window is open while a posted soldier stands at it (more soldiers,
+  more open windows; leaving soldiers close it). The facade mesh is unchanged: `CityRenderer::setCutouts` (<= 64
+  oriented boxes, fragment uniform slot 1 of `city.frag`, tiles only) discards the tile fragments inside the opening,
+  and one rebuilt-on-change mesh draws the rooms behind them (reveal lining the opening, floor boards, plaster walls
+  with dado / skirting, ceiling and lamp, ammo crate, a sandbag sill or low sandbag wall unless a window nest stands
+  there) with interior palette ids 240-251 (`CityRenderer::kInteriorMat`: dark, fake-AO shades by day, warm steady glow
+  at night). At night the 4 rooms nearest the camera add a warm point light (Renderer extension). Window nests stand on
+  the room floor behind the reveal.
+- *Garrison order:* `BuildingPlay::pickSlot` takes the free position with the best score: list priority, a bonus for
+  facades facing zombies (coarse field, 60 m) and for distance from posts already taken (spread over the facades).
+- *Roof posts:* set back from the real roof edge (found along the line: the footprint can include awnings), the soldier
+  1.6-3 m in, slid up to 2.25 m along the edge until the U position (2.6 x 1.9 m) stands on a flat patch of roof
+  (heights within -0.35 / +0.3 m: no HVAC, hatch, parapet), away from the flag / antenna / ammo stack and other posts;
+  roof levels up to 3.5 m above `roofY` accepted. `garrison_roof_position` in front of him (front sandbags ~1.3 m from
+  the edge); with a nest, `fort_roof_ring` around him when the 3.6 m ring fits on flat roof too (`ringFits`), else the
+  U position.
+- *Limits:* the facade is not cut in the key-light shadow map (rooms are lit by ambient / interior light only); the
+  cut uses the glass rect, so frames in front of the glass stay; LOD2 tiles (> 420 m) show the room behind a blocky
+  facade; at most 64 opened windows are cut per frame.
+
 ## 9. Milestone B3b: zombies in buildings (vertical warfare, GAME_DESIGN 7; PROPOSED, values UNAPPROVED)
 
 Goal: no invulnerable position. Zombies enter accessible buildings, breach barricades, climb between floors through the
@@ -795,6 +826,39 @@ Files: `src/game/CorpseGas.{h,cpp}` (GPU module + CPU view), `CorpseGasRender.{h
   burns away (list and height field), gas decays after, flame kills zombies with credit. Script
   `tests/game/b4_gas_flame.txt` (verbs `corpses N X Z [R]`, test hook `rot DELAY [RAMP]`; metrics `gas_max`,
   `gas_cells`, `rotting`, `burned`, `corpses_window`, `gas_damage`, `flame_sprays`, `flame_trips`, `fuel_used`).
+
+### 11.1 Owner feedback 2026-11-28 (GAME_DESIGN 14e): tracers, long-range aim, gas look, flamethrowers
+
+- **Tracers** (`src/lab/TracerMotion.h`, `MilitaryRenderer::fxTracer / updateFx`): 600 m/s (sniper 720; was 750 / 900),
+  4.5 m tail (was 9), ~1.2 px minimum width at 1080p (sniper 1 px; was ~3.7 px), 2 / 1.5 cm up close. A tracer is drawn
+  on the frame its shot event spawns it at age 0 (head 1.2 m past the muzzle, tail at the muzzle) and its per-frame
+  age step is capped so the head takes >= 6 frames from muzzle to target at any frame rate (a 60 m shot at 30 fps was
+  2 frames: seen only near its end). Self-test "tracer: head at the muzzle at t = 0 ...".
+- **Long-range aim** ("far zombies take 10 shots / the kill does not register"). Causes: beyond the 24 m exact list
+  the lock is a coarse field sample (4 arbitrary walkers per 6 m tile, re-associated every refresh, velocity 0: rounds
+  spread over a group, no lead); rounds were uniform over the spread cap (most near the rim: 33 % body hits at 50 m
+  with perfect aim); the hit ray ended at the 2D weapon range (roof / window shots at a target near range stopped
+  short in 3D). Fixes: *lock query* - `HordeSoldier::lockPos` (16-bit offsets in GameSolid word 7) -> `game_contacts`
+  returns the exact live zombie within 2 m of it (`SoldierContact::lock*`, near stride 10 vec4) -> SoldierAI follows it
+  with its velocity (metric `lock_tracked`); `Combat::spreadDir` angle ~ |N(0, cone / 2)| clamped to the cone (~66 % at
+  50 m, ~59 % at 60 m); ray length max(range, aim distance + 2 m). Tests: self-test "long range: ..." (GPU: lock
+  answered exactly; 200 rifle rounds at 50 / 60 m hit 68 / 66 %), script `tests/game/b5_long_range.txt`.
+- **Gas look**: the per-cell haze slab (the "grid") is gone. `gas.vert` boxes 0..4 are drifting voxel puffs (0.375-1.25 m
+  in 0.125 m steps, more and bigger with the gas level, slow swirl + rise + fade, spread over +-0.9 cell so cells overlap,
+  yellow-green with a glow, alpha <= 0.24 each), 5..7 flies, 8 ember.
+- **Flamethrowers** (`FlameAI`): sustained bursts of 2.2-3.6 s (kept while bodies at the pile are unlit, max 3.6 s),
+  sweeping across (+-1.3 m) and along (+-0.7 m) the pile, 1.2 s pause, then again while bodies are left and the pile
+  is not burning; a burst at zombies continues 2 s after the target fell. Stand-off spot (`pickStand`): 16 directions x
+  3 distances, walkable on the squad's island, street level with the pile, spray line may cross cars / low walls
+  (<= 1.9 m above the ground) but not buildings. Ground under a pile = lowest walkable surface within 1.5 m (the nav
+  heights carry cars / walls: piles next to a wall were skipped as "roof"). Over a car the drawn jet arcs (FX direction
+  lifted, cone unchanged). **Puddles** (`CorpseGasRender`): on the ground without vehicles (`CityVehicles::groundAt`,
+  was the coarse 4 m max height incl. cars), centre moved off cars / walls, radius stops short of them, shrinks as the
+  cell's fire burns down; `poolDensity` v5: separate flickering licking tongues, wobbling outline, embers on a dying bed,
+  thin smoke wisps. **Light**: one flickering light per drawn puddle for its whole life (it used to come only from the
+  jet's impact and stopped with the spray), flame lights first in the 8-light fire budget (burning cars crowded them
+  out). Script `tests/game/b5_flame_obstacles.txt` (verb `corpsespot wall|cars N X Z`; metrics `fire_pools`,
+  `fire_lights`, `fire_pools_on_cars`).
 
 ## 12. Engineers, construction jobs, wall placement 2.0, single gates, car clearing (GAME_DESIGN 14d; squad APPROVED, rules PROPOSED, values UNAPPROVED)
 
@@ -969,3 +1033,95 @@ ui.registerHoverProvider("car.fuel", [](const UiCtx& u, V3 ground, float sx, flo
 - Script verbs (`GameScript`): `ui action ID` (runs a card / selection action as if clicked), `ui tab units|structures|supplies|
   engineering|vehicles`; metrics `ui_tab`, `ui_actions` (registered cards). Scripts click world coordinates only, never UI
   pixels, so the layout can change freely.
+
+## 14. Structures and fuel: defense towers, generators, floodlights, fuel from cars (GAME_DESIGN 14e; mechanics APPROVED, rules PROPOSED, values UNAPPROVED)
+
+**Modules.** `Structures.*` (CPU: towers, generators, floodlights, fuel stores, tower occupancy, tower pressure, power,
+generator noise), `FuelLogistics.*` (CPU: siphon orders, jerrycan carriers, disassembly fuel), `StructuresGame.cpp` (App
+side: obstacles, EngineerAI hooks, commands, drawing, lights, HUD actions / hover menus, script verbs / metrics). Shared
+files got additive hooks only: `EngineerAI::{ExternalJob, externalJobs, externalWork, busy}` + `JobKind::External`
+(three small edits in EngineerAI.cpp: append the external jobs after the walls, a work case, skip busy members),
+`Combat::extraCapsules` (uploaded after the soldiers), `kStructurePost` (Soldiers.h; BuildingPlay skips such posts),
+`CityVehicles::{Vehicle::drained, setDrained}` (+ one line in `blast`), `CommandType::{BuildStructure, OccupyTower,
+SiphonCar}` + `Command::structure`, `StructureConfig` (`balance.json` "structures"),
+`MilitaryLibrary::addStructurePlaceholders` (+ `structures.*` loaded), `GameWorld::{structures, fuel, structureLights,
+economyMut}`, App: `structureLights` joins the point lights (one line).
+
+**Construction.** Tower, generator, floodlight and fuel store are placed like walls: inside the engineer radius (or
+`cheat build 1`), on open level ground (no wall, vehicle, structure overlap; kerbs / steps / roof edges refused); a
+floodlight needs a generator (built or planned) within `cableRange` (25 m). Charged once; the blueprint is an
+EngineerAI external job (owner 1: `towerTime` 60, `generatorTime` 24, `lightTime` 9, `fuelStoreTime` 15
+engineer-seconds; tower: sledgehammer loop, others: the build loops). Finished: obstacle stamped (tower base up to
+`towerObstacleTop` 5.1 m, generator / fuel store 1.1 m; the floodlight tripod is no obstacle).
+
+**Tower occupancy.** "Occupy tower" (selection action, hover menu over a tower, script `occupy N X Z`): snipers first,
+then riflemen / MG gunners of the selected squad fill the free posts (`towerCapacity` 2; engineers and flamethrowers
+refused, PROPOSED). Each walks to the ladder foot (rear, -Z), climbs (`climbTime` 3 s, `POST_ENTERING`: SoldierAI leaves
+him alone), then holds a deck post: `POST_FIRING`, `building = kStructurePost | tower`, `postOut = 0`, pinned at deck +
+5.1 m. SoldierAI's garrison path does the rest: eye height above the deck (6.6 m), clear lines over the parapet to the
+street, normal acquisition / fire / reload (rounds start above the base obstacle). A new player order for the squad
+brings him down at the ladder foot (instant, PROPOSED: a climb-down clip later); out of ammo he climbs down to
+resupply (PROPOSED). Posted soldiers are attractors like any squad (the horde comes to the tower).
+
+**Zombies vs the tower (owner decision 2026-11-28: they attack the base, never climb; a large horde heaps up around
+it).** The base is a 3.5 x 3.5 m obstacle 5.1 m high in the zombies' obstacle grid: the crowd presses against it and
+the existing corpse-pile / climbing rules make the bodies heap up around the base (piles never reach 5 m, so nobody gets
+onto the deck). Four base proxies (capsules r 0.6 m just inside each face, `Combat::extraCapsules`, packed id
+0xFFFF | proxy << 16, never a soldier) give the horde's exact attacker count at the base through the normal
+SoldierContact path. Damage `(attackers - towerPressureThreshold) x towerDamagePerZombie` hp / s (4, 2.0; tower 2,500
+hp). At 0: collapse (obstacle removed, dust, loud noise), occupants fall beside it (`fallDamage` 40 hp) and are released.
+
+**Power.** A generator runs while it powers at least one built floodlight, has fuel in its tank and (PROPOSED
+`lightsOnlyAtNight`) it is night (18:00..06:00, App time of day) or the lights are forced on (`lights on` / later a HUD
+toggle). Floodlights take the nearest generator with fuel within `cableRange` (up to `generatorMaxLights` 4 each). Burn
+`generatorBurn + burnPerLight x powered` (0.02 + 0.006 l/s: ~10 l per 7-minute night with 4 lights). The tank
+(`generatorTank` 20 l) refills from the nearest fuel store within `fuelLinkRange` (30 m) when it is below half. No
+fuel: the generator stops, its lights go dark (notice). Lit floodlights are point lights (warm white, radius 24 m,
+placed 4.5 m out in front of the heads at 3.4 m: the beam's pool of light), the 8 nearest the camera, appended to the
+renderer's light list after the burning vehicles / flames (24 max in total). Not done: the lamp grid / shadows (the
+street-lamp grid is baked per city tile; a dynamic structure grid layer is PROPOSED if 8 is too few).
+
+**Generator noise (owner decision 2026-11-28: noise stacks per area).** Every `noiseInterval` (1 s) the running
+generators are grouped greedily into areas (`noiseStackRadius` 30 m from the first ungrouped one); each area emits one
+noise pulse at its centroid with strength `min(noiseCap, n x noiseIntensity)` (0.5 each, cap 1.5) and reach
+`min(noiseRadiusCap, noiseRadius x sqrt(strength / noiseIntensity))` (40 m for one, 56.6 m for two, 69.3 m at the cap,
+cap 80) through `Combat::addNoise` -> horde attractors (strength x awareness = reach, as for gunfire noise).
+
+**Fuel.** Fuel stores (`fuelStoreCapacity` 200 l, `fuelStoreStart` 40 l) are the base stock; the HUD / scripts read the
+sum. Fuel comes from parked cars (`carFuel` 30 l; burning / wrecked / drained / removed cars: none):
+- *Siphon fuel* (hover menu over a car with engineers selected, script `siphon X Z`): refused without a fuel store or
+  outside the engineer radius. EngineerAI external job (owner 2, `siphonTime` 18 engineer-seconds, car work loops).
+  Done: `CityVehicles::setDrained` (a blast still damages / pushes the car, but it never ignites or explodes: the health
+  is held above 0 in `blast`), and the fuel waits in jerrycans at the car. Each engineer who worked on it carries one
+  jerrycan (`jerrycanLitres` 20 l) on foot (a placeholder jerrycan at his hand) to the nearest fuel store's delivery
+  point (`deliverRange` 2.5 m), pours it in, and walks back for the next one until the car is empty. Carriers are
+  `EngineerAI::busy` (not given other jobs) and still fight when threatened (SoldierAI; the walk resumes after).
+  A carrier killed on the way loses his jerrycan; a full store spills the excess (counted as lost).
+- *Disassemble* (the existing car clearing, hover entry renamed "Disassemble (+ fuel)", K): when the clearing job
+  finishes, `EngineerAI::removeVehicle` (wrapped) hands the car's fuel to the engineers of the nearest engineer squad,
+  who carry it to the base the same way; then the car is removed as before. No fuel store: the fuel is lost (notice).
+
+**HUD.** Structures tab: Defense tower / Generator / Floodlight / Fuel store cards (price, "Needs engineers",
+tooltip; click -> `beginTargeting` -> `BuildStructure`). Selection action "Occupy tower" for rifle / MG / sniper
+squads. Hover menus: a tower with shooters selected ("Occupy tower"); a parked car with engineers selected ("Siphon
+fuel (N l to base)", "Disassemble (+ fuel)"; installed after GameUI's built-ins under the same id `car.clear`, so it
+replaces the plain "Clear" entry). Not yet: rotation while placing structures (yaw 0 = ladder south), a fuel gauge in the
+top bar, a lights on / off toggle (PROPOSED).
+
+**Assets.** Authored props `tower_wood` (alt `tower_steel`), `generator`, `floodlight` (+ `lamps` part), `fuel_store`
+(+ `can0..5` fill level), `jerrycan`, `fuel_drum` in `assets/military/structures.*` — PENDING REVIEW
+(docs/ASSET_APPROVALS.md). Until approved the game draws coarse placeholders (`ph_tower`, `ph_generator`,
+`ph_floodlight` + `ph_floodlight_lamp`, `ph_fuel_store`, `ph_jerrycan`); `kStructureAssetsApproved` in
+`StructuresGame.cpp` switches every structure to the authored props (lamps part when lit, cans by stock level).
+Blueprints are drawn translucent, rising with progress.
+
+**Tests.** `tests/game/b5_tower.txt` (no engineers -> refused, tower blueprint + engineers build it, obstacle, sniper
+occupies the deck, fires at a horde, the horde at the base, collapse drops him), `tests/game/b5_power.txt` (light needs
+a generator, fuel stock -> tank, day: off, forced on: lit, fuel burned, noise 1 area, dry -> dark and silent, refuel ->
+lit, 2 and 4 generators in one area: noise adds up and is capped), `tests/game/b5_fuel.txt` (siphon refused without a
+fuel store, siphon job, drained car, two jerrycan trips on foot, stock +30, disassembly +30, a blast leaves the emptied
+car un-burnt while a full car explodes).
+
+**PROPOSED (owner):** generators only run at night; towers manned by snipers / riflemen / MG (not engineers or
+flamethrowers); instant climb-down on a new order; tower occupants climb down when out of ammo (later: an ammo box on
+the deck, refilled by the runner); fuel stores spill when full; lights do not cast shadows yet (point lights only).

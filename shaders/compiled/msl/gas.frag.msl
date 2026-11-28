@@ -28,6 +28,7 @@ struct Frame
     float4 dofP;
     float4x4 shadowVP2;
     float4 shadowP2;
+    float4 mapP;
 };
 
 struct main0_out
@@ -44,14 +45,14 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _64)
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _68)
 {
     float3 c = float3(0.0);
-    for (uint i = 0u; i < _64.gridDim.z; i++)
+    for (uint i = 0u; i < _68.gridDim.z; i++)
     {
-        float3 L = _64.lightPos[i].xyz - P;
+        float3 L = _68.lightPos[i].xyz - P;
         float d = length(L);
-        float R = _64.lightPos[i].w;
+        float R = _68.lightPos[i].w;
         if (R < 0.0)
         {
             float x = d / (-R);
@@ -61,41 +62,41 @@ float3 pointLights(thread const float3& P, thread const float3& N, constant Fram
             }
             float win = 1.0 - (x * x);
             float att = (win * win) / (1.0 + ((d * d) * 8.0));
-            c += (((_64.lightCol[i].xyz * _64.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
+            c += (((_68.lightCol[i].xyz * _68.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
             continue;
         }
         float att_1 = fast::clamp(1.0 - (d / R), 0.0, 1.0);
         att_1 *= att_1;
-        c += (((_64.lightCol[i].xyz * _64.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        c += (((_68.lightCol[i].xyz * _68.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
-    float _243;
+    float _247;
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
-        float age = _64.blasts[i_1].w;
-        float s = fast::max(_64.blastsP[i_1].x, 0.100000001490116119384765625);
+        float age = _68.blasts[i_1].w;
+        float s = fast::max(_68.blastsP[i_1].x, 0.100000001490116119384765625);
         float ss = sqrt(s);
         float fireDur = 1.60000002384185791015625 * ss;
         if ((age < 0.0) || (age > fireDur))
         {
             continue;
         }
-        float3 L_1 = (_64.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float3 L_1 = (_68.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
         float d_1 = length(L_1);
         if (age < 0.100000001490116119384765625)
         {
-            _243 = 1.0 - (age / 0.100000001490116119384765625);
+            _247 = 1.0 - (age / 0.100000001490116119384765625);
         }
         else
         {
-            _243 = 0.0;
+            _247 = 0.0;
         }
-        float flash = _243;
+        float flash = _247;
         float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
         fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
         float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
         float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
         float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
-        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _64.todP.y);
+        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _68.todP.y);
     }
     return c;
 }
@@ -107,65 +108,79 @@ float3 lampLights(thread const float3& P, thread const float3& N)
 }
 
 static inline __attribute__((always_inline))
-float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _64)
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _68)
 {
-    float3 hemi = mix(_64.groundColor.xyz, _64.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
-    float3 key = (_64.sunColor.xyz * fast::max(dot(N, _64.sunDir.xyz), 0.0)) * vis;
+    float3 hemi = mix(_68.groundColor.xyz, _68.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
+    float3 key = (_68.sunColor.xyz * fast::max(dot(N, _68.sunDir.xyz), 0.0)) * vis;
     float3 param = P;
     float3 param_1 = N;
     float3 param_2 = P;
     float3 param_3 = N;
-    return albedo * (((hemi + key) + pointLights(param, param_1, _64)) + lampLights(param_2, param_3));
+    return albedo * (((hemi + key) + pointLights(param, param_1, _68)) + lampLights(param_2, param_3));
 }
 
 static inline __attribute__((always_inline))
-float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _64)
+float3 shade(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, constant Frame& _68)
 {
     float3 param = albedo;
     float3 param_1 = N;
     float3 param_2 = P;
     float param_3 = ao;
     float param_4 = 1.0;
-    return shadeV(param, param_1, param_2, param_3, param_4, _64);
+    return shadeV(param, param_1, param_2, param_3, param_4, _68);
 }
 
 static inline __attribute__((always_inline))
-float3 finish(thread float3& col, thread const float3& P, constant Frame& _64)
+float mapEdgeFade(thread const float3& P, constant Frame& _68)
 {
-    float d = length(P - _64.camPos.xyz);
-    float f = (1.0 - exp((-_64.fogColor.w) * fast::max(d - _64.groundColor.w, 0.0))) * 0.699999988079071044921875;
-    col = mix(col, _64.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _444;
-    if (_64.sunColor.w > 0.0)
+    if (_68.mapP.z <= _68.mapP.x)
     {
-        _444 = _64.sunColor.w;
+        return 0.0;
+    }
+    float2 o = fast::max(_68.mapP.xy - P.xz, P.xz - _68.mapP.zw);
+    float d = length(fast::max(o, float2(0.0))) + fast::min(fast::max(o.x, o.y), 0.0);
+    return smoothstep(-120.0, 0.0, d);
+}
+
+static inline __attribute__((always_inline))
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _68)
+{
+    float d = length(P - _68.camPos.xyz);
+    float f = (1.0 - exp((-_68.fogColor.w) * fast::max(d - _68.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    float3 param = P;
+    col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _68)));
+    col = mix(col, _68.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _500;
+    if (_68.sunColor.w > 0.0)
+    {
+        _500 = _68.sunColor.w;
     }
     else
     {
-        _444 = 1.0;
+        _500 = 1.0;
     }
-    col *= _444;
+    col *= _500;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _64 [[buffer(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _68 [[buffer(0)]])
 {
     main0_out out = {};
-    float _476;
+    float _532;
     if (in.vNormal.y > 0.5)
     {
-        _476 = 1.0;
+        _532 = 1.0;
     }
     else
     {
-        _476 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
+        _532 = (in.vNormal.y < (-0.5)) ? 0.699999988079071044921875 : 0.85000002384185791015625;
     }
-    float face = _476;
-    float3 _491;
+    float face = _532;
+    float3 _547;
     if (in.vEmissive > 0.5)
     {
-        _491 = in.vColor.xyz;
+        _547 = in.vColor.xyz;
     }
     else
     {
@@ -173,13 +188,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _64 [[buffer(
         float3 param_1 = fast::normalize(in.vNormal);
         float3 param_2 = in.vWorld;
         float param_3 = 1.0;
-        _491 = shade(param, param_1, param_2, param_3, _64) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
+        _547 = shade(param, param_1, param_2, param_3, _68) + (((in.vColor.xyz * 0.300000011920928955078125) * face) * step(in.vColor.w, 0.9900000095367431640625));
     }
-    float3 col = _491;
+    float3 col = _547;
     float3 param_4 = col;
     float3 param_5 = in.vWorld;
-    float3 _531 = finish(param_4, param_5, _64);
-    out.outColor = float4(_531, in.vColor.w);
+    float3 _587 = finish(param_4, param_5, _68);
+    out.outColor = float4(_587, in.vColor.w);
     return out;
 }
 

@@ -20,12 +20,12 @@ at 1.3  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9
 at 20   expect zombies_rect -32.5 104.6 -26 115.4 == 0    # nobody slipped through between wall and facade
 at 20   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/seal_zombies.png
 # finer grid: a 9.5 m run = two 4 m pieces + a 1.5 m filler; a 4.5 m run = 4 m + a 0.5 m filler
-at 21   wall cheap -10 140.5 -10 150                     # free street east of the car block
+at 21   wall cheap -5 140.5 -5 150                       # free street east of the parked rows
 at 21.4 expect walls >= 8
-at 21.4 expect wall -10 149.2 length < 1.6
-at 21.4 expect wall -10 149.2 length > 1.4
-at 21.5 wall cheap -6 140.5 -6 145
-at 21.9 expect wall -6 144.8 length < 0.6
-at 22   camera -8 145 0.8 0.95 18
+at 21.4 expect wall -5 149.2 length < 1.6
+at 21.4 expect wall -5 149.2 length > 1.4
+at 21.5 wall cheap -3 140.5 -3 145
+at 21.9 expect wall -3 144.8 length < 0.6
+at 22   camera -4 145 0.8 0.95 18
 at 22.5 shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/walls2/fine_fillers.png
 at 23   end

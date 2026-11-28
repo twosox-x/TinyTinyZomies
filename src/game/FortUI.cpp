@@ -294,6 +294,7 @@ void GameUI::drawConstruction(AppState& app, const GameContext& ctx) {
                       : j.kind == EngineerAI::JobKind::Car ? "car: waiting" : "queued";
         if (j.kind == EngineerAI::JobKind::Car && j.workers > 0) t = "clearing car";
         if (j.kind == EngineerAI::JobKind::GateConvert && j.workers > 0) t = "fitting gate";
+        if (j.kind == EngineerAI::JobKind::External && j.workers > 0) t = "working";   // 14e structures / siphoning
         if (t) worldLabel(s.x + bw * 0.5f + 4, s.y - 8, t, alpha(col, 0.9f), kLabelStatus);
     }
 }

@@ -32,6 +32,9 @@
 // camera pivot), probe X Z [YAW], heights X Z, setammo N MAG RESERVE (TEST HOOK: drain a squad to exercise resupply),
 // sethealth N HP [MEMBER] (TEST HOOK: wound / kill soldiers), killrunner N (TEST HOOK), key f6 (AI debug overlay),
 // fieldsamples X Z R (debug: zombie field samples near a point).
+// Rooftops (GAME_DESIGN 14e, RoofScript.cpp): roofinfo X Z, roofmap X Z R, roofclicks X0 Z0 X1 Z1 STEP [sniper|rifle|mg|crate]
+// [MINY], roofpath X0 Z0 X1 Z1, roofwatch; metrics roofclick n|valid|refused|minedge|maxsnap, roofpath ok|minobs|minedge|len|direct,
+// roofwatch ticks|violations|minedge, roofedge N, roofobs N, supplyedge N, supplyy N, roofsteps, roofreturns.
 // HUD 2 (docs/GAMEPLAY_ARCHITECTURE.md 13): ui action ID (a registered card / selection action, as if clicked),
 // ui tab units|structures|supplies|engineering|vehicles, ui tip ID|off (show a card tooltip in captures),
 // ui hover X Z|off (the world hover menu at a point, captures); metrics ui_tab ui_actions ui_pace.

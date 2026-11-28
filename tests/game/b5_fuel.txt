@@ -1,0 +1,42 @@
+# GAME_DESIGN 14e fuel logistics: engineers siphon a parked car (job), carry the fuel in jerrycans to the base fuel store
+# (physical delivery: they walk), the emptied car no longer explodes under a blast; disassembling a car (the clearing
+# job) also yields its fuel. Cars: (-25.5, 135.5) siphoned, (-1, 136) disassembled, (-35.5, 138) control. Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_fuel.txt
+at 0.1  camera -14 130 0.5 0.9 60
+at 0.2  buy engineer -14 129
+at 0.3  markcar -25.5 135.5                            # car 1 (siphoned)
+at 0.3  markcar -1 136                                 # car 2 (disassembled)
+at 0.3  markcar -35.5 138                              # car 3 (control: full tank)
+at 0.4  expect car 1 fuel == 30
+at 1.0  siphon -25.5 135.5                             # no fuel store yet: refused
+at 1.2  expect cars_siphoned == 0
+at 1.2  expect refused == 1
+at 1.3  cheat build 1
+at 1.3  structure fuel -12 124                         # the base fuel store (40 l)
+at 1.4  cheat build 0
+at 1.6  expect fuel_stock == 40
+at 2.0  siphon -25.5 135.5
+at 2.2  expect jobs == 1
+at 16   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/fuel_siphon.png
+at 40   expect cars_siphoned == 1
+at 40   expect car 1 drained == 1
+at 40   expect car 1 fuel == 0
+at 70   expect fuel_trips >= 2                         # two jerrycans (20 + 10 l), carried on foot
+at 70   expect fuel_delivered == 30
+at 70   expect fuel_stock == 70
+at 70   expect fuel_in_transit == 0
+at 71   clearcar -1 136                                # disassemble (clearing job): yields its fuel too
+at 140  expect cars_cleared == 1
+at 140  expect cars_disassembled == 1
+at 140  expect car 2 removed == 1
+at 180  expect fuel_stock == 100
+at 180  expect fuel_delivered == 60
+at 181  expect vehicle_explosions == 0
+at 181  blast -25.5 135.5 1.5                          # the emptied car: dented, no fire, no explosion
+at 181  blast -35.5 138 1.5                            # control: a full car goes up
+at 190  expect car 1 state < 2
+at 190  expect car 1 removed == 0
+at 190  expect car 3 state >= 2
+at 190  expect vehicle_explosions >= 1
+at 190  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/fuel_blast.png
+at 191  end

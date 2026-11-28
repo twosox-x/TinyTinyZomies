@@ -141,6 +141,7 @@ private:
     std::vector<float> edgeD_, obsD_;   // roof clearances per cell (kRoofScan off roofs)
     std::vector<float> min5_;           // lowest height within 2 cells (parapet test)
     void computeRoof(int z0, int z1);
+    void computeMin5();
     float roofPenalty(size_t c) const;  // A* extra cost per step of a roof cell near the rim / an obstacle
     bool walkLinePen(V3 a, V3 b, float maxPen) const;   // walkLine that never crosses a cell with a higher penalty
     float clearanceAt(float x, float z, bool edge) const;

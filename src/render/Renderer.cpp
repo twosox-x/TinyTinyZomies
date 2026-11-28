@@ -655,6 +655,7 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         std::memcpy(fu.shadowVP2, layerVP_[lb].m, sizeof(fu.shadowVP2));
         fu.shadowP2 = {wb, (float)la, (float)lb, 0.f};
     }
+    fu.mapP = rs.studioLighting ? Vec4{0, 0, 0, 0} : Vec4{rs.mapRect[0], rs.mapRect[1], rs.mapRect[2], rs.mapRect[3]};
     fu.shadowP = {shadowMap ? 1.f : 0.f, texelM, 3e-5f, std::max(0.25f, rs.shadowSoftness) / (float)std::max(1u, shadowSize_)};
     if (rs.studioLighting) {   // neutral studio close to Zombie Lab's "Neutral" mode (sage backdrop, warm key)
         V3 key = normalize(V3{0.47f, 0.76f, 0.40f});

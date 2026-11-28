@@ -33,7 +33,8 @@ public:
     void tick(GameContext& ctx);                          // after SoldierAI::tick, before the animator
     // One spray of soldier i toward `aim` (Combat for zombie targets, FlameAI for piles). Spray time since the
     // soldier's previous spray (clamped), fuel by spray time. False: blocked (friendly in the cone / no fuel).
-    bool spray(GameContext& ctx, uint32_t i, V3 aim);
+    // arcUp: rad the drawn jet is lifted over a low obstacle (cars) between the nozzle and the aim (FX only).
+    bool spray(GameContext& ctx, uint32_t i, V3 aim, float arcUp = 0.f);
     std::vector<NoiseEvent>& noise() { return noise_; }  // loud spray noise (GameWorld -> Combat::addNoise), drained per tick
     static void usePlaceholderAssets(DeployTiming& t);    // flamethrower = rifleman variants / clip timings
     // Zombie damage of one cone: 15 hit rays over the cone (centre, 6 at half angle, 8 at the rim; pattern rotates per
@@ -61,10 +62,13 @@ private:
     std::vector<uint8_t> burnAnim_;   // per soldier slot: burn_ground clip running (ignite / stop edges)
     std::vector<float> fuelAcc_;      // per soldier slot: fractional fuel units used
     std::vector<uint32_t> lastGen_;
+    std::vector<double> burstStart_, pauseUntil_;   // per soldier slot: start of the current burst, end of the pause after it
+    std::vector<V3> lastAim_;                       // per soldier slot: aim of the last spray (zombie bursts continue there)
     std::vector<NoiseEvent> noise_;
     std::vector<double> noiseAt_;
     uint64_t sprays_ = 0, blocked_ = 0, trips_ = 0, fuelUsed_ = 0, repositions_ = 0;
     void ensure(const GameContext& ctx);
+    bool pickStand(const GameContext& ctx, V3 pile, V3 from, float standoff, V3& out, float& facing) const;
     void order(GameContext& ctx, Squad& s, Mem& m, V3 dest, float facing);
 };
 

@@ -10,6 +10,11 @@
 #include <algorithm>
 
 namespace ttz::game {
+// 14e structures + fuel (StructuresGame.cpp: App side of Structures / FuelLogistics)
+void installStructures(GameWorld& w, AppState& app);
+void installStructureHover(GameWorld& w);
+bool structureCommand(GameWorld& w, AppState& app, const Command& c);
+void drawStructures(MilitaryRenderer& mil, GameWorld& w, float frameDt);
 
 namespace {
 // Clip timings for the deploy / crate timelines from the approved clips (Deploy / Logistics stay library-free so the
@@ -83,6 +88,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     engineers_.ai = &ai_;
     engineers_.removeVehicle = [&app](uint32_t v) { app.vehicles.removeVehicle(v); };
     ai_.workHook = [this](GameContext& c, uint32_t i) { return engineers_.work(c, i); };
+    installStructures(*this, app);                             // 14e: tower / generator / light / fuel jobs, car fuel, UI
     ctx_.events = &events_;
     ctx_.animEvents = &animEvents_;
     if (!opt.script.empty()) {
@@ -91,7 +97,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     }
     if (!render_.init(app)) SDL_Log("game: soldier renderer unavailable");
     if (ctx_.gas && !gasRender_.init(app, gas_)) SDL_Log("game: gas renderer unavailable");
-    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); drawBuildingProps(mil, ctx_, buildings_, app_); };
+    render_.extraDraw = [this](MilitaryRenderer& mil, float fdt) { fort_.draw(mil, ctx_, fdt); drawBuildingProps(mil, ctx_, buildings_, app_); drawStructures(mil, *this, fdt); };
     // B3a buildings: BLDG records of the tiles under the window, UI hooks, hospital seeking (SoldierAI hook)
     syncBuildings(app, buildings_, fort_.navHeights(app), cfg_);
     installBuildingUI(ui_, buildings_);
@@ -223,6 +229,11 @@ void GameWorld::applyCommands(AppState& app) {
             ui_.notify(msg, false, ctx_.time);
             break;
         }
+        case CommandType::BuildStructure:
+        case CommandType::OccupyTower:
+        case CommandType::SiphonCar:
+            if (!structureCommand(*this, app, c)) ++refused_;   // 14e (StructuresGame.cpp)
+            break;
         case CommandType::Spawn:
             app.sim.requestSpawn({c.pos.x - c.facing, c.pos.z - c.facing, c.pos.x + c.facing, c.pos.z + c.facing}, (uint32_t)c.count);
             break;
@@ -244,6 +255,7 @@ void GameWorld::tick(AppState& app) {
     }
     deploy_.tick(ctx_);                                        // c
     buildings_.preAi(ctx_);                                    // c'' B3a: a new order releases garrisoned soldiers
+    structures_.preAi(ctx_);                                   // c'' 14e: a new order brings tower posts down the ladder
     engineers_.tick(ctx_);                                     // c3 14d: construction jobs -> engineer work spots
     ai_.tick(ctx_);                                            // d
     engineers_.postAi(ctx_);                                   // d2 14d: work clip for engineers at work
@@ -268,6 +280,20 @@ void GameWorld::tick(AppState& app) {
         std::vector<BuildingNotice> bn;
         buildings_.takeNotices(bn);
         for (const BuildingNotice& n : bn) ui_.notify(n.text, n.bad, ctx_.time);
+    }
+    {   // 14e: towers (climb, posts, base pressure), generators / lights / noise, fuel carriers
+        const float h = app.renderSettings.tod.hours;
+        structures_.night = h >= 18.f || h < 6.f;
+        structures_.tick(ctx_);
+        fuel_.tick(ctx_, structures_);
+        for (const NoiseEvent& n : structures_.noise()) combat_.addNoise(n);
+        structures_.noise().clear();
+        std::vector<StructureNotice> sn;
+        structures_.takeNotices(sn);
+        for (const StructureNotice& n : sn) ui_.notifyAt(n.text, n.bad, ctx_.time, n.pos);
+        for (const auto& n : fuel_.notices()) ui_.notify(n.first, n.second, ctx_.time);
+        fuel_.notices().clear();
+        structures_.preCombat(ctx_, combat_.extraCapsules);
     }
     buildings_.preCombat(ctx_);
     combat_.tick(ctx_);                                        // f (also j: uploads soldiers / hits / attractors)
@@ -329,7 +355,10 @@ void GameWorld::render(AppState& app, float frameDt) {
     gasRender_.noteFlames(events_.fx, app.sim.simTime(), cfg_.weapon[(size_t)SoldierClass::Flamethrower].range);   // 14d voxel flame volumes
 }
 
-void GameWorld::drawUI(AppState& app) { ui_.draw(app, ctx_, commands_); }
+void GameWorld::drawUI(AppState& app) {
+    ui_.draw(app, ctx_, commands_);
+    if (!structUi_) { installStructureHover(*this); structUi_ = true; }   // 14e: after GameUI's built-in hover menus
+}
 
 void GameWorld::afterSubmit(AppState& app) {
     horde_.harvest(); vertical_.harvest(); fort_.afterSubmit(opt_.syncReadback);

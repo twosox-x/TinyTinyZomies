@@ -1,0 +1,45 @@
+# GAME_DESIGN 14e defense tower: engineers build it (a job like a wall piece, within their radius), a sniper squad
+# occupies it (walks to the ladder, climbs, holds a deck post at ~5 m) and fires over the parapet; zombies cannot
+# climb it: they press against the base and heap up around it (owner decision 2026-11-28), the base takes pressure
+# damage, and a destroyed tower drops its occupants. Open ground on the road x -22 .. -5, z 122 .. 135. Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b5_tower.txt
+at 0.1  camera -12 124 0.6 0.9 45
+at 0.2  structure tower -12 124                        # no engineers: refused, nothing charged
+at 0.4  expect structures_placed tower == 0
+at 0.4  expect refused == 1
+at 0.5  buy engineer -14 129
+at 0.6  buy sniper -6 130
+at 1.0  structure tower -12 124 0                      # blueprint (front +Z, ladder on the -Z side)
+at 1.3  expect structures_placed tower == 1
+at 1.3  expect tower -12 124 built == 0
+at 1.3  expect spent == 1200 + 700 + 200               # engineers + sniper + tower (UNAPPROVED prices)
+at 1.4  expect jobs == 1                               # the engineers' queue
+at 2.0  occupy 2 -12 124                               # not built yet: refused
+at 2.2  expect on_tower == 0
+at 12   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_building.png
+at 45   structures
+at 45   expect tower -12 124 built == 1
+at 45   expect obstacles >= 1                          # the base is an obstacle (zombies pile against it)
+at 45   expect walkable -12 124 == 0
+at 46   occupy 2 -12 124
+at 62   squadinfo 2
+at 62   expect on_tower == 1
+at 62   expect tower -12 124 occupants == 1
+at 62   expect tower_min_y > 4.8                       # on the deck (5.1 m)
+at 62   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_occupied.png
+at 63   spawn 250 -12 165 12                           # a horde to the north
+at 63   camera -12 135 0.6 0.8 70
+at 110  expect tower_rounds > 0                        # the sniper fires from the deck
+at 110  expect squad 2 rooftop == 0
+at 110  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_firing.png
+at 111  spawn 400 -12 150 8
+at 170  structures
+at 170  expect on_tower == 1                           # nobody climbed up to him
+at 170  shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/st/tower_heap.png
+at 171  towerattackers -12 124 30                      # TEST HOOK: 30 zombies at the base (beyond the threshold of 4)
+at 171  damagestructure -12 124 2400
+at 176  expect towers_destroyed == 1
+at 176  expect on_tower == 0
+at 176  expect squad 2 alive == 1                      # fell (fallDamage) but survived
+at 176  expect tower -12 124 alive == 0
+at 177  end

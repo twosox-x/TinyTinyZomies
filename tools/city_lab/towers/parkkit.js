@@ -314,6 +314,61 @@ const ITEMS = {
     return { M, sc: 0.125, fp: [-0.7, -0.3, 0.7, 0.4] };
   }
 };
+// city parks (cityparkkit.js): sports and formal-garden pieces
+Object.assign(ITEMS, {
+  goal(C, vr) {              // 5 x 2 m soccer goal, white frame, net box behind (12.5 cm voxels); mouth faces +z
+    const M = VM(42, 18, 14, 21, 12);
+    for (const x of [-20, 19]) M.box(x, 0, 0, x + 1, 16, 1, K.PWHITE);
+    M.box(-20, 16, 0, 20, 17, 1, K.PWHITE);
+    for (const x of [-20, 19]) { M.box(x, 0, -10, x + 1, 1, 0, K.STEEL); M.box(x, 10, -6, x + 1, 11, 0, K.STEEL); }
+    M.box(-20, 0, -11, 20, 1, -10, K.STEEL); M.box(-20, 10, -7, 20, 11, -6, K.STEEL);
+    for (let x = -18; x < 19; x += 4) M.box(x, 1, -10, x + 1, 10, -9, K.TRIM);
+    return { M, sc: 0.125, fp: [-2.6, -1.4, 2.6, 0.2] };
+  },
+  bleacher(C, vr) {          // 6 x 2.2 m aluminium bleachers, 4 rows; seats face +z
+    const R = C.mulberry32(hash('bleach' + vr)), M = VM(50, 14, 20, 25, 10), seat = pick(R, [K.STEEL, K.STEEL, BM.PAINT_BLUE || K.BLUE]);
+    for (let r = 0; r < 4; ++r) { const z = 6 - r * 4, y = 2 + r * 3; M.box(-24, y, z, 24, y + 1, z + 3, seat); M.box(-24, y - 2, z + 2, 24, y - 1, z + 3, K.STEEL); }
+    for (const x of [-24, -8, 8, 23]) for (let r = 0; r < 4; ++r) M.box(x, 0, 6 - r * 4, x + 1, 2 + r * 3, 7 - r * 4, K.POLE_D);
+    M.box(-24, 11, -9, 24, 14, -8, K.STEEL);
+    return { M, sc: 0.125, fp: [-3.1, -1.3, 3.1, 1.3] };
+  },
+  hedge(C, vr) {             // clipped hedge 2.5 x 0.75 x 1 m along x
+    const R = C.mulberry32(hash('hedge' + vr)), M = VM(22, 9, 8, 11, 4), a = pick(R, [K.LEAF_D, K.EVER, K.SGREEN]), b = a === K.LEAF_D ? K.SGREEN : K.LEAF_D;
+    M.box(-10, 0, -3, 10, 7, 3, a); M.box(-9, 7, -2, 9, 8, 2, b);
+    return { M, sc: 0.125, fp: [-1.3, -0.4, 1.3, 0.4] };
+  },
+  lowwall(C, vr) {           // 2.5 m of low garden wall with a coping and a pier at one end (12.5 cm voxels)
+    const R = C.mulberry32(hash('lowwall' + vr)), M = VM(22, 8, 6, 11, 3), w = pick(R, [K.BRICK, K.LIME, BM.BUFF, K.GRAN_D]);
+    M.box(-10, 0, -1, 10, 4, 2, w); M.box(-10, 4, -2, 10, 5, 3, K.CONC);
+    M.box(8, 0, -2, 11, 6, 3, w); M.box(8, 6, -2, 11, 7, 3, K.CONC);
+    return { M, sc: 0.125, fp: [-1.3, -0.3, 1.4, 0.4] };
+  },
+  bigfountain(C, vr) {       // 25 cm voxels: 6.5 m round basin with a coping, two bowls and a jet
+    const R = C.mulberry32(hash('bigfountain' + vr)), M = VM(28, 14, 28, 14, 14), st = pick(R, [K.LIME, K.CONC, K.GRAN_D]);
+    oct(M, 0, 0, 13, 0, 2, st);
+    const r = 12, r2 = Math.round(r * 0.62);
+    for (let z = -r; z < r; ++z) for (let x = -r; x < r; ++x) {
+      if (!((z >= -r2 && z < r2) || (x >= -r2 && x < r2))) continue;
+      M.v[(1 * M.d + z + M.oz) * M.w + x + M.ox] = 0;
+    }
+    oct(M, 0, 0, 12, 0, 1, BM.WATER);
+    M.box(-2, 1, -2, 2, 5, 2, st); oct(M, 0, 0, 6, 5, 6, st); oct(M, 0, 0, 5, 6, 7, BM.WATER);
+    M.box(-1, 7, -1, 1, 10, 1, st); oct(M, 0, 0, 3, 10, 11, st); M.box(0, 11, 0, 1, 13, 1, K.PWHITE);
+    return { M, sc: 0.25, fp: [-3.4, -3.4, 3.4, 3.4] };
+  },
+  rocks(C, vr) {             // a few shore boulders (12.5 cm voxels)
+    const R = C.mulberry32(hash('rocks' + vr)), M = VM(16, 6, 16, 8, 8);
+    for (let i = 0; i < 4; ++i) { const x = Math.floor((R() - 0.5) * 9), z = Math.floor((R() - 0.5) * 9), w = 2 + Math.floor(R() * 3), h = 2 + Math.floor(R() * 3);
+      M.box(x - w, 0, z - w + 1, x + w, h, z + w - 1, pick(R, [216, 221])); M.box(x - w + 1, h, z - w + 1, x + w - 1, h + 1, z + w - 1, pick(R, [216, 221])); }
+    return { M, sc: 0.125, fp: [-0.9, -0.9, 0.9, 0.9] };
+  },
+  reeds(C, vr) {             // a reed clump at the water's edge
+    const R = C.mulberry32(hash('reeds' + vr)), M = VM(12, 12, 12, 6, 6);
+    for (let i = 0; i < 14; ++i) { const x = Math.floor((R() - 0.5) * 9), z = Math.floor((R() - 0.5) * 9), h = 5 + Math.floor(R() * 6);
+      M.box(x, 0, z, x + 1, h, z + 1, 214); if (R() < 0.4) M.box(x, h, z, x + 1, h + 2, z + 1, 215); }
+    return { M, sc: 0.125, fp: [-0.7, -0.7, 0.7, 0.7] };
+  }
+});
 function itemModel(C, name, vr) {
   return cached('i:' + name + ':' + (vr || 0), () => { const it = ITEMS[name](C, vr || 0); it.mesh = C.meshVoxels3D(it.M); it.M = null; return it; });
 }
@@ -1046,4 +1101,5 @@ function chamfer(W, H, src, c, labIn, labOut) {
 }
 
 L.parkKit = parkKit;
+L.parkParts = { treeModel, bushModel, itemModel, SLOTS, K, faceYaw, BV, NV, hash, pick };
 })();

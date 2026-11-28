@@ -38,6 +38,7 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
                                 // strength, z tilt-shift sharp half-height (NDC), w unused
     float shadowVP2[16];        // second shadow map layer (the next sun key, cross-faded; Renderer::shadowView)
     Vec4 shadowP2;              // x weight of shadowVP2, y layer of shadowVP, z layer of shadowVP2
+    Vec4 mapP;                  // map edge fade (lighting.glsl finish): xz rect x0, z0, x1, z1 of the baked map; all 0 = off
 };
 
 // Voxel explosion / fire volumes (shaders/include/fx_volume.glsl): pushed to vertex and fragment uniform slot 1.
@@ -98,6 +99,9 @@ struct RenderSettings {
     int characterModel = 1;          // 0 = phase-1 placeholder mesh, 1 = approved modular characters
     CharacterSettings chars;
     bool studioLighting = false;     // neutral sage studio (Zombie Lab comparison), no fog
+    // map outskirts: everything fades into the dark past the edges of this xz rect (x0, z0, x1, z1; the baked city's
+    // bounds, set by the app in city mode), see lighting.glsl finish(). x1 <= x0: off
+    float mapRect[4] = {0.f, 0.f, 0.f, 0.f};
     bool shadows = true;             // key-light (sun / moon) shadows
     // shadow map (shaders/include/shadow.glsl): one depth map per frame from the key light, fitted to the visible
     // ground (within shadowRange of the pivot), texel-snapped; off = the legacy fixed-direction moon height field

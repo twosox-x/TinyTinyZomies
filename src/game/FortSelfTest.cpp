@@ -94,11 +94,11 @@ int runFortSelfTest(const BalanceConfig& cfg) {
             ce.containers.push_back(cont);
             const WallPlan s2 = Wf.plan(path({{20, -40}, {20, -47.5f}}), WallType::Cheap, false, ce);   // 1.25 m short of the container
             const float endZ = s2.pieces.empty() ? 0.f : s2.pieces.back().bz;
-            check(s2.valid && s2.sealBack == 2 && endZ < -48.8f && endZ > -49.3f, "an end in front of a container is sealed onto it", fmt("end z %.2f, %s", endZ, s2.reason));
+            check(s2.valid && s2.sealBack == 2 && endZ < -48.8f && endZ > -49.3f, "an end in front of a container is sealed onto it", fmt("end z %.2f", endZ) + " " + s2.reason);
             build(Wf, path({{50, -60}, {50, -40}}));
             const WallPlan s3 = Wf.plan(path({{40, -50}, {48.8f, -50}}), WallType::Cheap, false, testEnv());   // 1.2 m short of a wall
             check(s3.valid && s3.sealBack == 3 && std::fabs(s3.pieces.back().bx - 50.f) < 0.01f && s3.pieces.back().splitB >= 0, "an end in front of a wall becomes a T junction on it",
-                  fmt("end x %.2f, %s", s3.pieces.empty() ? 0.0 : s3.pieces.back().bx, s3.reason));
+                  fmt("end x %.2f", s3.pieces.empty() ? 0.0 : s3.pieces.back().bx) + " " + s3.reason);
         }
         const WallPlan c1 = W.plan(path({{12, 0}, {12, 12}}), WallType::Cheap, false, testEnv());
         const bool b1 = c1.valid && !W.commit(c1).empty();

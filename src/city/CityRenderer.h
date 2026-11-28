@@ -193,6 +193,11 @@ private:
     std::vector<float> cutouts_;
     SDL_GPUBuffer *materials_ = nullptr, *instances_ = nullptr, *dummy_ = nullptr;
     SDL_GPUBuffer* quadIB_ = nullptr;            // shared u32 index buffer of the implicit quad pattern
+    // map outskirts: a ground skirt ring around the baked map (4 quads out to 6 km, forest-floor material, 10 cm below
+    // the map's ground, overlapping its edge by 0.6 m); lighting.glsl finish() fades it (and the map's edge) into the dark
+    SDL_GPUBuffer* skirtVB_ = nullptr;
+    float skirtOrigin_[3] = {0, 0, 0}, skirtScale_[2] = {1, 1};
+    void uploadSkirt(SDL_GPUCopyPass* cp);
     uint32_t quadIBQuads_ = 0;
     void ensureQuadIB(SDL_GPUCopyPass* cp, uint32_t quads);
     SDL_GPUTransferBuffer* instTB_ = nullptr;
