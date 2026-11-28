@@ -163,3 +163,5 @@ body { background: var(--page); color: var(--page-fg); font-family: var(--f); fo
 .mock button { all: unset; cursor: pointer; font: 600 11px/1 var(--f); color: #ddd; padding: 4px 7px; border-radius: 2px; }
 .mock button.on { background: #ddd; color: #111; }
 .dock .cats button:not(.on) { filter: drop-shadow(0 1px 1px #000) drop-shadow(0 0 3px rgba(0,0,0,.8)); color: var(--bone); }
+.msq { position: relative; }
+.msq .mst { position: absolute; right: -4px; top: -4px; width: 15px; height: 15px; border-radius: 50%; background: #0c0d0a; display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0,0,0,.6); }
