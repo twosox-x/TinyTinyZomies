@@ -1,214 +1,166 @@
-/* Tiny Tiny Zombies HUD preview — core: stage, voxel icons, shared components, screen registry.
-   Screens register with TTZ.screen({id, num, title, group, bg, notes, render(ctx) -> html, mount(root, ctx)}).
-   ctx = { W, H (UI points), u (UI scale), res: '720'|'1080'|'1440', tod: 'day'|'night', rerender() } */
+/* Tiny Tiny Zombies HUD preview v2 "Counters" — core components.
+   Screens: TTZ.screen({id, num, badge, group, title, status, bg, notes, initState(), render(ctx) -> html, mount(root, ctx) -> keydown handler})
+   ctx = { W, H (UI points), u, fit, res, tod: 'day'|'night', night, rerender(), state } */
 (function () {
   const TTZ = (window.TTZ = { screens: [] });
   TTZ.screen = (s) => TTZ.screens.push(s);
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  TTZ.esc = esc;
+  const esc = (TTZ.esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])));
+  const money = (TTZ.money = (n) => "$" + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ","));
 
-  /* ---------- voxel icons: tiny iso models, 3 face shades (same scheme ImGui drawUiIcon uses) ---------- */
-  const shade = (hex, f) => {
-    const n = parseInt(hex.slice(1), 16);
-    const r = Math.min(255, Math.round(((n >> 16) & 255) * f)), g = Math.min(255, Math.round(((n >> 8) & 255) * f)), b = Math.min(255, Math.round((n & 255) * f));
-    return `rgb(${r},${g},${b})`;
+  /* icons (game-icons.net, CC BY 3.0) */
+  TTZ.ic = (name, size = 20, style = "") => {
+    const b = window.GI && window.GI[name];
+    if (!b) return `<svg class="gi" width="${size}" height="${size}"></svg>`;
+    return `<svg class="gi" width="${size}" height="${size}" viewBox="0 0 512 512" style="${style}" aria-hidden="true">${b}</svg>`;
   };
-  // palette
-  const P = { skin: "#d9b48a", olive: "#6f7a44", oliveD: "#4b5530", khaki: "#b9a774", steel: "#7d8589", dark: "#3a3d3f", wood: "#9a6b3f",
-    woodL: "#c08c55", brass: "#e0a93b", red: "#c8402f", fire: "#f08a24", flame: "#ffd24a", conc: "#a9a596", white: "#e8e4d6", blue: "#5d8fb0",
-    green: "#7ab04c", yellow: "#e4c23a", fuel: "#c8402f", zomb: "#8fa05a", sand: "#cdb98a", glass: "#9cc9d8" };
-  // models: list of [x, y, z, w, d, h, colour]  (x right-back, y left-back, z up), unit = 1 voxel
-  const M = {
-    rifle:   [[1,1,0,1,1,2,P.oliveD],[1,1,2,1,1,2,P.olive],[1,1,4,1,1,1,P.skin],[1,1,5,1,1,0.5,P.oliveD],[2,1,3,2,0.5,0.5,P.dark]],
-    mg:      [[1,1,0,1,1,2,P.oliveD],[1,1,2,1.2,1.2,2,P.olive],[1,1,4,1,1,1,P.skin],[1,1,5,1,1,0.5,P.oliveD],[2,0.8,2.6,3,0.7,0.7,P.dark],[2.4,0.8,2,0.5,0.6,0.6,P.brass]],
-    sniper:  [[1,1,0,1,1,2,P.khaki],[1,1,2,1,1,2,P.khaki],[1,1,4,1,1,1,P.skin],[1,1,5,1,1,0.5,P.oliveD],[2,1.2,3.2,3.5,0.4,0.4,P.dark],[3,1.1,3.6,0.8,0.6,0.4,P.steel]],
-    flame:   [[1,1,0,1,1,2,P.oliveD],[1,1,2,1,1,2,P.olive],[1,1,4,1,1,1,P.skin],[0,1,2,0.8,1,2,P.red],[2,1,2.8,1.6,0.5,0.5,P.steel],[3.6,1,2.6,1,0.6,1,P.fire],[4.4,1,2.8,0.6,0.5,0.6,P.flame]],
-    engineer:[[1,1,0,1,1,2,P.oliveD],[1,1,2,1,1,2,P.yellow],[1,1,4,1,1,1,P.skin],[1,1,5,1.1,1.1,0.5,P.yellow],[2,1,2.5,0.4,0.4,2,P.wood],[2,0.7,4.2,0.4,1,0.6,P.steel]],
-    container:[[0,0,0,4,2,2,P.olive],[0,0,2,4,2,0.2,P.oliveD],[1.8,-0.01,0.3,0.4,0.01,1.4,P.khaki]],
-    airdrop: [[1,1,0,2,2,1.6,P.wood],[0.2,0.2,3.4,3.6,3.6,0.5,P.white],[1.5,1.5,1.6,1,1,1.8,P.khaki]],
-    wall:    [[0,1,0,4,1,1.4,P.conc],[0,1,1.4,4,1,0.3,shadeHex(P.conc,0.85)]],
-    wallTall:[[0,1,0,4,1,2.4,P.conc],[0,1,2.4,4,1,0.3,P.steel]],
-    gate:    [[0,1,0,1,1,2.6,P.conc],[3,1,0,1,1,2.6,P.conc],[1,1.3,0,2,0.4,2,P.steel]],
-    tower:   [[1,1,0,0.4,0.4,4,P.wood],[2.6,1,0,0.4,0.4,4,P.wood],[1,2.6,0,0.4,0.4,4,P.wood],[2.6,2.6,0,0.4,0.4,4,P.wood],[0.8,0.8,4,2.4,2.4,0.4,P.woodL],[0.8,0.8,4.4,2.4,0.2,1,P.sand],[0.8,0.8,4.4,0.2,2.4,1,P.sand]],
-    light:   [[1.5,1.5,0,0.4,0.4,4,P.steel],[1,1,4,1.4,1.4,1,P.dark],[1,0.98,4.2,1.4,0.02,0.6,P.flame]],
-    generator:[[0,0,0,3,2,1.6,P.olive],[0.3,0.3,1.6,1,1,0.6,P.dark],[2,0.5,1.6,0.6,0.6,0.4,P.steel],[2.98,0.4,0.4,0.02,1.2,0.8,P.brass]],
-    fuel:    [[0,0,0,1.3,1.3,2,P.fuel],[1.6,0,0,1.3,1.3,2,P.fuel],[0.8,1.5,0,1.3,1.3,2,P.fuel],[0.4,0.4,2,0.4,0.4,0.3,P.dark]],
-    crate:   [[0,0,0,2,2,2,P.wood],[0,0,2,2,2,0.1,P.woodL]],
-    barricade:[[0,1,0,4,0.6,0.6,P.sand],[0.4,1,0.6,3.2,0.6,0.6,P.sand],[1,1,1.2,2,0.6,0.6,P.khaki]],
-    garrison:[[0,0,0,3,3,3,P.conc],[0,-0.01,1,0.8,0.01,0.8,P.flame],[1.8,-0.01,1,0.8,0.01,0.8,P.dark],[0,0,3,3,3,0.3,P.olive]],
-    hospital:[[0,0,0,3,3,2.6,P.white],[1.1,-0.01,0.8,0.8,0.01,1,P.red],[0.75,-0.01,1.1,1.5,0.01,0.4,P.red]],
-    vehicle: [[0,0,0.4,4,2,1,P.oliveD],[1,0,1.4,2,2,0.8,P.olive],[0.4,-0.01,0,0.8,0.01,0.6,P.dark],[2.8,-0.01,0,0.8,0.01,0.6,P.dark]],
-    car:     [[0,0,0.3,4,2,0.9,P.blue],[1,0.1,1.2,2,1.8,0.7,P.glass],[0.4,-0.01,0,0.8,0.01,0.5,P.dark],[2.8,-0.01,0,0.8,0.01,0.5,P.dark]],
-    siphon:  [[0,0,0,1.6,1.6,2.4,P.fuel],[1.6,0.6,1.8,1.6,0.3,0.3,P.dark],[3,0.6,0,0.3,0.3,2.1,P.dark]],
-    disassemble:[[0,0,0,2,1.2,0.8,P.blue],[2.6,0,0,1,1,0.8,P.blue],[1.2,1.6,0,1,1,0.5,P.dark],[1,0,1.4,0.4,0.4,1.6,P.steel]],
-    zombie:  [[1,1,0,1,1,2,"#5a5a3f"],[1,1,2,1,1,2,"#6b4a3a"],[1,1,4,1,1,1,P.zomb],[2,1,3,1.6,0.5,0.5,P.zomb]],
-    ammo:    [[0,0,0,2.4,1.4,1.4,P.olive],[0.2,0.2,1.4,0.4,0.4,0.8,P.brass],[0.9,0.2,1.4,0.4,0.4,0.8,P.brass],[1.6,0.2,1.4,0.4,0.4,0.8,P.brass]],
-    burn:    [[0,0,0,3,3,0.2,P.dark],[0.6,0.6,0.2,1,1,1.4,P.fire],[1.6,1.2,0.2,1,1,2,P.fire],[1.8,1.4,2.2,0.6,0.6,0.8,P.flame],[0.8,0.8,1.6,0.6,0.6,0.6,P.flame]],
-    build:   [[0,0,0,3,1,1,P.conc],[0,1,0,1,2,1,P.conc],[2,1.2,1,0.4,0.4,2.2,P.wood],[1.6,1,3,1.2,0.8,0.5,P.steel]],
+  TTZ.k = (key) => `<span class="k">${esc(key)}</span>`;
+  // token: o = {ic, size, isize, round, on, off, key, n (corner number), ring (0..1), ringCol, id, why, cls, title, attrs, color}
+  TTZ.tok = (o) => {
+    const s = o.size || 36, is = o.isize || Math.round(s * 0.6);
+    const cls = ["tok", o.round && "round", o.on && "on", o.off && "off", o.cls].filter(Boolean).join(" ");
+    return `<div class="${cls}" style="width:${s}px;height:${s}px${o.color ? ";color:" + o.color : ""}"${o.id ? ` data-id="${o.id}"` : ""}${o.why ? ` data-why="${esc(o.why)}"` : ""}${o.tip ? ` data-tip="${esc(o.tip)}"` : ""}${o.attrs || ""}>` +
+      (o.ring != null ? `<span class="ring" style="--v:${o.ring};--rc:${o.ringCol || TTZ.hpCol(o.ring)}"></span>` : "") +
+      TTZ.ic(o.ic, is) + (o.key ? TTZ.k(o.key) : "") + (o.n != null ? `<span class="n">${esc(o.n)}</span>` : "") + `</div>`;
   };
-  function shadeHex(hex, f) { const c = shade(hex, f).match(/\d+/g).map(Number); return "#" + c.map((v) => v.toString(16).padStart(2, "0")).join(""); }
-  M.wall[1][6] = shadeHex(P.conc, 0.85);
-  const iso = (x, y, z) => [(x - y) * 0.866, (x + y) * 0.5 - z];
-  function voxelSVG(name, size, opt = {}) {
-    const m = M[name]; if (!m) return pixelSVG(name, size, opt);
-    const boxes = m.slice().sort((a, b) => (a[0] + a[3] / 2 + a[1] + a[4] / 2 + a[2] * 0.5) - (b[0] + b[3] / 2 + b[1] + b[4] / 2 + b[2] * 0.5));
-    let polys = "", minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
-    const pt = (x, y, z) => { const [a, b] = iso(x, y, z); minX = Math.min(minX, a); maxX = Math.max(maxX, a); minY = Math.min(minY, b); maxY = Math.max(maxY, b); return a.toFixed(2) + "," + b.toFixed(2); };
-    for (const [x, y, z, w, d, h, c] of boxes) {
-      const col = opt.grey ? "#7a7868" : c;
-      const top = [pt(x, y, z + h), pt(x + w, y, z + h), pt(x + w, y + d, z + h), pt(x, y + d, z + h)];
-      const right = [pt(x, y, z), pt(x + w, y, z), pt(x + w, y, z + h), pt(x, y, z + h)];      // face toward viewer-right (y = min)
-      const left = [pt(x, y, z), pt(x, y + d, z), pt(x, y + d, z + h), pt(x, y, z + h)];       // face toward viewer-left (x = min)
-      polys += `<polygon points="${left.join(" ")}" fill="${shade(col, 0.62)}"/><polygon points="${right.join(" ")}" fill="${shade(col, 0.82)}"/><polygon points="${top.join(" ")}" fill="${shade(col, 1.08)}"/>`;
-    }
-    const pad = 0.3, w = maxX - minX + pad * 2, h = maxY - minY + pad * 2, s = Math.max(w, h);
-    const vb = `${(minX + maxX) / 2 - s / 2} ${(minY + maxY) / 2 - s / 2} ${s} ${s}`;
-    return `<svg class="vx" width="${size}" height="${size}" viewBox="${vb}" shape-rendering="crispEdges" aria-hidden="true">${polys}</svg>`;
-  }
-  /* pixel glyphs for verbs + stats (7x7, 1 = ink, 2 = accent) */
-  const G = {
-    halt:   ["0111110","1111111","1122211","1122211","1122211","1111111","0111110"],
-    run:    ["0001100","0001100","0111000","1011110","0011000","0100100","1000010"],
-    walk:   ["0011000","0011000","0011100","0111010","0011000","0010100","0010100"],
-    auto:   ["0011100","0100010","1001001","1001101","1000001","0100010","0011100"],
-    undo:   ["0010000","0110000","1111110","0110001","0010001","0000001","0011110"],
-    funds:  ["0011100","0111110","1101011","0111110","1101011","0111110","0011100"],
-    kills:  ["0111110","1111111","1001001","1111111","0110110","0101010","0000000"],
-    troops: ["0010100","0111110","0010100","0111110","0110110","0110110","0100010"],
-    terr:   ["1110111","1000001","1022201","0022200","1022201","1000001","1110111"],
-    sun:    ["1001001","0101010","0011100","1111111","0011100","0101010","1001001"],
-    moon:   ["0011100","0110000","1100000","1100000","1100000","0110000","0011100"],
-    alert:  ["0001000","0011100","0012100","0112110","0110110","1112111","1111111"],
-    gas:    ["0110110","1111111","0111110","0000000","0110110","1111111","0111110"],
-    cross:  ["0011100","0011100","1111111","1111111","1111111","0011100","0011100"],
-    occupy: ["0011100","0010100","0011100","0111110","0011100","0010100","0110110"],
-    pause:  ["0000000","0110110","0110110","0110110","0110110","0110110","0000000"],
-    gear:   ["0010100","0111110","1100011","0101010","1100011","0111110","0010100"],
-    shield: ["1111111","1222221","1222221","1222221","0122210","0012100","0001000"],
-    bolt:   ["0000110","0001100","0011000","0111110","0001100","0011000","0110000"],
-    arrow:  ["0001000","0001100","1111110","1111111","1111110","0001100","0001000"],
-    box:    ["0000000","1111111","1022201","1111111","1022201","1111111","0000000"],
-    skull:  ["0111110","1111111","1001001","1111111","0110110","0101010","0000000"],
-  };
-  function pixelSVG(name, size, opt = {}) {
-    const g = G[name]; if (!g) return `<svg width="${size}" height="${size}"></svg>`;
-    const ink = opt.color || "currentColor", acc = opt.accent || "var(--brass)";
-    let r = "";
-    g.forEach((row, y) => [...row].forEach((c, x) => { if (c !== "0") r += `<rect x="${x}" y="${y}" width="1" height="1" fill="${c === "2" ? acc : ink}"/>`; }));
-    return `<svg class="px" width="${size}" height="${size}" viewBox="-0.5 -0.5 8 8" shape-rendering="crispEdges" aria-hidden="true">${r}</svg>`;
-  }
-  TTZ.icon = (name, size = 28, opt) => voxelSVG(name, size, opt);
-  TTZ.glyph = (name, size = 12, opt) => pixelSVG(name, size, opt);
-  TTZ.iconNames = Object.keys(M); TTZ.glyphNames = Object.keys(G);
+  TTZ.hpCol = (f) => (f > 0.6 ? "var(--ok)" : f > 0.3 ? "var(--warn)" : "var(--bad)");
 
-  /* ---------- small components ---------- */
-  TTZ.key = (k, dim) => `<span class="key${dim ? " dim" : ""}">${esc(k)}</span>`;
-  TTZ.pips = (v, of = 10, col) => { let s = `<span class="pips"${col ? ` style="--pc:${col}"` : ""}>`; for (let i = 0; i < of; i++) s += `<i${i < v ? ' class="f"' : ""}></i>`; return s + "</span>"; };
-  TTZ.hpCol = (f) => (f > 0.6 ? "var(--hp-hi)" : f > 0.3 ? "var(--hp-mid)" : "var(--hp-lo)");
-  TTZ.bar = (f, col, w) => `<span class="bar" style="display:block;${w ? "width:" + w + "px;" : ""}--pc:${col || "var(--stam)"}"><i style="width:${Math.round(f * 100)}%"></i></span>`;
-  TTZ.btn = (label, o = {}) => `<button class="btn${o.on ? " on" : ""}${o.off ? " off" : ""}${o.cls ? " " + o.cls : ""}"${o.id ? ` data-id="${o.id}"` : ""}${o.why ? ` data-why="${esc(o.why)}"` : ""}>${o.glyph ? TTZ.glyph(o.glyph, 11) : ""}${o.icon ? TTZ.icon(o.icon, 16) : ""}${esc(label)}${o.k ? TTZ.key(o.k) : ""}</button>`;
-  TTZ.plate = (o) => `<div class="plate${o.rivets ? " rivets" : ""}${o.cls ? " " + o.cls : ""}" style="${o.style || ""}"${o.id ? ` id="${o.id}"` : ""}>${o.html}</div>`;
-  TTZ.money = (n) => "$" + n.toLocaleString("en-US");
-
-  /* ---------- game data (from the HUD audit; keys = proposed 1–7 per tab) ---------- */
+  /* ---------- data (from the HUD audit) ---------- */
   TTZ.TABS = [
-    { id: "units", name: "Units", glyph: "troops" },
-    { id: "structures", name: "Structures", glyph: "shield" },
-    { id: "supplies", name: "Supplies", glyph: "box" },
-    { id: "engineering", name: "Engineering", glyph: "gear" },
-    { id: "vehicles", name: "Vehicles", glyph: "arrow", later: true },
+    { id: "units", name: "Units", ic: "helmet" },
+    { id: "structures", name: "Structures", ic: "wall" },
+    { id: "supplies", name: "Supplies", ic: "ammo" },
+    { id: "engineering", name: "Engineering", ic: "wrench" },
+    { id: "vehicles", name: "Vehicles", ic: "vehicle", later: true },
   ];
   TTZ.CARDS = {
     units: [
-      { id: "unit.rifle", nm: "Rifle squad", ic: "rifle", cost: 1000, bdg: "x5", tip: "Five riflemen. All-round squad: holds streets, captures buildings.", stats: [["Soldiers", "5 × 100 hp"], ["Range", "60 m"], ["Fire", "600 rpm"], ["Ammo", "30 + 180"]] },
-      { id: "unit.mg", nm: "MG squad", ic: "mg", cost: 1400, bdg: "x3", tip: "Machine gun + two loaders. Shreds hordes in a corridor; slow to move.", stats: [["Soldiers", "3 × 110 hp"], ["Range", "75 m"], ["Fire", "900 rpm"], ["Ammo", "200 + 600"]] },
-      { id: "unit.sniper", nm: "Sniper", ic: "sniper", cost: 700, bdg: "x1", tip: "One marksman. Best on roofs and in towers.", stats: [["Soldiers", "1 × 90 hp"], ["Range", "140 m"], ["Fire", "40 rpm"], ["Ammo", "5 + 40"]] },
-      { id: "unit.flame", nm: "Flamethrowers", ic: "flame", cost: 900, bdg: "x2", tip: "Two flamers. Burn corpses and gas, clear tight streets. Short range.", stats: [["Soldiers", "2 × 120 hp"], ["Range", "12 m"], ["Fuel", "100 %"]] },
-      { id: "unit.engineer", nm: "Engineers", ic: "engineer", cost: 1200, bdg: "x3", tip: "Build walls, gates, towers; clear and siphon cars. One works, two cover.", stats: [["Soldiers", "3 × 90 hp"], ["Build radius", "35 m"]] },
+      { id: "unit.rifle", nm: "Rifle squad", ic: "rifle", cost: 1000, d: "All-round squad. Holds streets, captures buildings.", st: [["troops", "5"], ["heart", "100"], ["target", "60 m"]] },
+      { id: "unit.mg", nm: "MG squad", ic: "mg", cost: 1400, d: "Machine gun and two loaders. Shreds a horde in a street; slow to move.", st: [["troops", "3"], ["heart", "110"], ["target", "75 m"]] },
+      { id: "unit.sniper", nm: "Sniper", ic: "sniper", cost: 700, d: "One marksman. Best on a roof or in a tower.", st: [["troops", "1"], ["heart", "90"], ["target", "140 m"]] },
+      { id: "unit.flame", nm: "Flamethrowers", ic: "flame", cost: 900, d: "Burn corpses and gas. Short range.", st: [["troops", "2"], ["heart", "120"], ["target", "12 m"]] },
+      { id: "unit.engineer", nm: "Engineers", ic: "engineer", cost: 1200, d: "Build walls, gates and towers; clear and siphon cars.", st: [["troops", "3"], ["heart", "90"]] },
     ],
     structures: [
-      { id: "struct.wall", nm: "Wall 1.6 m", ic: "wall", cost: 40, suf: "/4m", tip: "Low wall. Stops walkers; climbers get over in time." },
-      { id: "struct.wall2", nm: "Wall 2.4 m", ic: "wallTall", cost: 110, suf: "/4m", tip: "Reinforced wall. Holds a horde." },
-      { id: "struct.gate", nm: "Gate", ic: "gate", cost: 120, suf: "/4m", tip: "Opens for your squads, shuts for the dead." },
-      { id: "struct.tower", nm: "Def. tower", ic: "tower", cost: 200, tip: "Timber tower. Snipers or riflemen occupy it: +range, protected." },
-      { id: "struct.light", nm: "Floodlight", ic: "light", cost: 40, tip: "Lights the street at night. Needs a powered generator in reach." },
-      { id: "struct.generator", nm: "Generator", ic: "generator", cost: 150, tip: "Powers floodlights in 30 m. Burns fuel: 1 l / min." },
-      { id: "struct.fuel", nm: "Fuel store", ic: "fuel", cost: 60, tip: "Holds siphoned fuel (200 l). Generators draw from it." },
+      { id: "struct.wall", nm: "Wall 1.6 m", ic: "wall", cost: 40, suf: "/4m", d: "Low wall. Stops walkers; climbers get over in time." },
+      { id: "struct.wall2", nm: "Wall 2.4 m", ic: "wallTall", cost: 110, suf: "/4m", d: "High wall. Holds a horde." },
+      { id: "struct.gate", nm: "Gate", ic: "gate", cost: 120, suf: "/4m", d: "Opens for your squads, shuts for the dead." },
+      { id: "struct.tower", nm: "Defense tower", ic: "tower", cost: 200, d: "Shooters occupy it: more range, protected." },
+      { id: "struct.light", nm: "Floodlight", ic: "light", cost: 40, d: "Lights the street at night. Needs a generator within 30 m." },
+      { id: "struct.generator", nm: "Generator", ic: "generator", cost: 150, d: "Powers floodlights within 30 m. Burns 1 l of fuel a minute." },
+      { id: "struct.fuel", nm: "Fuel store", ic: "fuel", cost: 60, d: "Holds siphoned fuel (200 l). Generators draw from it." },
     ],
     supplies: [
-      { id: "sup.container", nm: "Ammo cont.", ic: "container", cost: 1500, tip: "Big ammo stock. Squads nearby refill automatically." },
-      { id: "sup.airdrop", nm: "Ammo drop", ic: "airdrop", cost: 400, tip: "Parachute crate onto a squad's position." },
+      { id: "sup.container", nm: "Ammo container", ic: "container", cost: 1500, d: "Large ammo stock. Squads nearby refill on their own." },
+      { id: "sup.airdrop", nm: "Ammo drop", ic: "airdrop", cost: 400, d: "Parachutes a crate onto a squad." },
     ],
     engineering: [
-      { id: "eng.clearcar", nm: "Clear car", ic: "disassemble", cost: 50, tip: "Engineers take a wreck apart. Gains fuel if a fuel store exists." },
-      { id: "eng.siphon", nm: "Siphon fuel", ic: "siphon", cost: 0, tip: "Engineers drain a parked car and carry the fuel to the store." },
-      { id: "eng.undo", nm: "Undo build", ic: "undo", cost: -1, keyOverride: "Ctrl+Z", tip: "Removes the last unfinished pieces and refunds them." },
+      { id: "eng.clearcar", nm: "Clear car", ic: "disassemble", cost: 50, d: "Engineers take a wreck apart. Its fuel goes to the fuel store." },
+      { id: "eng.siphon", nm: "Siphon fuel", ic: "siphon", cost: 0, d: "Engineers drain a parked car and carry the fuel to the store." },
+      { id: "eng.undo", nm: "Undo build", ic: "undo", cost: -1, key: "^Z", d: "Removes the last unfinished pieces and refunds them." },
     ],
     vehicles: [
-      { id: "veh.jeep", nm: "Jeep", ic: "vehicle", later: true, tip: "Coming later." },
-      { id: "veh.truck", nm: "Supply truck", ic: "container", later: true, tip: "Coming later." },
+      { id: "veh.jeep", nm: "Jeep", ic: "vehicle", later: true, d: "Coming later." },
+      { id: "veh.truck", nm: "Supply truck", ic: "truck", later: true, d: "Coming later." },
+      { id: "veh.heli", nm: "Helicopter", ic: "heli", later: true, d: "Coming later." },
     ],
   };
 
-  /* ---------- top bar ---------- */
-  TTZ.topBar = (o = {}) => {
-    const funds = o.funds ?? 3800, inc = o.income ?? 530, kills = o.kills ?? 146, troops = o.troops ?? 14, lost = o.lost ?? 2, terr = o.terr ?? 3.4, time = o.time ?? "21:40", tplus = o.tplus ?? "T+18:22";
-    const night = o.night ?? true, frac = o.dayFrac ?? 0.9;
-    return TTZ.plate({ cls: "topbar", html:
-      `<div class="cell">${TTZ.glyph("funds", 12, { color: "var(--brass)", accent: "var(--plate-solid)" })}<span class="v money">${TTZ.money(funds)}</span><span class="s ${inc < 0 ? "c-bad" : "c-ok"}">${inc < 0 ? "" : "+"}${inc}/min</span></div>` +
-      `<div class="cell">${TTZ.glyph("skull", 12)}<span class="v">${kills.toLocaleString("en-US")}</span><span class="s">kills</span></div>` +
-      `<div class="cell">${TTZ.glyph("troops", 12)}<span class="v">${troops}</span><span class="s">troops${lost ? ` <span class="c-bad">−${lost}</span>` : ""}</span></div>` +
-      `<div class="cell">${TTZ.glyph("terr", 12, { accent: "var(--ok)" })}<span class="v">${terr} ha</span><span class="s ${o.terrWarn ? "c-warn" : ""}">${o.terrNote ?? "secured"}</span></div>` +
-      `<div class="cell clock">${TTZ.glyph(night ? "moon" : "sun", 12, { color: night ? "var(--intel)" : "var(--brass)" })}<span class="v">${time}</span><span class="daybar"><i style="left:${Math.round(frac * 52)}px"></i></span><span class="s">${tplus}</span></div>` });
+  /* ---------- top-left resources ---------- */
+  TTZ.resources = (o = {}) => {
+    const f = o.funds ?? 3800, inc = o.income ?? 530;
+    const r = (ic, v, s, col, tip) => `<div class="r fl" title="${tip}">${TTZ.ic(ic, 18, col ? "color:" + col : "")}<span class="v">${v}</span>${s ? `<span class="s">${s}</span>` : ""}</div>`;
+    return `<div class="edge-tl"></div><div class="res">` +
+      r("funds", `<span style="color:var(--gold)">${money(f)}</span>`, `<span style="color:${inc < 0 ? "var(--bad)" : "var(--ok)"}">${inc < 0 ? "−" + Math.abs(inc) : "+" + inc}</span>`, "var(--gold)", "Funds and income per minute") +
+      r("troops", o.troops ?? 14, o.lost ? `<span style="color:var(--bad)">−${o.lost}</span>` : "", "", "Troops alive") +
+      r("territory", (o.terr ?? 3.4) + " ha", o.terrNote ? `<span style="color:var(--warn)">${o.terrNote}</span>` : "", o.terrNote ? "var(--warn)" : "var(--ok)", "Territory held") +
+      r("kills", String(o.kills ?? 146).replace(/\B(?=(\d{3})+(?!\d))/g, ","), "", "", "Zombies killed") + `</div>`;
+  };
+  /* ---------- top-right clock ---------- */
+  TTZ.clock = (o = {}) => {
+    const night = o.night, t = o.time ?? (night ? "22:40" : "13:10"), f = o.dayFrac ?? (night ? 0.93 : 0.55);
+    return `<div class="edge-tr"></div><div class="clock"><div class="dial"><span class="ring" style="inset:0;--v:${f};--rc:${night ? "var(--info)" : "var(--gold)"}"></span><span style="position:absolute;inset:4px;display:grid;place-items:center;color:${night ? "var(--info)" : "var(--gold)"}">${TTZ.ic(night ? "moon" : "sun", 14)}</span></div>` +
+      `<span class="t fl">${t}</span><span class="fl" style="font-size:11px;color:var(--dim);font-weight:600">day ${o.day ?? 3}</span>` +
+      `<div class="speed">${TTZ.tok({ ic: "pause", size: 22, isize: 12, tip: "Pause (Space)", on: o.paused })}${TTZ.tok({ ic: "play", size: 22, isize: 12, on: !o.paused && !o.fast, tip: "Normal speed" })}${TTZ.tok({ ic: "fast", size: 22, isize: 12, on: o.fast, tip: "Fast (+)" })}</div></div>`;
   };
 
-  /* ---------- command bar ---------- */
-  // o: {tab, active (card id), hover (card id), funds, disable: {id: why}, cards (override list), offset (scroll index)}
-  TTZ.commandBar = (o = {}) => {
-    const tab = o.tab || "units", funds = o.funds ?? 3800;
-    const list = o.cards || TTZ.CARDS[tab];
-    let tabs = TTZ.TABS.map((t, i) => `<button data-tab="${t.id}" class="${t.id === tab ? "on" : ""}${t.later ? " later" : ""}">${TTZ.glyph(t.glyph, 10)}${t.name}</button>`).join("");
-    tabs += `<span class="hint" title="Tab / Shift+Tab: next / previous category">${TTZ.key("Tab")}</span>`;
-    let cards = list.map((c, i) => {
-      const k = c.keyOverride || String(i + 1);
-      let why = (o.disable && o.disable[c.id]) || (c.cost > 0 && c.cost > funds ? "Not enough funding" : "");
-      const cls = ["card", c.later ? "later off" : "", why ? "off" : "", o.active === c.id ? "on" : ""].join(" ");
-      const co = c.later ? "LATER" : c.cost > 0 ? `${TTZ.money(c.cost)}${c.suf ? `<small>${c.suf}</small>` : ""}` : c.cost === 0 ? "free" : "—";
-      return `<div class="${cls}" data-card="${c.id}" data-i="${i}"${why ? ` data-why="${esc(why)}"` : ""}>${c.later ? "" : TTZ.key(k.length > 1 ? k : k, !!why)}${c.bdg ? `<span class="bdg">${c.bdg}</span>` : ""}<span class="ic">${TTZ.icon(c.ic, 34, { grey: !!c.later })}</span><span class="nm">${esc(c.nm)}</span><span class="co">${co}</span></div>`;
+  /* ---------- dock ---------- */
+  // state: {tab, active, offset, funds, disable:{id:why}, cards}
+  TTZ.dock = (s = {}) => {
+    const tab = s.tab || "units", funds = s.funds ?? 3800, list = s.cards || TTZ.CARDS[tab];
+    const cats = TTZ.TABS.map((t) => `<button data-tab="${t.id}" class="${t.id === tab ? "on" : ""}${t.later ? " later" : ""}" title="${t.name}${t.later ? " (coming later)" : ""}">${TTZ.ic(t.ic, 16)}<span class="cn">${t.name}</span></button>`).join("");
+    const slots = list.map((c, i) => {
+      const why = c.later ? "Coming later" : (s.disable && s.disable[c.id]) || (c.cost > funds ? "Not enough funds" : "");
+      const cost = c.later ? "soon" : c.cost > 0 ? money(c.cost) : c.cost === 0 ? "free" : "";
+      return `<div class="slot${why ? " off" : ""}${c.later ? " later" : ""}" data-card="${c.id}"${why ? ` data-why="${esc(why)}"` : ""}>${TTZ.tok({ ic: c.ic, size: 46, isize: 28, on: s.active === c.id, off: !!why && !c.later, key: c.later ? "" : c.key || String(i + 1), cls: c.later ? "off" : "" })}<span class="c">${cost}</span></div>`;
     });
-    for (let i = list.length; i < 7; i++) cards.push(`<div class="card empty"></div>`);
-    const off = o.offset || 0, over = list.length > 7;
-    return TTZ.plate({ cls: "cmd rivets", id: "cmdbar", html:
-      `<div class="tabs">${tabs}</div>` +
-      `<div class="arrow l${!over || off === 0 ? " dis" : ""}" data-scroll="-1">‹</div>` +
-      `<div class="row"><div class="strip" style="transform:translateX(${-off * 74}px)">${cards.join("")}</div></div>` +
-      `<div class="arrow r${!over || off >= list.length - 7 ? " dis" : ""}" data-scroll="1">›</div>` });
+    for (let i = list.length; i < 7; i++) slots.push(`<div class="slot empty"><div class="tok"></div></div>`);
+    const off = s.offset || 0, over = list.length > 7;
+    return `<div class="edge-b"></div><div class="dock" id="dock"><div class="cats">${cats}</div>` +
+      (over ? `<div class="arw l${off === 0 ? " dis" : ""}" data-scroll="-1">‹</div><div class="arw r${off >= list.length - 7 ? " dis" : ""}" data-scroll="1">›</div>` : "") +
+      `<div class="row"><div class="strip" style="transform:translateX(${-off * 54}px)">${slots.join("")}</div></div></div>`;
   };
-  TTZ.cardTip = (c, why, x, y) => `<div class="tip" style="left:${x}px;top:${y}px"><div class="tt">${TTZ.icon(c.ic, 20)}${esc(c.nm)}<span style="margin-left:auto" class="money">${c.cost > 0 ? TTZ.money(c.cost) + (c.suf || "") : ""}</span></div><div style="margin-top:4px">${esc(c.tip || "")}</div>${c.stats ? `<div class="stats">${c.stats.map(([a, b]) => `<span>${a}</span><b>${b}</b>`).join("")}</div>` : ""}${why ? `<div class="why">${esc(why)}</div>` : ""}</div>`;
-
-  /* wires the command bar inside a root: tab switching, hover tooltips, scrolling, 1–7 keys. state = {tab, active, offset} */
-  TTZ.wireCommandBar = (root, ctx, state, onPick) => {
-    const bar = root.querySelector("#cmdbar"); if (!bar) return;
-    bar.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { state.tab = b.dataset.tab; state.offset = 0; state.active = null; ctx.rerender(); }));
-    bar.querySelectorAll("[data-scroll]").forEach((b) => b.addEventListener("click", () => { const n = (state.cards || TTZ.CARDS[state.tab]).length; state.offset = Math.max(0, Math.min(n - 7, (state.offset || 0) + +b.dataset.scroll)); ctx.rerender(); }));
-    bar.addEventListener("wheel", (e) => { const n = (state.cards || TTZ.CARDS[state.tab]).length; if (n <= 7) return; e.preventDefault(); state.offset = Math.max(0, Math.min(n - 7, (state.offset || 0) + Math.sign(e.deltaY))); ctx.rerender(); }, { passive: false });
-    const hud = root;
-    bar.querySelectorAll("[data-card]").forEach((el) => {
-      el.addEventListener("mouseenter", () => {
-        const c = (state.cards || TTZ.CARDS[state.tab]).find((x) => x.id === el.dataset.card);
-        const r = el.getBoundingClientRect(), hr = hud.getBoundingClientRect(), s = ctx.u * ctx.fit;
-        const x = Math.min(ctx.W - 230, Math.max(8, (r.left - hr.left) / s - 75)), y = (r.top - hr.top) / s - 8;
-        hud.insertAdjacentHTML("beforeend", TTZ.cardTip(c, el.dataset.why, x, 0).replace("class=\"tip\"", "class=\"tip\" id=\"cardtip\""));
-        const t = hud.querySelector("#cardtip"); t.style.top = y - t.offsetHeight + "px";
-      });
-      el.addEventListener("mouseleave", () => hud.querySelector("#cardtip")?.remove());
-      el.addEventListener("click", () => { if (el.classList.contains("later")) return; if (onPick) onPick(el.dataset.card, el.dataset.why); });
+  TTZ.cardTip = (c, why) => `<div class="tt">${esc(c.nm)}<span class="m">${c.cost > 0 ? money(c.cost) + (c.suf || "") : ""}</span></div><div class="d">${esc(c.d || "")}</div>` +
+    (c.st ? `<div class="st">${c.st.map(([i, v]) => `<span>${TTZ.ic(i, 13, "color:var(--dim)")}${v}</span>`).join("")}</div>` : "") + (why ? `<div class="why">${esc(why)}</div>` : "");
+  // generic tooltip placement for any [data-tip] / dock slot inside root
+  TTZ.showTip = (root, ctx, anchorEl, html, below, topEl) => {
+    TTZ.hideTip(root);
+    const hr = root.getBoundingClientRect(), r = anchorEl.getBoundingClientRect(), s = ctx.u * ctx.fit;
+    root.insertAdjacentHTML("beforeend", `<div class="tip" id="tip">${html}</div>`);
+    const t = root.querySelector("#tip");
+    const cx = (r.left + r.width / 2 - hr.left) / s;
+    t.style.left = Math.max(6, Math.min(ctx.W - 216, cx - 105)) + "px";
+    const tr = (topEl || anchorEl).getBoundingClientRect();
+    const top = below ? (r.bottom - hr.top) / s + 8 : (tr.top - hr.top) / s - t.offsetHeight - 6;
+    t.style.top = Math.max(6, top) + "px";
+  };
+  TTZ.hideTip = (root) => root.querySelector("#tip")?.remove();
+  TTZ.wireTips = (root, ctx) => root.querySelectorAll("[data-tip]").forEach((el) => {
+    el.addEventListener("mouseenter", () => TTZ.showTip(root, ctx, el, `<div class="tt">${esc(el.dataset.tip)}</div>${el.dataset.why ? `<div class="why">${esc(el.dataset.why)}</div>` : ""}`, el.getBoundingClientRect().top < root.getBoundingClientRect().top + 80 * ctx.u * ctx.fit));
+    el.addEventListener("mouseleave", () => TTZ.hideTip(root));
+  });
+  TTZ.wireDock = (root, ctx, s, onPick) => {
+    const d = root.querySelector("#dock"); if (!d) return;
+    const list = () => s.cards || TTZ.CARDS[s.tab || "units"];
+    d.querySelectorAll("[data-tab]").forEach((b) => b.addEventListener("click", () => { s.tab = b.dataset.tab; s.offset = 0; s.active = null; ctx.rerender(); }));
+    d.querySelectorAll("[data-scroll]").forEach((b) => b.addEventListener("click", () => { s.offset = Math.max(0, Math.min(list().length - 7, (s.offset || 0) + +b.dataset.scroll)); ctx.rerender(); }));
+    d.addEventListener("wheel", (e) => { if (list().length <= 7) return; e.preventDefault(); s.offset = Math.max(0, Math.min(list().length - 7, (s.offset || 0) + Math.sign(e.deltaY))); ctx.rerender(); }, { passive: false });
+    d.querySelectorAll("[data-card]").forEach((el) => {
+      const c = list().find((x) => x.id === el.dataset.card);
+      el.addEventListener("mouseenter", () => TTZ.showTip(root, ctx, el, TTZ.cardTip(c, el.dataset.why), false, d));
+      el.addEventListener("mouseleave", () => TTZ.hideTip(root));
+      el.addEventListener("click", () => { if (!c.later && onPick) onPick(c.id, el.dataset.why); });
     });
+    TTZ.wireTips(root, ctx);
   };
-  TTZ.cmdKeys = (e, ctx, state, onPick) => {
-    const list = state.cards || TTZ.CARDS[state.tab];
-    if (e.key === "Tab") { e.preventDefault(); const i = TTZ.TABS.findIndex((t) => t.id === state.tab); state.tab = TTZ.TABS[(i + (e.shiftKey ? 4 : 1)) % 5].id; state.offset = 0; state.active = null; ctx.rerender(); return true; }
-    if (/^[1-7]$/.test(e.key) && !e.ctrlKey) { const c = list[+e.key - 1]; if (c && !c.later && onPick) onPick(c.id); return true; }
+  TTZ.dockKeys = (e, ctx, s, onPick) => {
+    const list = s.cards || TTZ.CARDS[s.tab || "units"];
+    if (e.key === "Tab") { e.preventDefault(); const i = TTZ.TABS.findIndex((t) => t.id === (s.tab || "units")); s.tab = TTZ.TABS[(i + (e.shiftKey ? 4 : 1)) % 5].id; s.offset = 0; s.active = null; ctx.rerender(); return true; }
+    if (/^[1-7]$/.test(e.key) && !e.ctrlKey) { const c = list[+e.key - 1]; if (c && !c.later && onPick) { const el = document.querySelector(`[data-card="${c.id}"]`); onPick(c.id, el && el.dataset.why); } return true; }
     return false;
   };
+
+  /* ---------- selection (bottom-left) ---------- */
+  TTZ.STATE = {
+    engaging: ["target", "var(--warn)", "Engaging"], attacked: ["alert", "var(--bad)", "Under attack"], moving: ["run", "var(--ok)", "Moving"],
+    holding: ["halt", "var(--dim)", "Holding"], resupplying: ["ammo", "var(--info)", "Resupplying"], building: ["build", "var(--info)", "Building"],
+  };
+  // o = {ic, num, name, state, members:[{ic, hp, ammo, kia, wounded, tip}], pace:'auto'|'run'|'walk', actions:[{ic,tip,key,off,why,on,id}], warn:[[ic,col,txt]]}
+  TTZ.selection = (o) => {
+    const st = TTZ.STATE[o.state] || TTZ.STATE.holding;
+    const avg = o.members.filter((m) => !m.kia).reduce((a, m) => a + m.hp, 0) / o.members.length;
+    let h = `<div class="sel" id="sel"><div class="head">${TTZ.tok({ ic: o.ic, size: 52, isize: 30, round: true, ring: avg, n: o.num, tip: o.name })}` +
+      `<div style="position:absolute;left:62px;top:2px;display:flex;align-items:baseline;gap:10px;white-space:nowrap"><div class="nm fl">${esc(o.name)}</div><div class="stt fl" style="color:${st[1]}">${TTZ.ic(st[0], 13)}${st[2]}${(o.warn || []).map(([i, c, t]) => `<span style="color:${c};display:inline-flex;gap:3px;align-items:center;margin-left:8px">${TTZ.ic(i, 13)}${t}</span>`).join("")}</div></div></div>`;
+    h += `<div class="mem">` + o.members.map((m, i) => `<div class="m${m.kia ? " kia" : ""}">${TTZ.tok({ ic: m.kia ? "kia" : m.ic, size: 26, isize: 15, round: true, ring: m.kia ? 0 : m.hp, ringCol: m.wounded ? "var(--bad)" : null, tip: m.tip || "" })}${m.kia ? "" : `<span class="am"><i style="width:${Math.round((m.ammo ?? 1) * 100)}%;${(m.ammo ?? 1) < 0.25 ? "background:var(--warn)" : ""}"></i></span>`}</div>`).join("") + `</div>`;
+    const pace = o.pace || "auto";
+    h += `<div class="acts">${TTZ.tok({ ic: "halt", size: 28, isize: 17, key: "H", tip: "Halt" })}<span class="sep"></span>` +
+      ["auto", "run", "walk"].map((p) => TTZ.tok({ ic: p, size: 28, isize: 17, on: pace === p, tip: { auto: "Pace: auto", run: "Pace: run (tires faster)", walk: "Pace: walk (quiet)" }[p] + " — P cycles", attrs: ` data-pace="${p}"` })).join("") +
+      ((o.actions || []).length ? `<span class="sep"></span>` + o.actions.map((a) => TTZ.tok({ ic: a.ic, size: 28, isize: 17, key: a.key, off: a.off, why: a.why, on: a.on, tip: a.tip, id: a.id })).join("") : "") + `</div></div>`;
+    return h;
+  };
+  // world card (an object's info + actions, drawn at the object). o = {x, y (UI pts), ic, title, extra, body, actions:[{ic, tip, key, cost, off, why, on, id}]}
+  TTZ.worldCard = (o) => `<div class="wc" style="left:${o.x}px;top:${o.y}px"${o.id ? ` id="${o.id}"` : ""}><div class="h">${TTZ.ic(o.ic, 16)}${esc(o.title)}${o.extra ? `<span class="x">${o.extra}</span>` : ""}</div>${o.body || ""}` +
+    (o.actions ? `<div class="a">${o.actions.map((a) => `<div class="slot${a.off ? " off" : ""}">${TTZ.tok({ ic: a.ic, size: 32, isize: 19, key: a.key, off: a.off, why: a.why, on: a.on, tip: a.tip, id: a.id })}<span class="c">${a.cost != null ? (a.cost > 0 ? money(a.cost) : a.cost === 0 ? "free" : "") : ""}</span></div>`).join("")}</div>` : "") + `</div>`;
+
+  /* standard in-play frame: resources + clock + dock */
+  TTZ.frame = (ctx, s, o = {}) => TTZ.resources(o) + TTZ.clock({ night: ctx.night, ...o }) + TTZ.dock(s);
 })();
