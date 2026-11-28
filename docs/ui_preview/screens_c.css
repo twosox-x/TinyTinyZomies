@@ -3,7 +3,7 @@
 
 /* ---------- shared: world veil + fade ---------- */
 .c2-veil { position: absolute; inset: 0; backdrop-filter: grayscale(.8) brightness(.55); -webkit-backdrop-filter: grayscale(.8) brightness(.55); }
-.c2-veil.k { backdrop-filter: grayscale(.6) brightness(.32) blur(1.5px); -webkit-backdrop-filter: grayscale(.6) brightness(.32) blur(1.5px); }
+.c2-veil.k { background: rgba(6,7,5,.45); backdrop-filter: grayscale(.6) brightness(.5); -webkit-backdrop-filter: grayscale(.6) brightness(.5); }
 .c2-faint { position: absolute; inset: 0; opacity: .28; pointer-events: none; }
 .c2-fade { position: absolute; inset: 0; pointer-events: none; transition: background .2s;
   background: linear-gradient(90deg, rgba(6,7,5,.93) 0, rgba(6,7,5,.82) 22%, rgba(6,7,5,.35) 40%, transparent 55%); }
@@ -79,7 +79,7 @@
 .c2-tt1 { font: 700 30px/1 var(--f); font-stretch: 78%; display: flex; align-items: baseline; gap: 8px; margin-left: 4px; }
 .c2-tt1 span { font-size: 21px; }
 .c2-tt2 { position: relative; font: 800 104px/.86 var(--f); font-stretch: 75%; letter-spacing: -.015em; margin-top: 2px; }
-.c2-fig { position: absolute; right: -24px; bottom: 6px; color: var(--bone); filter: drop-shadow(0 1px 0 #000); }
+.c2-fig { position: absolute; right: -30px; bottom: 9px; color: var(--bone); filter: drop-shadow(0 1px 0 #000); }
 .c2-tag { font: 600 13px/1 var(--f); color: var(--dim); margin: 14px 0 0 5px; letter-spacing: .02em; }
 .c2-mm { position: absolute; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .hud .c2-mw { font: 700 26px/1.1 var(--f); font-stretch: 85%; color: var(--bone); text-shadow: var(--shadow); transition: color .12s, transform .12s; display: flex; flex-direction: column; }
@@ -124,7 +124,7 @@
 .c2-sw i { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
 .c2-sw b { font-weight: 700; } .c2-sw span { color: var(--page-dim); }
 .c2-lcol h3:not(:first-child) { margin-top: 22px; }
-.c2-ty { display: flex; align-items: baseline; gap: 12px; min-height: 26px; }
+.c2-ty { display: flex; align-items: baseline; gap: 12px; min-height: 26px; margin-bottom: 4px; white-space: nowrap; }
 .c2-tl { flex: 0 0 104px; font: 500 11px/1 var(--f); color: var(--page-dim); }
 .c2-icons { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px 4px; margin-bottom: 18px; }
 .c2-ic { display: grid; justify-items: center; gap: 3px; padding: 5px 0 3px; border-radius: 3px; }
