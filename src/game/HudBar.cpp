@@ -1440,7 +1440,7 @@ void GameUI::drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& 
         UiHoverMenu m;
         bool any = false;
         for (auto& h : hover_) any |= h.second(u, g, sx, sy, m);
-        if (any && !m.entries.empty()) { hoverMenu_ = m; hoverOpen_ = true; hoverSeen_ = t; }
+        if (any && (!m.entries.empty() || (m.key >> 32) == 3)) { hoverMenu_ = m; hoverOpen_ = true; hoverSeen_ = t; }   // v2: info-only structure cards
     }
     if (!hoverOpen_) return;
     if (t - hoverSeen_ > 0.45 && t - hoverOverMenu_ > 0.3) { hoverOpen_ = false; return; }

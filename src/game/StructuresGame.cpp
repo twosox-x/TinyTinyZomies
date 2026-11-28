@@ -218,6 +218,40 @@ void installStructures(GameWorld& w, AppState& app) {
 // car hover menu (engineers selected): Disassemble (= the clearing job, fuel to the base) + Siphon fuel. Installed
 // after GameUI's built-ins so it replaces the plain "car.clear" provider (same id).
 void installStructureHover(GameWorld& w) {
+    // v2 HUD: info card at a hovered structure (tower / generator / floodlight / fuel store), shown when no action menu
+    // owns the object. Read-only: the title carries the key numbers, nothing is clickable.
+    w.ui().registerHoverProvider("struct.info", [&w](const UiCtx& u, V3 g, float, float, UiHoverMenu& m) {
+        if (m.key || !u.ctx.cfg || !u.ui.selectionConst().squads.empty()) return false;   // only with nothing selected
+        const auto& all = w.structures().all();
+        int best = -1; float bd = 3.0f * 3.0f;
+        for (size_t k = 0; k < all.size(); ++k) {
+            if (!all[k].alive) continue;
+            const float dx = all[k].pos.x - g.x, dz = all[k].pos.z - g.z, d = dx * dx + dz * dz;
+            if (d < bd) { bd = d; best = (int)k; }
+        }
+        if (best < 0) return false;
+        const Structure& T = all[(size_t)best];
+        const auto& sc = u.ctx.cfg->structures;
+        char t[128];
+        if (T.build < 1.f) std::snprintf(t, sizeof(t), "%s  building %d%%", structureName(T.kind), (int)(T.build * 100.f));
+        else switch (T.kind) {
+        case StructureKind::Tower:
+            std::snprintf(t, sizeof(t), "Defense tower  %d/%d  %d%%", w.structures().occupants(best), sc.towerCapacity, (int)(T.health * 100.f)); break;
+        case StructureKind::Generator: {
+            const float burn = sc.generatorBurn + sc.burnPerLight * (float)T.powered;
+            std::snprintf(t, sizeof(t), "Generator  %.0f l  %.0f min  %d lights%s", T.tank, burn > 0.f ? T.tank / burn / 60.f : 0.f, T.powered, T.running ? "" : "  off");
+            break;
+        }
+        case StructureKind::Light:
+            std::snprintf(t, sizeof(t), "%s", T.lit ? "Floodlight  powered" : "Floodlight  no power: no generator in range"); break;
+        default:
+            std::snprintf(t, sizeof(t), "Fuel store  %.0f l", T.fuel); break;
+        }
+        m.title = t;
+        m.anchor = {T.pos.x, T.pos.y + (T.kind == StructureKind::Tower ? sc.deckHeight + 1.5f : 2.2f), T.pos.z};
+        m.key = 0x300000000ull | (uint64_t)best;
+        return true;
+    });
     w.ui().registerHoverProvider("car.clear", [&w](const UiCtx& u, V3 g, float, float, UiHoverMenu& m) {
         if (!hasType(u, SquadType::Engineer) || !u.ctx.cfg) return false;
         const uint32_t v = u.app.vehicles.parkedAt(g.x, g.z, u.ctx.cfg->engineer.carSearch);
