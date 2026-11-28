@@ -1,27 +1,28 @@
 /* Juice: feedback layer for the preview. The preview re-renders the HUD on every change, so feedback is applied by
    diffing before/after (tokens keep their index on a screen) and drawn on an fx layer that survives re-renders.
-   SOUNDS: TEMPORARY PLACEHOLDERS. These WebAudio blips were made by the UI design session for this preview only.
-   They are NOT the sound design session's sounds and must ALL be replaced by its approved UI sounds
-   (session D). In game, the HUD fires events through D's uiAction hook in HudBar.cpp and plays none of these. */
+   SOUNDS: the sound design session's approved UI sounds (no placeholders left). In game the HUD calls
+   ttz::audio::ui(name) / uiAction(); this file only mirrors the same mapping for the preview. */
 (function () {
   const J = (TTZ.juice = { sound: true });
-  let ac = null;
-  function tone(f0, f1, dur, type = "square", vol = 0.05, delay = 0) {
+  // Approved UI sounds from the sound design session (session D, assets/audio/sfx/ui/*.ogg, converted to mp3 for
+  // browsers). Same names as the game uses: ttz::audio::ui("<name>"). Credits: assets/audio/CREDITS.md on that branch.
+  const VAR = { ui_hover: 3, ui_select: 3, ui_purchase: 3, ui_refused: 2, ui_tab: 3, ui_pause_open: 1, ui_pause_close: 1 };
+  const cache = {};
+  function play(name, vol = 0.6) {
     if (!J.sound) return;
     try {
-      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-      const t = ac.currentTime + delay, o = ac.createOscillator(), g = ac.createGain();
-      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + dur + 0.02);
+      const n = Math.floor(Math.random() * (VAR[name] || 1));
+      const src = `snd/${name}_${n}.mp3`;
+      const a = (cache[src] = cache[src] || new Audio(src)).cloneNode();
+      a.volume = vol; a.play().catch(() => {});
     } catch (e) {}
   }
   J.sfx = {
-    hover: () => tone(2200, 1800, 0.025, "sine", 0.012),
-    press: () => tone(420, 180, 0.06, "square", 0.035),
-    on: () => { tone(660, 660, 0.05, "square", 0.03); tone(990, 990, 0.08, "square", 0.03, 0.05); },
-    deny: () => { tone(140, 90, 0.16, "sawtooth", 0.05); },
-    tab: () => tone(900, 1500, 0.05, "triangle", 0.03),
+    hover: () => play("ui_hover", 0.35),
+    press: () => play("ui_select"),
+    on: () => play("ui_purchase"),
+    deny: () => play("ui_refused"),
+    tab: () => play("ui_tab"),
   };
 
   let fx = null, hud = null, ctx = null, before = null, target = -1, lastHover = 0;

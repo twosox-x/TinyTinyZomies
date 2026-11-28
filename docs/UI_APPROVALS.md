@@ -20,8 +20,7 @@ owner approves a screen. Phase 2 implements approved screens in the ImGui HUD (`
 | 9 | Main menu | draft | | |
 | 10 | Key bindings | draft | | |
 
-## Sounds in the preview: placeholders, must be replaced
-The UI clicks in the HTML preview (hover tick, press, confirm, deny, tab) are temporary synth blips the UI design
-session made for the preview (`docs/ui_preview/juice.js`). They are NOT the sound design session's sounds. Every one
-of them must be replaced by the sound session's approved UI sounds. In game, the HUD triggers sounds only through
-session D's `uiAction` hook in HudBar.cpp; none of the preview blips go into the game.
+## Sounds in the preview
+Resolved 2026-11-28: the preview's temporary synth blips were replaced by the sound design session's approved UI sounds
+(ui_hover, ui_select, ui_purchase, ui_refused, ui_tab, ui_pause_open/close; mp3 copies in docs/ui_preview/snd/, sources
+assets/audio/sfx/ui/*.ogg on sessionD/sound). In game the HUD plays sounds only through ttz::audio::ui / uiAction.
