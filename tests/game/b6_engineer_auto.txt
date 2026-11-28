@@ -1,0 +1,38 @@
+# Owner round 15 items 8 + 12 (WS D): engineer autonomy and roles. An idle engineer squad (no player job) repairs a
+# wall the horde damages, on its own, within EngineerAI::autoLeash (20 m) of its post; with zombies within 25 m of the
+# job one engineer keeps working and the other two cover him; nobody leaves the leash without orders; a player order
+# cancels the autonomous work at once. Road x -22 .. -6, z 125 (default window, as b4_engineers). Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_engineer_auto.txt
+at 0.1  camera -14 124 0.7 0.95 40
+at 0.2  cheat build 1
+at 0.3  wall cheap -22 125 -6 125                       # a solid 16 m run (cheat: instant)
+at 0.5  cheat build 0
+at 0.6  expect walls_built == 4
+at 0.7  buy engineer -14 129                            # 3 engineers north of the wall
+at 12   expect squad 1 alive == 3
+at 12   expect jobs == 0                                # nothing damaged, nothing queued
+at 12   expect eng_auto == 0
+# the horde damages the wall from the south (and keeps pressing on it)
+at 12.5 damagewall -14 125 380
+at 12.5 damagewall -18 125 250
+at 12.6 spawn 30 -14 112 4
+at 12.7 noise -14 128 40 20 1
+at 14   jobs
+at 14   expect eng_auto == 1                            # "auto: repairing wall (covered)"
+at 20   jobs
+at 20   expect eng_cover_ticks > 0                      # zombies within 25 m: 2 covered while 1 worked
+at 20   shot docs/review/ws-d/eng_auto_cover.png
+at 20   expect squad 1 maxdist -14 129 < 22             # never beyond the leash (20 m + body / step slack)
+at 30   jobs
+at 30   expect squad 1 maxdist -14 129 < 22
+at 40   jobs
+at 40   expect eng_repaired_hp > 300                    # hp put back into the wall
+at 40   expect eng_repairs >= 2                         # both damaged pieces back to full
+at 40   expect squad 1 maxdist -14 129 < 22
+at 40   shot docs/review/ws-d/eng_auto_repaired.png
+# a player order cancels the autonomous work at once
+at 40.5 damagewall -10 125 300
+at 41   move 1 -14 140
+at 41.2 expect eng_auto == 0
+at 41.2 expect eng_covering == 0
+at 42   end

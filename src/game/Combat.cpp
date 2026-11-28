@@ -38,6 +38,8 @@ void Combat::fire(GameContext& ctx, uint32_t i, bool synthetic) {
     --P.mag[i];
     ++P.rounds[i];
     ++roundsFired_;
+    for (const RecentKill& k : recentKills_)
+        if (P.target[i].active && std::hypot(P.target[i].pos.x - k.pos.x, P.target[i].pos.z - k.pos.z) < 1.5f) { ++roundsAtDead_; break; }
     if (synthetic) ++syntheticRounds_;
     const V3 fw{std::sin(P.yaw[i]), 0, std::cos(P.yaw[i])};
     V3 origin = P.pos[i] + V3{0, muzzleHeight, 0} + fw * 0.5f;
@@ -146,6 +148,8 @@ void Combat::tick(GameContext& ctx) {
     const float dt = ctx.dt;
     logisticsSupply_.lg = ctx.logistics;
     SupplyAccess& sup = supply ? *supply : logisticsSupply_;
+    recentKills_.erase(std::remove_if(recentKills_.begin(), recentKills_.end(), [&](const RecentKill& k) { return ctx.time - k.t > 1.5; }), recentKills_.end());
+    if (ctx.events) for (const KillEvent& k : ctx.events->kills) if (recentKills_.size() < 256) recentKills_.push_back({k.pos, ctx.time});
     const bool realEvents = ctx.animator && !forceSyntheticEvents;
     hits_.clear();
 

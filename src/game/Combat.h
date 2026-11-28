@@ -44,6 +44,8 @@ public:
     // Helpers exposed for tests.
     static V3 spreadDir(V3 dir, float spreadDeg, uint32_t& rng);
     uint64_t roundsFired() const { return roundsFired_; }
+    // carry-over 3a (WS D): rounds fired at a lock within 1.5 m of a zombie killed in the last 1.5 s (a dead lock)
+    uint64_t roundsAtDead() const { return roundsAtDead_; }
     uint64_t syntheticRounds() const { return syntheticRounds_; }
     uint64_t reloads() const { return reloads_; }
     uint64_t roundsCollected() const { return collected_; }
@@ -64,7 +66,9 @@ private:
     std::vector<Attractor> attractors_;
     struct Noise { NoiseEvent e; float age = 0.f; };
     std::vector<Noise> noise_;
-    uint64_t roundsFired_ = 0;
+    uint64_t roundsFired_ = 0, roundsAtDead_ = 0;
+    struct RecentKill { V3 pos; double t; };
+    std::vector<RecentKill> recentKills_;
 };
 
 } // namespace ttz::game

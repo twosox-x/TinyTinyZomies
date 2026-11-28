@@ -1,0 +1,28 @@
+# Owner round 15 item 8 (WS D): flamethrower autonomy. An idle flamethrower squad (no player order) burns, on its own and
+# within FlameAI::autoLeash (25 m) of its post, the corpse pile that gasses friendly soldiers first (summed gas
+# exposure), although a bigger pile lies closer to it; never sprays with a soldier in the cone (FlameAI::spray check;
+# repositions instead); then the other pile. Same street as b4_gas_flame. Headless:
+#   ./build/ttz --map city --game --headless --count 1 --game-sync --game-script tests/game/b6_flamer_auto.txt
+at 0.0  camera -10 112 0.7 0.95 34
+at 0.0  rot 4 15                         # TEST HOOK: rot after 4 s, full emission after 15 s more
+at 0.1  corpses 20 -5 118 1.3           # pile next to the rifle squad (gasses it)
+at 0.3  corpses 45 -17 106 1.6          # bigger pile, nobody near it, closer to the flamethrowers
+at 0.5  buy rifle -7 115
+at 0.7  buy flamethrower -12 101
+at 20   expect squad 1 gas == 1          # the rifle squad stands in the gas
+at 20   expect rotting >= 50
+at 30   log
+at 30   expect squad 2 alive == 2
+at 45   log
+at 45   expect flame_exposed_picks >= 1  # the pile gassing the soldiers was picked first
+at 45   expect flame_sprays >= 1
+at 45   shot docs/review/ws-d/flamer_auto.png
+at 70   log
+at 70   expect squad 1 gas == 0          # their pile is gone
+at 70   expect squad 1 alive == 4        # no friendly losses
+at 70   expect squad 2 maxdist -12 101 < 27   # never beyond the leash of the post
+at 100  log
+at 100  expect burned >= 55              # the other pile too
+at 100  expect squad 1 alive == 4
+at 100  shot docs/review/ws-d/flamer_auto_done.png
+at 101  end

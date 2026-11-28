@@ -577,6 +577,26 @@ losses; the run was cut by the host before the final expects). `b3_ai_gate` / `b
 guesses: both runs crashed in the Vulkan driver (segfault at the same address as concurrent `build/ttz` runs of
 other scripts) before their checks.
 
+### 7.x Owner round 15, WS D: engineer / flamethrower autonomy, dead locks (PROPOSED; values UNAPPROVED)
+
+- **Engineers** (`EngineerAI`): player jobs (queue order, construction radius) always come first. With none in range an
+  idle squad takes autonomous jobs within `EngineerAI::autoLeash` (20 m) of its post only: repair a damaged wall / gate
+  piece (hp < 90 %, then kept until full; pressed / losing hp first) or structure (Structures repair jobs), most urgent
+  first with hysteresis (+0.5) so it does not flip between similar jobs; with nothing else, re-seal a remembered breach
+  (blueprint, piece price charged). Any player order drops the jobs (squad serial). Status: `EngineerAI::status(squad)`
+  ("auto: repairing wall (covered)", "building wall", ...); the HUD (WS-A) has to show it.
+- **Cover (owner #12)**: zombies (horde field) within 25 m of the job -> one engineer keeps working (kept across ticks),
+  the others get cover spots between the threat and him (his side, walkable, inside the leash) and fight.
+  `SoldierAI::workFirstHook` -> `EngineerAI::keepWorking`: the worker only fights a zombie within 6 m that is not behind
+  a solid wall piece. A lone engineer works the same way.
+- **Flamethrowers** (`FlameAI`): seek leash min(flame.seekRadius, `FlameAI::autoLeash` 25 m); the pile gassing friendly
+  soldiers most (summed gas exposure) is picked first, then the best pile near the post; with no pile, a wall piece
+  zombies are pressing within the leash -> the squad stands 3.5 m inside it and the normal engagement burns them.
+  Friendly-fire guard unchanged (`FlameAI::spray`). Low fuel: the generic SoldierAI resupply. Status: `FlameAI::status`.
+- **Dead locks (carry-over 3a)**: a kill report next to a soldier's lock (1.2 m) ends that lock at once (coarse /
+  long-range locks followed the dead zombie's sample for a while); the next lock is no target switch. b5_long_range:
+  rounds at dead locks 12 -> 0, shots 39 -> 22, hit rate 20.5 % -> 31.8 % (4 kills). Metric `rounds_at_dead` (Combat).
+
 ## 8. Milestone B3a: buildings (capture, garrison, hospital, fortification; GAME_DESIGN 6 / 7 / 14b; PROPOSED, values UNAPPROVED)
 
 **Data (bake).** The baked tiles had no per-building data (buildings are merged into the tile mesh; HGT0 only flags

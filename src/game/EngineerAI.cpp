@@ -2,6 +2,8 @@
 #include "game/EngineerAI.h"
 
 #include "game/Config.h"
+#include "game/Economy.h"
+#include "game/HordeInterface.h"
 #include "game/GameEvents.h"
 #include "game/NavGrid.h"
 #include "game/SoldierAI.h"
@@ -19,6 +21,25 @@ bool busyState(SoldierState s) {
     return s == SoldierState::Descending || s == SoldierState::Landing || s == SoldierState::Recovering || s == SoldierState::Dying || s == SoldierState::Dead;
 }
 float dist2(V3 a, V3 b) { return std::hypot(a.x - b.x, a.z - b.z); }
+// nearest zombie (coarse horde field samples) within r of p
+bool nearestZombie(const GameContext& ctx, V3 p, float r, V3& out) {
+    if (!ctx.horde) return false;
+    const ZombieField& f = ctx.horde->field();
+    if (!f.tilesX || f.tileSize <= 0.f) return false;
+    const int i0 = std::max(0, (int)std::floor((p.x - r - f.originX) / f.tileSize)), i1 = std::min((int)f.tilesX - 1, (int)std::floor((p.x + r - f.originX) / f.tileSize));
+    const int j0 = std::max(0, (int)std::floor((p.z - r - f.originZ) / f.tileSize)), j1 = std::min((int)f.tilesZ - 1, (int)std::floor((p.z + r - f.originZ) / f.tileSize));
+    float best = r;
+    bool found = false;
+    for (int j = j0; j <= j1; ++j)
+        for (int i = i0; i <= i1; ++i) {
+            const ZombieFieldTile& t = f.tiles[(size_t)j * f.tilesX + (size_t)i];
+            for (uint32_t k = 0; k < t.samples; ++k) {
+                const float d = dist2(p, t.pos[k]);
+                if (d <= best) { best = d; out = t.pos[k]; found = true; }
+            }
+        }
+    return found;
+}
 } // namespace
 
 V3 EngineerAI::squadCentre(const GameContext& ctx, const Squad& s, int* alive) const {
@@ -291,13 +312,36 @@ void EngineerAI::tick(GameContext& ctx) {
     for (uint32_t k = 0; k < ext_.size(); ++k) {
         Job j;
         j.kind = JobKind::External; j.index = k; j.box = ext_[k].box; j.progress = ext_[k].progress; j.time = std::max(0.5f, ext_[k].time);
+        j.autonomous = ext_[k].repair; j.urgency = ext_[k].urgency;
         jobs_.push_back(j);
+    }
+    // owner round 15 (WS D): damaged solid wall / gate pieces are autonomous repair jobs (below repairBelow, then kept
+    // until full); pieces under pressure / losing hp first. Repair time = the build time for the whole health bar.
+    if (ctx.walls) {
+        const Walls& W = *ctx.walls;
+        repairing_.erase(std::remove_if(repairing_.begin(), repairing_.end(), [&](uint32_t p) {
+                             return p >= W.pieces().size() || !W.pieces()[p].solid() || W.pieces()[p].hp >= W.pieces()[p].maxHp; }), repairing_.end());
+        for (uint32_t i = 0; i < W.pieces().size(); ++i) {
+            const WallPiece& p = W.pieces()[i];
+            if (!p.solid() || p.toGate || p.maxHp <= 0.f) continue;
+            const float frac = p.hp / p.maxHp;
+            const bool cont = std::find(repairing_.begin(), repairing_.end(), i) != repairing_.end();
+            if (frac >= 1.f || (frac >= repairBelow && !cont)) continue;
+            Job j;
+            j.kind = JobKind::Repair; j.index = i; j.box = W.pieceBox(i); j.progress = frac;
+            const float len = 2.f * j.box.hx;
+            j.time = p.gate ? std::max(0.5f, E.gateTime) : std::max(0.5f, E.pieceTime * std::clamp(len / 4.f, 0.3f, 1.2f));
+            j.autonomous = true;
+            j.urgency = (1.f - frac) + std::min(p.pressure, 10.f) * 0.2f + (p.damageRate > 0.f ? 1.f : 0.f);
+            jobs_.push_back(j);
+        }
     }
     if (instantBuild) {   // cheat: everything completes at once
         for (Job& j : jobs_) {
             if (j.kind == JobKind::Car) cars_[j.index].progress = 1.f;
             else if (j.kind == JobKind::Piece && ctx.walls) { if (ctx.walls->advance(j.index, 1.f)) ++piecesBuilt_; }
             else if (j.kind == JobKind::External) { if (externalWork) externalWork(ctx, ext_[j.index], 1.f, UINT32_MAX); }
+            else if (j.kind == JobKind::Repair) continue;
             else if (ctx.walls) { ctx.walls->finishGate(j.index); ++gatesConverted_; }
         }
         return;
@@ -310,7 +354,10 @@ void EngineerAI::tick(GameContext& ctx) {
     zones(ctx, zs);
     std::vector<int> taken(jobs_.size(), 0);
     for (Job& j : jobs_)
-        for (const Zone& z : zs) j.inRange |= std::hypot(j.box.cx - z.c.x, j.box.cz - z.c.z) <= z.r + 1.f;
+        for (const Zone& z : zs) j.inRange |= std::hypot(j.box.cx - z.c.x, j.box.cz - z.c.z) <= (j.autonomous ? autoLeash : z.r) + 1.f;
+    if (status_.size() < ctx.squads->squads.size() + 64) { status_.resize(ctx.squads->squads.size() + 64); worker_.resize(status_.size(), -1); resealT_.resize(status_.size(), 0.f); }
+    if (role_.size() < P.capacity()) role_.resize(P.capacity(), 0);
+    std::fill(role_.begin(), role_.end(), 0);
     for (size_t zi = 0; zi < zs.size(); ++zi) {
         Squad* sq = ctx.squads->get(zs[zi].squad);
         if (!sq) continue;
@@ -324,14 +371,74 @@ void EngineerAI::tick(GameContext& ctx) {
         for (const SoldierId& m : sq->members)
             ordered |= P.valid(m) && P.alive(m.index) && P.state[m.index] == SoldierState::Moving && !(P.phase[m.index] & PH_RETURNING);
         int pick = -1;
+        const uint32_t si = sq->id.index;
+        if (si >= status_.size()) { status_.resize(si + 1); worker_.resize(si + 1, -1); resealT_.resize(si + 1, 0.f); }
+        status_[si].clear();
         if (!ordered) {
+            auto reach = [&](const Job& j) { return std::hypot(j.box.cx - zs[zi].c.x, j.box.cz - zs[zi].c.z) <= (j.autonomous ? autoLeash : zs[zi].r) + 1.f; };
+            // player jobs first (queue order) ...
             for (size_t k = 0; k < jobs_.size() && pick < 0; ++k)
-                if (!jobs_[k].blocked && !taken[k] && std::hypot(jobs_[k].box.cx - zs[zi].c.x, jobs_[k].box.cz - zs[zi].c.z) <= zs[zi].r + 1.f) pick = (int)k;
+                if (!jobs_[k].autonomous && !jobs_[k].blocked && !taken[k] && reach(jobs_[k])) pick = (int)k;
             for (size_t k = 0; k < jobs_.size() && pick < 0; ++k)   // nothing free: help on a taken one
-                if (!jobs_[k].blocked && std::hypot(jobs_[k].box.cx - zs[zi].c.x, jobs_[k].box.cz - zs[zi].c.z) <= zs[zi].r + 1.f) pick = (int)k;
+                if (!jobs_[k].autonomous && !jobs_[k].blocked && reach(jobs_[k])) pick = (int)k;
+            // ... then autonomous jobs within autoLeash of the post, most urgent first (free before taken)
+            // hysteresis: the squad keeps its current autonomous job unless another is clearly more urgent (+0.5)
+            int keep = -1;
+            if (si < autoJob_.size() && pick < 0)
+                for (size_t k = 0; k < jobs_.size(); ++k)
+                    if (jobs_[k].autonomous && !jobs_[k].blocked && (uint32_t)jobs_[k].kind == (autoJob_[si] >> 32) && jobs_[k].index == (uint32_t)autoJob_[si] && reach(jobs_[k])) keep = (int)k;
+            for (int pass = 0; pass < 2 && pick < 0; ++pass) {
+                float bu = -1e9f;
+                if (keep >= 0) { pick = keep; bu = jobs_[(size_t)keep].urgency + 0.5f; }
+                for (size_t k = 0; k < jobs_.size(); ++k)
+                    if (jobs_[k].autonomous && !jobs_[k].blocked && (pass || !taken[k]) && reach(jobs_[k]) && jobs_[k].urgency > bu) { bu = jobs_[k].urgency; pick = (int)k; }
+            }
+            // nothing at all to do: re-seal a breach within autoLeash (a blueprint, price charged; next tick a job)
+            resealT_[si] = std::max(0.f, resealT_[si] - ctx.dt);
+            if (pick < 0 && ctx.walls && resealT_[si] <= 0.f) {
+                Walls& W = *ctx.walls;
+                for (size_t b = 0; b < W.breaches().size(); ++b) {
+                    const Walls::Breach& br = W.breaches()[b];
+                    if (std::hypot((br.ax + br.bx) * 0.5f - zs[zi].c.x, (br.az + br.bz) * 0.5f - zs[zi].c.z) > autoLeash) continue;
+                    const int price = W.piecePrice(br.type, br.gate, std::hypot(br.bx - br.ax, br.bz - br.az));
+                    if (ctx.economy && !ctx.economy->spend(price, "re-seal breach", ctx.time)) continue;
+                    if (W.reseal(b) >= 0) { ++reseals_; status_[si] = "auto: re-sealing breach"; }
+                    break;
+                }
+                resealT_[si] = 2.f;
+            }
         }
-        if (pick >= 0) { ++taken[(size_t)pick]; jobs_[(size_t)pick].squad = (int)sq->id.index; }
+        if (pick >= 0) { ++taken[(size_t)pick]; jobs_[(size_t)pick].squad = (int)si; }
+        if (autoJob_.size() <= si) autoJob_.resize(si + 1, ~0ull);
+        autoJob_[si] = pick >= 0 && jobs_[(size_t)pick].autonomous ? ((uint64_t)jobs_[(size_t)pick].kind << 32) | jobs_[(size_t)pick].index : ~0ull;
         const V3 centre = zs[zi].c;
+        // owner #12 roles: zombies within coverRadius of the job -> one engineer keeps working, the others cover him
+        std::vector<uint32_t> avail;
+        for (const SoldierId& m : sq->members)
+            if (P.valid(m) && P.alive(m.index) && !busyState(P.state[m.index]) && !(busy && busy(m.index))) avail.push_back(m.index);
+        V3 threat{};
+        const bool threatened = pick >= 0 && nearestZombie(ctx, {jobs_[(size_t)pick].box.cx, 0.f, jobs_[(size_t)pick].box.cz}, coverRadius, threat);
+        int workerIdx = -1;
+        if (pick >= 0 && threatened && !avail.empty()) {
+            const Obb& jb = jobs_[(size_t)pick].box;
+            if (std::find(avail.begin(), avail.end(), (uint32_t)worker_[si]) != avail.end()) workerIdx = worker_[si];
+            else {
+                float bd = 1e9f;
+                for (uint32_t i : avail) { const float d = std::hypot(P.pos[i].x - jb.cx, P.pos[i].z - jb.cz); if (d < bd) { bd = d; workerIdx = (int)i; } }
+            }
+            role_[(size_t)workerIdx] = 1;
+            for (uint32_t i : avail) if ((int)i != workerIdx) role_[i] = 2;
+        }
+        worker_[si] = workerIdx;
+        if (pick >= 0 && status_[si].empty()) {
+            const Job& j = jobs_[(size_t)pick];
+            const char* what = j.kind == JobKind::Repair ? (ctx.walls && ctx.walls->pieces()[j.index].gate ? "auto: repairing gate" : "auto: repairing wall")
+                             : j.kind == JobKind::External ? (ext_[j.index].repair ? "auto: repairing structure" : ext_[j.index].owner == 2 ? "siphoning fuel" : "building structure")
+                             : j.kind == JobKind::Car ? "clearing car" : j.kind == JobKind::GateConvert ? "building gate" : "building wall";
+            status_[si] = what;
+            if (workerIdx >= 0 && avail.size() > 1) status_[si] += " (covered)";
+        }
+        int coverK = 0;
         int k = 0;
         for (const SoldierId& m : sq->members) {
             if (!P.valid(m) || !P.alive(m.index) || busyState(P.state[m.index]) || (busy && busy(m.index))) continue;
@@ -347,6 +454,28 @@ void EngineerAI::tick(GameContext& ctx) {
             }
             const Job& j = jobs_[(size_t)pick];
             const Obb& b = j.box;
+            if (role_[i] == 2 && workerIdx >= 0) {
+                // cover: between the threat and the worker (his side, walkable, same island), spread sideways
+                const V3 wp = assign_[(size_t)workerIdx].active ? assign_[(size_t)workerIdx].spot : P.pos[(size_t)workerIdx];
+                V3 dir{threat.x - wp.x, 0.f, threat.z - wp.z};
+                const float dl = std::max(0.01f, std::hypot(dir.x, dir.z));
+                dir = dir * (1.f / dl);
+                const float lat = (coverK & 1) ? -1.8f : 1.8f;
+                V3 spot{wp.x + dir.x * 2.5f - dir.z * lat, wp.y, wp.z + dir.z * 2.5f + dir.x * lat};
+                if (ctx.nav && ctx.nav->ready()) {
+                    const uint32_t isl = ctx.nav->walkable(wp.x, wp.z) ? ctx.nav->island(wp.x, wp.z) : 0u;
+                    V3 o;
+                    if (!ctx.nav->walkable(spot.x, spot.z) || (isl && ctx.nav->island(spot.x, spot.z) != isl)) {
+                        if (ctx.nav->nearestWalkable(spot, 3.f, o, isl)) spot = o; else spot = wp;
+                    }
+                    spot.y = ctx.nav->surface(spot.x, spot.z);
+                }
+                if (dist2(spot, centre) > autoLeash) spot = wp;   // never beyond the leash
+                if (!a.active || a.job != pick || dist2(a.spot, spot) > 0.5f) { P.home[i] = spot; P.homeYaw[i] = std::atan2(dir.x, dir.z); }
+                a.active = true; a.job = pick; a.spot = spot;
+                ++coverK; ++k; ++coverTicks_;
+                continue;
+            }
             // Work side (GAME_DESIGN 14e): the outside of a perimeter the plan will close; else the side the squad
             // stands on (where they came from), else its post's side. Flipped when finishing would wall someone in.
             float zx, zz;   // local Z axis of the box
@@ -385,6 +514,28 @@ void EngineerAI::tick(GameContext& ctx) {
     }
 }
 
+bool EngineerAI::keepWorking(const GameContext& ctx, uint32_t i, V3 threat, float dist) const {
+    if (!workFirst(i)) return false;
+    if (dist > workerFight) return true;
+    if (!ctx.walls || !ctx.soldiers) return false;
+    const V3 p = ctx.soldiers->pos[i];
+    const Walls& W = *ctx.walls;
+    for (uint32_t k = 0; k < W.pieces().size(); ++k) {
+        if (!W.pieces()[k].solid()) continue;
+        const Obb b = W.pieceBox(k);
+        if (std::fabs(b.cx - p.x) > b.hx + dist + 1.f || std::fabs(b.cz - p.z) > b.hx + dist + 1.f) continue;
+        for (int s = 1; s < 12; ++s) {
+            const float t = (float)s / 12.f;
+            if (b.contains(p.x + (threat.x - p.x) * t, p.z + (threat.z - p.z) * t)) return true;   // a wall in between
+        }
+    }
+    return false;
+}
+
+const char* EngineerAI::status(SquadId s) const {
+    return s.index < status_.size() ? status_[s.index].c_str() : "";
+}
+
 float EngineerAI::gateProgress_(uint32_t piece) const {
     for (const GateWork& g : gateWork_) if (g.piece == piece) return g.progress;
     return 0.f;
@@ -392,6 +543,7 @@ float EngineerAI::gateProgress_(uint32_t piece) const {
 
 bool EngineerAI::work(GameContext& ctx, uint32_t i) {
     if (i >= assign_.size() || !assign_[i].active || assign_[i].job < 0 || (size_t)assign_[i].job >= jobs_.size() || !ctx.cfg) return false;
+    if (covering(i)) return false;   // owner #12: covers the worker (fights, SoldierAI)
     SoldierPool& P = *ctx.soldiers;
     const Assign& a = assign_[i];
     const float far = dist2(P.pos[i], a.spot);
@@ -419,12 +571,23 @@ bool EngineerAI::work(GameContext& ctx, uint32_t i) {
     P.vel[i] = {};
     const float add = ctx.dt / std::max(0.1f, j.time);
     ++j.workers;
-    worked_[i] = j.kind == JobKind::Car ? 4 : j.kind == JobKind::GateConvert ? 3 : j.kind == JobKind::External ? std::max<uint8_t>(1, ext_[j.index].anim) : 1;   // 1 piece, 3 gate, 4 car (2: stepping)
+    worked_[i] = j.kind == JobKind::Car ? 4 : j.kind == JobKind::GateConvert || j.kind == JobKind::Repair ? 3 : j.kind == JobKind::External ? std::max<uint8_t>(1, ext_[j.index].anim) : 1;   // 1 piece, 3 gate, 4 car (2: stepping)
     ++workingNow_;
     switch (j.kind) {
     case JobKind::External:   // 14e structures / siphoning (the owner module advances it)
         j.progress = externalWork && j.index < ext_.size() ? externalWork(ctx, ext_[j.index], add, i) : 1.f;
-        if (j.index < ext_.size()) ext_[j.index].progress = j.progress;
+        if (j.index < ext_.size()) { ext_[j.index].progress = j.progress; if (ext_[j.index].repair && j.progress >= 1.f) { ++repairs_; ext_[j.index].repair = false; } }
+        break;
+    case JobKind::Repair:     // owner round 15: wall / gate hp back to full
+        if (ctx.walls && j.index < ctx.walls->pieces().size()) {
+            WallPiece& p = ctx.walls->pieces()[j.index];
+            const float before = p.hp;
+            p.hp = std::min(p.maxHp, p.hp + add * p.maxHp);
+            repairedHp_ += p.hp - before;
+            j.progress = p.hp / std::max(1e-3f, p.maxHp);
+            if (std::find(repairing_.begin(), repairing_.end(), j.index) == repairing_.end()) repairing_.push_back(j.index);
+            if (p.hp >= p.maxHp && before < p.maxHp) ++repairs_;
+        } else j.progress = 1.f;
         break;
     case JobKind::Car:
         if (j.index < cars_.size()) cars_[j.index].progress = std::min(1.f, cars_[j.index].progress + add);

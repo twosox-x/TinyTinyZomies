@@ -3,6 +3,7 @@
 #include "game/GameScript.h"
 #include "game/GameWorld.h"
 #include "game/NavGrid.h"
+#include "game/Config.h"
 #include "game/EngineerAI.h"
 #include "game/Fortify.h"
 #include "game/Soldiers.h"
@@ -127,8 +128,20 @@ bool fortVerb(GameWorld& w, const ScriptLine& L, std::string& err) {
         std::printf("  jobs: %zu (cars %zu), working %d, built %llu, gates %llu, cars cleared %llu, walls %u solid / %u alive\n", E.jobs().size(), E.cars().size(),
                     E.workingNow(), (unsigned long long)E.piecesBuilt(), (unsigned long long)E.gatesConverted(), (unsigned long long)E.carsCleared(), W.solidPieces(), W.alivePieces());
         for (const EngineerAI::Job& j : E.jobs())
-            std::printf("    %s %u at (%.1f %.1f) %.0f%% workers %d%s%s\n", j.kind == EngineerAI::JobKind::Car ? "car" : j.kind == EngineerAI::JobKind::GateConvert ? "gate-in-wall" : "piece",
+            std::printf("    %s %u at (%.1f %.1f) %.0f%% workers %d%s%s\n", j.kind == EngineerAI::JobKind::Car ? "car" : j.kind == EngineerAI::JobKind::GateConvert ? "gate-in-wall"
+                        : j.kind == EngineerAI::JobKind::Repair ? "repair" : j.kind == EngineerAI::JobKind::External ? "external" : "piece",
                         j.index, j.box.cx, j.box.cz, 100.f * j.progress, j.workers, j.inRange ? "" : " (no engineers in range)", j.blocked ? " (waits for a car)" : "");
+        for (const Squad& sq : w.context().squads->squads)   // WS D: autonomy / cover status
+            if (sq.type == SquadType::Engineer) {
+                std::printf("    engineer squad %u: %s;", sq.number, E.status(sq.id)[0] ? E.status(sq.id) : "idle");
+                const SoldierPool& P = *w.context().soldiers;
+                for (const SoldierId& id : sq.members)
+                    if (P.valid(id) && P.alive(id.index))
+                        std::printf(" [%s%s%s home %.1f m]", stateName(P.state[id.index]), E.workFirst(id.index) ? " worker" : E.covering(id.index) ? " cover" : "",
+                                    E.working(id.index) ? " working" : "", std::hypot(P.pos[id.index].x - P.home[id.index].x, P.pos[id.index].z - P.home[id.index].z));
+                std::printf("\n");
+            }
+        std::printf("    repairs %llu (%.0f hp), reseals %llu, cover ticks %llu\n", (unsigned long long)E.repairs(), E.repairedHp(), (unsigned long long)E.reseals(), (unsigned long long)E.coverTicks());
         std::fflush(stdout);
         return true;
     }
@@ -158,6 +171,31 @@ bool fortMetric(GameWorld& w, const std::string& m, const std::vector<std::strin
     if (m == "engineers_working") { out = w.engineers().workingNow(); return true; }
     if (m == "pieces_built") { out = (double)w.engineers().piecesBuilt(); return true; }
     if (m == "cars_cleared") { out = (double)w.engineers().carsCleared(); return true; }
+    // WS D (owner #8 / #12): engineer autonomy and cover
+    if (m == "eng_repairs") { out = (double)w.engineers().repairs(); return true; }
+    if (m == "eng_repaired_hp") { out = w.engineers().repairedHp(); return true; }
+    if (m == "eng_reseals") { out = (double)w.engineers().reseals(); return true; }
+    if (m == "eng_cover_ticks") { out = (double)w.engineers().coverTicks(); return true; }
+    if (m == "eng_covering" || m == "eng_workfirst") {
+        out = 0;
+        const SoldierPool& P = *w.context().soldiers;
+        for (uint32_t i = 0; i < P.capacity(); ++i)
+            if (P.used[i] && P.alive(i)) out += m == "eng_covering" ? (w.engineers().covering(i) ? 1 : 0) : (w.engineers().workFirst(i) ? 1 : 0);
+        return true;
+    }
+    if (m == "onobstacle_all") {   // WS D 3c: alive soldiers (any squad, garrison posts included) on a car roof / wall top / container cell
+        out = 0;
+        const SoldierPool& P = *w.context().soldiers;
+        for (uint32_t i = 0; i < P.capacity(); ++i)
+            if (P.used[i] && P.alive(i) && P.state[i] != SoldierState::Descending && P.post[i] != POST_INSIDE && nav && nav->onObstacle(P.pos[i].x, P.pos[i].z)) out += 1;
+        return true;
+    }
+    if (m == "eng_auto") {   // engineer squads whose status is autonomous work ("auto: ...")
+        out = 0;
+        for (const Squad& sq : w.context().squads->squads)
+            if (sq.type == SquadType::Engineer && std::string(w.engineers().status(sq.id)).rfind("auto", 0) == 0) out += 1;
+        return true;
+    }
     if (m == "in_engineer_range") {
         if (k + 1 >= a.size()) { err = "in_engineer_range X Z"; return true; }
         out = w.engineers().inRange(w.context(), fa(a, k), fa(a, k + 1)) ? 1.0 : 0.0;

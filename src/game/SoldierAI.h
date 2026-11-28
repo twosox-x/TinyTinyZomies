@@ -112,6 +112,9 @@ public:
     // GAME_DESIGN 14d engineers: called for Idle soldiers with nothing to shoot; true = the soldier is working this tick
     // (EngineerAI sets his home to the work spot, so the leash walks him there; it requests the work clip after tick()).
     std::function<bool(GameContext&, uint32_t)> workHook;
+    // owner #12 (EngineerAI::keepWorking): the engineer kept on the job under threat keeps working instead of fighting
+    // (threat: nearest hittable zombie, dist 1e9 none; false -> he fights it)
+    std::function<bool(const GameContext&, uint32_t, V3 threat, float dist)> workFirstHook;
 
     // Per tick: NavGrid budget, squad orders -> formation slots, perception (field), decisions, movement, anim requests.
     void tick(GameContext& ctx);
@@ -127,12 +130,15 @@ public:
         bool stuck = false;
     };
     SquadStatus status(const GameContext& ctx, SquadId id) const;
-    uint64_t hunts() const { return hunts_; }   // trips toward zombies left inside an enclosed uncleared region
+    uint64_t hunts() const { return hunts_; }
+    uint64_t deadLockDrops() const { return deadLockDrops_; }   // locks dropped because their zombie was reported killed   // trips toward zombies left inside an enclosed uncleared region
     uint64_t lockTracked() const { return lockTracked_; }   // ticks a long-range lock followed the exact zombie (GPU lock query)
     uint8_t threats(uint32_t i) const { return i < threats_.size() ? threats_[i] : 0; }   // visible zombies within threatRadius (debug overlay)
 
 private:
     LogisticsSupply logisticsSupply_;
+    uint64_t deadLockDrops_ = 0;
+    std::vector<uint8_t> deadDropped_;   // per soldier slot: lock ended by a kill report (next lock is no switch)
     struct Cell { uint32_t key, idx; };
     std::vector<Cell> hash_;          // separation: soldiers sorted by 2 m cell
     void squadOrders(GameContext& ctx, SupplyAccess& sup);

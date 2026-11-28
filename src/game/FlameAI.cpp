@@ -6,6 +6,7 @@
 #include "game/HordeInterface.h"
 #include "game/NavGrid.h"
 #include "game/SoldierAnim.h"
+#include "game/Walls.h"
 #include "game/Soldiers.h"
 
 #include <algorithm>
@@ -177,7 +178,16 @@ void FlameAI::coneRays(const FlameCone& c, float zombieDps, uint32_t pattern, st
     for (int k = 0; k < 8; ++k) ray(A * 0.95f, rot + 0.39f + (float)k * 0.7854f);
 }
 
-bool FlameAI::burning(SquadId s) const { return s.index < mem_.size() && mem_[s.index].gen == s.gen && mem_[s.index].phase > 0; }
+bool FlameAI::burning(SquadId s) const { return s.index < mem_.size() && mem_[s.index].gen == s.gen && (mem_[s.index].phase == 1 || mem_[s.index].phase == 2); }
+
+const char* FlameAI::status(SquadId s) const {
+    if (s.index >= mem_.size() || mem_[s.index].gen != s.gen) return "";
+    const Mem& m = mem_[s.index];
+    if (m.phase == 3) return "auto: defending wall";
+    if ((m.phase == 1 || m.phase == 2) && m.autoTrip) return "auto: burning corpses";
+    if (m.phase == 1 || m.phase == 2) return "burning corpses";
+    return "";
+}
 
 void FlameAI::order(GameContext& ctx, Squad& s, Mem& m, V3 dest, float facing) {
     s.order.active = true;
@@ -232,6 +242,7 @@ void FlameAI::tick(GameContext& ctx) {
         // a new player order: new post; an order onto corpses = burn them there
         if (s.order.serial != m.ownSerial && s.order.serial != m.seenSerial) {
             m.seenSerial = s.order.serial;
+            m.autoTrip = false;
             m.post = s.order.dest;
             m.phase = 0;
             V3 pile;
@@ -250,10 +261,61 @@ void FlameAI::tick(GameContext& ctx) {
         }
         if (!ctx.gas || !ctx.gas->ready()) continue;
         // idle: look for a pile / gas source within the leash of the post
+        const float leash = std::min(F.seekRadius, autoLeash);
         if (m.phase == 0 && m.seekT <= 0.f && !anyBusy && !(s.flags & SQ_UNDER_ATTACK)) {
             m.seekT = F.seekInterval;
             V3 pile;
-            if (ctx.gas->findPile(m.post, F.seekRadius, F.seekMinCorpses, cfg.rot.warnLevel, pile)) {
+            // owner round 15 (WS D): the pile gassing friendly soldiers most first (their summed gas exposure), then
+            // the best pile near the post; both within the leash of the post
+            bool found = false;
+            {
+                struct Cand { V3 p; float expo; };
+                std::vector<Cand> cands;
+                for (uint32_t j = 0; j < (uint32_t)P.capacity(); ++j) {
+                    if (!P.used[j] || !P.alive(j) || std::sqrt(dist2(P.pos[j], m.post)) > leash + 8.f) continue;
+                    const float g = ctx.gas->gasAt(P.pos[j].x, P.pos[j].z);
+                    V3 q;
+                    if (g <= 0.f || !ctx.gas->findPile(P.pos[j], 8.f, 1, cfg.rot.warnLevel, q) || std::sqrt(dist2(q, m.post)) > leash) continue;
+                    bool merged = false;
+                    for (Cand& cd : cands) if (dist2(cd.p, q) < 9.f) { cd.expo += g; merged = true; break; }
+                    if (!merged) cands.push_back({q, g});
+                }
+                float be = 0.f;
+                for (const Cand& cd : cands) if (cd.expo > be) { be = cd.expo; pile = cd.p; found = true; }
+                if (found) ++exposedPicks_;
+            }
+            if (!found) found = ctx.gas->findPile(m.post, leash, F.seekMinCorpses, cfg.rot.warnLevel, pile);
+            // no pile: zombies breaking a wall / gate within the leash -> stand inside it, the engagement burns them
+            if (!found && ctx.walls) {
+                const Walls& W = *ctx.walls;
+                int bp = -1;
+                float bs = 0.f;
+                for (uint32_t pi = 0; pi < W.pieces().size(); ++pi) {
+                    const WallPiece& wp = W.pieces()[pi];
+                    if (!wp.solid() || (wp.pressure <= 0.f && wp.damageRate <= 0.f)) continue;
+                    const Obb b = W.pieceBox(pi);
+                    if (std::hypot(b.cx - m.post.x, b.cz - m.post.z) > leash) continue;
+                    const float sc = wp.pressure + wp.damageRate;
+                    if (sc > bs) { bs = sc; bp = (int)pi; }
+                }
+                if (bp >= 0) {
+                    const Obb b = W.pieceBox((uint32_t)bp);
+                    float zx, zz;
+                    b.at(0.f, 1.f, zx, zz);
+                    zx -= b.cx; zz -= b.cz;
+                    const float side = (m.post.x - b.cx) * zx + (m.post.z - b.cz) * zz >= 0.f ? 1.f : -1.f;   // the post's side
+                    V3 stand, sw;
+                    b.at(0.f, side * (b.hz + 3.5f), stand.x, stand.z);
+                    const uint32_t isl = ctx.nav && ctx.nav->ready() && ctx.nav->walkable(c.x, c.z) ? ctx.nav->island(c.x, c.z) : 0u;
+                    if (ctx.nav && ctx.nav->ready() && !ctx.nav->walkable(stand.x, stand.z) && ctx.nav->nearestWalkable(stand, 3.f, sw, isl)) stand = sw;
+                    m.target = {b.cx, 0.f, b.cz};
+                    m.phase = 3; m.phaseT = 0.f; m.wallPiece = (uint32_t)bp;
+                    if (std::sqrt(dist2(c, stand)) > 2.f) order(ctx, s, m, stand, std::atan2(b.cx - stand.x, b.cz - stand.z));
+                    ++wallTrips_;
+                }
+            }
+            if (found) {
+                m.autoTrip = true;
                 V3 dir{pile.x - c.x, 0, pile.z - c.z};
                 const float l = std::sqrt(dir.x * dir.x + dir.z * dir.z);
                 dir = l > 0.5f ? dir * (1.f / l) : V3{0, 0, 1};
@@ -265,6 +327,17 @@ void FlameAI::tick(GameContext& ctx) {
                 if (std::sqrt(dist2(c, pile)) > F.standoff + 2.f || (picked && std::sqrt(dist2(c, stand)) > 2.f)) order(ctx, s, m, stand, face);
                 ++trips_;
             }
+        }
+        if (m.phase == 3) {   // defending a wall: done when the piece is no longer pressed / gone (or a timeout)
+            const bool gone = !ctx.walls || m.wallPiece >= ctx.walls->pieces().size() || !ctx.walls->pieces()[m.wallPiece].solid();
+            const bool quiet = gone || (ctx.walls->pieces()[m.wallPiece].pressure <= 0.f && ctx.walls->pieces()[m.wallPiece].damageRate <= 0.f);
+            m.blockedT = quiet ? m.blockedT + ctx.dt : 0.f;
+            if (m.blockedT > 4.f || m.phaseT > 90.f) {
+                m.phase = 0; m.blockedT = 0.f;
+                m.seekT = F.seekInterval;
+                if (std::sqrt(dist2(c, m.post)) > 4.f && s.order.serial == m.ownSerial) order(ctx, s, m, m.post, std::atan2(m.post.x - c.x, m.post.z - c.z));
+            }
+            continue;
         }
         if (m.phase == 0) continue;
         // approach / spray: members standing (not fighting) within range spray the pile, sweeping across it

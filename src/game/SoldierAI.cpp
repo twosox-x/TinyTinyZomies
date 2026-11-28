@@ -1157,7 +1157,8 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
     auto lockNew = [&](bool countSwitch) {
         if (outside || !best) return false;
         lockCand(*best);
-        if (countSwitch) ++P.targetSwitches[i];
+        if (countSwitch && !(i < deadDropped_.size() && deadDropped_[i])) ++P.targetSwitches[i];
+        if (i < deadDropped_.size()) deadDropped_[i] = 0;
         return true;
     };
 
@@ -1240,7 +1241,9 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         const bool threatGone = !L.active || dl > threatLimit;
         // an order resumes after moveStopMax s only while nothing is within mustFight (a close zombie is always fought)
         const bool capped = fromMove && P.stateTime[i] > tuning.moveStopMax && dl > tuning.mustFight && !(hasClose && closeD <= tuning.mustFight);
-        if (P.stateTime[i] >= tuning.engageMinDwell && (threatGone || capped)) {
+        // owner #12: the engineer kept on the job only fights a zombie within workerFight m (EngineerAI covers him)
+        const bool backToWork = workFirstHook && !fromMove && workFirstHook(ctx, i, close, std::min(closeD, L.active ? dl : 1e9f));
+        if (backToWork || (P.stateTime[i] >= tuning.engageMinDwell && (threatGone || capped))) {
             L.active = L.active && !fromMove;
             leave(ctx, sup, i);
         }
@@ -1339,6 +1342,7 @@ void SoldierAI::soldier(GameContext& ctx, SupplyAccess& sup, uint32_t i) {
         if (std::fabs(off) > 0.05f) P.yaw[i] = wrapPi(P.yaw[i] + std::clamp(off, -tuning.turnRate * 0.5f * dt, tuning.turnRate * 0.5f * dt));
         const int total = P.mag[i] + P.reserve[i];
         const bool low = total < (int)std::ceil(ss.lowAmmoFraction * (float)P.fullLoad(i, cfg));
+        if (workFirstHook && workHook && workFirstHook(ctx, i, close, closeD) && workHook(ctx, i)) break;   // owner #12: keeps working
         if (P.mag[i] > 0 && (L.active || lockNew(false))) { P.setState(i, SoldierState::Engaging); if (i < edgeT_.size()) edgeT_[i] = 0.f; break; }
         if (P.post[i] == POST_FIRING) {   // B3a garrison: holds the window / roof edge (BuildingPlay refills ammo)
             if (P.mag[i] < (int)(w.magazine * tuning.tacticalReloadFraction) && P.reserve[i] > 0) P.setState(i, SoldierState::Reloading);
@@ -1516,6 +1520,16 @@ void SoldierAI::tick(GameContext& ctx) {
     logisticsSupply_.lg = ctx.logistics;
     SupplyAccess& sup = supply ? *supply : logisticsSupply_;
     if (ctx.nav) ctx.nav->tick(tuning.pathBudget);
+    // carry-over 3a (WS D): a kill reported this tick next to a soldier's lock ends that lock at once (coarse / long
+    // range locks otherwise keep following a field sample or the lock answer of the dead zombie for a while)
+    // (the next lock is no target switch: hysteresis counts flip-flops between live zombies only)
+    deadDropped_.resize(P.capacity(), 0);
+    if (ctx.events)
+        for (const KillEvent& k : ctx.events->kills)
+            for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
+                TargetLock& L = P.target[i];
+                if (P.used[i] && L.active && dist2D(L.pos, k.pos) < 1.2f) { L.active = false; deadDropped_[i] = 1; ++deadLockDrops_; }
+            }
     hash_.clear();
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
         if (P.alive(i) && P.state[i] != SoldierState::Descending) hash_.push_back({cellKey(P.pos[i].x, P.pos[i].z), i});

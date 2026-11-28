@@ -101,6 +101,10 @@ public:
     bool working(uint32_t i) const { return i < worked_.size() && worked_[i]; }
     bool workFirst(uint32_t i) const { return i < role_.size() && role_[i] == 1; }   // SoldierAI: keeps working under threat
     bool covering(uint32_t i) const { return i < role_.size() && role_[i] == 2; }
+    // SoldierAI::workFirstHook: the worker keeps working unless the nearest zombie is within workerFight m and not
+    // behind a solid wall / gate piece (zombies pressing the wall he repairs cannot reach him)
+    bool keepWorking(const GameContext& ctx, uint32_t i, V3 threat, float dist) const;
+    static constexpr float workerFight = 6.f;
     const char* status(SquadId s) const;          // short squad status for the UI ("" none)
     uint64_t repairs() const { return repairs_; }        // wall pieces / structures repaired to full
     uint64_t reseals() const { return reseals_; }        // breaches re-sealed (blueprint placed on its own)
@@ -115,6 +119,7 @@ private:
     std::vector<uint8_t> role_;                   // per soldier slot: 0 normal, 1 worker under threat, 2 cover
     std::vector<std::string> status_;             // per squad slot
     std::vector<int> worker_;                     // per squad slot: soldier slot of the worker (-1)
+    std::vector<uint64_t> autoJob_;               // per squad slot: current autonomous job (kind << 32 | index), ~0 none
     std::vector<float> resealT_;                  // per squad slot: s until the next autonomous re-seal
     std::vector<uint32_t> repairing_;             // wall pieces repaired last tick (kept as jobs until full)
     uint64_t repairs_ = 0, reseals_ = 0, coverTicks_ = 0;

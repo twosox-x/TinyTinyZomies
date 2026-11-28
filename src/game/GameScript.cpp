@@ -117,6 +117,7 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
             if (v.kind == 3 && (app->vehicles.solidAt(v.x, v.z) > v.y + 0.3f || v.y > app->vehicles.groundAt(v.x, v.z) + 0.3f)) out += 1;
         return true;
     }
+    if (m == "rounds_at_dead") { out = (double)w.combat().roundsAtDead(); return true; }   // WS D 3a: rounds at a killed lock
     if (m == "lock_tracked") { out = (double)w.ai().lockTracked(); return true; }   // long-range locks on the exact zombie (owner 2026-11-28)
     if (m == "hits") { out = (double)w.horde().stats().hitsOnZombies; return true; }          // rounds that hit a zombie (GPU)
     if (m == "hit_pct") { const double sh = (double)w.combat().roundsFired(); out = sh > 0 ? 100.0 * (double)w.horde().stats().hitsOnZombies / sh : 0; return true; }
@@ -160,6 +161,8 @@ bool GameScript::metric(GameWorld& w, const std::vector<std::string>& a, size_t&
     if (m == "fuel_used") { out = (double)w.flameAI().fuelUsed(); return true; }
     if (m == "flame_blocked") { out = (double)w.flameAI().blocked(); return true; }
     if (m == "flame_repositions") { out = (double)w.flameAI().repositions(); return true; }
+    if (m == "flame_exposed_picks") { out = (double)w.flameAI().exposedPicks(); return true; }   // WS D: piles gassing soldiers first
+    if (m == "flame_wall_trips") { out = (double)w.flameAI().wallTrips(); return true; }
     if (m == "zombies_live") { out = w.app() ? (double)w.app()->sim.stats().live : 0.0; return true; }
     if (m == "delivered") { out = 0; for (size_t t = 0; t < kAmmoTypes; ++t) out += (double)w.logistics().roundsDelivered((AmmoType)t); return true; }
     if (m == "squad") {

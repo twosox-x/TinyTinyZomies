@@ -13,6 +13,7 @@ at 33   log
 at 33   expect lock_tracked > 0
 at 40   log
 at 40   expect kills >= 4
-at 40   expect hit_pct >= 18                # 5 rifles: rounds already in flight when the target falls count as misses
-at 40   expect shots <= 50                  # ~10 rounds per kill at 44-54 m for the squad (was: no kill after 10 rounds of one rifle)
+at 40   expect rounds_at_dead == 0          # WS D 3a: a kill report ends the locks on that zombie (was 12 of 39 rounds at dead locks)
+at 40   expect hit_pct >= 28                # measured 31.8 % (was 20.5 %); the rest: rounds in flight when the target falls + spread at 44-54 m
+at 40   expect shots <= 30                  # measured 22 for 4 kills (was 39)
 at 41   end

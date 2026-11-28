@@ -47,15 +47,22 @@ public:
     uint64_t fuelUsed() const { return fuelUsed_; }
     uint64_t repositions() const { return repositions_; }   // walked round a pile because soldiers stood in the cone
     bool burning(SquadId s) const;                        // the squad is on a burn trip / spraying a pile
+    // owner round 15 (WS D): autonomy leash (m from the post, also caps flame.seekRadius); squad status for the UI
+    static constexpr float autoLeash = 25.f;
+    const char* status(SquadId s) const;                  // "auto: burning corpses", "auto: defending wall", ""
+    uint64_t exposedPicks() const { return exposedPicks_; }   // piles picked because they gassed friendly soldiers
+    uint64_t wallTrips() const { return wallTrips_; }         // trips to a wall / gate zombies were breaking
 private:
     struct Mem {
         uint32_t gen = ~0u;
         bool hasPost = false;
         V3 post;
         uint32_t ownSerial = 0, seenSerial = 0;
-        int phase = 0;                // 0 idle, 1 approaching a pile, 2 spraying
+        int phase = 0;                // 0 idle, 1 approaching a pile, 2 spraying, 3 defending a pressed wall piece
         V3 target;
         float seekT = 0.f, phaseT = 0.f, blockedT = 0.f;
+        uint32_t wallPiece = 0;
+        bool autoTrip = false;        // phase 1 / 2 started on its own (not a player order onto a pile)       // phase 3: the wall piece being defended
     };
     std::vector<Mem> mem_;
     std::vector<double> last_;        // per soldier slot: game time of the last spray (-1 none)
@@ -66,6 +73,7 @@ private:
     std::vector<V3> lastAim_;                       // per soldier slot: aim of the last spray (zombie bursts continue there)
     std::vector<NoiseEvent> noise_;
     std::vector<double> noiseAt_;
+    uint64_t exposedPicks_ = 0, wallTrips_ = 0;
     uint64_t sprays_ = 0, blocked_ = 0, trips_ = 0, fuelUsed_ = 0, repositions_ = 0;
     void ensure(const GameContext& ctx);
     bool pickStand(const GameContext& ctx, V3 pile, V3 from, float standoff, V3& out, float& facing) const;

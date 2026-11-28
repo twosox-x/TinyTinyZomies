@@ -89,6 +89,7 @@ bool GameWorld::init(AppState& app, const GameOptions& opt) {
     engineers_.ai = &ai_;
     engineers_.removeVehicle = [&app](uint32_t v) { app.vehicles.removeVehicle(v); };
     ai_.workHook = [this](GameContext& c, uint32_t i) { return engineers_.work(c, i); };
+    ai_.workFirstHook = [this](const GameContext& c, uint32_t i, V3 t, float d) { return engineers_.keepWorking(c, i, t, d); };
     installStructures(*this, app);                             // 14e: tower / generator / light / fuel jobs, car fuel, UI
     ctx_.events = &events_;
     ctx_.animEvents = &animEvents_;
