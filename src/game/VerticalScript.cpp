@@ -5,7 +5,7 @@
 // metrics: vstat captured|emitted|inside|killed|left|active|entrances|dropped
 //          vbuilding inside|target|draining|floor F   (selected building; -1 when not active)
 //          vopening K   barricade health of opening K of the selected building
-//          squad_damage N   health lost by squad N (max - current, living members)
+//          squad_damage N   health lost by squad N (max - current; a dead member whose slot was released counts its full health)
 #include "game/GameScript.h"
 #include "game/GameWorld.h"
 
@@ -85,8 +85,10 @@ bool verticalMetric(GameWorld& w, const std::string& m, const std::vector<std::s
         if (!ctx.squads || n < 1 || n > (int)ctx.squads->squads.size()) { err = "no squad"; return false; }
         const SoldierPool& P = *ctx.soldiers;
         out = 0;
-        for (const SoldierId& id : ctx.squads->squads[(size_t)n - 1].members)
+        for (const SoldierId& id : ctx.squads->squads[(size_t)n - 1].members) {
             if (P.valid(id)) out += P.maxHealth[id.index] - (P.alive(id.index) ? P.health[id.index] : 0.f);
+            else if (ctx.cfg) out += ctx.cfg->soldier[(size_t)SoldierClass::Rifleman].health;   // dead + slot released: all health lost
+        }
         return true;
     }
     return false;

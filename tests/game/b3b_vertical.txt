@@ -15,7 +15,8 @@ at 24.5 camera 28 120 0.25 0.65 45
 at 44   shot /tmp/claude-0/-home-user-tinytinyzomies/00b41016-41f1-510e-86ec-ca9c9d431597/scratchpad/b3b/a_ignored_door.png
 at 44   vinfo
 at 44   expect vstat captured == 0
-at 44   expect vstat active == 0
+# (round 15: every building is capturable, so the squad at this door also activates the NEIGHBOURING tower (building 90,
+#  nobody inside). The requirement - zombies never enter this building - is the captured / inside checks around it.)
 at 44   expect vbuilding inside == -1
 at 45   move 1 -60 150
 at 46   buy rifle 25 97
