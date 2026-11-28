@@ -26,10 +26,15 @@ Resolved 2026-11-28: the preview's temporary synth blips were replaced by the so
 assets/audio/sfx/ui/*.ogg on sessionD/sound). In game the HUD plays sounds only through ttz::audio::ui / uiAction.
 
 ## Phase 2 (in game), branch sessionE/ui-p2
-Started 2026-11-28 after the owner approved the v2 direction and A merged WS-A + sound (7e9891a). Look and theme only;
-WS-A's fixed layout, keys (1-7, Tab, Ctrl+n, Esc) and D's sound hooks are unchanged.
-- In: Counters palette, Archivo font, game-icons atlas (icons everywhere via drawUiIcon), token dock (icon, number key,
-  price; name in the tooltip; red slash when unavailable), frameless top bar with icons, token buttons in the selection
-  panel, hover lift / press / pop / refused shake tweens, hover tick through audio::ui.
-- Not yet: selection members as round tokens with health rings, alerts as an icon stack, world cards at the object,
-  marker restyle, pause / settings / main menu screens (need new code, next build).
+Done 2026-11-28 after the owner approved the v2 direction and A merged WS-A + sound (7e9891a). Look and theme only;
+WS-A's fixed layout, keys (1-7, Tab, Ctrl+n, Esc) and D's sound hooks are unchanged. Sounds only through audio::ui / uiAction.
+- Counters palette, Archivo font, game-icons atlas (icons everywhere), token dock, frameless top bar with icons and funds bump,
+  selection as round tokens with health rings + ammo lines, token action buttons, alert stack on the right edge, slim
+  placement banner, world-card hover menus, frameless world labels (red plate for alerts), building panel restyle (slot dots,
+  defence tracks with pips), info cards on hovered structures (nothing selected), pause menu / settings (Music, UI scale,
+  DOF, clouds) / key bindings / main menu (windowed only), hover / press / pop / shake tweens.
+- Tests (lavapipe, headless): ui_hud 20/20 at 1280x720, 1920x1080, 2560x1440; b1_input 12/12; b2_input 7/7; ui_tower 11/11.
+  Captures: docs/media/ui_v2/.
+- Not verified headless: structure info cards (the script hover snaps onto parked cars next to the test tower), pause /
+  settings / main menu (no capture yet). Audio settings show Music only until D's setBusVolume lands.
+- Known gaps: Esc on a settings sub-page closes the menu instead of stepping back; main menu has no keyboard navigation.
