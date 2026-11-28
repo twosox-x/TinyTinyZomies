@@ -8,10 +8,10 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 | 1 | Clouds move too fast | orch | wind 3 → 0.8 m/s |
 | 2 | UI must have a fixed size; content scrolls / moves, never resizes the panel | A | done (A): bar = 7 fixed card slots (scrolls), selection panel fixed height (list scrolls, icon buttons when crowded), fixed-width notices; sizes in `hudsz` (HudBar.cpp); shots wsA/ |
 | 3 | No "Unsupported – too tall" etc.: every building is supported and works | C (session B, branch sessionB/ws-c) | WS-C: all refusal paths removed, entrance added when none is usable (b6_garrison_all; ARCH §8 round 15). Zombie entry > 22 floors is still WS-B's limit |
-| 4 | Units on roofs can go down: through a roof entrance if there is one, otherwise parachute (rappel) down | B | open |
-| 5 | Zombies can fall off roofs and smash into gore | B | open |
-| 6 | Roofs are like ground: place units, crates, towers, walls on roofs when there is space | B | open |
-| 7 | Sniper killed by a zombie on a roof did not reanimate (soldiers must turn on roofs too) | B | open |
+| 4 | Units on roofs can go down: through a roof entrance if there is one, otherwise parachute (rappel) down | B | done: stairs via roof hatch + door (both ways), else edge jump with the approved parachute (b6_roof_descend 6/6); stair transit not drawn as interior |
+| 5 | Zombies can fall off roofs and smash into gore | B | done: edge falls are free falls, impact > 10.5 m/s = death, limbs off, blood + dust, blood pool, corpse (b6_roof_fall); only crowd pushes send them over (no deliberate chase jumps) |
+| 6 | Roofs are like ground: place units, crates, towers, walls on roofs when there is space | B | partly: structures, crates, walls accepted on one roof level, refused over the edge (b6_roof_place, cheat build); engineer access to roof jobs NOT DONE |
+| 7 | Sniper killed by a zombie on a roof did not reanimate (soldiers must turn on roofs too) | B | done: elevated bodies rise on their own level (b6_roof_reanim 8/8) |
 | 8 | Engineers and flamethrowers need autonomy: fix / clear what the situation needs, near their position, no wandering without orders | D (session C, branch sessionC/ws-d) | open |
 | 9 | Tower / generator / floodlight / fuel models in game are not the reviewed ones | orch | reviewed models switched on (timber tower; owner to pick timber / steel) |
 | 10 | Toxic gas = ugly particle blocks; must be voxel-volume gas clouds in the same style as the explosion / flame volumes | E (session B, branch sessionB/ws-e) | built + tested (tests/game/e1_gas_volume.txt 3/3, day and night): translucent DDA voxel fog (shaders/gas_volume.*), legacy puffs behind CorpseGasRender::voxelFog; shots docs/review/ws-e/gas_*; owner to review |

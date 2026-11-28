@@ -1237,3 +1237,34 @@ properly and do not sit on the edge; they must understand the supply crate on th
 * **Known limits:** narrow roofs (tower rings / tops of seed 1) have no 1 m inset cells at all: soldiers there stand on
   the most inset cells they have; a housing between two roof levels may resolve to the lower neighbour; crates are not
   nav obstacles.
+
+## 16. Roofs round 15 (owner items 4-7, WS-B; PROPOSED, values UNAPPROVED)
+
+* **Reanimation on roofs (`Reanimation.cpp`, `HordeBridge::spawnZombie`, `CrowdSim::requestSpawnZombie(levelY)`,
+  `sim_spawn.comp`).** The old check (lowest surface within 6 m must be < 1 m below the body) refused every roof body.
+  A body above 0.6 m on a walkable / roof cell of its own level is accepted; the spawn request carries the level
+  (`lookB.w = levelY + 1`) and `sim_spawn` only uses cells within the step height of it, so the zombie rises on the roof.
+  `CrowdSim::requestSpawnLevel` uses the same path (script `roofzombies N X Z R`).
+* **Roof <-> street moves (`SoldierAI::levelMove / levelTransit`, `Deploy::jumpFromRoof`).** Runs when a Moving /
+  Forming path fails between islands. Rule: (1) the building under the roof (B3a registry, `GameContext::registry`) has a
+  roof hatch and a door: walk to the point of the soldier's roof level nearest the hatch, 2.5 s + 2.2 s per storey in
+  the stair core (the soldier waits at the hatch; interiors are not drawn), out at the street point 1.2 m in front of
+  the nearest door, then the original order; street -> roof is the reverse. (2) no access: the best rim cell (distance
+  + landing-to-goal) whose outward ray reaches a walkable street cell of the goal's island within 12 m, with a clear
+  canopy column; the soldier walks there and parachutes down as a `DropTrack` with `jump = true` (approved
+  para_descent / land / recover + canopy and dissolve; drift eased as alt^6 so he moves away from the facade first).
+  Street -> roof without an access is not possible (unchanged: deploy by parachute). Metrics `roof_jumps`, `stair_trips`.
+* **Zombies falling off roofs (`sim_finalize`, `sim_predict`).** A walker / climber that is unsupported more than 1.5 m
+  above the ground and moving down becomes ST_FALL with the timer mark `FALL_EDGE_TIMER` (free fall: the walk-speed
+  clamp no longer applies). `sim_predict` kills an edge faller whose next step lands faster than `FALL_LETHAL_V`
+  (10.5 m/s, ~5.6 m): ST_DYING (kill record, cause Other), random limbs off (gibs), blood spray + dust, blood pool on
+  the impact frame (`sim_finalize`), the body becomes a corpse in the corpse field. Gore counter 6 = `SimStats::fallSplats`
+  (`fall_splats`). Only crowd pushes (solver) send zombies over an edge; the flow field / wander rules still keep
+  them off the rim, so they do not jump deliberately.
+* **Placement on roofs (`Walls.cpp`).** A wall run whose footprint is on one roof level (all samples within 0.6 m, above
+  the street by kBuildingRise) uses the roof as its reference; a run hanging over the edge is refused "over the roof
+  edge". Structures already validated against the local surface; crates use the roof picker (section 15).
+  **Not done:** engineers do not route to roof jobs through the stair core (EngineerAI paths directly), so roof
+  structures / walls need `cheat build` or engineers already on that roof; wall pieces on roofs were not verified as
+  nav obstacles for roof zombies / soldiers.
+* **Tests:** `b6_roof_reanim`, `b6_roof_descend`, `b6_roof_fall`, `b6_roof_place`.
