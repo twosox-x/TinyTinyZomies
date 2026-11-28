@@ -269,6 +269,7 @@
     root.querySelectorAll("[data-mem]").forEach((el) => el.addEventListener("click", () => { s.sel = s.sel === +el.dataset.mem ? null : +el.dataset.mem; ctx.rerender(); }));
     root.querySelectorAll("[data-sq]").forEach((el) => {
       el.addEventListener("click", () => { s.sel = s.sel === +el.dataset.sq ? null : +el.dataset.sq; ctx.rerender(); });
+      el.addEventListener("dblclick", () => { if (SQUADS[+el.dataset.sq].ic === "rifle") location.hash = "sel-rifle"; });
     });
     root.querySelectorAll("[data-pace]").forEach((el) => el.addEventListener("click", () => { s.pace = el.dataset.pace; ctx.rerender(); }));
     root.querySelectorAll("[data-cycle]").forEach((el) => el.addEventListener("click", () => {
@@ -307,8 +308,8 @@
       <li>Click a soldier row to focus that soldier (camera follow suggested). <b>Owner:</b> should soldier names exist at all, or just "Rifleman 1..5"?</li></ul>` },
     { id: "sel-multi", num: 3.2, badge: "3b", title: "Selection · multiple squads", kind: "multi", notes:
       `<ul><li>Same fixed slot; with 2+ squads the panel turns into a <b>roster</b>: icon, name, alive/total, average-HP pips, average-ammo bar, state pill.</li>
-      <li>6 rows do not fit; the list window shows ~4.5 rows and <b>scrolls inside</b> — the half row is the cue that there is more. Header keeps the summary ("21/24 soldiers") and the worst state ("1 UNDER ATTACK").</li>
-      <li>Click = highlight/focus a squad (brass edge); double-click = select only that squad (opens 3a). </li>
+      <li>6 rows do not fit; the list window shows 5 rows and <b>scrolls inside</b> (wheel / thin scrollbar). <b>Owner:</b> add a '+1 more' fade at the bottom edge? Header keeps the summary ("21/24 soldiers") and the worst state ("1 UNDER ATTACK").</li>
+      <li>Click = highlight/focus a squad (brass edge); double-click = select only that squad (Rifle rows jump to 3a here). </li>
       <li>Only orders shared by every squad are shown (Halt, pace). Garrison and class actions appear once a single squad is selected (which squads go in is ambiguous otherwise). Ctrl+1..9 control groups proposed.</li>
       <li><b>Owner:</b> sort order — by threat (under attack first) or by creation order? Currently creation order.</li></ul>` },
     { id: "sel-eng", num: 3.3, badge: "3c", title: "Selection · engineers", kind: "eng", notes:
