@@ -69,6 +69,13 @@ h2 { font: 700 1.6rem/1 var(--f-display); letter-spacing: 0.02em; margin: 0; col
 .ab { margin-left: auto; }
 .note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--panel); font-size: 13.5px; max-width: 80ch; }
 footer { padding-block: 30px 50px; color: var(--muted); font-size: 13px; }
+.mpanel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 12px; min-width: 0; }
+.mpanel .ctl input[type=range] { width: 140px; }
+.mstate { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; }
+.mstate div { display: grid; gap: 2px; min-width: 0; }
+.mstate .k { font: 500 11px/1 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.mstate b { font: 600 14px var(--f-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+#mGraph { width: 100%; height: 110px; max-width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
 @media (max-width: 520px) { .ctl input[type=range] { width: 110px; } .strip .wrap { gap: 10px 16px; } }
 @media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
 </style>
@@ -92,10 +99,35 @@ footer { padding-block: 30px 50px; color: var(--muted); font-size: 13px; }
     <div class="sechead"><h2>Scenes</h2><span>layered the way they would mix in play · scenes keep running until stopped</span></div>
     <div class="scenes" id="scenes"></div>
   </section>
+  <section class="sec" id="music">
+    <div class="sechead"><h2>Adaptive music</h2><span>The Infection ↔ The Last Stand · tracks used as supplied</span></div>
+    <p class="lede" style="margin:0">Intensity comes from what the battle reports: shots, zombie kills, explosions, live zombies while fighting, casualties and breaches. Here the scenes feed it the same way the game does; switch to Manual to drive it yourself. Escalation needs sustained intensity, de-escalation is slower, and every switch waits for the next bar and crossfades.</p>
+    <div class="mpanel">
+      <div class="row">
+        <button class="play" id="mPlay">▶ Play music</button>
+        <div class="seg" role="group" aria-label="Intensity source"><button id="mAuto" aria-pressed="true">Auto (scenes)</button><button id="mManual" aria-pressed="false">Manual</button></div>
+        <div class="ctl"><label for="mInt">Intensity</label><input id="mInt" type="range" min="0" max="1" step="0.01" value="0.1" disabled></div>
+        <div class="ctl"><label for="mVol">Music volume</label><input id="mVol" type="range" min="-30" max="0" step="1" value="-9"><span class="camread" id="mVolRead">−9 dB</span></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="mEsc">Preview escalation</button>
+        <button class="btn" id="mDeesc">Preview de-escalation</button>
+        <button class="btn" id="mSeam">Preview loop seam</button>
+      </div>
+      <div class="mstate">
+        <div><span class="k">Playing</span><b id="mTrack">—</b></div>
+        <div><span class="k">State</span><b id="mState">stopped</b></div>
+        <div><span class="k">Intensity</span><b id="mI">0.00</b></div>
+        <div><span class="k">Position</span><b id="mPos">—</b></div>
+      </div>
+      <canvas id="mGraph" width="900" height="110" aria-label="Intensity over the last 90 seconds with escalation and de-escalation thresholds"></canvas>
+      <p class="src" id="mCfg"></p>
+    </div>
+  </section>
   <div id="cats"></div>
   <section class="sec">
     <div class="sechead"><h2>Notes for review</h2></div>
-    <div class="note">Not yet found as CC0: a recorded <b>"Ammo!"</b> callout (stand-ins: "Reloading!", "Call for backup!"). The UI set was expanded after review: 25 tactile switch / latch sounds, including a chirp per squad class. Loudness: each sound is levelled to a per-category target (gunfire −13, explosions −11, chain −9, voices −15, zombies −19, footsteps −24, ambience loops −26 LUFS-ish); the page has a master limiter.</div>
+    <div class="note">Adaptive music: press Play music, then run the squad firefight scene. The Last Stand should come in after about 30–45 s of sustained fighting and give way to The Infection about 40 s after the scene stops. Horde: zoomed out it is now quieter and muffled. Not yet found as CC0: a recorded <b>"Ammo!"</b> callout (stand-ins: "Reloading!", "Call for backup!"). The UI set was expanded after review: 25 tactile switch / latch sounds, including a chirp per squad class. Loudness: each sound is levelled to a per-category target (gunfire −13, explosions −11, chain −9, voices −15, zombies −19, footsteps −24, ambience loops −26 LUFS-ish); the page has a master limiter.</div>
   </section>
 </main>
 <footer class="wrap">All source recordings: CC0 1.0 from OpenGameArt.org; full per-file list in <code>assets/audio/sources.json</code> and <code>docs/SOUND_SOURCES.md</code> on branch <code>sessionD/sound</code>. Processing: <code>tools/audio/recipes.py</code>.</footer>
@@ -156,9 +188,11 @@ function applyCam(instant) {
   document.getElementById("camread").textContent = Math.round(4 + h * h * 116) + " m";
   if (!ctx) return;
   const nearG = Math.pow(1 - h, 1.6) * 1.0 + 0.04;        // individual voices / shots fade with height
-  const farG = 0.15 + 0.95 * Math.pow(h, 0.8);            // aggregated swarm layers take over
+  // owner feedback: far away the swarm must get quieter and muffled, never louder. It takes over from the individual
+  // voices as the camera rises, but its own level falls with height and it is lowpassed down to ~1 kHz.
+  const farG = (0.15 + 0.85 * h) * (1 - 0.55 * h);
   const nearCut = 18000 * Math.pow(1 - h, 2) + 1400;      // distance air absorption on individual sounds
-  const farCut = 3500 + 6000 * (1 - h);
+  const farCut = 1000 + 8000 * Math.pow(1 - h, 2);
   nearBus.gain.setTargetAtTime(nearG, t, r); farBus.gain.setTargetAtTime(farG, t, r);
   ambBus.gain.setTargetAtTime(1 - 0.35 * h, t, r);
   nearLP.frequency.setTargetAtTime(nearCut, t, r); farLP.frequency.setTargetAtTime(farCut, t, r);
@@ -181,6 +215,7 @@ function sliceBuffer(b, off, dur) {
 async function play(id, o = {}) {
   ensureCtx();
   const s = SOUNDS[id]; if (!s) return null;
+  noteMusic(id);
   const orig = (o.mode || mode) === "orig";
   const b = await buf(id, orig);
   let off, dur;
@@ -199,6 +234,138 @@ async function play(id, o = {}) {
   src.onended = () => active.delete(h);
   return h;
 }
+
+// ---------------- adaptive music (mirrors src/audio/Music.cpp, same music.json) ----------------
+let MCFG = null, MUS = null, sceneLive = 0, mMode = "auto";
+const mIn = { shot: 0, kill: 0, expl: 0, cas: 0, breach: 0 }, mRate = { shot: 0, kill: 0, expl: 0, cas: 0, breach: 0 };
+const mHist = [];
+function noteMusic(id) {
+  if (/^(rifle_|mg_|sniper_|carbine_)/.test(id)) mIn.shot += id === "rifle_burst" ? 4 : id === "mg_sustained" ? 10 : 1;
+  else if (id === "zombie_death") mIn.kill++;
+  else if (id === "car_explosion") mIn.expl++;
+  else if (id === "chain_explosion") mIn.expl += 4;
+  else if (id === "vo_death" || id === "alert_casualty") mIn.cas++;
+  else if (id === "alert_breach") mIn.breach++;
+}
+const dB = v => Math.pow(10, v / 20);
+fetch("m/music.json").then(r => r.json()).then(c => {
+  MCFG = c; const d = c.director;
+  document.getElementById("mVol").value = c.musicVolumeDb;
+  document.getElementById("mVolRead").textContent = c.musicVolumeDb + " dB";
+  document.getElementById("mCfg").textContent = `Config (assets/audio/music/music.json): escalate above ${d.escalateAbove} for ${d.escalateHold} s · de-escalate below ${d.deescalateBelow} for ${d.deescalateHold} s · at least ${d.minTimeOnTrack} s per track · crossfade ${d.escalateBars} bars up / ${d.deescalateBars} bars down (bar = 2.6 s at 92.3 BPM) · loops: ` +
+    c.tracks.map(t => `${t.title} ${t.loopStart.toFixed(1)}–${t.loopEnd.toFixed(1)} s`).join(", ") + ".";
+});
+
+function trackPos(t) {   // seconds in the file, following the loop
+  let p = t.offset + (ctx.currentTime - t.t0);
+  const L = t.cfg.loopEnd - t.cfg.loopStart;
+  if (p >= t.cfg.loopEnd) p = t.cfg.loopStart + ((p - t.cfg.loopStart) % L);
+  return p;
+}
+function startSource(t, offset, when) {
+  if (t.src) try { t.src.stop(); } catch (e) {}
+  const s = ctx.createBufferSource(); s.buffer = t.buf; s.loop = true; s.loopStart = t.cfg.loopStart; s.loopEnd = t.cfg.loopEnd;
+  s.connect(t.gain); s.start(when, offset); t.src = s; t.offset = offset; t.t0 = when;
+}
+async function musicStart() {
+  ensureCtx();
+  if (MUS) return;
+  document.getElementById("mState").textContent = "loading…";
+  const bus = ctx.createGain(); bus.gain.value = dB(+document.getElementById("mVol").value);
+  const duck = ctx.createGain(); bus.connect(duck); duck.connect(master);
+  const side = ctx.createAnalyser(); side.fftSize = 1024; nearBus.connect(side); farBus.connect(side);
+  const tracks = await Promise.all(MCFG.tracks.map(async cfg => {
+    const b = await fetch("m/" + cfg.file.replace(".ogg", ".mp3")).then(r => r.arrayBuffer()).then(a => ctx.decodeAudioData(a));
+    const g = ctx.createGain(); g.gain.value = 0; g.connect(bus);
+    return { cfg, buf: b, gain: g, bar: 60 / cfg.bpm * cfg.beatsPerBar, src: null, offset: 0, t0: 0 };
+  }));
+  const now = ctx.currentTime + 0.1;
+  tracks.forEach(t => startSource(t, t.cfg.entryPoint, now));   // both run (continuity); gains pick the audible one
+  tracks[0].gain.gain.setValueAtTime(dB(tracks[0].cfg.gainDb), now);
+  MUS = { tracks, bus, duck, side, active: 0, I: 0, raw: 0, above: 0, below: 0, onTrack: 0, busyUntil: 0, pending: null, sideBuf: new Float32Array(1024), maxI: 0 };
+  document.getElementById("mPlay").textContent = "■ Stop music";
+}
+function musicStop() {
+  if (!MUS) return;
+  MUS.tracks.forEach(t => { try { t.src.stop(); } catch (e) {} });
+  MUS.bus.disconnect(); MUS = null;
+  document.getElementById("mPlay").textContent = "▶ Play music";
+  document.getElementById("mState").textContent = "stopped"; document.getElementById("mTrack").textContent = "—";
+}
+function curve(up) { const n = 64, a = new Float32Array(n); for (let i = 0; i < n; i++) { const u = i / (n - 1); a[i] = up ? Math.sin(u * Math.PI / 2) : Math.cos(u * Math.PI / 2); } return a; }
+function musicSchedule(to, bars, why) {
+  if (!MUS || to === MUS.active || to < 0 || to >= MUS.tracks.length || MUS.pending) return;
+  const a = MUS.tracks[MUS.active], b = MUS.tracks[to];
+  const p = trackPos(a), o = a.cfg.gridOrigin;
+  let nb = o + Math.ceil((p - o) / a.bar - 1e-6) * a.bar; if (nb > a.cfg.loopEnd) nb = a.cfg.loopEnd;
+  const t0 = ctx.currentTime + Math.max(0.02, nb - p), len = bars * b.bar;
+  // incoming track joins on its own bar line
+  let q = trackPos(b) + (t0 - ctx.currentTime); const ob = b.cfg.gridOrigin;
+  q = ob + Math.ceil((q - ob) / b.bar - 1e-6) * b.bar; if (q >= b.cfg.loopEnd) q = b.cfg.loopStart;
+  startSource(b, q, t0);
+  const ga = dB(a.cfg.gainDb), gb = dB(b.cfg.gainDb);
+  a.gain.gain.cancelScheduledValues(t0); b.gain.gain.cancelScheduledValues(t0);
+  a.gain.gain.setValueCurveAtTime(curve(false).map(v => v * ga), t0, len);
+  b.gain.gain.setValueCurveAtTime(curve(true).map(v => v * gb), t0, len);
+  MUS.pending = { to, t0, len, why };
+}
+function musicTick(dt) {
+  // rates (EMA over rateWindow) -> raw intensity, same weights as the game
+  const c = MCFG.intensity, k = 1 - Math.exp(-dt / c.rateWindow);
+  for (const key in mIn) { mRate[key] += (mIn[key] / dt - mRate[key]) * k; mIn[key] = 0; }
+  const term = (v, x) => Math.min(1, v / x.full) * x.weight;
+  let raw = term(mRate.shot, c.shotsPerSec) + term(mRate.kill, c.zombieKillsPerSec) + term(mRate.expl * 60, c.explosionsPerMin)
+          + term(mRate.cas * 60, c.casualtiesPerMin) + term(mRate.breach * 60, c.breachesPerMin);
+  if (mRate.shot > 1) raw += term(sceneLive, c.liveZombies);
+  if (!MUS) { mHist.push([0, Math.min(1, raw)]); if (mHist.length > 900) mHist.shift(); drawGraph(); return; }
+  const d = MCFG.director, M = MUS;
+  M.raw = mMode === "manual" ? +document.getElementById("mInt").value : Math.min(1, raw);
+  M.I += (M.raw - M.I) * (1 - Math.exp(-dt / (M.raw > M.I ? c.rise : c.fall)));
+  M.onTrack += dt;
+  M.above = (M.I > d.escalateAbove && M.raw > d.escalateAbove) ? M.above + dt : 0;
+  M.below = M.I < d.deescalateBelow ? M.below + dt : 0;
+  if (M.pending && ctx.currentTime >= M.pending.t0 + M.pending.len) { M.active = M.pending.to; M.pending = null; M.onTrack = 0; M.above = M.below = 0; }
+  if (!M.pending && M.onTrack >= d.minTimeOnTrack) {
+    if (M.above >= d.escalateHold && M.active + 1 < M.tracks.length) musicSchedule(M.active + 1, d.escalateBars, "sustained intensity");
+    else if (M.below >= d.deescalateHold && M.active > 0) musicSchedule(M.active - 1, d.deescalateBars, "battlefield quiet");
+  }
+  // ducking: battlefield peak pushes the music down (sfx and voices stay on top)
+  M.side.getFloatTimeDomainData(M.sideBuf); let pk = 0; for (const v of M.sideBuf) pk = Math.max(pk, Math.abs(v));
+  const du = MCFG.duck, want = pk > du.threshold ? dB(du.depthDb * Math.min(1, pk / 0.5)) : 1;
+  M.duck.gain.setTargetAtTime(want, ctx.currentTime, want < M.duck.gain.value ? du.attack / 3 : du.release / 3);
+  // readout
+  const a = M.tracks[M.active];
+  document.getElementById("mTrack").textContent = M.pending && ctx.currentTime >= M.pending.t0 ? `${a.cfg.title} → ${M.tracks[M.pending.to].cfg.title}` : a.cfg.title;
+  let st;
+  if (M.pending) st = ctx.currentTime < M.pending.t0 ? `waiting for the bar line (${(M.pending.t0 - ctx.currentTime).toFixed(1)} s)` : `crossfading ${Math.round(M.pending.len / a.bar)} bars (${M.pending.why})`;
+  else if (M.onTrack < d.minTimeOnTrack) st = `settling (${Math.ceil(d.minTimeOnTrack - M.onTrack)} s before a switch is allowed)`;
+  else if (M.above > 0 && M.active + 1 < M.tracks.length) st = `escalating if sustained (${M.above.toFixed(0)} / ${d.escalateHold} s)`;
+  else if (M.below > 0 && M.active > 0) st = `calming down (${M.below.toFixed(0)} / ${d.deescalateHold} s)`;
+  else st = "holding";
+  document.getElementById("mState").textContent = st;
+  document.getElementById("mI").textContent = `${M.I.toFixed(2)} (live ${M.raw.toFixed(2)})`;
+  const p = trackPos(a); document.getElementById("mPos").textContent = `${Math.floor(p / 60)}:${String(Math.floor(p % 60)).padStart(2, "0")} · loop ${a.cfg.loopStart.toFixed(0)}–${a.cfg.loopEnd.toFixed(0)} s`;
+  mHist.push([M.active, M.I]); if (mHist.length > 900) mHist.shift();
+  drawGraph();
+}
+function drawGraph() {
+  const cv = document.getElementById("mGraph"), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue(n).trim();
+  g.clearRect(0, 0, W, H);
+  if (!MCFG) return;
+  const y = v => H - 8 - v * (H - 16);
+  g.lineWidth = 1; g.setLineDash([4, 4]); g.font = "11px IBM Plex Mono, monospace"; g.fillStyle = col("--muted");
+  for (const [v, lbl] of [[MCFG.director.escalateAbove, "escalate"], [MCFG.director.deescalateBelow, "de-escalate"]]) {
+    g.strokeStyle = col("--line"); g.beginPath(); g.moveTo(0, y(v)); g.lineTo(W, y(v)); g.stroke(); g.fillText(lbl + " " + v, 6, y(v) - 4);
+  }
+  g.setLineDash([]);
+  const n = mHist.length, x = i => W - (n - 1 - i) * (W / 900);
+  for (let i = 1; i < n; i++) {   // colour by playing track
+    g.strokeStyle = mHist[i][0] ? col("--accent") : col("--olive"); g.lineWidth = 2;
+    g.beginPath(); g.moveTo(x(i - 1), y(mHist[i - 1][1])); g.lineTo(x(i), y(mHist[i][1])); g.stroke();
+  }
+}
+setInterval(() => { if (MCFG) musicTick(0.1); }, 100);
 
 // ---------------- scenes ----------------
 const R = (a, b) => a + Math.random() * (b - a);
@@ -282,13 +449,13 @@ function firefight(s) {
 
 function stopScene() {
   if (!sceneRun) return;
-  sceneRun.dead = true; sceneRun.timers.forEach(clearTimeout);
+  sceneRun.dead = true; sceneRun.timers.forEach(clearTimeout); sceneLive = 0;
   sceneRun.loops.forEach(p => p.then(h => h && h.stop(0.6)));
   document.querySelectorAll(".scene").forEach(e => e.classList.remove("playing"));
   sceneRun = null;
 }
 function stopAll() {
-  stopScene();
+  stopScene(); musicStop();
   for (const h of [...active]) h.stop(0.15);
   for (const k in loopHandles) { delete loopHandles[k]; }
   document.querySelectorAll(".play.loop").forEach(b => { b.setAttribute("aria-pressed", "false"); b.textContent = "Loop ▶"; });
@@ -301,6 +468,7 @@ function startScene(sc, el) {
   if (was) return;
   cam = sc.cam; document.getElementById("cam").value = cam; applyCam();
   sceneRun = { id: sc.id, dead: false, timers: [], loops: [] };
+  sceneLive = { day: 20, fight: 1500, fightfar: 1500, night: 200, chain: 300, roof: 150 }[sc.id] || 0;   // live zombies the scene implies
   el.classList.add("playing");
   sc.run(sceneRun);
 }
@@ -357,6 +525,26 @@ document.getElementById("cam").oninput = e => { cam = +e.target.value; applyCam(
 document.getElementById("abMini").onclick = () => setMode("mini");
 document.getElementById("abOrig").onclick = () => setMode("orig");
 document.getElementById("stopAll").onclick = stopAll;
+document.getElementById("mPlay").onclick = () => MUS ? musicStop() : musicStart();
+function setMMode(m) {
+  mMode = m;
+  document.getElementById("mAuto").setAttribute("aria-pressed", m === "auto");
+  document.getElementById("mManual").setAttribute("aria-pressed", m === "manual");
+  document.getElementById("mInt").disabled = m !== "manual";
+}
+document.getElementById("mAuto").onclick = () => setMMode("auto");
+document.getElementById("mManual").onclick = () => setMMode("manual");
+document.getElementById("mVol").oninput = e => {
+  document.getElementById("mVolRead").textContent = e.target.value + " dB";
+  if (MUS) MUS.bus.gain.setTargetAtTime(dB(+e.target.value), ctx.currentTime, 0.05);
+};
+document.getElementById("mEsc").onclick = async () => { if (!MUS) await musicStart(); if (MUS.active + 1 < MUS.tracks.length) musicSchedule(MUS.active + 1, MCFG.director.escalateBars, "preview"); };
+document.getElementById("mDeesc").onclick = async () => { if (!MUS) await musicStart(); if (MUS.active > 0) musicSchedule(MUS.active - 1, MCFG.director.deescalateBars, "preview"); };
+document.getElementById("mSeam").onclick = async () => {   // jump 6 s before the loop end of the playing track
+  if (!MUS) await musicStart();
+  const a = MUS.tracks[MUS.active]; startSource(a, a.cfg.loopEnd - 6, ctx.currentTime + 0.05);
+  document.getElementById("mState").textContent = "loop seam in 6 s";
+};
 applyCam();
 
 fetch("sounds.json").then(r => r.json()).then(list => { for (const s of list) if (!s.error) SOUNDS[s.id] = s; render(); })
