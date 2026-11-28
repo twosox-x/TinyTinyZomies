@@ -181,10 +181,10 @@ vec3 glassDay(vec3 base, vec3 N, vec3 V, vec3 P, vec2 room, float rh, float roug
     float ph = fract(h2 * 7.0 + dot(V, T) * 2.2 + V.y * 1.7);
     float spark = 1.0 - smoothstep(0.0, 0.075, abs(ph - 0.5));
     spark *= 0.6 + 0.4 * fine;
-    float glint = core * 5.0 * mix(0.5, 1.0, fine) * refl + sheen * 0.35 * Fk + 0.55 * Fk + spark * 3.2 * Fk;
+    float glint = core * 6.0 * mix(0.5, 1.0, fine) * refl + sheen * 0.6 * Fk + 1.25 * Fk + spark * 7.0 * Fk;
     vec3 sunTint = sunColor.rgb / max(max(sunColor.r, max(sunColor.g, sunColor.b)), 1e-3);   // hue of the sun
     float sunI = max(sunColor.r, max(sunColor.g, sunColor.b));
-    col += sunTint * min(glint * sunI, 5.0) * sunFace;
+    col += sunTint * min(glint * sunI, 6.0) * sunFace;
     return col;
 }
 

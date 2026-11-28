@@ -750,10 +750,10 @@ float3 glassDay(thread const float3& base, thread const float3& N, thread const 
     float ph = fract(((h2 * 7.0) + (dot(V, T) * 2.2000000476837158203125)) + (V.y * 1.7000000476837158203125));
     float spark = 1.0 - smoothstep(0.0, 0.07500000298023223876953125, abs(ph - 0.5));
     spark *= (0.60000002384185791015625 + (0.4000000059604644775390625 * fine));
-    float glint = (((((core * 5.0) * mix(0.5, 1.0, fine)) * refl) + ((sheen * 0.3499999940395355224609375) * Fk)) + (0.550000011920928955078125 * Fk)) + ((spark * 3.2000000476837158203125) * Fk);
+    float glint = (((((core * 6.0) * mix(0.5, 1.0, fine)) * refl) + ((sheen * 0.60000002384185791015625) * Fk)) + (1.25 * Fk)) + ((spark * 7.0) * Fk);
     float3 sunTint = _158.sunColor.xyz / float3(fast::max(fast::max(_158.sunColor.x, fast::max(_158.sunColor.y, _158.sunColor.z)), 0.001000000047497451305389404296875));
     float sunI = fast::max(_158.sunColor.x, fast::max(_158.sunColor.y, _158.sunColor.z));
-    col += ((sunTint * fast::min(glint * sunI, 5.0)) * sunFace);
+    col += ((sunTint * fast::min(glint * sunI, 6.0)) * sunFace);
     return col;
 }
 
@@ -828,7 +828,7 @@ float4 finishA(thread const float3& col, thread const float3& P, constant Frame&
     return float4(_916, 0.5 + (0.5 * coc));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer(0)]], constant Cutouts& _1364 [[buffer(1)]], const device Mats& _2524 [[buffer(2)]], const device Decals& _1479 [[buffer(3)]], const device ShadowH& _1016 [[buffer(4)]], const device CorpseH& _2688 [[buffer(5)]], const device LampGrid& _441 [[buffer(6)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer(0)]], constant Cutouts& _1364 [[buffer(1)]], const device Mats& _2525 [[buffer(2)]], const device Decals& _1479 [[buffer(3)]], const device ShadowH& _1016 [[buffer(4)]], const device CorpseH& _2689 [[buffer(5)]], const device LampGrid& _441 [[buffer(6)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
 {
     main0_out out = {};
     float3 param = in.vCell;
@@ -837,25 +837,25 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
     {
         discard_fragment();
     }
-    bool _2506 = _1364.cutCount.x > 0u;
-    bool _2513;
-    if (_2506)
+    bool _2507 = _1364.cutCount.x > 0u;
+    bool _2514;
+    if (_2507)
     {
         float3 param_2 = in.vWorld;
-        _2513 = facadeCut(param_2, _1364);
+        _2514 = facadeCut(param_2, _1364);
     }
     else
     {
-        _2513 = _2506;
+        _2514 = _2507;
     }
-    if (_2513)
+    if (_2514)
     {
         discard_fragment();
     }
     Mat m;
-    m.albedo = _2524.mats[in.vMat].albedo;
-    m.emis = _2524.mats[in.vMat].emis;
-    m.info = _2524.mats[in.vMat].info;
+    m.albedo = _2525.mats[in.vMat].albedo;
+    m.emis = _2525.mats[in.vMat].emis;
+    m.info = _2525.mats[in.vMat].info;
     float3 N = fast::normalize(in.vNormal);
     float3 albedo = m.albedo.xyz;
     if (in.vPaint.w > 0.5)
@@ -863,31 +863,31 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
         albedo = in.vPaint.xyz;
     }
     uint flags = m.info.x;
-    bool _2560 = (flags & 2u) != 0u;
-    bool _2568;
-    if (_2560)
+    bool _2561 = (flags & 2u) != 0u;
+    bool _2569;
+    if (_2561)
     {
-        _2568 = int(m.emis.y + 0.5) == 2;
+        _2569 = int(m.emis.y + 0.5) == 2;
     }
     else
     {
-        _2568 = _2560;
+        _2569 = _2561;
     }
-    bool _2574;
-    if (_2568)
+    bool _2575;
+    if (_2569)
     {
-        _2574 = _158.todP.x < 1.0;
+        _2575 = _158.todP.x < 1.0;
     }
     else
     {
-        _2574 = _2568;
+        _2575 = _2569;
     }
-    if (_2574)
+    if (_2575)
     {
         Mat dm;
-        dm.albedo = _2524.mats[m.info.y].albedo;
-        dm.emis = _2524.mats[m.info.y].emis;
-        dm.info = _2524.mats[m.info.y].info;
+        dm.albedo = _2525.mats[m.info.y].albedo;
+        dm.emis = _2525.mats[m.info.y].emis;
+        dm.info = _2525.mats[m.info.y].info;
         albedo = mix(dm.albedo.xyz, albedo, float3(_158.todP.x));
         if (_158.todP.x < 0.5)
         {
@@ -902,53 +902,53 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _158 [[buffer
         albedo *= (0.800000011920928955078125 + (0.4000000059604644775390625 * hash12(param_3)));
     }
     float2 g = (in.vWorld.xz - _158.gridP.xy) * _158.gridP.w;
-    bool _2646 = g.x >= 0.0;
-    bool _2652;
-    if (_2646)
+    bool _2647 = g.x >= 0.0;
+    bool _2653;
+    if (_2647)
     {
-        _2652 = g.y >= 0.0;
+        _2653 = g.y >= 0.0;
     }
     else
     {
-        _2652 = _2646;
+        _2653 = _2647;
     }
-    bool _2661;
-    if (_2652)
+    bool _2662;
+    if (_2653)
     {
-        _2661 = g.x < float(_158.gridDim.x);
+        _2662 = g.x < float(_158.gridDim.x);
     }
     else
     {
-        _2661 = _2652;
+        _2662 = _2653;
     }
-    bool _2670;
-    if (_2661)
+    bool _2671;
+    if (_2662)
     {
-        _2670 = g.y < float(_158.gridDim.y);
+        _2671 = g.y < float(_158.gridDim.y);
     }
     else
     {
-        _2670 = _2661;
+        _2671 = _2662;
     }
-    bool inWin = _2670;
+    bool inWin = _2671;
     float wet = 0.0;
     if (inWin)
     {
         if (N.y > 0.699999988079071044921875)
         {
             int2 c = int2(floor(g));
-            float corpse = float(_2688.corpseH[(uint(c.y) * _158.gridDim.x) + uint(c.x)]) * 0.001000000047497451305389404296875;
-            bool _2705 = corpse > 0.0;
-            bool _2711;
-            if (_2705)
+            float corpse = float(_2689.corpseH[(uint(c.y) * _158.gridDim.x) + uint(c.x)]) * 0.001000000047497451305389404296875;
+            bool _2706 = corpse > 0.0;
+            bool _2712;
+            if (_2706)
             {
-                _2711 = in.vWorld.y < 0.60000002384185791015625;
+                _2712 = in.vWorld.y < 0.60000002384185791015625;
             }
             else
             {
-                _2711 = _2705;
+                _2712 = _2706;
             }
-            if (_2711)
+            if (_2712)
             {
                 albedo = mix(albedo, float3(0.02999999932944774627685546875, 0.001000000047497451305389404296875, 0.00200000009499490261077880859375), float3(fast::clamp(corpse * 4.0, 0.0, 0.85000002384185791015625)));
             }
