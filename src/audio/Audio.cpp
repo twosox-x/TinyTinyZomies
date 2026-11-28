@@ -26,7 +26,6 @@ constexpr int kRate = 48000;
 constexpr int kMaxVoices = 48;
 constexpr float kPi = 3.14159265f;
 
-enum class Bus : uint8_t { Sfx, Voice, Amb, Ui, Music, Count };
 // camera-mix class: how a sound behaves when the camera rises
 enum class Cls : uint8_t { Individual, Weapon, Big, Aggregate, Amb, Ui };
 
@@ -121,7 +120,8 @@ struct State {
     std::vector<Sound> sounds;
     std::map<std::string, int> byName;
     Voice voices[kMaxVoices];
-    float busGain[(size_t)Bus::Count] = {1.f, 1.f, 0.8f, 0.7f, 0.f};
+    float busGain[(size_t)Bus::Count] = {1.f, 1.f, 0.8f, 0.7f, 0.f};   // mix levels
+    float busUser[(size_t)Bus::Count] = {1.f, 1.f, 1.f, 1.f, 1.f};    // settings menu
     float master = 0.9f;
     double now = 0;
     double lastPlay[(size_t)Ev::Count] = {};
@@ -278,7 +278,7 @@ void mix(int frames) {
     out.assign((size_t)frames * 2, 0.f);
     for (Voice& v : S->voices) {
         if (!v.alive) continue;
-        const float bg = S->busGain[(size_t)v.bus] * S->master;
+        const float bg = S->busGain[(size_t)v.bus] * S->busUser[(size_t)v.bus] * S->master;
         const float dl = (v.tl - v.gl) / frames, dr = (v.tr - v.gr) / frames;   // per-block linear ramp
         const int16_t* s = v.clip->s.data();
         for (int i = 0; i < frames; ++i) {
@@ -301,7 +301,7 @@ void mix(int frames) {
         const float want = pk > mc.duckThreshold ? dbToLin(mc.duckDb * std::min(1.f, pk / 0.5f)) : 1.f;
         const float blk = (float)frames / kRate;
         S->duck += (want - S->duck) * (1.f - std::exp(-blk / (want < S->duck ? mc.duckAttack : mc.duckRelease)));
-        S->music.render(out.data(), frames, S->musicVol * S->master * S->duck);
+        S->music.render(out.data(), frames, S->musicVol * S->busUser[(size_t)Bus::Music] * S->master * S->duck);
     }
     for (int i = 0; i < frames; ++i) {   // master peak limiter (fast attack, 150 ms release), then soft clip
         const float pk = std::max(std::fabs(out[(size_t)i * 2]), std::fabs(out[(size_t)i * 2 + 1]));
@@ -441,6 +441,10 @@ void uiAction(const std::string& id, bool ok) {
 }
 
 void setHorde(uint32_t live) { if (S) { S->live = live; S->music.setLiveZombies(live); } }
+void setBusVolume(Bus b, float v) { if (S && (size_t)b < (size_t)Bus::Count) S->busUser[(size_t)b] = std::clamp(v, 0.f, 2.f); }
+float getBusVolume(Bus b) { return S && (size_t)b < (size_t)Bus::Count ? S->busUser[(size_t)b] : 1.f; }
+void setMasterVolume(float v) { if (S) S->master = 0.9f * std::clamp(v, 0.f, 2.f); }
+float getMasterVolume() { return S ? S->master / 0.9f : 1.f; }
 void setMusicVolume(float v) { if (S) S->musicVol = std::clamp(v, 0.f, 2.f); }
 void setMusicIntensity(float v) { if (S) S->music.setOverride(v); }
 float musicIntensity() { return S ? S->music.intensity() : 0.f; }
