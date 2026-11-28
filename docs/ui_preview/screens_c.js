@@ -152,7 +152,7 @@
     render(ctx) {
       const s = ctx.state, left = Math.round(ctx.W * 0.075);
       let h = `<div class="c2-vig"></div><div class="c2-title" style="left:${left}px;top:${Math.round(ctx.H * 0.17)}px">` +
-        `<div class="c2-tt1">Tiny <span>tiny</span></div><div class="c2-tt2">Zombies<span class="c2-fig">${ic("zombie", 22)}</span></div><div class="c2-tag">Night of the Mini Dead</div></div>`;
+        `<div class="c2-tt1">Tiny <span>tiny</span></div><div class="c2-tt2">Zombies<span class="c2-fig">${ic("zombie", 28)}</span></div><div class="c2-tag">Night of the Mini Dead</div></div>`;
       h += `<div class="c2-mm" style="left:${left}px;top:${Math.round(ctx.H * 0.5)}px">` + MM.map(([k, l, sub], i) => {
         let it = `<button class="c2-mw${i === s.i ? " f" : ""}${s.conf && s.conf !== k ? " dim" : ""}" data-mm="${i}">${l}${sub ? `<small>${sub}</small>` : ""}</button>`;
         if (s.conf === k) it += k === "quit" ? `<div class="c2-conf"><div>Quit to desktop?</div><button class="c2-yes" data-yes>Quit</button><span class="c2-dot">·</span><button data-no>Cancel</button></div>`
