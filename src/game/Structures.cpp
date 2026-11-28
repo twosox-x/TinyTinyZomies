@@ -68,7 +68,7 @@ bool Structures::canPlace(const GameContext& ctx, StructureKind k, V3 pos, float
     const bool instant = ctx.engineers && ctx.engineers->instantBuild;
     if (!instant) {
         if (!ctx.engineers || !ctx.engineers->anyEngineers(ctx)) return no("needs engineers");
-        if (!ctx.engineers->inRange(ctx, pos.x, pos.z)) return no("outside engineer range");
+        if (!ctx.engineers->inRange(ctx, pos.x, pos.z)) return no(ctx.engineers->rangeWhy(ctx, pos.x, pos.z));
     }
     const Obb b = footprint(k, pos, yaw, S);
     if (k == StructureKind::Light) {   // within cable range of a generator (built or planned)

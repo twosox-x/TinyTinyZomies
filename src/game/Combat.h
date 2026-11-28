@@ -68,6 +68,10 @@ private:
     std::vector<Noise> noise_;
     uint64_t roundsFired_ = 0, roundsAtDead_ = 0;
     struct RecentKill { V3 pos; double t; };
+    // [SOUND HOOK] AudioCue producers (sessionD/sound): per soldier slot / squad slot rate limits, low-ammo latch
+    std::vector<double> cueT_, calloutT_;
+    std::vector<uint8_t> lowAmmo_, wasEngaging_;
+    void cues(GameContext& ctx);
     std::vector<RecentKill> recentKills_;
 };
 

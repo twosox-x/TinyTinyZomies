@@ -74,6 +74,7 @@ WallEnv makeWallEnv(const AppState& app, const GameContext& ctx) {
         if (!E->instantBuild) {
             const GameContext* c = &ctx;
             e.buildable = [E, c](float x, float z) { return E->inRange(*c, x, z); };
+            e.buildableWhy = [E, c](float x, float z) { return E->rangeWhy(*c, x, z); };
         }
         e.clearing = E->clearingBoxes();
     }

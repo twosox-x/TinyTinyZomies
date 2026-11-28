@@ -57,6 +57,10 @@ public:
     struct Zone { V3 c; float r = 0.f; SquadId squad; };
     void zones(const GameContext& ctx, std::vector<Zone>& out) const;
     bool inRange(const GameContext& ctx, float x, float z) const;
+    // WS D: why inRange is false at x z ("no access to this roof" / "outside engineer range" / "no engineers"), "" if in range
+    const char* rangeWhy(const GameContext& ctx, float x, float z) const;
+    // a roof point engineer squad s can reach: a member stands on that roof, or the stair core leads up from his street
+    bool roofReachable(const GameContext& ctx, float x, float z, const Squad& s) const;
     bool anyEngineers(const GameContext& ctx) const;
 
     // Car clearing order (the caller charged it). false: already ordered / out of range (why).

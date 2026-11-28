@@ -177,6 +177,9 @@ public:
     uint64_t edgeReturns() const { return edgeReturns_; }  // ... and back to their inset spot
     // Roof island a soldier stands on (his cell, or the walkable cell of his level beside a rim cell); 0 = not a roof.
     static uint32_t roofOf(const GameContext& ctx, V3 p);
+    // WS D (engineers on roofs): can a soldier on street island `fromIsland` reach the roof point p through the stair core
+    // (hatch on p's roof level + a door onto fromIsland)?
+    static bool roofAccess(const GameContext& ctx, V3 p, uint32_t fromIsland);
     // Owner round 15 (#4): moves between a roof and the street. Roof with an access (B3a building: roof hatch + door):
     // through the stair core (walk to the hatch, transit, out of the door; street -> roof the reverse); roof without
     // one: walk to the rim cell nearest the way and parachute down (Deploy::jumpFromRoof).

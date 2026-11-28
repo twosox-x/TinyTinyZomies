@@ -202,6 +202,13 @@ bool SoldierAI::levelMove(GameContext& ctx, uint32_t i, int r) {
     return false;
 }
 
+bool SoldierAI::roofAccess(const GameContext& ctx, V3 p, uint32_t fromIsland) {
+    if (!ctx.nav || !ctx.nav->ready()) return false;
+    V3 hatchPt, doorPt;
+    int floors = 1;
+    return stairRoute(ctx, p, hatchPt, doorPt, floors) && ctx.nav->island(doorPt.x, doorPt.z) == fromIsland;
+}
+
 V3 SoldierAI::roofInset(const GameContext& ctx, V3 p, uint32_t isl, float maxR) const {
     const NavGrid& nav = *ctx.nav;
     V3 o;
@@ -1529,7 +1536,9 @@ void SoldierAI::tick(GameContext& ctx) {
         for (const KillEvent& k : ctx.events->kills)
             for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i) {
                 TargetLock& L = P.target[i];
-                if (P.used[i] && L.active && dist2D(L.pos, k.pos) < 1.2f) { L.active = false; deadDropped_[i] = 1; ++deadLockDrops_; }
+                // exact (near-list) locks drop a dead zombie on their own (lockLostExact); only long-range locks here, and
+                // only the zombie itself (0.7 m: a neighbour's kill in a crowd must not cost a sniper his aim)
+                if (P.used[i] && L.active && !L.exact && dist2D(L.pos, k.pos) < 0.7f) { L.active = false; deadDropped_[i] = 1; ++deadLockDrops_; }
             }
     hash_.clear();
     for (uint32_t i = 0; i < (uint32_t)P.capacity(); ++i)
