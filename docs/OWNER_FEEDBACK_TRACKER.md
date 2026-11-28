@@ -6,7 +6,7 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 | # | Owner item (condensed) | WS | Status |
 |---|---|---|---|
 | 1 | Clouds move too fast | orch | wind 3 → 0.8 m/s |
-| 2 | UI must have a fixed size; content scrolls / moves, never resizes the panel | A | open |
+| 2 | UI must have a fixed size; content scrolls / moves, never resizes the panel | A | done (A): bar = 7 fixed card slots (scrolls), selection panel fixed height (list scrolls, icon buttons when crowded), fixed-width notices; sizes in `hudsz` (HudBar.cpp); shots wsA/ |
 | 3 | No "Unsupported – too tall" etc.: every building is supported and works | C (session B, branch sessionB/ws-c) | WS-C: all refusal paths removed, entrance added when none is usable (b6_garrison_all; ARCH §8 round 15). Zombie entry > 22 floors is still WS-B's limit |
 | 4 | Units on roofs can go down: through a roof entrance if there is one, otherwise parachute (rappel) down | B | open |
 | 5 | Zombies can fall off roofs and smash into gore | B | open |
@@ -15,9 +15,9 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 | 8 | Engineers and flamethrowers need autonomy: fix / clear what the situation needs, near their position, no wandering without orders | D (session C, branch sessionC/ws-d) | open |
 | 9 | Tower / generator / floodlight / fuel models in game are not the reviewed ones | orch | reviewed models switched on (timber tower; owner to pick timber / steel) |
 | 10 | Toxic gas = ugly particle blocks; must be voxel-volume gas clouds in the same style as the explosion / flame volumes | E (session B, branch sessionB/ws-e) | open |
-| 11 | Keys 1 2 3 4 5 6 7 for units (not Z X C V B) – intuitive layout | A | open |
+| 11 | Keys 1 2 3 4 5 6 7 for units (not Z X C V B) – intuitive layout | A | done (A): 1-7 = cards of the active tab (number on each card), Tab/Shift+Tab tabs, Ctrl+1-9 squads, . next squad, Esc tool > selection > pause menu (never quits), Q/E rotate only while placing; tests + docs updated |
 | 12 | Engineers (3): at least one keeps working the job, the others cover him when threatened | D (session C, branch sessionC/ws-d) | open |
-| 13 | Select squad → tower → "Occupy tower" → nothing happens | A | open |
+| 13 | Select squad → tower → "Occupy tower" → nothing happens | A | done (A): LMB/RMB on the tower = occupy, hover entry / panel button work, refused clicks now say why; tests/game/ui_tower.txt (11/11) |
 | 14 | DOF: whatever is at the dead centre of the screen must be sharp | E (session B, branch sessionB/ws-e) | open |
 | 15 | Garrison fortification must fit every building type; "Door planks" looks like a black blob in the street | C (session B, branch sessionB/ws-c) | WS-C: door barricades scaled into the art door leaf, flush (doors without an art leaf, mostly tower lobbies, keep the footprint-edge position); screenshots docs/review/ws-c/ |
 | 16 | Each defence upgrade should make the building look visibly safer | C (session B, branch sessionB/ws-c) | WS-C: defence levels L1-L3 (bfortify / panel button), screenshots per level for house, mid-rise, tower in docs/review/ws-c/ |
@@ -26,7 +26,7 @@ Nothing is "done" until it is built, tested, and shown in a screenshot. Earlier 
 
 Carried-over open items from earlier rounds (must not be forgotten):
 - b1_resupply 9 fails (prices / supply point 2), b1_rooftops 1 fail (MG lands on the lower roof level) — B / A
-- engineers listed as "rifleman" in the squad panel; HUD clock reads 00:00 in headless runs — A
+- engineers listed as "rifleman" in the squad panel (fixed, A: shown as "engineer"); HUD clock reads 00:00 in headless runs — A: not reproducible now (headless shots show DAY 16:44, TimeOfDay advances per frame)
 - possible soldier standing on a car roof (garrison shot) — D
 - long-range squad hit rate 20 % (target was 45 %) — D
 - flamethrower test near walls / between cars not verified — D

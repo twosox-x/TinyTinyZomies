@@ -159,7 +159,9 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
     // HUD 2 layout: stacked above the selection panel (which sits above / beside the command bar), never over them
     const HudLayout& L = ui.layout();
     ImGui::SetNextWindowPos(ImVec2(L.panelX, L.panelBottom), ImGuiCond_Always, ImVec2(0.f, 1.f));
-    ImGui::SetNextWindowSize(ImVec2(std::min(470.f * L.scale, io.DisplaySize.x - 2.f * L.panelX), 0.f), ImGuiCond_Always);
+    // fixed size (owner round 15 #2): the content scrolls inside, the panel never grows / shrinks with the building state
+    ImGui::SetNextWindowSize(ImVec2(std::min(470.f * L.scale, io.DisplaySize.x - 2.f * L.panelX),
+                                    std::min(190.f * L.scale, std::max(60.f, L.panelBottom - 40.f * L.scale))), ImGuiCond_Always);
     ImGui::Begin("##building", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
     ImGui::Text("%s, %d floor%s%s", kindName(B.kind), (int)B.floors, B.floors > 1 ? "s" : "", B.flatRoof ? ", flat roof" : "");
     if (!B.supported) { ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1), "Unsupported: %s", B.unsupportedWhy); ImGui::End(); return; }
