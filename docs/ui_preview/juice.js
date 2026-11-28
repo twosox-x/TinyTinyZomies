@@ -1,6 +1,8 @@
 /* Juice: feedback layer for the preview. The preview re-renders the HUD on every change, so feedback is applied by
    diffing before/after (tokens keep their index on a screen) and drawn on an fx layer that survives re-renders.
-   Sounds are placeholders synthesised with WebAudio; the real UI sounds come from the sound session. */
+   SOUNDS: TEMPORARY PLACEHOLDERS. These WebAudio blips were made by the UI design session for this preview only.
+   They are NOT the sound design session's sounds and must ALL be replaced by its approved UI sounds
+   (session D). In game, the HUD fires events through D's uiAction hook in HudBar.cpp and plays none of these. */
 (function () {
   const J = (TTZ.juice = { sound: true });
   let ac = null;
