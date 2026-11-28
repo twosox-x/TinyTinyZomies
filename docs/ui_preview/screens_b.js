@@ -185,7 +185,7 @@
   }
   TTZ.screen({
     id: "alerts", num: 7, group: "In play", title: "Alerts",
-    initState: () => { const l = []; [POOL[5], POOL[4], POOL[2], POOL[2], POOL[2]].forEach((p) => push(l, p)); push(l, POOL[0]); l[0].t = performance.now() - 1000; l.forEach((a) => (a.isNew = 0)); return { tab: "units", list: l }; },
+    initState: () => { const l = []; [POOL[6], POOL[5], POOL[4], POOL[2], POOL[2], POOL[2]].forEach((p) => push(l, p)); push(l, POOL[0]); l[0].t = performance.now() - 1000; l.forEach((a) => (a.isNew = 0)); return { tab: "units", list: l }; },
     notes: `<b>Alerts</b>: a column of round counters on the right edge, under the clock. Never more than 5, so the area is fixed.
 <ul><li>The newest one says what happened in one line for 5 s, then folds into its counter. Hover any counter to read it again.</li>
 <li>Ring colour is severity: red critical, amber warning, toxic green gas, grey loss, blue info. Repeats merge and count up (×3).</li>

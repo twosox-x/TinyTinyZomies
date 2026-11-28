@@ -19,7 +19,7 @@
     const s = o.size || 36, is = o.isize || Math.round(s * 0.6);
     const cls = ["tok", o.round && "round", o.on && "on", o.off && "off", o.cls].filter(Boolean).join(" ");
     return `<div class="${cls}" style="width:${s}px;height:${s}px${o.color ? ";color:" + o.color : ""}"${o.id ? ` data-id="${o.id}"` : ""}${o.why ? ` data-why="${esc(o.why)}"` : ""}${o.tip ? ` data-tip="${esc(o.tip)}"` : ""}${o.attrs || ""}>` +
-      (o.ring != null ? `<span class="ring" style="--v:${o.ring};--rc:${o.ringCol || TTZ.hpCol(o.ring)}"></span>` : "") +
+      (o.ring != null ? `<span class="ring" style="--rw:${s < 36 ? 2 : 3}px;--v:${o.ring};--rc:${o.ringCol || TTZ.hpCol(o.ring)}"></span>` : "") +
       TTZ.ic(o.ic, is) + (o.key ? TTZ.k(o.key) : "") + (o.n != null ? `<span class="n">${esc(o.n)}</span>` : "") + `</div>`;
   };
   TTZ.hpCol = (f) => (f > 0.6 ? "var(--ok)" : f > 0.3 ? "var(--warn)" : "var(--bad)");
