@@ -128,16 +128,19 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
         ImVec2 s;
         if (!project(app, B.toWorld(B.w * 0.5f, B.d * 0.5f, B.roofY + 2.5f), s)) continue;
         if (B.capture == CaptureState::Capturing || B.capture == CaptureState::Contested) {
-            const ImU32 c = B.capture == CaptureState::Contested ? IM_COL32(220, 90, 60, 230) : IM_COL32(200, 210, 120, 230);
-            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 3), ImVec2(s.x + 22, s.y + 3), IM_COL32(20, 20, 14, 180));
-            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 3), ImVec2(s.x - 22 + 44 * B.captureProgress, s.y + 3), c);
+            // v2: thin shadowed progress rail + flag icon, red when contested
+            const ImU32 c = B.capture == CaptureState::Contested ? hs::kBad : hs::kGold;
+            dl->AddRectFilled(ImVec2(s.x - 21, s.y - 1), ImVec2(s.x + 23, s.y + 4), hs::kShadow, 2.f);
+            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 2), ImVec2(s.x + 22, s.y + 2), IM_COL32(21, 23, 15, 200), 2.f);
+            dl->AddRectFilled(ImVec2(s.x - 22, s.y - 2), ImVec2(s.x - 22 + 44 * B.captureProgress, s.y + 2), c, 2.f);
+            hs::icon(dl, "flag", ImVec2(s.x - 30, s.y), 12.f, c, true);
             ui.worldLabel(s.x, s.y - 20, B.capture == CaptureState::Contested ? "contested" : "capturing", c,
                           B.capture == CaptureState::Contested ? GameUI::kLabelAlert : GameUI::kLabelStatus, true);
         } else if (B.role != BuildingRole::None) {
             char t[64];
             std::snprintf(t, sizeof(t), "%s %d/%d%s", B.role == BuildingRole::Garrison ? "GARRISON" : "HOSPITAL",
                           B.role == BuildingRole::Garrison ? (int)B.garrison.size() : (int)B.patients.size(), B.capacity, B.zombiesInside > 0 ? " !" : "");
-            const ImU32 c = B.role == BuildingRole::Garrison ? IM_COL32(170, 180, 110, 220) : IM_COL32(150, 220, 150, 220);
+            const ImU32 c = B.zombiesInside > 0 ? hs::kBad : B.role == BuildingRole::Garrison ? hs::kBone : hs::kOk;
             ui.worldLabel(s.x, s.y - 8, t, c, bp.selected.v == b ? GameUI::kLabelSelected : GameUI::kLabelStatus, true);
         }
     }
@@ -221,7 +224,6 @@ void drawPanel(AppState& app, const GameContext& ctx, BuildingPlay& bp, GameUI& 
         }
         ImGui::Dummy(ImVec2(max * (w + gap), lh));
     };
-    auto textCol = [&](ImU32 col, const char* t) { ImGui::PushStyleColor(ImGuiCol_Text, v4(col)); ImGui::TextUnformatted(t); ImGui::PopStyleColor(); };
     const double funds = ctx.economy ? ctx.economy->funding() : 1e18;
     // token-look button: gold text when affordable, grey + reason tooltip when not (still clickable: the request refuses
     // with its own message, so scripts / sounds behave exactly as before)

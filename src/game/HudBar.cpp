@@ -761,7 +761,8 @@ void GameUI::drawNotices(AppState& app, const GameContext& ctx) {
                                : (has(lo, "killed") || has(lo, "lost")) ? "kia" : has(lo, "built") ? "build"
                                : (has(lo, "drop") || has(lo, "inbound")) ? "airdrop" : has(lo, "territory") ? "flag" : "info";
                 char id[16]; std::snprintf(id, sizeof(id), "##n%d", k);
-                const ImGuiID sid = ImHashData(&n->time, sizeof(n->time), ImGui::GetID("##nslide"));
+                char sk[40]; std::snprintf(sk, sizeof(sk), "##nslide%.4f", n->time);
+                const ImGuiID sid = ImGui::GetID(sk);
                 const float slide = 1.f - hs::tween(sid, 1.f, 12.f);   // fresh entries slide in from the right
                 const float off = slide * 44 * S;
                 const ImVec2 tc(x1 - rowH * 0.5f + off, y + rowH * 0.5f);
@@ -1037,71 +1038,134 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
              : t == SquadType::Flamethrower ? UiIcon::Flamethrower : UiIcon::Engineer;
     };
     auto nameOf = [](SquadType t) {
-        return t == SquadType::Rifle ? "RIFLE SQUAD" : t == SquadType::MachineGun ? "MG SQUAD" : t == SquadType::Sniper ? "SNIPER"
-             : t == SquadType::Flamethrower ? "FLAMETHROWERS" : "ENGINEERS";
+        return t == SquadType::Rifle ? "Rifle squad" : t == SquadType::MachineGun ? "MG squad" : t == SquadType::Sniper ? "Sniper"
+             : t == SquadType::Flamethrower ? "Flamers" : "Engineers";
     };
-    auto pill = [&](ImDrawList* dl, float x, float y, const char* t, ImU32 col) {   // right-aligned at x
-        const ImVec2 ts = tsize(10.f, t);
-        const ImVec2 pa(x - ts.x - 10 * S, y), pb(x, y + ts.y + 4 * S);
-        dl->AddRectFilled(pa, pb, withA(col, 0.18f), 7 * S);
-        dl->AddRect(pa, pb, withA(col, 0.7f), 7 * S, 0, 1.f);
-        text(dl, pa.x + 5 * S, y + 2 * S, col, 10.f, t);
-        return pa.x;
+    auto glyphOf = [](const Squad& s) {   // state glyph (preview TTZ.STATE)
+        const uint32_t f = s.flags;
+        return s.deploying ? "airdrop" : (f & SQ_UNDER_ATTACK) ? "alert" : (f & SQ_ENGAGED) ? "target" : (f & SQ_RESUPPLYING) ? "ammo"
+             : (f & SQ_MOVING) ? "run" : "halt";
+    };
+    auto wordOf = [](const char* st) {   // "UNDER ATTACK" -> "Under attack"
+        std::string w = st;
+        for (size_t k = 1; k < w.size(); ++k) w[k] = (char)std::tolower((unsigned char)w[k]);
+        return w;
+    };
+    auto avgOf = [&](const Squad& s, float& hp, float& am) {   // average health / ammo of the living members
+        hp = 0; am = 0; int n = 0;
+        for (const SoldierId& m : s.members) {
+            if (!P.valid(m) || !P.alive(m.index)) continue;
+            const size_t c2 = (size_t)P.cls[m.index];
+            hp += std::clamp(P.health[m.index] / std::max(1.f, cfg.soldier[c2].health), 0.f, 1.f);
+            am += std::clamp((float)(P.mag[m.index] + P.reserve[m.index]) / (float)std::max(1, cfg.weapon[c2].magazine + cfg.weapon[c2].reserve), 0.f, 1.f);
+            ++n;
+        }
+        if (n) { hp /= n; am /= n; }
+        return n;
+    };
+    ImFont* FB = hudFontBold() ? hudFontBold() : F;
+    // a word with a leading icon, shadowed; returns the x after it
+    auto iconWord = [&](ImDrawList* dl, float x, float y, const char* ic, ImU32 col, const char* t) {
+        hs::icon(dl, ic, ImVec2(x + 6.5f * S, y + 7 * S), 13 * S, col, true);
+        x += 16 * S;
+        text(dl, x, y, col, 12.f, t);
+        return x + tsize(12.f, t).x + 10 * S;
+    };
+    static std::vector<ImGuiID> seenTok, seenNow;   // member / squad tokens seen last frame (pop on first sight)
+    seenNow.clear();
+    auto firstSight = [&](ImGuiID id) {
+        seenNow.push_back(id);
+        if (app.window && std::find(seenTok.begin(), seenTok.end(), id) == seenTok.end()) hs::kick(id);
     };
     if (beginPane("##hud_sel", a, c)) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
-        panel(dl, a, c, panelAnim_);
+        // v2: no frame; an edge shade in the corner and a faint glass behind the counters
+        ImGui::GetBackgroundDrawList()->AddRectFilledMultiColor(ImVec2(0, a.y - 30 * S), ImVec2(c.x + 60 * S, H), IM_COL32(0, 0, 0, 70),
+                                                                IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 0), IM_COL32(0, 0, 0, 70));
+        panel(dl, a, c, panelAnim_ * 0.22f, 8.f);
         float y = a.y + pad;
+        const float listEnd = a.y + pad + headH + listH;
         if (detail) {
             const Squad& s = *sq[0];
             const int alive = ctx.squads->aliveMembers(s, P);
-            dl->AddRectFilled(ImVec2(a.x + pad, y), ImVec2(a.x + pad + headH, y + headH), IM_COL32(12, 14, 9, 170), 3 * S);
-            drawUiIcon(dl, icon(s.type), a.x + pad + headH * 0.5f, y + headH * 0.5f, headH * 0.8f, true);
+            float ahp = 0, aam = 0;
+            avgOf(s, ahp, aam);
+            // ---- header: big squad counter (ring = average health, number = squad), name, state word + warnings
             char t[64];
-            std::snprintf(t, sizeof(t), "%s %u", nameOf(s.type), s.number);
-            text(dl, a.x + pad + headH + 7 * S, y + S, kSand, 13.5f, t);
-            std::snprintf(t, sizeof(t), "%d / %d alive", alive, (int)s.members.size());
-            text(dl, a.x + pad + headH + 7 * S, y + 15 * S, alive < (int)s.members.size() ? kBad : kDim, 10.5f, t);
+            std::snprintf(t, sizeof(t), "%u", s.number);
+            hs::Tok ht; ht.size = 44; ht.round = true; ht.ring = alive ? ahp : 0.f; ht.num = t;
+            const ImVec2 hc(a.x + pad + 24 * S, y + 24 * S);
+            hs::token(dl, hc, ht, hs::iconName(icon(s.type)), S);
+            char nm[64];
+            std::snprintf(nm, sizeof(nm), "%s %u", nameOf(s.type), s.number);
+            const float nx = a.x + pad + 54 * S;
+            hs::textShadow(dl, FB, 16.f * S, ImVec2(nx, y + 2 * S), kSand, nm);
             ImU32 sc;
             const char* st = stateOf(s, sc);
-            float rx = pill(dl, c.x - pad, y + 2 * S, st, sc) - 4 * S;
-            if (s.flags & SQ_OUT_OF_AMMO) rx = pill(dl, rx, y + 2 * S, "NO AMMO", kBad) - 4 * S;
-            else if (s.flags & SQ_LOW_AMMO) rx = pill(dl, rx, y + 2 * S, "LOW AMMO", kAmber) - 4 * S;
-            if (s.flags & SQ_GAS) rx = pill(dl, rx, y + 2 * S, "GAS", IM_COL32(160, 200, 50, 255)) - 4 * S;
-            y += headH + 4 * S;
-            // column headers are implicit: name | health (stamina under it) | ammo | rounds + state
-            const float nameW = 62 * S, bw = std::max(40 * S, (pw - 2 * pad - nameW - 120 * S) * 0.5f);
-            const float listY0 = y, listY1 = y + listH - 4 * S;
-            const float maxScroll = std::max(0.f, rowH * (float)s.members.size() - (listY1 - listY0));
+            float wx = iconWord(dl, nx, y + 24 * S, glyphOf(s), sc, wordOf(st).c_str());
+            if (s.flags & SQ_OUT_OF_AMMO) wx = iconWord(dl, wx, y + 24 * S, "bullets", kBad, "No ammo");
+            else if (s.flags & SQ_LOW_AMMO) wx = iconWord(dl, wx, y + 24 * S, "bullets", kAmber, "Low ammo");
+            if (s.flags & SQ_GAS) wx = iconWord(dl, wx, y + 24 * S, "gas", hs::kToxic, "Gas");
+            std::snprintf(t, sizeof(t), "%d/%d", alive, (int)s.members.size());
+            const float cw = tsize(12.f, t).x + 16 * S;
+            iconWord(dl, std::max(wx, c.x - pad - cw), y + 24 * S, "troops", alive < (int)s.members.size() ? kBad : kDim, t);
+            // ---- members: small round counters with a health ring and an ammo line; scrolls by rows past the fixed area
+            const float tokS = 26 * S, pitchX = 34 * S, pitchY = 37 * S;
+            const float listY0 = y + 54 * S, listY1 = listEnd - 2 * S;
+            const int cols = std::max(1, (int)((pw - 2 * pad + (pitchX - tokS)) / pitchX));
+            const int rows = ((int)s.members.size() + cols - 1) / cols;
+            const float maxScroll = std::max(0.f, rows * pitchY - (listY1 - listY0));
             if (maxScroll > 0.f && ImGui::IsMouseHoveringRect(ImVec2(a.x, listY0), ImVec2(c.x, listY1)) && io.MouseWheel != 0.f)
-                selScroll_ -= io.MouseWheel * rowH;
+                selScroll_ -= io.MouseWheel * pitchY;
             selScroll_ = std::clamp(selScroll_, 0.f, maxScroll);
-            y -= selScroll_;
-            dl->PushClipRect(ImVec2(a.x, listY0), ImVec2(c.x, listY1), true);
+            dl->PushClipRect(ImVec2(a.x, listY0 - 4 * S), ImVec2(c.x, listY1), true);
+            int idx = 0;
             for (const SoldierId& m : s.members) {
-                if (!P.valid(m)) { y += rowH; continue; }
+                const int col = idx % cols, row = idx / cols;
+                ++idx;
+                if (!P.valid(m)) continue;
                 const uint32_t i = m.index;
                 const size_t k = (size_t)P.cls[i];
                 const bool dead = !P.alive(i);
                 const float hp = dead ? 0.f : std::clamp(P.health[i] / std::max(1.f, cfg.soldier[k].health), 0.f, 1.f);
                 const int full = cfg.weapon[k].magazine + cfg.weapon[k].reserve;
                 const float am = std::clamp((float)(P.mag[i] + P.reserve[i]) / (float)std::max(1, full), 0.f, 1.f);
-                const float x0 = a.x + pad;
-                text(dl, x0, y, dead ? kBad : kDim, 11.f, fit(11.f, s.type == SquadType::Engineer ? "engineer" : className(P.cls[i]), nameW - 4 * S).c_str());
-                const float bx = x0 + nameW, byy = y + 4 * S;
-                bar(dl, bx, byy, bw, 5 * S, hp, hp > 0.5f ? kOk : hp > 0.25f ? kAmber : kBad);
-                if (!dead) {
-                    const float stf = std::clamp(P.stamina[i] / std::max(1.f, cfg.stamina.max), 0.f, 1.f);
-                    dl->AddRectFilled(ImVec2(bx, byy + 6 * S), ImVec2(bx + bw * stf, byy + 7.5f * S), P.tired[i] ? kAmber : IM_COL32(200, 200, 170, 140));
+                const ImVec2 mc(a.x + pad + tokS * 0.5f + 2 * S + col * pitchX, listY0 + tokS * 0.5f + 2 * S + row * pitchY - selScroll_);
+                if (mc.y + tokS < listY0 || mc.y - tokS > listY1) continue;
+                char id[32]; std::snprintf(id, sizeof(id), "##mem%u", i);
+                const ImVec2 ma(mc.x - tokS * 0.5f, std::max(listY0, mc.y - tokS * 0.5f)), mb(mc.x + tokS * 0.5f, std::min(listY1, mc.y + tokS * 0.5f + 6 * S));
+                bool hov = false;
+                if (mb.y > ma.y + 1) hit(id, ma, mb, &hov);
+                const ImGuiID tid = ImGui::GetID(id);
+                firstSight(tid);
+                hs::Tok mt; mt.size = 26; mt.round = true;
+                mt.ring = dead ? 0.f : hp; mt.ringCol = !dead && P.wounded[i] ? kBad : 0;
+                mt.lift = hs::tween(tid, hov ? 1.f : 0.f);
+                mt.pop = hs::pulse(tid, 0.32f);
+                const char* ic = dead ? "kia" : hs::iconName(s.type == SquadType::Engineer ? UiIcon::Engineer : icon(s.type));
+                hs::token(dl, mc, mt, ic, S);
+                if (dead) dl->AddCircleFilled(mc, tokS * 0.5f + 2 * S, withA(kInk, 0.5f));   // KIA: dimmed tombstone
+                else {   // ammo line (amber when low, red when empty)
+                    const float ly = mc.y + tokS * 0.5f + 5 * S - 2.f * mt.lift * S, lw = tokS - 4 * S;
+                    const ImU32 ac = am <= 0.f ? kBad : am < cfg.soldier[k].lowAmmoFraction ? kAmber : kDim;
+                    bar(dl, mc.x - lw * 0.5f, ly, lw, 2.5f * S, am, ac);
+                    if (P.tired[i]) hs::icon(dl, "stamina", ImVec2(mc.x + tokS * 0.42f, mc.y - tokS * 0.42f), 10 * S, kAmber, true);
                 }
-                const float ax = bx + bw + 6 * S;
-                bar(dl, ax, byy, bw, 5 * S, am, am > cfg.soldier[k].lowAmmoFraction ? kBlue : am > 0 ? kAmber : kBad);
-                char tx[80];
-                if (dead) std::snprintf(tx, sizeof(tx), "KIA");
-                else std::snprintf(tx, sizeof(tx), "%d|%d %s%s%s", P.mag[i], P.reserve[i], stateName(P.state[i]), P.runner[i] ? " (runner)" : "", P.wounded[i] ? " (wounded)" : "");
-                const float tx0 = ax + bw + 6 * S;
-                text(dl, tx0, y, dead ? kBad : kDim, 10.5f, fit(10.5f, tx, c.x - pad - tx0).c_str());
-                y += rowH;
+                if (hov) {   // name, state, ammo, stamina
+                    tipBegin();
+                    ImGui::PushFont(FB, 14.f);
+                    ImGui::TextColored(v4(dead ? kBad : kSand), "%s", s.type == SquadType::Engineer ? "Engineer" : className(P.cls[i]));
+                    ImGui::PopFont();
+                    if (dead) ImGui::TextColored(v4(kBad), "KIA");
+                    else {
+                        ImGui::SameLine();
+                        ImGui::TextColored(v4(kDim), "%s%s%s", stateName(P.state[i]), P.runner[i] ? " (runner)" : "", P.wounded[i] ? " (wounded)" : "");
+                        ImGui::TextColored(v4(am < cfg.soldier[k].lowAmmoFraction ? kAmber : kSand), "Ammo %d | %d", P.mag[i], P.reserve[i]);
+                        ImGui::TextColored(v4(P.tired[i] ? kAmber : kDim), "Health %d%%   Stamina %d%%", (int)std::lround(hp * 100.f),
+                                           (int)std::lround(std::clamp(P.stamina[i] / std::max(1.f, cfg.stamina.max), 0.f, 1.f) * 100.f));
+                    }
+                    tipEnd();
+                }
             }
             dl->PopClipRect();
             if (maxScroll > 0.f) {   // scroll indicator
@@ -1109,46 +1173,82 @@ void GameUI::drawSelection(AppState& app, const GameContext& ctx, CommandQueue& 
                 const float ty = listY0 + (listY1 - listY0 - th) * (selScroll_ / maxScroll);
                 dl->AddRectFilled(ImVec2(c.x - 4 * S, ty), ImVec2(c.x - 2 * S, ty + th), kFaint, S);
             }
-            y = listY0 + listH;
+            y = listEnd;
         } else {
             char t[64];
-            int alive = 0, total = 0;
-            for (const Squad* s : sq) { alive += ctx.squads->aliveMembers(*s, P); total += (int)s->members.size(); }
-            std::snprintf(t, sizeof(t), "%d SQUADS", (int)sq.size());
-            text(dl, a.x + pad, y + 2 * S, kSand, 13.5f, t);
-            std::snprintf(t, sizeof(t), "%d / %d soldiers", alive, total);
-            text(dl, a.x + pad, y + 15 * S, alive < total ? kBad : kDim, 10.5f, t);
-            y += headH;
+            int alive = 0, total = 0, attacked = 0;
+            for (const Squad* s : sq) {
+                alive += ctx.squads->aliveMembers(*s, P); total += (int)s->members.size();
+                if (s->flags & SQ_UNDER_ATTACK) ++attacked;
+            }
+            std::snprintf(t, sizeof(t), "%d squads", (int)sq.size());
+            hs::textShadow(dl, FB, 16.f * S, ImVec2(a.x + pad, y + 2 * S), kSand, t);
+            float wx = a.x + pad + FB->CalcTextSizeA(16.f * S, FLT_MAX, 0.f, t).x + 12 * S;
+            std::snprintf(t, sizeof(t), "%d/%d", alive, total);
+            wx = iconWord(dl, wx, y + 4 * S, "troops", alive < total ? kBad : kDim, t);
+            if (attacked) { std::snprintf(t, sizeof(t), "%d under attack", attacked); iconWord(dl, wx, y + 4 * S, "alert", kBad, t); }
+            // one round counter per squad: ring = average health, number = squad, state glyph badge top-right
+            const float tokS = 40 * S, pitchX = 52 * S;
+            const float rowY = y + 30 * S + tokS * 0.5f;
             for (size_t k = 0; k < shown; ++k) {
                 const Squad& s = *sq[k];
-                const ImVec2 ra(a.x + pad, y), rb(c.x - pad, y + sumH - 2 * S);
+                const ImVec2 tc(a.x + pad + tokS * 0.5f + 3 * S + k * pitchX, rowY);
+                const ImVec2 ra(tc.x - tokS * 0.5f - 3 * S, tc.y - tokS * 0.5f - 3 * S), rb(tc.x + tokS * 0.5f + 3 * S, tc.y + tokS * 0.5f + 9 * S);
                 char id[32]; std::snprintf(id, sizeof(id), "##sq%zu", k);
                 bool hov = false;
                 if (hit(id, ra, rb, &hov)) { Command cmd; cmd.type = CommandType::Select; cmd.squads = {s.id}; out.push(cmd); sel_.squads = cmd.squads; }
-                if (hov) { dl->AddRectFilled(ra, rb, kBgHi, 3 * S); tipBegin(); ImGui::TextUnformatted("Click: select only this squad"); tipEnd(); }
-                drawUiIcon(dl, icon(s.type), ra.x + 9 * S, y + sumH * 0.45f, 16 * S, true);
-                std::snprintf(t, sizeof(t), "%s %u", nameOf(s.type), s.number);
-                text(dl, ra.x + 22 * S, y + 2 * S, kSand, 11.5f, t);
-                float hp = 0, am = 0; int n = 0;
-                for (const SoldierId& m : s.members) {
-                    if (!P.valid(m) || !P.alive(m.index)) continue;
-                    const size_t c2 = (size_t)P.cls[m.index];
-                    hp += std::clamp(P.health[m.index] / std::max(1.f, cfg.soldier[c2].health), 0.f, 1.f);
-                    am += std::clamp((float)(P.mag[m.index] + P.reserve[m.index]) / (float)std::max(1, cfg.weapon[c2].magazine + cfg.weapon[c2].reserve), 0.f, 1.f);
-                    ++n;
-                }
-                if (n) { hp /= n; am /= n; }
-                const float bx = ra.x + 130 * S, bw = std::max(24 * S, (rb.x - bx - 96 * S) * 0.5f);
-                bar(dl, bx, y + 5 * S, bw, 5 * S, hp, hp > 0.5f ? kOk : hp > 0.25f ? kAmber : kBad);
-                bar(dl, bx + bw + 4 * S, y + 5 * S, bw, 5 * S, am, (s.flags & SQ_OUT_OF_AMMO) ? kBad : (s.flags & SQ_LOW_AMMO) ? kAmber : kBlue);
+                const ImGuiID tid = ImGui::GetID(id);
+                hoverSound(tid, hov);
+                firstSight(tid);
+                float hp = 0, am = 0;
+                const int n = avgOf(s, hp, am);
                 ImU32 sc;
                 const char* st = stateOf(s, sc);
-                pill(dl, rb.x, y + S, st, sc);
-                y += sumH;
+                std::snprintf(t, sizeof(t), "%u", s.number);
+                hs::Tok qt; qt.size = 40; qt.round = true; qt.ring = n ? hp : 0.f; qt.num = t;
+                qt.lift = hs::tween(tid, hov ? 1.f : 0.f);
+                qt.press = hov && ImGui::IsMouseDown(0) ? 1.f : 0.f;
+                qt.pop = hs::pulse(tid, 0.32f);
+                hs::token(dl, tc, qt, hs::iconName(icon(s.type)), S);
+                const float ly = tc.y - 2.f * qt.lift * S;
+                const ImVec2 bc(tc.x + tokS * 0.36f, ly - tokS * 0.36f);   // state badge
+                dl->AddCircleFilled(bc, 7.5f * S, withA(kInk, 0.92f));
+                dl->AddCircle(bc, 7.5f * S, withA(sc, 0.8f), 0, 1.2f * S);
+                hs::icon(dl, glyphOf(s), bc, 10 * S, sc);
+                {   // ammo line
+                    const float aly = ly + tokS * 0.5f + 6 * S, lw = tokS - 8 * S;
+                    const ImU32 ac = (s.flags & SQ_OUT_OF_AMMO) ? kBad : (s.flags & SQ_LOW_AMMO) ? kAmber : kDim;
+                    bar(dl, tc.x - lw * 0.5f, aly, lw, 2.5f * S, am, ac);
+                }
+                if (hov) {
+                    tipBegin();
+                    ImGui::PushFont(FB, 14.f);
+                    ImGui::TextColored(v4(kSand), "%s %u", nameOf(s.type), s.number);
+                    ImGui::PopFont();
+                    ImGui::SameLine();
+                    ImGui::TextColored(v4(sc), "%s", wordOf(st).c_str());
+                    ImGui::TextColored(v4(kDim), "%d/%d alive   health %d%%   ammo %d%%", ctx.squads->aliveMembers(s, P), (int)s.members.size(),
+                                       (int)std::lround(hp * 100.f), (int)std::lround(am * 100.f));
+                    ImGui::TextColored(v4(kFaint), "Click: select only this squad");
+                    tipEnd();
+                }
             }
-            if (sq.size() > shown) { std::snprintf(t, sizeof(t), "+ %d more (click a squad to select it alone)", (int)(sq.size() - shown)); text(dl, a.x + pad, y + 3 * S, kFaint, 10.5f, t); }
-            y = a.y + pad + headH + listH;
+            if (sq.size() > shown) {   // "+N": the rest, as a faint counter
+                const ImVec2 tc(a.x + pad + tokS * 0.5f + 3 * S + shown * pitchX, rowY);
+                dl->AddCircleFilled(ImVec2(tc.x, tc.y + 2 * S), tokS * 0.42f, IM_COL32(0, 0, 0, 90));
+                dl->AddCircleFilled(tc, tokS * 0.42f, withA(hs::kTok, 0.6f));
+                std::snprintf(t, sizeof(t), "+%d", (int)(sq.size() - shown));
+                const ImVec2 ts = tsize(13.f, t);
+                text(dl, tc.x - ts.x * 0.5f, tc.y - ts.y * 0.5f, kDim, 13.f, t);
+                if (ImGui::IsMouseHoveringRect(ImVec2(tc.x - tokS * 0.5f, tc.y - tokS * 0.5f), ImVec2(tc.x + tokS * 0.5f, tc.y + tokS * 0.5f)) && ImGui::IsWindowHovered()) {
+                    tipBegin();
+                    ImGui::TextColored(v4(kDim), "%d more squads (click a squad to select it alone)", (int)(sq.size() - shown));
+                    tipEnd();
+                }
+            }
+            y = listEnd;
         }
+        seenTok.swap(seenNow);
         // ---- orders / context actions
         float x = a.x + pad;
         for (size_t k = 0; k < acts.size(); ++k) {
@@ -1347,47 +1447,87 @@ void GameUI::drawHoverMenu(AppState& app, const GameContext& ctx, CommandQueue& 
     ImVec2 sp;
     float ax, ay;
     if (!worldToScreen(app, hoverMenu_.anchor, ax, ay)) { hoverOpen_ = false; return; }
-    sp = ImVec2(ax + 14 * S, ay - 10 * S);
-    const float rowH = 22 * S, pad = 6 * S;
-    float w = tsize(12.f, hoverMenu_.title.c_str()).x + 2 * pad;
-    for (const UiHoverEntry& e : hoverMenu_.entries) {
-        float ew = 24 * S + tsize(12.f, e.label.c_str()).x + 2 * pad;
-        if (e.cost >= 0) ew += tsize(11.f, money(e.cost).c_str()).x + 10 * S;
-        if (!e.hotkeyLabel.empty()) ew += tsize(10.f, e.hotkeyLabel.c_str()).x + 10 * S;
-        w = std::max(w, ew);
-    }
-    const float h = 20 * S + rowH * (float)hoverMenu_.entries.size() + pad;
-    sp.x = std::min(sp.x, io.DisplaySize.x - w - 6 * S);
+    // v2 world card (preview screens_a): dark glass above the object with a pointer down to it; title row = icon +
+    // title; entries = a row of 32 pt tokens (key badge on the token, gold cost under it); names / reasons in tooltips
+    const float pad = 8 * S, titleH = 22 * S, slot = 42 * S, tokPt = 32.f, rowH = 54 * S, ptr = 7 * S;
+    const size_t n = hoverMenu_.entries.size();
+    const UiHoverEntry* headE = hoverMenu_.primary >= 0 && (size_t)hoverMenu_.primary < n ? &hoverMenu_.entries[(size_t)hoverMenu_.primary] : &hoverMenu_.entries[0];
+    const float titleW = 18 * S + 6 * S + tsize(12.f, hoverMenu_.title.c_str()).x;
+    const float w = std::min(io.DisplaySize.x - 12 * S, std::max(titleW, slot * (float)n) + 2 * pad);
+    const float h = titleH + rowH + pad * 0.5f;
+    sp = ImVec2(ax - w * 0.5f, ay - ptr - 6 * S - h);
+    sp.x = std::clamp(sp.x, 6 * S, std::max(6 * S, io.DisplaySize.x - w - 6 * S));
     sp.y = std::clamp(sp.y, layout_.topBarBottom + 4 * S, std::max(layout_.topBarBottom + 4 * S, layout_.barY0 - h - 6 * S));
     const ImVec2 a = sp, c(sp.x + w, sp.y + h);
     if (beginPane("##hud_hover", a, c)) {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         if (ImGui::IsWindowHovered()) hoverOverMenu_ = t;
-        dl->AddLine(ImVec2(ax, ay), ImVec2(a.x, a.y + 10 * S), withA(kSand, 0.6f), 1.f);
-        dl->AddCircleFilled(ImVec2(ax, ay), 2.5f * S, kSand, 8);
-        panel(dl, a, c);
-        text(dl, a.x + pad, a.y + 4 * S, kDim, 11.f, hoverMenu_.title.c_str());
-        float y = a.y + 20 * S;
-        for (size_t k = 0; k < hoverMenu_.entries.size(); ++k) {
+        // pointer: a small triangle from the card's bottom edge towards the anchor (drawn outside the pane clip)
+        ImDrawList* bg = ImGui::GetBackgroundDrawList();
+        const float px = std::clamp(ax, a.x + 10 * S, c.x - 10 * S);
+        if (ay > c.y + 2 * S) {
+            const float tipY = std::min(ay - 2 * S, c.y + ptr);
+            bg->AddTriangleFilled(ImVec2(px - ptr, c.y), ImVec2(px + ptr, c.y), ImVec2(px, tipY), withA(kBg, 1.f));
+        }
+        bg->AddCircleFilled(ImVec2(ax + 1, ay + 1), 2.5f * S, kShadow, 8);
+        bg->AddCircleFilled(ImVec2(ax, ay), 2.5f * S, kSand, 8);
+        panel(dl, a, c, 1.f, 6.f);
+        // title row
+        const char* hic = hs::iconName(headE->icon);
+        const ImVec2 ic(a.x + pad + 9 * S, a.y + titleH * 0.5f + 2 * S);
+        if (!hic || !hs::icon(dl, hic, ic, 16 * S, kSand, true)) drawUiIcon(dl, headE->icon, ic.x, ic.y, 16 * S, true);
+        const std::string ttl = fit(12.f, hoverMenu_.title, c.x - pad - (ic.x + 15 * S));
+        text(dl, ic.x + 15 * S, ic.y - tsize(12.f, ttl.c_str()).y * 0.5f, kSand, 12.f, ttl.c_str());
+        // entries
+        const float rowX0 = a.x + (w - slot * (float)n) * 0.5f, ty = a.y + titleH + 4 * S;
+        for (size_t k = 0; k < n; ++k) {
             const UiHoverEntry& e = hoverMenu_.entries[k];
             const bool afford = e.cost < 0 || ctx.economy->canAfford(e.cost);
             const bool en = e.enabled && afford;
-            const ImVec2 ra(a.x + 3 * S, y), rb(c.x - 3 * S, y + rowH - 2 * S);
+            const float sx0 = rowX0 + slot * (float)k;
+            const ImVec2 ra(sx0 + 2 * S, ty), rb(sx0 + slot - 2 * S, ty + rowH - 2 * S);
             char id[32]; std::snprintf(id, sizeof(id), "##hv%zu", k);
             bool hov = false;
+            const ImGuiID tid = ImGui::GetID(id);
             if (hit(id, ra, rb, &hov)) {   // a refused entry says why (owner round 15 #13: "nothing happens")
+                hs::kick(tid);
                 if (en && e.onClick) e.onClick(u);
                 else if (!en) notify(e.label + ": " + (!e.enabled ? e.why : std::string("not enough funding")), true, now_);
                 hoverOpen_ = false;
             }
-            if (hov) dl->AddRectFilled(ra, rb, en ? IM_COL32(60, 62, 40, 240) : kBgHi, 3 * S);
-            drawUiIcon(dl, e.icon, ra.x + 11 * S, y + rowH * 0.45f, 17 * S, en);
-            text(dl, ra.x + 24 * S, y + 3 * S, en ? kSand : kFaint, 12.f, e.label.c_str());
-            float rx = rb.x - 5 * S;
-            if (!e.hotkeyLabel.empty()) { rx -= tsize(10.f, e.hotkeyLabel.c_str()).x; text(dl, rx, y + 4 * S, kFaint, 10.f, e.hotkeyLabel.c_str()); rx -= 8 * S; }
-            if (e.cost >= 0) { const std::string cs = money(e.cost); rx -= tsize(11.f, cs.c_str()).x; text(dl, rx, y + 4 * S, afford ? kKhaki : kBad, 11.f, cs.c_str()); }
-            if (hov && (!e.enabled || !afford)) { tipBegin(); ImGui::TextColored(v4(kBad), "%s", !e.enabled ? e.why.c_str() : "Not enough funding"); tipEnd(); }
-            y += rowH;
+            hoverSound(tid, hov && en);
+            hs::Tok tk;
+            tk.size = tokPt; tk.off = !en;
+            tk.lift = hs::tween(tid, hov && en ? 1.f : 0.f);
+            tk.press = hov && ImGui::IsMouseDown(0) ? 1.f : 0.f;
+            const float pl = hs::pulse(tid, 0.32f);
+            if (en) tk.pop = pl; else tk.shake = pl;
+            tk.key = e.hotkeyLabel.empty() ? nullptr : e.hotkeyLabel.c_str();
+            const ImVec2 tc(sx0 + slot * 0.5f, ty + tokPt * 0.5f * S + 3 * S);
+            const char* en_ic = hs::iconName(e.icon);
+            hs::token(dl, tc, tk, en_ic, S);
+            if (!en_ic) drawUiIcon(dl, e.icon, tc.x, tc.y - 2 * S * tk.lift, 20 * S, en);
+            if ((int)k == hoverMenu_.primary)   // the click-on-object default: a small gold mark under the token
+                dl->AddRectFilled(ImVec2(tc.x - 6 * S, tc.y + tokPt * 0.5f * S + 3 * S), ImVec2(tc.x + 6 * S, tc.y + tokPt * 0.5f * S + 5 * S), kKhaki, S);
+            if (e.cost >= 0) {
+                const std::string cs = money(e.cost);
+                const ImVec2 cz = tsize(10.5f, cs.c_str());
+                text(dl, tc.x - cz.x * 0.5f, ty + rowH - cz.y - 3 * S, afford ? kKhaki : kBad, 10.5f, cs.c_str());
+            }
+            if (hov) {
+                tipBegin();
+                ImGui::PushFont(F, 14.f);
+                ImGui::TextColored(v4(kSand), "%s", e.label.c_str());
+                ImGui::PopFont();
+                if (e.cost >= 0 || !e.hotkeyLabel.empty()) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(v4(kKhaki), "%s%s%s%s", e.cost >= 0 ? money(e.cost).c_str() : "", e.hotkeyLabel.empty() ? "" : "   [",
+                                       e.hotkeyLabel.c_str(), e.hotkeyLabel.empty() ? "" : "]");
+                }
+                if ((int)k == hoverMenu_.primary) ImGui::TextColored(v4(kDim), "Click the object: does this");
+                if (!en) ImGui::TextColored(v4(kBad), "%s", !e.enabled ? e.why.c_str() : "Not enough funding");
+                tipEnd();
+            }
         }
     }
     ImGui::End();
@@ -1423,7 +1563,8 @@ void GameUI::flushWorldLabels(AppState& app) {
         if (zoomAlpha(L.prio) <= 0.01f) continue;
         const float px = L.prio <= kLabelMinor ? 12.f : 12.5f;
         const ImVec2 ts = tsize(px, L.text.c_str());
-        const float padX = L.plate ? 4 * S : 1 * S, padY = L.plate ? 1.5f * S : 0.f;
+        const bool plate = L.plate && L.prio >= kLabelAlert && L.prio < kLabelCursor;   // v2: plates only for alerts
+        const float padX = plate ? 5 * S : 1 * S, padY = plate ? 2 * S : 0.f;
         R r{L.x - padX, L.y - padY, L.x + ts.x + padX, L.y + ts.y + padY};
         if (L.centred) { r.x0 -= ts.x * 0.5f; r.x1 -= ts.x * 0.5f; }
         bool dup = false;   // the same text close by (two engineer rings, repeated "queued"): one label
@@ -1450,10 +1591,15 @@ void GameUI::flushWorldLabels(AppState& app) {
         const R& r = kp.second;
         const float a = zoomAlpha(L.prio);
         const float px = L.prio <= kLabelMinor ? 12.f : 12.5f;
-        if (L.plate) dl->AddRectFilled(ImVec2(r.x0, r.y0), ImVec2(r.x1, r.y1), withA(IM_COL32(10, 12, 8, 165), a), 3 * S);
-        const float tx = r.x0 + (L.plate ? 4 * S : S), ty = r.y0 + (L.plate ? 1.5f * S : 0.f);
-        if (!L.plate) dl->AddText(F, px * S, ImVec2(tx + 1, ty + 1), withA(kShadow, a), L.text.c_str());
-        dl->AddText(F, px * S, ImVec2(tx, ty), withA(L.col, a), L.text.c_str());
+        // v2: frameless shadowed text on the world; alert labels keep a red glass plate (bone text)
+        const bool plate = L.plate && L.prio >= kLabelAlert && L.prio < kLabelCursor;
+        if (plate) {
+            dl->AddRectFilled(ImVec2(r.x0 + S, r.y0 + 2 * S), ImVec2(r.x1 + S, r.y1 + 2 * S), withA(kShadow, 0.6f * a), 4 * S);
+            dl->AddRectFilled(ImVec2(r.x0, r.y0), ImVec2(r.x1, r.y1), withA(IM_COL32(150, 32, 22, 215), a), 4 * S);
+        }
+        const float tx = r.x0 + (plate ? 5 * S : S), ty = r.y0 + (plate ? 2 * S : 0.f);
+        dl->AddText(F, px * S, ImVec2(tx + 1, ty + 1), withA(kShadow, a), L.text.c_str());
+        dl->AddText(F, px * S, ImVec2(tx, ty), withA(plate ? kSand : L.col, a), L.text.c_str());
     }
     labels_.clear();
     hudRects_.clear();
