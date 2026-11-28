@@ -983,6 +983,12 @@ info panel never overlaps the menu. HUD 2 (`src/game/HudBar.cpp`, part of `GameU
   The building panel (BuildingGame) stacks above it (`GameUI::layout()`).
 - **Placement banner** (top centre, under the top bar) while a tool is active: what is being placed, its price, and the
   hints (LMB place, Shift keep, Q / E rotate, RMB / Esc cancel).
+- **World labels (decluttered)**: text over the 3D view goes through `GameUI::worldLabel(x, y, text, col, priority)`;
+  labels are placed by priority (cursor > alert > selected > status > info > minor), nudged or dropped on overlap,
+  identical text close by is merged (one "build radius" per area), minor ones fade out when zooming out, and none cover
+  the HUD panels. Control hints moved from the cursor into the placement banner.
+- **Mac scale fix**: the UI scale is the display content scale without the Retina pixel density (the old code doubled
+  every size on a Mac, which pushed the build bar off screen); `--ui-scale F` overrides.
 - **World hover menus**: providers fill a small menu for the object under the cursor (e.g. a parked car with engineers
   selected); the menu stays open while the cursor moves onto it.
 
@@ -1125,3 +1131,43 @@ car un-burnt while a full car explodes).
 **PROPOSED (owner):** generators only run at night; towers manned by snipers / riflemen / MG (not engineers or
 flamethrowers); instant climb-down on a new order; tower occupants climb down when out of ammo (later: an ammo box on
 the deck, refilled by the runner); fuel stores spill when full; lights do not cast shadows yet (point lights only).
+
+## 15. Rooftops 2.0: placement, roof navigation, roof logistics (GAME_DESIGN 14e; PROPOSED, values UNAPPROVED)
+
+Owner: "placing items and deploying units on roofs must be effortless; units on the roof respect its collisions, path
+properly and do not sit on the edge; they must understand the supply crate on their roof".
+
+* **Roof clearances (`NavGrid`).** A roof island = an island with a drop of more than 2.5 m within 2 cells of its rim
+  (never the largest island, the street network). Per roof cell (from the window's 0.75 m grid = max of the baked
+  0.5 m heights) two clearances, centre to the nearest cell not on the island, capped at 3 m: *edge* (a drop > 1.5 m,
+  or a raised rim cell with such a drop within 2 cells = parapet / ledge) and *obstacle* (stair housings, HVAC, tanks,
+  skylights, the other level of a stepped roof). `edgeClearance` / `obstacleClearance` give the exact value of a point.
+  A* adds 3 x (1.2 - edge) + 3 x (0.6 - obstacle) per step (positive parts), so paths keep off the rim and go round roof
+  objects with a margin; string pulling never cuts a leg through cells nearer the rim than the A* cells between its
+  ends. Path starts on a rim cell snap onto the same level (`nearestWalkableLevel`), never onto the street below.
+* **Roof-surface picker (`Deploy.h roofLevels`, `Deploy::planRoof`, `Logistics::airdropSpot`).** The click resolves to
+  the roof level it means (the roof island under it; a click on a parapet / cornice / roof object / rim -> the roof
+  beside it; a small raised top (< 60 cells) -> the larger level it stands on first). The whole island is searched for
+  the spot nearest the click scored against inset tiers (edge >= 1.5 / 1.2 / 1.0 / 0.7 / 0.36 m with a penalty of
+  0 / 2 / 4 / 8 / 14 m per tier: a narrow ring around a tower core still takes its most inset cells). Squad members land
+  on the same island, spaced 4.5 m, else 3 / 2.2 / 1.6 m. Crates: edge >= 1.8 m (tiers to 0.36), an access cell
+  beside them; roof crates land exactly at the previewed spot (no scatter) and their slots are on the island, inset
+  >= 0.8 m. Only when no roof level has any spot does the old surface snap run. The preview (GameUI, small edit) shows
+  every landing spot and a line from the cursor to the snapped spot (squads and crates).
+* **AI (`SoldierAI`).** Homes of roof soldiers are inset spots (`roofInset`: >= 1.2 m from the edge, 0.5 m from roof
+  objects, else the most inset cells); a squad that landed on a roof keeps its landing spots; idle separation never
+  pushes toward the edge. Firing posture: with known targets that no line from the home can hit, `roofEdgeStep` (every
+  1.5 s) picks a rim cell within 3.5 m of home with a clear firing line, walks there, fires; after 1.5 s at the edge
+  with nothing shootable he walks back home (`edgeSteps` / `edgeReturns`). Snipers: each vantage has `pos` (inset home)
+  and `fire` (the rim cell); targets are counted from `fire`, the sniper waits at `pos` and steps to `fire` to shoot.
+  Garrison posts (BuildingPlay) are untouched.
+* **Logistics.** `findNearest` uses the soldier's level when he stands on a rim cell and accepts a supply point only
+  when one of its slots is on his island.
+* **Tests:** `b5_roof_drops` (roofclicks over a flat parapet roof, a cluttered roof and a stepped roof: 0 refused,
+  spots >= 1.2 / 1.0 m from the edge (stepped: narrow lower strips 0.44 m); drops on a cornice notch, a rim, a stair
+  housing, a stepped edge and a UI click; idle roof soldiers watched every tick), `b5_roof_paths` (paths round the
+  stair housing, off the rim; moves across roofs), `b5_roof_supply` (crates clicked at roof rims, sniper and rifle squad
+  runner collect on their roofs). Script verbs / metrics: `RoofScript.cpp`.
+* **Known limits:** narrow roofs (tower rings / tops of seed 1) have no 1 m inset cells at all: soldiers there stand on
+  the most inset cells they have; a housing between two roof levels may resolve to the lower neighbour; crates are not
+  nav obstacles.
