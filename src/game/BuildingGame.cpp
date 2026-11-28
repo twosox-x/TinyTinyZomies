@@ -583,7 +583,11 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
     static const float kDoorW[3] = {1.7f, 1.4f, 1.4f}, kDoorH = 2.65f, kWinW[3] = {1.6f, 1.3f, 1.3f}, kWinH = 2.05f, kSteelW = 1.3f, kSteelH = 2.0f;
     auto ground = [&](float x, float z, float def) { return ctx.nav && ctx.nav->ready() ? ctx.nav->surface(x, z) : def; };
     if (app) updateRooms(*app, ctx, bp, mil);
+    struct DefPiece { int prop; V3 pos; float yaw, hx, hz, top; uint32_t obstacle; };
+    struct DefPieces { int level = 0; std::vector<DefPiece> pieces; };
+    static std::vector<DefPieces> defPieces;   // per building: entrance sandbags / L3 perimeter that passed the clearance test
     const BuildingRegistry& reg = bp.registry();
+    std::vector<const Building*> nearB;
     for (uint32_t b = 0; b < (uint32_t)reg.size(); ++b) {
         const Building& B = *reg.get(BuildingId{b});
         if (!B.prepared) continue;
@@ -619,7 +623,13 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
         }
         // entrances: L2 sandbag walls beside each door (U positions facing the street, the doorway kept clear),
         // L3 a sandbag perimeter in front of it (two slit walls angled in, a 2 m gap on the door axis)
-        if (B.defence >= 2)
+        // Pieces are built once per new level (DefPieces), each kept only when its footprint is clear (walkable nav
+        // cells, no parked vehicle), then stamped as obstacles like B2 walls (CityVehicles::addObstacle: the horde
+        // obstacle grid and the soldiers' NavGrid, which patches the uploaded rows).
+        if (defPieces.size() <= b) defPieces.resize(b + 1);
+        DefPieces& DP = defPieces[b];
+        std::vector<DefPiece> cand;
+        if (B.defence >= 2 && DP.level < 2)
             for (const Opening& o : B.openings) {
                 if (o.type != OpeningType::Door) continue;
                 float u, v;
@@ -630,12 +640,12 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
                 for (int sd = -1; sd <= 1; sd += 2) {
                     const float off = 0.5f * o.width + 1.5f, out = ins + 1.0f;
                     const float x = o.pos.x + o.nx * out + tx * off * (float)sd, z = o.pos.z + o.nz * out + tz * off * (float)sd;
-                    mil.addProp(P.roofPos, {x, ground(x, z, o.pos.y), z}, yaw);
+                    cand.push_back({P.roofPos, {x, ground(x, z, o.pos.y), z}, yaw, 1.3f, 0.9f, 0.9f, ~0u});
                 }
             }
         // L3: sandbag perimeter (approved slit walls, 2 m each) along every facade with an entrance, 3 m out from the
         // footprint edge, a 2.6 m gap on each door axis
-        if (B.defence >= 3 && P.slit >= 0) {
+        if (B.defence >= 3 && DP.level < 3 && P.slit >= 0) {
             const float ax[4][2] = {{-B.e2x, -B.e2z}, {B.e1x, B.e1z}, {B.e2x, B.e2z}, {-B.e1x, -B.e1z}};   // outward normals v=0, u=w, v=d, u=0
             unsigned sides = 0;
             for (const Opening& o : B.openings) {
@@ -662,10 +672,40 @@ void drawBuildingProps(MilitaryRenderer& mil, const GameContext& ctx, const Buil
                         const float along = std::fabs(dx * o.nz - dz * o.nx);
                         if (along < 1.0f + 0.5f * std::max(o.width, 1.6f) && dx * o.nx + dz * o.nz > 0.f) gap = true;
                     }
-                    if (!gap) mil.addProp(P.slit, {p.x, ground(p.x, p.z, B.y0), p.z}, yaw);
+                    if (!gap) cand.push_back({P.slit, {p.x, ground(p.x, p.z, B.y0), p.z}, yaw, 1.0f, 0.25f, 1.2f, ~0u});
                 }
             }
         }
+        if (DP.level < B.defence) {
+            nearB.clear();
+            const V3 bc0 = B.centre();
+            for (uint32_t k = 0; k < (uint32_t)reg.size(); ++k) {
+                const Building* o = reg.get(BuildingId{k});
+                if (!o || o == &B) continue;
+                const V3 oc = o->centre();
+                const float r = 0.5f * (std::hypot(B.w, B.d) + std::hypot(o->w, o->d)) + 6.f;
+                if ((oc.x - bc0.x) * (oc.x - bc0.x) + (oc.z - bc0.z) * (oc.z - bc0.z) < r * r) nearB.push_back(o);
+            }
+            for (DefPiece& c : cand) {
+                const float cs = std::cos(c.yaw), sn = std::sin(c.yaw);   // local X = (cos, -sin), local Z = (sin, cos)
+                const float ox = c.prop == P.slit ? 0.25f : 0.f;          // slit wall: back face at z = 0, 0.5 m deep
+                const float cx = c.pos.x + sn * ox, cz = c.pos.z + cs * ox;
+                bool clear = true;
+                for (int i = -1; i <= 1 && clear; ++i)
+                    for (int j = -1; j <= 1 && clear; ++j) {
+                        const float lx = (float)i * (c.hx + 0.15f), lz = (float)j * (c.hz + 0.15f);
+                        const float x = cx + lx * cs + lz * sn, z = cz - lx * sn + lz * cs;
+                        if (ctx.nav && ctx.nav->ready() && (!ctx.nav->walkable(x, z) || std::fabs(ctx.nav->surface(x, z) - c.pos.y) > 0.35f)) clear = false;
+                        for (const Building* o : nearB) if (o != &B && o->contains(x, z)) clear = false;
+                    }
+                if (clear && app && app->vehicles.parkedAt(cx, cz, std::max(c.hx, c.hz) + 0.3f) != UINT32_MAX) clear = false;
+                if (!clear) continue;
+                if (app) c.obstacle = app->vehicles.addObstacle(cx, cz, c.hx, c.hz, c.yaw, c.pos.y + c.top);
+                DP.pieces.push_back(c);
+            }
+            DP.level = B.defence;
+        }
+        for (const DefPiece& c : DP.pieces) mil.addProp(c.prop, c.pos, c.yaw);
         // nests / roof rings at firing positions; occupied roof edges get the approved sandbag roof position. Window
         // nests stand on the room floor behind the reveal (front course against the wall, the soldier inside the U);
         // roof posts are set back from the edge (Buildings.cpp): the ring around him / the U position in front of him
