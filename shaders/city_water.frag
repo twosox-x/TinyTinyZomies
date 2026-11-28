@@ -56,7 +56,8 @@ void main() {
     vec3 N = normalize(vec3(-g.x, 1.0, -g.y));
     float lam = max(dot(N, sunDir.xyz), 0.0);
     lam = floor(lam * 4.0 + 0.5) / 4.0;                                  // posterised diffuse
-    vec3 col = body * (mix(groundColor.rgb, skyColor.rgb, 0.7) + sunColor.rgb * 0.3 * lam);
+    float cs = cloudShadow(vWorld);                                     // voxel cloud shadows (sun term only)
+    vec3 col = body * (mix(groundColor.rgb, skyColor.rgb, 0.7) + sunColor.rgb * 0.3 * lam * cs);
     col += body * (pointLights(vWorld, vec3(0, 1, 0)) + lampLights(vWorld, vec3(0, 1, 0))) * 0.6;
 
     // Fresnel sky reflection, posterised
@@ -68,7 +69,7 @@ void main() {
 
     // ---- glints: whole cells light up (sun / moon), and lamp streaks as cell runs
     float sp = pow(max(dot(R, normalize(sunDir.xyz)), 0.0), 60.0);
-    col += sunColor.rgb * step(0.7, sp + 0.2 * (h0 - 0.5)) * 0.9;
+    col += sunColor.rgb * step(0.7, sp + 0.2 * (h0 - 0.5)) * 0.9 * cs;
     for (uint i = 0u; i < gridDim.z; ++i) {
         vec3 L = lightPos[i].xyz - vec3(cc.x, vWorld.y, cc.y);
         float d = length(L);

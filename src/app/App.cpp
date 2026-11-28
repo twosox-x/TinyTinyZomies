@@ -108,6 +108,7 @@ bool App::init() {
         if (off("lights")) rs.fireLights = false;
         if (off("shadows")) rs.shadowMap = false;
         if (off("dof")) rs.tiltShift = false;
+        if (off("clouds")) rs.clouds = false;          // voxel cloud shadows
         if (off("dofzoom")) rs.dofZoomAdapt = false;   // the fixed (pre zoom-adaptive) DOF at every zoom
         if (o.fxFullRes) rs.fxHalfRes = false;
         if (off("legacy")) { rs.perfLegacy = true; rs.chars.gibShadows = true; }   // A/B: the pre-budget explosion path

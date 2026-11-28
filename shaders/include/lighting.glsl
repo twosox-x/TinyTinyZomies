@@ -74,10 +74,36 @@ vec3 lampLights(vec3 P, vec3 N) {
 #else
 vec3 lampLights(vec3 P, vec3 N) { return vec3(0.0); }
 #endif
+// Voxel cloud shadows: sparse clouds drifting with the wind, as blocks of a coarse grid (cloudP.y m) so their shadows
+// read like the voxel city: low-frequency value noise sampled once per block centre, thresholded for the coverage
+// (cloudP.z), with a stepped fringe (outer blocks ~60 % as dark as the core) and no smooth edges. The point is
+// projected along the sun onto the cloud deck (cloudP.w m up), so walls and roofs agree with the ground below them.
+// Returns the factor for the sun term only; 1 by night (moon key light) and fading out as the sun gets low. ALU only.
+float cloudHash(vec2 p) {
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+float cloudNoise(vec2 p) {
+    vec2 i = floor(p), f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    float a = cloudHash(i), b = cloudHash(i + vec2(1, 0)), c = cloudHash(i + vec2(0, 1)), d = cloudHash(i + vec2(1, 1));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+float cloudShadow(vec3 P) {
+    float g = cloudP.x * (1.0 - todP.z) * smoothstep(0.03, 0.25, sunDir.y);
+    if (g <= 0.0) return 1.0;
+    vec2 q = P.xz + sunDir.xz * ((cloudP.w - P.y) / max(sunDir.y, 0.03)) - cloudW.xy;   // on the deck, in the drifting frame
+    vec2 c = (floor(q / cloudP.y) + 0.5) * cloudP.y;                                     // block centre (m)
+    float n = 0.65 * cloudNoise(c * (1.0 / 70.0)) + 0.35 * cloudNoise(c * (1.0 / 26.0) + vec2(17.3, 5.1));
+    float thr = 0.766 - 0.59 * cloudP.z;            // n above thr on ~cloudP.z of the map (calibrated for this noise)
+    float k = n > thr + 0.045 ? 1.0 : n > thr ? 0.6 : 0.0;
+    return 1.0 - g * k;
+}
 // vis: key-light visibility (1 lit, 0 in shadow), see shadow.glsl
 vec3 shadeV(vec3 albedo, vec3 N, vec3 P, float ao, float vis) {
     vec3 hemi = mix(groundColor.rgb, skyColor.rgb, N.y * 0.5 + 0.5) * ao;
-    vec3 key = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0) * vis;
+    vec3 key = sunColor.rgb * max(dot(N, sunDir.xyz), 0.0) * vis * cloudShadow(P);
     return albedo * (hemi + key + pointLights(P, N) + lampLights(P, N));
 }
 vec3 shade(vec3 albedo, vec3 N, vec3 P, float ao) { return shadeV(albedo, N, P, ao, 1.0); }

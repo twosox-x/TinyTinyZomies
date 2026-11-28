@@ -241,6 +241,7 @@ void main() {
 
     float vis = moonVisibility(vWorld, N);
     vec3 col = shadeV(albedo * 2.0, N, vWorld, 1.0, vis);
+    vis *= cloudShadow(vWorld);   // glass glints / day reflections below: under the cloud shadows too
     vec3 V = normalize(camPos.xyz - vWorld);
     float gloss = m.albedo.w;
     // window "room" cell: ~3.2 m along the facade x one 3 m storey, sampled just inside the wall (one hash per room:

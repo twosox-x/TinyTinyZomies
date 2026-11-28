@@ -158,6 +158,15 @@ void drawDebugUI(AppState& s) {
         ImGui::SliderFloat("shadow range (m)", &rs.shadowRange, 40.f, 400.f, "%.0f");
         ImGui::SliderFloat("shadow softness (texels)", &rs.shadowSoftness, 0.25f, 3.f);
         ImGui::Text("shadow pass: %u draw calls", s.renderer.shadowDrawCalls());
+        ImGui::Checkbox("cloud shadows (voxel)", &rs.clouds);
+        if (rs.clouds) {
+            ImGui::SliderFloat("cloud strength (sun dimmed)", &rs.cloudStrength, 0.f, 1.f);
+            ImGui::SliderFloat("cloud coverage", &rs.cloudCoverage, 0.f, 0.6f);
+            ImGui::SliderFloat("cloud block (m)", &rs.cloudCell, 1.f, 8.f, "%.1f");
+            ImGui::SliderFloat("cloud wind (m/s)", &rs.cloudSpeed, 0.f, 20.f, "%.1f");
+            ImGui::SliderFloat("cloud wind heading", &rs.cloudWindDeg, -180.f, 180.f, "%.0f deg");
+            ImGui::SliderFloat("cloud deck height (m)", &rs.cloudHeight, 50.f, 600.f, "%.0f");
+        }
         if (s.cityMode) {
             CitySettings& c = s.cityRenderer.settings;
             ImGui::SliderFloat("lamp intensity", &c.lampIntensity, 0.f, 3.f);

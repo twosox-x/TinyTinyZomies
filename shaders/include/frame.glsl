@@ -28,6 +28,8 @@ layout(std140, set = FRAME_SET, binding = 0) uniform Frame {
     mat4  shadowVP2;    // the other shadow map layer (next sun key; cross-faded, Renderer::shadowView)
     vec4  shadowP2;     // x weight of shadowVP2, y layer of shadowVP, z layer of shadowVP2
     vec4  mapP;         // map edge fade: xz rect (x0, z0, x1, z1) of the baked map, x1 <= x0 off (lighting.glsl finish)
+    vec4  cloudP;       // voxel cloud shadows (lighting.glsl cloudShadow): x strength (0 off), y cell size (m), z coverage 0..1, w deck height (m)
+    vec4  cloudW;       // xy cloud drift offset (m, wind x render time), zw unused
 };
 #define DBG_DENSITY 1u
 #define DBG_FLOW    2u

@@ -656,6 +656,18 @@ void Renderer::render(SDL_GPUCommandBuffer* cmd, SDL_GPUTexture* target, uint32_
         fu.shadowP2 = {wb, (float)la, (float)lb, 0.f};
     }
     fu.mapP = rs.studioLighting ? Vec4{0, 0, 0, 0} : Vec4{rs.mapRect[0], rs.mapRect[1], rs.mapRect[2], rs.mapRect[3]};
+    {   // voxel cloud shadows: the drift integrates the wind over render time (speed / heading changes never jump)
+        double dtc = cloudTime_ < 0.0 ? 0.0 : time - cloudTime_;
+        if (dtc < 0.0 || dtc > 1.0) dtc = 0.0;   // time reset / long stall
+        cloudTime_ = time;
+        const float a = rs.cloudWindDeg * 0.017453293f;
+        cloudOff_[0] = std::fmod(cloudOff_[0] + std::cos(a) * rs.cloudSpeed * (float)dtc, 40000.f);
+        cloudOff_[1] = std::fmod(cloudOff_[1] + std::sin(a) * rs.cloudSpeed * (float)dtc, 40000.f);
+        const bool on = rs.clouds && !rs.studioLighting && rs.cloudStrength > 0.f;
+        fu.cloudP = {on ? std::min(rs.cloudStrength, 1.f) : 0.f, std::max(0.5f, rs.cloudCell), std::clamp(rs.cloudCoverage, 0.f, 1.f),
+                     rs.cloudHeight};
+        fu.cloudW = {cloudOff_[0], cloudOff_[1], 0.f, 0.f};
+    }
     fu.shadowP = {shadowMap ? 1.f : 0.f, texelM, 3e-5f, std::max(0.25f, rs.shadowSoftness) / (float)std::max(1u, shadowSize_)};
     if (rs.studioLighting) {   // neutral studio close to Zombie Lab's "Neutral" mode (sage backdrop, warm key)
         V3 key = normalize(V3{0.47f, 0.76f, 0.40f});

@@ -68,6 +68,8 @@ struct Frame
     float4x4 shadowVP2;
     float4 shadowP2;
     float4 mapP;
+    float4 cloudP;
+    float4 cloudW;
 };
 
 struct LampGrid
@@ -119,26 +121,26 @@ struct SimUniforms
     float4 roamQ;
 };
 
-constant spvUnsafeArray<uint, 7> _1352 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });
-constant spvUnsafeArray<float3, 8> _1419 = spvUnsafeArray<float3, 8>({ float3(0.623529016971588134765625, 0.68235301971435546875, 0.3333329856395721435546875), float3(0.541176021099090576171875, 0.607842981815338134765625, 0.2980389893054962158203125), float3(0.698038995265960693359375, 0.705882012844085693359375, 0.41568601131439208984375), float3(0.4980390071868896484375, 0.57647097110748291015625, 0.3450979888439178466796875), float3(0.639216005802154541015625, 0.658824026584625244140625, 0.41960799694061279296875), float3(0.58039200305938720703125, 0.654901981353759765625, 0.4784309864044189453125), float3(0.721569001674652099609375, 0.690195977687835693359375, 0.4784309864044189453125), float3(0.43137300014495849609375, 0.5215690135955810546875, 0.313724994659423828125) });
-constant spvUnsafeArray<float3, 9> _1468 = spvUnsafeArray<float3, 9>({ float3(0.3333329856395721435546875, 0.41960799694061279296875, 0.2274509966373443603515625), float3(0.4784309864044189453125, 0.41568601131439208984375, 0.2274509966373443603515625), float3(0.43137300014495849609375, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.2980389893054962158203125, 0.3333329856395721435546875, 0.3764710128307342529296875), float3(0.360783994197845458984375, 0.1921570003032684326171875, 0.21960799396038055419921875), float3(0.372548997402191162109375, 0.372548997402191162109375, 0.3450979888439178466796875), float3(0.24705900251865386962890625, 0.3529410064220428466796875, 0.3294120132923126220703125), float3(0.21176500618457794189453125, 0.22352899610996246337890625, 0.290196001529693603515625), float3(0.4901959896087646484375, 0.450980007648468017578125, 0.3764710128307342529296875) });
-constant spvUnsafeArray<float3, 4> _1500 = spvUnsafeArray<float3, 4>({ float3(0.72548997402191162109375, 0.71372497081756591796875, 0.627451002597808837890625), float3(0.654901981353759765625, 0.662744998931884765625, 0.60392200946807861328125), float3(0.760783970355987548828125, 0.72548997402191162109375, 0.627451002597808837890625), float3(0.623529016971588134765625, 0.662744998931884765625, 0.658824026584625244140625) });
-constant spvUnsafeArray<float3, 6> _1536 = spvUnsafeArray<float3, 6>({ float3(0.23137299716472625732421875, 0.2745099961757659912109375, 0.337255001068115234375), float3(0.18431399762630462646484375, 0.1921570003032684326171875, 0.21176500618457794189453125), float3(0.42745101451873779296875, 0.4000000059604644775390625, 0.313724994659423828125), float3(0.290196001529693603515625, 0.23529399931430816650390625, 0.18431399762630462646484375), float3(0.23529399931430816650390625, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.3333329856395721435546875, 0.313724994659423828125, 0.290196001529693603515625) });
-constant spvUnsafeArray<float3, 6> _1583 = spvUnsafeArray<float3, 6>({ float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.117646999657154083251953125), float3(0.3529410064220428466796875, 0.2745099961757659912109375, 0.18823499977588653564453125), float3(0.117646999657154083251953125, 0.117646999657154083251953125, 0.1333329975605010986328125), float3(0.549019992351531982421875, 0.4784309864044189453125, 0.360783994197845458984375), float3(0.41568601131439208984375, 0.23137299716472625732421875, 0.13725499808788299560546875), float3(0.23137299716472625732421875, 0.20000000298023223876953125, 0.18823499977588653564453125) });
-constant spvUnsafeArray<float3, 3> _1602 = spvUnsafeArray<float3, 3>({ float3(0.41960799694061279296875, 0.121569000184535980224609375, 0.14902000129222869873046875), float3(0.17254899442195892333984375, 0.2274509966373443603515625, 0.360783994197845458984375), float3(0.24705900251865386962890625, 0.290196001529693603515625, 0.16470600664615631103515625) });
-constant spvUnsafeArray<float3, 5> _1621 = spvUnsafeArray<float3, 5>({ float3(0.41960799694061279296875, 0.16470600664615631103515625, 0.16470600664615631103515625), float3(0.21960799396038055419921875, 0.290196001529693603515625, 0.3529410064220428466796875), float3(0.3529410064220428466796875, 0.3529410064220428466796875, 0.1803919970989227294921875), float3(0.18431399762630462646484375, 0.18431399762630462646484375, 0.20000000298023223876953125), float3(0.4784309864044189453125, 0.3529410064220428466796875, 0.16470600664615631103515625) });
-constant spvUnsafeArray<float3, 3> _1648 = spvUnsafeArray<float3, 3>({ float3(0.16470600664615631103515625, 0.14117600023746490478515625, 0.12548999488353729248046875), float3(0.2274509966373443603515625, 0.20000000298023223876953125, 0.17254899442195892333984375), float3(0.121569000184535980224609375, 0.113724999129772186279296875, 0.113724999129772186279296875) });
-constant spvUnsafeArray<float3, 9> _1685 = spvUnsafeArray<float3, 9>({ float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875), float3(0.24705900251865386962890625, 0.0392160005867481231689453125, 0.04313699901103973388671875), float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.8392159938812255859375, 0.800000011920928955078125, 0.670588016510009765625), float3(0.662744998931884765625, 0.615685999393463134765625, 0.4862749874591827392578125), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), float3(0.337255001068115234375, 0.070588000118732452392578125, 0.08627499639987945556640625), float3(0.10196100175380706787109375, 0.047058999538421630859375, 0.0549019984900951385498046875), float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.121569000184535980224609375) });
-constant spvUnsafeArray<float3, 6> _1725 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
-constant spvUnsafeArray<uint, 4> _1985 = spvUnsafeArray<uint, 4>({ 101u, 202u, 303u, 404u });
-constant spvUnsafeArray<int, 10> _2032 = spvUnsafeArray<int, 10>({ 1, -1, 1, 2, 1, 4, -1, 6, -1, 8 });
-constant spvUnsafeArray<float3, 10> _2071 = spvUnsafeArray<float3, 10>({ float3(0.0, 14.0, 0.0), float3(0.0, 8.0, 0.0), float3(3.0, 13.5, 0.0), float3(3.0, 10.0, 0.0), float3(-3.0, 13.5, 0.0), float3(-3.0, 10.0, 0.0), float3(1.5, 8.0, 0.0), float3(1.5, 4.0, 0.0), float3(-1.5, 8.0, 0.0), float3(-1.5, 4.0, 0.0) });
-constant spvUnsafeArray<int, 10> _2272 = spvUnsafeArray<int, 10>({ 0, 1, 2, 3, 2, 3, 4, 5, 4, 5 });
-constant spvUnsafeArray<uint, 10> _2283 = spvUnsafeArray<uint, 10>({ 0u, 264u, 495u, 825u, 1023u, 1353u, 1551u, 1716u, 1914u, 2079u });
-constant spvUnsafeArray<uint, 10> _2284 = spvUnsafeArray<uint, 10>({ 1u, 1u, 2u, 1u, 2u, 1u, 1u, 1u, 1u, 1u });
-constant spvUnsafeArray<uint, 6> _2286 = spvUnsafeArray<uint, 6>({ 8u, 7u, 5u, 6u, 5u, 6u });
-constant spvUnsafeArray<uint, 6> _2289 = spvUnsafeArray<uint, 6>({ 0u, 8u, 15u, 20u, 26u, 31u });
-constant spvUnsafeArray<uint, 37> _2292 = spvUnsafeArray<uint, 37>({ 0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 0u, 0u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 1u, 2u });
+constant spvUnsafeArray<uint, 7> _1545 = spvUnsafeArray<uint, 7>({ 0u, 1u, 0u, 0u, 2u, 2u, 0u });
+constant spvUnsafeArray<float3, 8> _1612 = spvUnsafeArray<float3, 8>({ float3(0.623529016971588134765625, 0.68235301971435546875, 0.3333329856395721435546875), float3(0.541176021099090576171875, 0.607842981815338134765625, 0.2980389893054962158203125), float3(0.698038995265960693359375, 0.705882012844085693359375, 0.41568601131439208984375), float3(0.4980390071868896484375, 0.57647097110748291015625, 0.3450979888439178466796875), float3(0.639216005802154541015625, 0.658824026584625244140625, 0.41960799694061279296875), float3(0.58039200305938720703125, 0.654901981353759765625, 0.4784309864044189453125), float3(0.721569001674652099609375, 0.690195977687835693359375, 0.4784309864044189453125), float3(0.43137300014495849609375, 0.5215690135955810546875, 0.313724994659423828125) });
+constant spvUnsafeArray<float3, 9> _1661 = spvUnsafeArray<float3, 9>({ float3(0.3333329856395721435546875, 0.41960799694061279296875, 0.2274509966373443603515625), float3(0.4784309864044189453125, 0.41568601131439208984375, 0.2274509966373443603515625), float3(0.43137300014495849609375, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.2980389893054962158203125, 0.3333329856395721435546875, 0.3764710128307342529296875), float3(0.360783994197845458984375, 0.1921570003032684326171875, 0.21960799396038055419921875), float3(0.372548997402191162109375, 0.372548997402191162109375, 0.3450979888439178466796875), float3(0.24705900251865386962890625, 0.3529410064220428466796875, 0.3294120132923126220703125), float3(0.21176500618457794189453125, 0.22352899610996246337890625, 0.290196001529693603515625), float3(0.4901959896087646484375, 0.450980007648468017578125, 0.3764710128307342529296875) });
+constant spvUnsafeArray<float3, 4> _1693 = spvUnsafeArray<float3, 4>({ float3(0.72548997402191162109375, 0.71372497081756591796875, 0.627451002597808837890625), float3(0.654901981353759765625, 0.662744998931884765625, 0.60392200946807861328125), float3(0.760783970355987548828125, 0.72548997402191162109375, 0.627451002597808837890625), float3(0.623529016971588134765625, 0.662744998931884765625, 0.658824026584625244140625) });
+constant spvUnsafeArray<float3, 6> _1729 = spvUnsafeArray<float3, 6>({ float3(0.23137299716472625732421875, 0.2745099961757659912109375, 0.337255001068115234375), float3(0.18431399762630462646484375, 0.1921570003032684326171875, 0.21176500618457794189453125), float3(0.42745101451873779296875, 0.4000000059604644775390625, 0.313724994659423828125), float3(0.290196001529693603515625, 0.23529399931430816650390625, 0.18431399762630462646484375), float3(0.23529399931430816650390625, 0.26666700839996337890625, 0.2039220035076141357421875), float3(0.3333329856395721435546875, 0.313724994659423828125, 0.290196001529693603515625) });
+constant spvUnsafeArray<float3, 6> _1776 = spvUnsafeArray<float3, 6>({ float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.117646999657154083251953125), float3(0.3529410064220428466796875, 0.2745099961757659912109375, 0.18823499977588653564453125), float3(0.117646999657154083251953125, 0.117646999657154083251953125, 0.1333329975605010986328125), float3(0.549019992351531982421875, 0.4784309864044189453125, 0.360783994197845458984375), float3(0.41568601131439208984375, 0.23137299716472625732421875, 0.13725499808788299560546875), float3(0.23137299716472625732421875, 0.20000000298023223876953125, 0.18823499977588653564453125) });
+constant spvUnsafeArray<float3, 3> _1795 = spvUnsafeArray<float3, 3>({ float3(0.41960799694061279296875, 0.121569000184535980224609375, 0.14902000129222869873046875), float3(0.17254899442195892333984375, 0.2274509966373443603515625, 0.360783994197845458984375), float3(0.24705900251865386962890625, 0.290196001529693603515625, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 5> _1814 = spvUnsafeArray<float3, 5>({ float3(0.41960799694061279296875, 0.16470600664615631103515625, 0.16470600664615631103515625), float3(0.21960799396038055419921875, 0.290196001529693603515625, 0.3529410064220428466796875), float3(0.3529410064220428466796875, 0.3529410064220428466796875, 0.1803919970989227294921875), float3(0.18431399762630462646484375, 0.18431399762630462646484375, 0.20000000298023223876953125), float3(0.4784309864044189453125, 0.3529410064220428466796875, 0.16470600664615631103515625) });
+constant spvUnsafeArray<float3, 3> _1841 = spvUnsafeArray<float3, 3>({ float3(0.16470600664615631103515625, 0.14117600023746490478515625, 0.12548999488353729248046875), float3(0.2274509966373443603515625, 0.20000000298023223876953125, 0.17254899442195892333984375), float3(0.121569000184535980224609375, 0.113724999129772186279296875, 0.113724999129772186279296875) });
+constant spvUnsafeArray<float3, 9> _1878 = spvUnsafeArray<float3, 9>({ float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875), float3(0.24705900251865386962890625, 0.0392160005867481231689453125, 0.04313699901103973388671875), float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.8392159938812255859375, 0.800000011920928955078125, 0.670588016510009765625), float3(0.662744998931884765625, 0.615685999393463134765625, 0.4862749874591827392578125), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), float3(0.337255001068115234375, 0.070588000118732452392578125, 0.08627499639987945556640625), float3(0.10196100175380706787109375, 0.047058999538421630859375, 0.0549019984900951385498046875), float3(0.1686269938945770263671875, 0.14117600023746490478515625, 0.121569000184535980224609375) });
+constant spvUnsafeArray<float3, 6> _1918 = spvUnsafeArray<float3, 6>({ float3(1.0, 0.0, 0.0), float3(-1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, -1.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 0.0, -1.0) });
+constant spvUnsafeArray<uint, 4> _2176 = spvUnsafeArray<uint, 4>({ 101u, 202u, 303u, 404u });
+constant spvUnsafeArray<int, 10> _2223 = spvUnsafeArray<int, 10>({ 1, -1, 1, 2, 1, 4, -1, 6, -1, 8 });
+constant spvUnsafeArray<float3, 10> _2262 = spvUnsafeArray<float3, 10>({ float3(0.0, 14.0, 0.0), float3(0.0, 8.0, 0.0), float3(3.0, 13.5, 0.0), float3(3.0, 10.0, 0.0), float3(-3.0, 13.5, 0.0), float3(-3.0, 10.0, 0.0), float3(1.5, 8.0, 0.0), float3(1.5, 4.0, 0.0), float3(-1.5, 8.0, 0.0), float3(-1.5, 4.0, 0.0) });
+constant spvUnsafeArray<int, 10> _2463 = spvUnsafeArray<int, 10>({ 0, 1, 2, 3, 2, 3, 4, 5, 4, 5 });
+constant spvUnsafeArray<uint, 10> _2474 = spvUnsafeArray<uint, 10>({ 0u, 264u, 495u, 825u, 1023u, 1353u, 1551u, 1716u, 1914u, 2079u });
+constant spvUnsafeArray<uint, 10> _2475 = spvUnsafeArray<uint, 10>({ 1u, 1u, 2u, 1u, 2u, 1u, 1u, 1u, 1u, 1u });
+constant spvUnsafeArray<uint, 6> _2477 = spvUnsafeArray<uint, 6>({ 8u, 7u, 5u, 6u, 5u, 6u });
+constant spvUnsafeArray<uint, 6> _2480 = spvUnsafeArray<uint, 6>({ 0u, 8u, 15u, 20u, 26u, 31u });
+constant spvUnsafeArray<uint, 37> _2483 = spvUnsafeArray<uint, 37>({ 0u, 0u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 0u, 0u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 2u, 2u, 0u, 0u, 1u, 1u, 2u, 0u, 0u, 1u, 1u, 1u, 2u });
 
 struct main0_out
 {
@@ -155,68 +157,68 @@ struct main0_in
 };
 
 static inline __attribute__((always_inline))
-float mapEdgeFade(thread const float3& P, constant Frame& _107)
+float mapEdgeFade(thread const float3& P, constant Frame& _119)
 {
-    if (_107.mapP.z <= _107.mapP.x)
+    if (_119.mapP.z <= _119.mapP.x)
     {
         return 0.0;
     }
-    float2 o = fast::max(_107.mapP.xy - P.xz, P.xz - _107.mapP.zw);
+    float2 o = fast::max(_119.mapP.xy - P.xz, P.xz - _119.mapP.zw);
     float d = length(fast::max(o, float2(0.0))) + fast::min(fast::max(o.x, o.y), 0.0);
     return smoothstep(-120.0, 0.0, d);
 }
 
 static inline __attribute__((always_inline))
-float3 finish(thread float3& col, thread const float3& P, constant Frame& _107)
+float3 finish(thread float3& col, thread const float3& P, constant Frame& _119)
 {
-    float d = length(P - _107.camPos.xyz);
-    float f = (1.0 - exp((-_107.fogColor.w) * fast::max(d - _107.groundColor.w, 0.0))) * 0.699999988079071044921875;
+    float d = length(P - _119.camPos.xyz);
+    float f = (1.0 - exp((-_119.fogColor.w) * fast::max(d - _119.groundColor.w, 0.0))) * 0.699999988079071044921875;
     float3 param = P;
-    col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _107)));
-    col = mix(col, _107.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
-    float _759;
-    if (_107.sunColor.w > 0.0)
+    col = mix(col, float3(0.0040000001899898052215576171875, 0.00449999980628490447998046875, 0.006000000052154064178466796875), float3(mapEdgeFade(param, _119)));
+    col = mix(col, _119.fogColor.xyz, float3(fast::clamp(f, 0.0, 1.0)));
+    float _954;
+    if (_119.sunColor.w > 0.0)
     {
-        _759 = _107.sunColor.w;
+        _954 = _119.sunColor.w;
     }
     else
     {
-        _759 = 1.0;
+        _954 = 1.0;
     }
-    col *= _759;
+    col *= _954;
     col /= (float3(1.0) + (col * 0.300000011920928955078125));
     return powr(fast::clamp(col, float3(0.0), float3(1.0)), float3(0.4545454680919647216796875));
 }
 
 static inline __attribute__((always_inline))
-float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _107)
+float4 finishA(thread const float3& col, thread const float3& P, constant Frame& _119)
 {
-    float d = fast::max(length(P - _107.camPos.xyz), 0.001000000047497451305389404296875);
-    float r = (d - _107.sunDir.w) / d;
-    float rb = sign(r) * fast::max(abs(r) - _107.dofP.x, 0.0);
-    float coc = _107.skyColor.w * rb;
-    bool _817 = _107.dofP.y > 0.0;
-    bool _823;
-    if (_817)
+    float d = fast::max(length(P - _119.camPos.xyz), 0.001000000047497451305389404296875);
+    float r = (d - _119.sunDir.w) / d;
+    float rb = sign(r) * fast::max(abs(r) - _119.dofP.x, 0.0);
+    float coc = _119.skyColor.w * rb;
+    bool _1012 = _119.dofP.y > 0.0;
+    bool _1018;
+    if (_1012)
     {
-        _823 = _107.skyColor.w > 0.0;
+        _1018 = _119.skyColor.w > 0.0;
     }
     else
     {
-        _823 = _817;
+        _1018 = _1012;
     }
-    if (_823)
+    if (_1018)
     {
-        float4 cp = _107.viewProj * float4(P, 1.0);
+        float4 cp = _119.viewProj * float4(P, 1.0);
         float ny = abs(cp.y / fast::max(abs(cp.w), 9.9999997473787516355514526367188e-05));
-        float tilt = _107.dofP.y * smoothstep(_107.dofP.z, 1.0, ny);
+        float tilt = _119.dofP.y * smoothstep(_119.dofP.z, 1.0, ny);
         coc = ((r >= 0.0) ? 1.0 : (-1.0)) * fast::max(abs(coc), tilt);
     }
     coc = fast::clamp(coc, -1.0, 1.0);
     float3 param = col;
     float3 param_1 = P;
-    float3 _868 = finish(param, param_1, _107);
-    return float4(_868, 0.5 + (0.5 * coc));
+    float3 _1063 = finish(param, param_1, _119);
+    return float4(_1063, 0.5 + (0.5 * coc));
 }
 
 static inline __attribute__((always_inline))
@@ -233,87 +235,87 @@ float3 tagColorSRGB(thread uint& tag, thread const uint& look)
     uint torso = (look >> uint(24)) & 7u;
     if ((tag == 14u) || (tag == 15u))
     {
-        uint sl = _1352[torso];
+        uint sl = _1545[torso];
         bool dark = tag == 15u;
-        uint _1364;
+        uint _1557;
         if (sl == 0u)
         {
-            _1364 = dark ? 3u : 2u;
+            _1557 = dark ? 3u : 2u;
         }
         else
         {
-            uint _1372;
+            uint _1565;
             if (sl == 1u)
             {
-                _1372 = dark ? 5u : 4u;
+                _1565 = dark ? 5u : 4u;
             }
             else
             {
-                _1372 = uint(dark);
+                _1565 = uint(dark);
             }
-            _1364 = _1372;
+            _1557 = _1565;
         }
-        tag = _1364;
+        tag = _1557;
     }
     if (tag == 0u)
     {
-        return _1419[skin];
+        return _1612[skin];
     }
     if (tag == 1u)
     {
-        return _1419[skin] * 0.7400000095367431640625;
+        return _1612[skin] * 0.7400000095367431640625;
     }
     if (tag == 2u)
     {
-        return _1468[top];
+        return _1661[top];
     }
     if (tag == 3u)
     {
-        return _1468[top] * 0.699999988079071044921875;
+        return _1661[top] * 0.699999988079071044921875;
     }
     if (tag == 4u)
     {
-        return _1500[shirt];
+        return _1693[shirt];
     }
     if (tag == 5u)
     {
-        return _1500[shirt] * 0.75;
+        return _1693[shirt] * 0.75;
     }
     if (tag == 6u)
     {
-        return _1536[pants];
+        return _1729[pants];
     }
     if (tag == 7u)
     {
-        return _1536[pants] * 0.7200000286102294921875;
+        return _1729[pants] * 0.7200000286102294921875;
     }
     if (tag == 8u)
     {
-        return _1536[pants] * 1.2200000286102294921875;
+        return _1729[pants] * 1.2200000286102294921875;
     }
     if (tag == 9u)
     {
-        return _1583[hair];
+        return _1776[hair];
     }
     if (tag == 10u)
     {
-        return _1602[tie];
+        return _1795[tie];
     }
     if (tag == 11u)
     {
-        return _1621[hat];
+        return _1814[hat];
     }
     if (tag == 12u)
     {
-        return _1621[hat] * 0.7200000286102294921875;
+        return _1814[hat] * 0.7200000286102294921875;
     }
     if (tag == 13u)
     {
-        return _1648[shoe];
+        return _1841[shoe];
     }
     if ((tag >= 16u) && (tag <= 24u))
     {
-        return _1685[tag - 16u];
+        return _1878[tag - 16u];
     }
     return float3(1.0, 0.0, 1.0);
 }
@@ -333,34 +335,34 @@ float labHash3(thread const float3& p, thread const uint& s)
 }
 
 static inline __attribute__((always_inline))
-float shadowMapLayer(thread const float3& Q, thread const float4x4& vp, thread const float& layer, constant Frame& _107, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
+float shadowMapLayer(thread const float3& Q, thread const float4x4& vp, thread const float& layer, constant Frame& _119, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
 {
     float4 c = vp * float4(Q, 1.0);
     float edge = fast::max(abs(c.x), abs(c.y));
-    bool _1030 = edge >= 1.0;
-    bool _1037;
-    if (!_1030)
+    bool _1224 = edge >= 1.0;
+    bool _1231;
+    if (!_1224)
     {
-        _1037 = c.z <= 0.0;
+        _1231 = c.z <= 0.0;
     }
     else
     {
-        _1037 = _1030;
+        _1231 = _1224;
     }
-    if (_1037)
+    if (_1231)
     {
         return 1.0;
     }
     float2 uv = float2((c.x * 0.5) + 0.5, 0.5 - (0.5 * c.y));
-    float z = fast::min(c.z - _107.shadowP.z, 1.0);
-    float d = _107.shadowP.w;
+    float z = fast::min(c.z - _119.shadowP.z, 1.0);
+    float d = _119.shadowP.w;
     float s = 0.0;
     for (int j = -1; j <= 1; j++)
     {
         for (int i = -1; i <= 1; i++)
         {
-            float4 _1098 = float4(uv + (float2(float(i), float(j)) * d), layer, z);
-            s += shadowMap.sample_compare(shadowMapSmplr, _1098.xy, uint(rint(_1098.z)), _1098.w);
+            float4 _1292 = float4(uv + (float2(float(i), float(j)) * d), layer, z);
+            s += shadowMap.sample_compare(shadowMapSmplr, _1292.xy, uint(rint(_1292.z)), _1292.w);
         }
     }
     s *= 0.111111111938953399658203125;
@@ -368,144 +370,196 @@ float shadowMapLayer(thread const float3& Q, thread const float4x4& vp, thread c
 }
 
 static inline __attribute__((always_inline))
-float shadowMapVisibility(thread const float3& P, thread const float3& N, constant Frame& _107, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
+float shadowMapVisibility(thread const float3& P, thread const float3& N, constant Frame& _119, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
 {
-    float ndl = dot(N, _107.sunDir.xyz);
-    float3 Q = (P + ((N * _107.shadowP.y) * (1.2000000476837158203125 + (1.7999999523162841796875 * (1.0 - abs(ndl)))))) + ((_107.sunDir.xyz * _107.shadowP.y) * 0.5);
-    float w = _107.shadowP2.x;
-    float _1153;
+    float ndl = dot(N, _119.sunDir.xyz);
+    float3 Q = (P + ((N * _119.shadowP.y) * (1.2000000476837158203125 + (1.7999999523162841796875 * (1.0 - abs(ndl)))))) + ((_119.sunDir.xyz * _119.shadowP.y) * 0.5);
+    float w = _119.shadowP2.x;
+    float _1347;
     if (w < 0.999000012874603271484375)
     {
         float3 param = Q;
-        float4x4 param_1 = _107.shadowVP;
-        float param_2 = _107.shadowP2.y;
-        _1153 = shadowMapLayer(param, param_1, param_2, _107, shadowMap, shadowMapSmplr);
+        float4x4 param_1 = _119.shadowVP;
+        float param_2 = _119.shadowP2.y;
+        _1347 = shadowMapLayer(param, param_1, param_2, _119, shadowMap, shadowMapSmplr);
     }
     else
     {
-        _1153 = 1.0;
+        _1347 = 1.0;
     }
-    float a = _1153;
-    float _1171;
+    float a = _1347;
+    float _1365;
     if (w > 0.001000000047497451305389404296875)
     {
         float3 param_3 = Q;
-        float4x4 param_4 = _107.shadowVP2;
-        float param_5 = _107.shadowP2.z;
-        _1171 = shadowMapLayer(param_3, param_4, param_5, _107, shadowMap, shadowMapSmplr);
+        float4x4 param_4 = _119.shadowVP2;
+        float param_5 = _119.shadowP2.z;
+        _1365 = shadowMapLayer(param_3, param_4, param_5, _119, shadowMap, shadowMapSmplr);
     }
     else
     {
-        _1171 = 1.0;
+        _1365 = 1.0;
     }
-    float b = _1171;
-    float _1188;
+    float b = _1365;
+    float _1382;
     if (w < 0.001000000047497451305389404296875)
     {
-        _1188 = a;
+        _1382 = a;
     }
     else
     {
-        float _1195;
+        float _1389;
         if (w > 0.999000012874603271484375)
         {
-            _1195 = b;
+            _1389 = b;
         }
         else
         {
-            _1195 = mix(a, b, w);
+            _1389 = mix(a, b, w);
         }
-        _1188 = _1195;
+        _1382 = _1389;
     }
-    return _1188;
+    return _1382;
 }
 
 static inline __attribute__((always_inline))
-float shadowAt(thread int2& c, constant Frame& _107, const device ShadowH& _896)
+float shadowAt(thread int2& c, constant Frame& _119, const device ShadowH& _1091)
 {
-    int2 d = int2(_107.gridDim.xy) * int2(3);
+    int2 d = int2(_119.gridDim.xy) * int2(3);
     c = clamp(c, int2(0), d - int2(1));
-    return _896.shadowH[(uint(c.y) * uint(d.x)) + uint(c.x)];
+    return _1091.shadowH[(uint(c.y) * uint(d.x)) + uint(c.x)];
 }
 
 static inline __attribute__((always_inline))
-float shadowFieldVisibility(thread const float3& P, thread const float3& N, constant Frame& _107, const device ShadowH& _896)
+float shadowFieldVisibility(thread const float3& P, thread const float3& N, constant Frame& _119, const device ShadowH& _1091)
 {
     float3 Q = P + (N * 0.119999997317790985107421875);
-    float2 g = (((Q.xz - _107.gridP.xy) * _107.gridP.w) * 3.0) - float2(0.5);
-    bool _934 = g.x < (-1.0);
-    bool _941;
-    if (!_934)
+    float2 g = (((Q.xz - _119.gridP.xy) * _119.gridP.w) * 3.0) - float2(0.5);
+    bool _1128 = g.x < (-1.0);
+    bool _1135;
+    if (!_1128)
     {
-        _941 = g.y < (-1.0);
+        _1135 = g.y < (-1.0);
     }
     else
     {
-        _941 = _934;
+        _1135 = _1128;
     }
-    bool _952;
-    if (!_941)
+    bool _1146;
+    if (!_1135)
     {
-        _952 = g.x > float(_107.gridDim.x * 3u);
+        _1146 = g.x > float(_119.gridDim.x * 3u);
     }
     else
     {
-        _952 = _941;
+        _1146 = _1135;
     }
-    bool _963;
-    if (!_952)
+    bool _1157;
+    if (!_1146)
     {
-        _963 = g.y > float(_107.gridDim.y * 3u);
+        _1157 = g.y > float(_119.gridDim.y * 3u);
     }
     else
     {
-        _963 = _952;
+        _1157 = _1146;
     }
-    if (_963)
+    if (_1157)
     {
         return 1.0;
     }
     int2 c0 = int2(floor(g));
     float2 f = g - float2(c0);
     int2 param = c0;
-    float _979 = shadowAt(param, _107, _896);
+    float _1173 = shadowAt(param, _119, _1091);
     int2 param_1 = c0 + int2(1, 0);
-    float _984 = shadowAt(param_1, _107, _896);
+    float _1178 = shadowAt(param_1, _119, _1091);
     int2 param_2 = c0 + int2(0, 1);
-    float _992 = shadowAt(param_2, _107, _896);
+    float _1186 = shadowAt(param_2, _119, _1091);
     int2 param_3 = c0 + int2(1);
-    float _997 = shadowAt(param_3, _107, _896);
-    float h = mix(mix(_979, _984, f.x), mix(_992, _997, f.x), f.y);
+    float _1191 = shadowAt(param_3, _119, _1091);
+    float h = mix(mix(_1173, _1178, f.x), mix(_1186, _1191, f.x), f.y);
     return smoothstep(-0.07999999821186065673828125, 0.07999999821186065673828125, Q.y - h);
 }
 
 static inline __attribute__((always_inline))
-float moonVisibility(thread const float3& P, thread const float3& N, constant Frame& _107, const device ShadowH& _896, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
+float moonVisibility(thread const float3& P, thread const float3& N, constant Frame& _119, const device ShadowH& _1091, depth2d_array<float> shadowMap, sampler shadowMapSmplr)
 {
-    if ((_107.gridDim.w & 32u) == 0u)
+    if ((_119.gridDim.w & 32u) == 0u)
     {
         return 1.0;
     }
-    if (_107.shadowP.x > 0.5)
+    if (_119.shadowP.x > 0.5)
     {
         float3 param = P;
         float3 param_1 = N;
-        return shadowMapVisibility(param, param_1, _107, shadowMap, shadowMapSmplr);
+        return shadowMapVisibility(param, param_1, _119, shadowMap, shadowMapSmplr);
     }
     float3 param_2 = P;
     float3 param_3 = N;
-    return shadowFieldVisibility(param_2, param_3, _107, _896);
+    return shadowFieldVisibility(param_2, param_3, _119, _1091);
 }
 
 static inline __attribute__((always_inline))
-float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _107)
+float cloudHash(thread const float2& p)
+{
+    float3 p3 = fract(p.xyx * 0.103100001811981201171875);
+    p3 += float3(dot(p3, p3.yzx + float3(33.3300018310546875)));
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+static inline __attribute__((always_inline))
+float cloudNoise(thread const float2& p)
+{
+    float2 i = floor(p);
+    float2 f = p - i;
+    f = (f * f) * (float2(3.0) - (f * 2.0));
+    float2 param = i;
+    float a = cloudHash(param);
+    float2 param_1 = i + float2(1.0, 0.0);
+    float b = cloudHash(param_1);
+    float2 param_2 = i + float2(0.0, 1.0);
+    float c = cloudHash(param_2);
+    float2 param_3 = i + float2(1.0);
+    float d = cloudHash(param_3);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+static inline __attribute__((always_inline))
+float cloudShadow(thread const float3& P, constant Frame& _119)
+{
+    float g = (_119.cloudP.x * (1.0 - _119.todP.z)) * smoothstep(0.02999999932944774627685546875, 0.25, _119.sunDir.y);
+    if (g <= 0.0)
+    {
+        return 1.0;
+    }
+    float2 q = (P.xz + (_119.sunDir.xz * ((_119.cloudP.w - P.y) / fast::max(_119.sunDir.y, 0.02999999932944774627685546875)))) - _119.cloudW.xy;
+    float2 c = (floor(q / float2(_119.cloudP.y)) + float2(0.5)) * _119.cloudP.y;
+    float2 param = c * 0.014285714365541934967041015625;
+    float2 param_1 = (c * 0.0384615398943424224853515625) + float2(17.299999237060546875, 5.099999904632568359375);
+    float n = (0.64999997615814208984375 * cloudNoise(param)) + (0.3499999940395355224609375 * cloudNoise(param_1));
+    float thr = 0.765999972820281982421875 - (0.589999973773956298828125 * _119.cloudP.z);
+    float _805;
+    if (n > (thr + 0.04500000178813934326171875))
+    {
+        _805 = 1.0;
+    }
+    else
+    {
+        _805 = (n > thr) ? 0.60000002384185791015625 : 0.0;
+    }
+    float k = _805;
+    return 1.0 - (g * k);
+}
+
+static inline __attribute__((always_inline))
+float3 pointLights(thread const float3& P, thread const float3& N, constant Frame& _119)
 {
     float3 c = float3(0.0);
-    for (uint i = 0u; i < _107.gridDim.z; i++)
+    for (uint i = 0u; i < _119.gridDim.z; i++)
     {
-        float3 L = _107.lightPos[i].xyz - P;
+        float3 L = _119.lightPos[i].xyz - P;
         float d = length(L);
-        float R = _107.lightPos[i].w;
+        float R = _119.lightPos[i].w;
         if (R < 0.0)
         {
             float x = d / (-R);
@@ -515,112 +569,112 @@ float3 pointLights(thread const float3& P, thread const float3& N, constant Fram
             }
             float win = 1.0 - (x * x);
             float att = (win * win) / (1.0 + ((d * d) * 8.0));
-            c += (((_107.lightCol[i].xyz * _107.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
+            c += (((_119.lightCol[i].xyz * _119.lightCol[i].w) * att) * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0));
             continue;
         }
         float att_1 = fast::clamp(1.0 - (d / R), 0.0, 1.0);
         att_1 *= att_1;
-        c += (((_107.lightCol[i].xyz * _107.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
+        c += (((_119.lightCol[i].xyz * _119.lightCol[i].w) * att_1) * (0.25 + (0.75 * fast::max(dot(N, L / float3(fast::max(d, 0.001000000047497451305389404296875))), 0.0))));
     }
-    float _285;
+    float _297;
     for (int i_1 = 0; i_1 < 8; i_1++)
     {
-        float age = _107.blasts[i_1].w;
-        float s = fast::max(_107.blastsP[i_1].x, 0.100000001490116119384765625);
+        float age = _119.blasts[i_1].w;
+        float s = fast::max(_119.blastsP[i_1].x, 0.100000001490116119384765625);
         float ss = sqrt(s);
         float fireDur = 1.60000002384185791015625 * ss;
         if ((age < 0.0) || (age > fireDur))
         {
             continue;
         }
-        float3 L_1 = (_107.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
+        float3 L_1 = (_119.blasts[i_1].xyz + float3(0.0, 1.5 + ((1.2000000476837158203125 * age) * ss), 0.0)) - P;
         float d_1 = length(L_1);
         if (age < 0.100000001490116119384765625)
         {
-            _285 = 1.0 - (age / 0.100000001490116119384765625);
+            _297 = 1.0 - (age / 0.100000001490116119384765625);
         }
         else
         {
-            _285 = 0.0;
+            _297 = 0.0;
         }
-        float flash = _285;
+        float flash = _297;
         float fire = smoothstep(0.0, 0.0599999986588954925537109375, age) * (1.0 - (age / fireDur));
         fire *= (fire * (0.75 + ((0.25 * sin((age * 41.0) + (float(i_1) * 2.099999904632568359375))) * sin((age * 23.0) + 1.2999999523162841796875))));
         float attF = fast::clamp(1.0 - (d_1 / (20.0 * ss)), 0.0, 1.0);
         float attR = fast::clamp(1.0 - (d_1 / (15.0 * ss)), 0.0, 1.0);
         float lam = fast::max(dot(N, L_1 / float3(fast::max(d_1, 0.001000000047497451305389404296875))), 0.1500000059604644775390625);
-        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _107.todP.y);
+        c += (((((((float3(5.0, 4.400000095367431640625, 3.5) * flash) * attF) * attF) + (((float3(2.599999904632568359375, 1.09200000762939453125, 0.2599999904632568359375) * fire) * attR) * attR)) * ss) * lam) * _119.todP.y);
     }
     return c;
 }
 
 static inline __attribute__((always_inline))
-float3 lampLights(thread const float3& P, thread const float3& N, constant Frame& _107, const device LampGrid& _391)
+float3 lampLights(thread const float3& P, thread const float3& N, constant Frame& _119, const device LampGrid& _403)
 {
-    uint W = _391.lampGrid[0];
-    uint H = _391.lampGrid[1];
-    bool _398 = W == 0u;
-    bool _406;
-    if (!_398)
+    uint W = _403.lampGrid[0];
+    uint H = _403.lampGrid[1];
+    bool _410 = W == 0u;
+    bool _418;
+    if (!_410)
     {
-        _406 = _107.todP.x <= 0.00200000009499490261077880859375;
+        _418 = _119.todP.x <= 0.00200000009499490261077880859375;
     }
     else
     {
-        _406 = _398;
+        _418 = _410;
     }
-    if (_406)
+    if (_418)
     {
         return float3(0.0);
     }
-    float2 o = float2(as_type<float>(_391.lampGrid[4]), as_type<float>(_391.lampGrid[5]));
-    float inv = as_type<float>(_391.lampGrid[6]);
-    float R = as_type<float>(_391.lampGrid[7]);
-    float gain = as_type<float>(_391.lampGrid[8]);
+    float2 o = float2(as_type<float>(_403.lampGrid[4]), as_type<float>(_403.lampGrid[5]));
+    float inv = as_type<float>(_403.lampGrid[6]);
+    float R = as_type<float>(_403.lampGrid[7]);
+    float gain = as_type<float>(_403.lampGrid[8]);
     int2 c = int2(floor((P.xz - o) * inv));
-    bool _447 = c.x < 0;
-    bool _454;
-    if (!_447)
+    bool _457 = c.x < 0;
+    bool _464;
+    if (!_457)
     {
-        _454 = c.y < 0;
+        _464 = c.y < 0;
     }
     else
     {
-        _454 = _447;
+        _464 = _457;
     }
-    bool _463;
-    if (!_454)
+    bool _473;
+    if (!_464)
     {
-        _463 = c.x >= int(W);
+        _473 = c.x >= int(W);
     }
     else
     {
-        _463 = _454;
+        _473 = _464;
     }
-    bool _472;
-    if (!_463)
+    bool _482;
+    if (!_473)
     {
-        _472 = c.y >= int(H);
+        _482 = c.y >= int(H);
     }
     else
     {
-        _472 = _463;
+        _482 = _473;
     }
-    if (_472)
+    if (_482)
     {
         return float3(0.0);
     }
     uint ci = 12u + (2u * ((uint(c.y) * W) + uint(c.x)));
-    uint first = _391.lampGrid[ci];
-    uint cnt = min(_391.lampGrid[ci + 1u], 32u);
-    uint lampOff = _391.lampGrid[2];
-    uint idxOff = _391.lampGrid[3];
+    uint first = _403.lampGrid[ci];
+    uint cnt = min(_403.lampGrid[ci + 1u], 32u);
+    uint lampOff = _403.lampGrid[2];
+    uint idxOff = _403.lampGrid[3];
     float3 acc = float3(0.0);
     for (uint k = 0u; k < cnt; k++)
     {
-        uint li = lampOff + (4u * _391.lampGrid[(idxOff + first) + k]);
-        float3 Lp = float3(as_type<float>(_391.lampGrid[li]), as_type<float>(_391.lampGrid[li + 1u]), as_type<float>(_391.lampGrid[li + 2u]));
-        float4 col = unpack_unorm4x8_to_float(_391.lampGrid[li + 3u]);
+        uint li = lampOff + (4u * _403.lampGrid[(idxOff + first) + k]);
+        float3 Lp = float3(as_type<float>(_403.lampGrid[li]), as_type<float>(_403.lampGrid[li + 1u]), as_type<float>(_403.lampGrid[li + 2u]));
+        float4 col = unpack_unorm4x8_to_float(_403.lampGrid[li + 3u]);
         float3 L = Lp - P;
         float d2 = dot(L, L);
         float x = d2 / (R * R);
@@ -634,44 +688,45 @@ float3 lampLights(thread const float3& P, thread const float3& N, constant Frame
         float cone = mix(0.070000000298023223876953125, 1.0, smoothstep(0.3499999940395355224609375, 0.89999997615814208984375, l.y));
         acc += (col.xyz * (((col.w * att) * cone) * (0.1500000059604644775390625 + (0.85000002384185791015625 * fast::max(dot(N, l), 0.0)))));
     }
-    return (acc * gain) * _107.todP.x;
+    return (acc * gain) * _119.todP.x;
 }
 
 static inline __attribute__((always_inline))
-float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _107, const device LampGrid& _391)
+float3 shadeV(thread const float3& albedo, thread const float3& N, thread const float3& P, thread const float& ao, thread const float& vis, constant Frame& _119, const device LampGrid& _403)
 {
-    float3 hemi = mix(_107.groundColor.xyz, _107.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
-    float3 key = (_107.sunColor.xyz * fast::max(dot(N, _107.sunDir.xyz), 0.0)) * vis;
+    float3 hemi = mix(_119.groundColor.xyz, _119.skyColor.xyz, float3((N.y * 0.5) + 0.5)) * ao;
     float3 param = P;
-    float3 param_1 = N;
-    float3 param_2 = P;
-    float3 param_3 = N;
-    return albedo * (((hemi + key) + pointLights(param, param_1, _107)) + lampLights(param_2, param_3, _107, _391));
+    float3 key = ((_119.sunColor.xyz * fast::max(dot(N, _119.sunDir.xyz), 0.0)) * vis) * cloudShadow(param, _119);
+    float3 param_1 = P;
+    float3 param_2 = N;
+    float3 param_3 = P;
+    float3 param_4 = N;
+    return albedo * (((hemi + key) + pointLights(param_1, param_2, _119)) + lampLights(param_3, param_4, _119, _403));
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _107 [[buffer(0)]], const device MeshVox& _1747 [[buffer(1)]], const device VoxTags& _1886 [[buffer(2)]], const device ShadowH& _896 [[buffer(3)]], const device LampGrid& _391 [[buffer(4)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _119 [[buffer(0)]], const device MeshVox& _1940 [[buffer(1)]], const device VoxTags& _2079 [[buffer(2)]], const device ShadowH& _1091 [[buffer(3)]], const device LampGrid& _403 [[buffer(4)]], depth2d_array<float> shadowMap [[texture(0)]], sampler shadowMapSmplr [[sampler(0)]])
 {
     main0_out out = {};
     uint tag = in.vInfo.x;
     uint look = in.vInfo.y;
     uint ni = in.vInfo.z & 7u;
     float3 g = float3(0.0, 0.5, ((in.vInfo.z & 8u) != 0u) ? 0.5 : 0.0);
-    float3 ctr = round((in.vRest - (_1725[ni] * 0.5)) - g) + g;
+    float3 ctr = round((in.vRest - (_1918[ni] * 0.5)) - g) + g;
     if (tag == 31u)
     {
-        uint4 mv = _1747.meshVox[in.vInfo.w];
+        uint4 mv = _1940.meshVox[in.vInfo.w];
         float3 mn = (float3(float(mv.y & 255u), float((mv.y >> uint(8)) & 255u), float((mv.y >> uint(16)) & 255u)) - float3(128.0)) * 0.5;
         uint3 dims = uint3(mv.z & 15u, (mv.z >> uint(4)) & 15u, (mv.z >> uint(8)) & 15u);
-        float3 f = ((in.vRest - (_1725[ni] * 0.5)) - g) - (ctr - g);
-        float3 step3 = (sign(f) * step(float3(0.449999988079071044921875), abs(f))) * (float3(1.0) - abs(_1725[ni]));
-        spvUnsafeArray<float3, 4> _1836 = spvUnsafeArray<float3, 4>({ ctr, ctr + float3(step3.x, 0.0, 0.0), ctr + float3(0.0, step3.y, 0.0), ctr + float3(0.0, 0.0, step3.z) });
-        spvUnsafeArray<float3, 4> cands = _1836;
+        float3 f = ((in.vRest - (_1918[ni] * 0.5)) - g) - (ctr - g);
+        float3 step3 = (sign(f) * step(float3(0.449999988079071044921875), abs(f))) * (float3(1.0) - abs(_1918[ni]));
+        spvUnsafeArray<float3, 4> _2029 = spvUnsafeArray<float3, 4>({ ctr, ctr + float3(step3.x, 0.0, 0.0), ctr + float3(0.0, step3.y, 0.0), ctr + float3(0.0, 0.0, step3.z) });
+        spvUnsafeArray<float3, 4> cands = _2029;
         tag = 4294967295u;
         for (int k = 0; (k < 4) && (tag == 4294967295u); k++)
         {
             uint3 i = uint3(clamp(int3(round(cands[k] - mn)), int3(0), int3(dims) - int3(1)));
             uint b = (mv.x + i.x) + (dims.x * (i.y + (dims.y * i.z)));
-            tag = ((_1886.voxTags[b >> uint(2)] >> ((b & 3u) * 8u)) & 255u) - 1u;
+            tag = ((_2079.voxTags[b >> uint(2)] >> ((b & 3u) * 8u)) & 255u) - 1u;
             if ((tag != 4294967295u) && (k > 0))
             {
                 ctr = cands[k];
@@ -684,38 +739,38 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _107 [[buffer
     {
         float3 param = float3(0.550000011920928955078125, 2.2000000476837158203125, 0.449999988079071044921875);
         float3 param_1 = in.vWorld;
-        out.outColor = finishA(param, param_1, _107);
+        out.outColor = finishA(param, param_1, _119);
         return out;
     }
-    float3 _1941;
+    float3 _2134;
     if (tag == 25u)
     {
-        _1941 = float3(0.0500000007450580596923828125, 0.070000000298023223876953125, 0.04500000178813934326171875);
+        _2134 = float3(0.0500000007450580596923828125, 0.070000000298023223876953125, 0.04500000178813934326171875);
     }
     else
     {
         uint param_2 = tag;
         uint param_3 = look;
-        float3 _1952 = tagColorSRGB(param_2, param_3);
-        float3 param_4 = fast::clamp(_1952, float3(0.0), float3(1.0));
-        _1941 = srgbToLinear(param_4);
+        float3 _2144 = tagColorSRGB(param_2, param_3);
+        float3 param_4 = fast::clamp(_2144, float3(0.0), float3(1.0));
+        _2134 = srgbToLinear(param_4);
     }
-    float3 albedo = _1941;
+    float3 albedo = _2134;
     uint tier = (look >> uint(22)) & 3u;
-    float _1967;
+    float _2158;
     if (tier == 0u)
     {
-        _1967 = 0.0;
+        _2158 = 0.0;
     }
     else
     {
-        _1967 = (tier == 1u) ? 0.070000000298023223876953125 : 0.12999999523162841796875;
+        _2158 = (tier == 1u) ? 0.070000000298023223876953125 : 0.12999999523162841796875;
     }
-    float amp = _1967;
+    float amp = _2158;
     if (amp > 0.0)
     {
         float3 param_5 = ctr;
-        uint param_6 = _1985[(look >> uint(27)) & 3u];
+        uint param_6 = _2176[(look >> uint(27)) & 3u];
         albedo *= (1.0 + (((labHash3(param_5, param_6) - 0.5) * 2.0) * amp));
     }
     uint slot = (in.vInfo.z >> uint(4)) & 15u;
@@ -723,64 +778,64 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _107 [[buffer
     if (sev != 0u)
     {
         float cut = 0.0;
-        int _2027;
+        int _2218;
         if ((slot == 6u) || (slot == 8u))
         {
-            _2027 = 1;
+            _2218 = 1;
         }
         else
         {
-            _2027 = _2032[slot];
+            _2218 = _2223[slot];
         }
-        int par = _2027;
-        bool _2040 = par >= 0;
-        bool _2049;
-        if (_2040)
+        int par = _2218;
+        bool _2231 = par >= 0;
+        bool _2240;
+        if (_2231)
         {
-            _2049 = (sev & (1u << uint(par))) != 0u;
+            _2240 = (sev & (1u << uint(par))) != 0u;
         }
         else
         {
-            _2049 = _2040;
+            _2240 = _2231;
         }
-        if (_2049)
+        if (_2240)
         {
-            cut = fast::max(cut, 1.0 - (length(ctr - _2071[slot]) / 1.39999997615814208984375));
+            cut = fast::max(cut, 1.0 - (length(ctr - _2262[slot]) / 1.39999997615814208984375));
         }
         for (uint c = 0u; c < 10u; c++)
         {
-            bool _2097 = _2032[c] == int(slot);
-            bool _2111;
-            if (!_2097)
+            bool _2288 = _2223[c] == int(slot);
+            bool _2302;
+            if (!_2288)
             {
-                bool _2102 = slot == 1u;
-                bool _2110;
-                if (_2102)
+                bool _2293 = slot == 1u;
+                bool _2301;
+                if (_2293)
                 {
-                    _2110 = (c == 6u) || (c == 8u);
+                    _2301 = (c == 6u) || (c == 8u);
                 }
                 else
                 {
-                    _2110 = _2102;
+                    _2301 = _2293;
                 }
-                _2111 = _2110;
+                _2302 = _2301;
             }
             else
             {
-                _2111 = _2097;
+                _2302 = _2288;
             }
-            bool _2119;
-            if (_2111)
+            bool _2310;
+            if (_2302)
             {
-                _2119 = (sev & (1u << c)) != 0u;
+                _2310 = (sev & (1u << c)) != 0u;
             }
             else
             {
-                _2119 = _2111;
+                _2310 = _2302;
             }
-            if (_2119)
+            if (_2310)
             {
-                cut = fast::max(cut, 1.0 - (length(ctr - _2071[c]) / 1.39999997615814208984375));
+                cut = fast::max(cut, 1.0 - (length(ctr - _2262[c]) / 1.39999997615814208984375));
             }
         }
         if (cut > 0.0)
@@ -788,16 +843,16 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _107 [[buffer
             float3 param_7 = ctr;
             uint param_8 = 2654435769u;
             float h = labHash3(param_7, param_8);
-            float3 _2147;
+            float3 _2338;
             if (h < 0.3499999940395355224609375)
             {
-                _2147 = float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875);
+                _2338 = float3(0.43137300014495849609375, 0.078431002795696258544921875, 0.078431002795696258544921875);
             }
             else
             {
-                _2147 = select(float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), bool3(h < 0.699999988079071044921875));
+                _2338 = select(float3(0.3529410064220428466796875, 0.0509800016880035400390625, 0.078431002795696258544921875), float3(0.541176021099090576171875, 0.14117600023746490478515625, 0.14117600023746490478515625), bool3(h < 0.699999988079071044921875));
             }
-            float3 param_9 = _2147;
+            float3 param_9 = _2338;
             albedo = srgbToLinear(param_9);
             if ((cut > 0.5) && (h > 0.85000002384185791015625))
             {
@@ -810,7 +865,7 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _107 [[buffer
     if (bloodLvl > 0u)
     {
         float3 param_11 = ctr;
-        uint param_12 = 1540483477u ^ _1985[(look >> uint(27)) & 3u];
+        uint param_12 = 1540483477u ^ _2176[(look >> uint(27)) & 3u];
         float h_1 = labHash3(param_11, param_12);
         float3 param_13 = floor(ctr * 0.5) * 2.0;
         uint param_14 = 668265263u;
@@ -828,13 +883,13 @@ fragment main0_out main0(main0_in in [[stage_in]], constant Frame& _107 [[buffer
     float3 param_19 = N;
     float3 param_20 = in.vWorld;
     float param_21 = 1.0;
-    float param_22 = moonVisibility(param_16, param_17, _107, _896, shadowMap, shadowMapSmplr);
-    float3 col = shadeV(param_18, param_19, param_20, param_21, param_22, _107, _391);
-    float3 V = fast::normalize(_107.camPos.xyz - in.vWorld);
+    float param_22 = moonVisibility(param_16, param_17, _119, _1091, shadowMap, shadowMapSmplr);
+    float3 col = shadeV(param_18, param_19, param_20, param_21, param_22, _119, _403);
+    float3 V = fast::normalize(_119.camPos.xyz - in.vWorld);
     col += ((float3(0.100000001490116119384765625, 0.119999997317790985107421875, 0.2199999988079071044921875) * powr(1.0 - fast::max(dot(N, V), 0.0), 3.0)) * in.vAO);
     float3 param_23 = col;
     float3 param_24 = in.vWorld;
-    out.outColor = finishA(param_23, param_24, _107);
+    out.outColor = finishA(param_23, param_24, _119);
     return out;
 }
 

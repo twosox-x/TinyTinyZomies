@@ -39,6 +39,8 @@ struct FrameUniforms {   // std140, matches shaders/include/frame.glsl
     float shadowVP2[16];        // second shadow map layer (the next sun key, cross-faded; Renderer::shadowView)
     Vec4 shadowP2;              // x weight of shadowVP2, y layer of shadowVP, z layer of shadowVP2
     Vec4 mapP;                  // map edge fade (lighting.glsl finish): xz rect x0, z0, x1, z1 of the baked map; all 0 = off
+    Vec4 cloudP;                // voxel cloud shadows (lighting.glsl cloudShadow): x strength (0 = off), y cell m, z coverage, w deck height m
+    Vec4 cloudW;                // xy drift offset (m)
 };
 
 // Voxel explosion / fire volumes (shaders/include/fx_volume.glsl): pushed to vertex and fragment uniform slot 1.
@@ -109,6 +111,15 @@ struct RenderSettings {
     int shadowMapSize = 2048;        // texels per side (1024 / 2048 / 4096)
     float shadowRange = 170.f;       // max distance (m) from the pivot the map covers
     float shadowSoftness = 1.0f;     // PCF tap spacing in texels
+    // voxel cloud shadows (lighting.glsl cloudShadow): sparse blocky clouds on a coarse grid drifting with the wind dim
+    // the sun term only (ambient untouched); fade out with the sun's elevation, off by night (moon key light)
+    bool clouds = true;
+    float cloudStrength = 0.5f;      // sun dimmed by this under a cloud core (the stepped fringe: ~60 % of it)
+    float cloudCell = 4.0f;          // m per cloud block
+    float cloudCoverage = 0.2f;      // fraction of the map in cloud shadow
+    float cloudSpeed = 3.0f;         // wind, m/s (render time: also drifts while the clock is paused)
+    float cloudWindDeg = 35.f;       // wind heading (deg from +x towards +z)
+    float cloudHeight = 220.f;       // deck height (m): shadows are projected along the sun
     bool drawParticles = true;       // blood, fire, smoke, debris
     // performance (debug panel "Performance" / --perf-off, see docs/OPTIMIZATION.md): attribute and cap explosion cost
     bool drawFxVolumes = true;       // voxel fireballs / smoke / wreck fires
@@ -198,6 +209,8 @@ private:
     static constexpr int kShadowKeys = 3600;   // keys per 24 h (even: key parity = layer across midnight)
     uint64_t shadowFrame_ = 0;
     int layerKey_[2] = {-1, -1};
+    double cloudTime_ = -1.0;            // render time of the last frame (cloud drift integrates speed x dt)
+    float cloudOff_[2] = {0.f, 0.f};     // cloud drift offset (m)
     M4 layerVP_[2];
     static int shadowKeyFor(float hours, int layer) {   // the key of `layer` among the two around the clock
         const float h = std::fmod(std::fmod(hours, 24.f) + 24.f, 24.f);
