@@ -107,14 +107,15 @@ void roofLevels(const GameContext& ctx, V3 click, std::vector<V3>& starts) {
     };
     const bool onRoof = nav.walkable(click.x, click.z) && nav.onRoof(click.x, click.z);
     // a rim-only strip (cornice / setback ledge hugging a taller building's wall: no cell of it is roofEdgeInset from
-    // its edge, nothing can stand or land on it): the click means the roof beside it, also one far above (seen from
+    // its edge and clear of walls / roof objects: nothing can stand or land on it): the click means the roof beside it, also one far above (seen from
     // the camera the strip is the rim of that roof; the UI ray pick hits the roof itself, a raw X Z lands on the strip)
     bool ledge = false;
     if (onRoof) {
         std::vector<V3> cells;
         nav.islandCells({click.x, clicked, click.z}, 30.f, 3000, cells);
         ledge = true;
-        for (const V3& q : cells) if (nav.cellEdge(q.x, q.z) >= nav.roofEdgeInset) { ledge = false; break; }
+        for (const V3& q : cells)
+            if (nav.cellEdge(q.x, q.z) >= nav.roofEdgeInset && nav.cellObstacle(q.x, q.z) >= 0.6f) { ledge = false; break; }
     }
     if (onRoof) add({click.x, clicked, click.z});
     if (onRoof || !nav.walkable(click.x, click.z)) {

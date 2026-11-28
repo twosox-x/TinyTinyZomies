@@ -215,9 +215,14 @@ V3 SoldierAI::roofInset(const GameContext& ctx, V3 p, uint32_t isl, float maxR) 
     if (nav.cellEdge(p.x, p.z) >= nav.roofEdgeInset && nav.cellObstacle(p.x, p.z) >= tuning.roofObstacleMargin && nav.island(p.x, p.z) == isl) return p;
     // inset 1.2 m, else 1.0 m; a narrow roof (a ring around a tower core): the most inset cells it has
     static const float tiers[4][2] = {{1.f, 1.f}, {1.0f, 1.f}, {0.75f, 0.7f}, {0.4f, 0.f}};
-    for (int t = 0; t < 4; ++t)
-        for (float r : {maxR * 0.5f, maxR, maxR * 2.f})
+    // nearest radius first, the inset tiers within it: a squad ordered onto a narrow strip of a cluttered roof holds a
+    // spot 1.0 / 0.75 m in from the rim right there instead of walking back 5-10 m to a fully inset spot elsewhere on
+    // the roof (b5_roof_paths: the west strip beside the stair housing); the bare-rim tier only as the last resort
+    for (float r : {maxR * 0.5f, maxR, maxR * 2.f})
+        for (int t = 0; t < 3; ++t)
             if (nav.insetSpot(p, r, t == 0 ? nav.roofEdgeInset : tiers[t][0], tuning.roofObstacleMargin * tiers[t][1], isl, o)) return o;
+    for (float r : {maxR * 0.5f, maxR, maxR * 2.f})
+        if (nav.insetSpot(p, r, tiers[3][0], tuning.roofObstacleMargin * tiers[3][1], isl, o)) return o;
     return p;   // a roof without any inset cell (a narrow ledge): stay where planned
 }
 
