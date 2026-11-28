@@ -3,7 +3,7 @@
 
 /* ---------- shared: world veil + fade ---------- */
 .c2-veil { position: absolute; inset: 0; backdrop-filter: grayscale(.8) brightness(.55); -webkit-backdrop-filter: grayscale(.8) brightness(.55); }
-.c2-veil.k { background: rgba(6,7,5,.45); backdrop-filter: grayscale(.6) brightness(.5); -webkit-backdrop-filter: grayscale(.6) brightness(.5); }
+.c2-veil.c2-vk { background: rgba(6,7,5,.45); backdrop-filter: grayscale(.6) brightness(.5); -webkit-backdrop-filter: grayscale(.6) brightness(.5); }
 .c2-faint { position: absolute; inset: 0; opacity: .28; pointer-events: none; }
 .c2-fade { position: absolute; inset: 0; pointer-events: none; transition: background .2s;
   background: linear-gradient(90deg, rgba(6,7,5,.93) 0, rgba(6,7,5,.82) 22%, rgba(6,7,5,.35) 40%, transparent 55%); }
