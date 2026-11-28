@@ -24,3 +24,12 @@ owner approves a screen. Phase 2 implements approved screens in the ImGui HUD (`
 Resolved 2026-11-28: the preview's temporary synth blips were replaced by the sound design session's approved UI sounds
 (ui_hover, ui_select, ui_purchase, ui_refused, ui_tab, ui_pause_open/close; mp3 copies in docs/ui_preview/snd/, sources
 assets/audio/sfx/ui/*.ogg on sessionD/sound). In game the HUD plays sounds only through ttz::audio::ui / uiAction.
+
+## Phase 2 (in game), branch sessionE/ui-p2
+Started 2026-11-28 after the owner approved the v2 direction and A merged WS-A + sound (7e9891a). Look and theme only;
+WS-A's fixed layout, keys (1-7, Tab, Ctrl+n, Esc) and D's sound hooks are unchanged.
+- In: Counters palette, Archivo font, game-icons atlas (icons everywhere via drawUiIcon), token dock (icon, number key,
+  price; name in the tooltip; red slash when unavailable), frameless top bar with icons, token buttons in the selection
+  panel, hover lift / press / pop / refused shake tweens, hover tick through audio::ui.
+- Not yet: selection members as round tokens with health rings, alerts as an icon stack, world cards at the object,
+  marker restyle, pause / settings / main menu screens (need new code, next build).
